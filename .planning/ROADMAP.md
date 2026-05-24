@@ -25,10 +25,10 @@
 
 **Requirements:** FND-01, FND-02, FND-03
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 01-01-PLAN.md — Create npm, TypeScript, tsup, Vitest, and Biome scaffold.
+- [x] 01-01-PLAN.md — Create npm, TypeScript, tsup, Vitest, and Biome scaffold.
 - [ ] 01-02-PLAN.md — Create public IR type contracts and entrypoint proof.
 - [ ] 01-03-PLAN.md — Create canonical serializer and determinism tests.
 
