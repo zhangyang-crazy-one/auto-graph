@@ -8,7 +8,7 @@
   "exa_search": false,
   "phase_naming": "sequential",
   "project_code": null,
-  "claude_md_path": "./CLAUDE.md",
+  "claude_md_path": "./AGENTS.md",
   "git": {
     "branching_strategy": "none",
     "create_tag": true,
