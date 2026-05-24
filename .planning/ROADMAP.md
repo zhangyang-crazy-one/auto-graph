@@ -10,7 +10,7 @@
 
 | # | Phase | Goal | Requirements | UI hint |
 |---|-------|------|--------------|---------|
-| 1 | Project Scaffold And Core IR | 3/3 | Complete   | 2026-05-24 |
+| 1 | Project Scaffold And Core IR | 3/3 | Complete    | 2026-05-24 |
 | 2 | Text, Labels, And Shape Geometry | Implement measurement, label fitting, and core shape math required before layout | TXT-01, TXT-02, TXT-03, GEO-01, GEO-02, GEO-03 | no |
 | 3 | Layout, Constraints, And Routing | Produce coordinated node placement and connector paths from measured geometry | LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03 | no |
 | 4 | Coordinated Exporters | Export the same solved diagram to SVG and Excalidraw without duplicating geometry logic | EXP-01, EXP-02, EXP-03 | no |
