@@ -21,15 +21,15 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ### Text And Labels
 
-- [ ] **TXT-01**: Developer can measure labels through a `TextMeasurer` interface with a Pretext-backed default implementation.
-- [ ] **TXT-02**: User can rely on label fitting to compute node width and height from text, font options, padding, minimum size, and optional max width.
-- [ ] **TXT-03**: The engine handles multiline and non-English labels well enough that SVG output does not visibly overflow normal node bounds in fixture tests.
+- [x] **TXT-01**: Developer can measure labels through a `TextMeasurer` interface with a Pretext-backed default implementation.
+- [x] **TXT-02**: User can rely on label fitting to compute node width and height from text, font options, padding, minimum size, and optional max width.
+- [x] **TXT-03**: The engine handles multiline and non-English labels well enough that SVG output does not visibly overflow normal node bounds in fixture tests.
 
 ### Geometry
 
-- [ ] **GEO-01**: Developer can compute bounds, center, cardinal anchors, and diagonal anchors for rectangle, rounded rectangle, ellipse, diamond, parallelogram, hexagon, and cylinder nodes.
-- [ ] **GEO-02**: Developer can detect AABB collisions and expanded obstacle boxes with configurable margins.
-- [ ] **GEO-03**: Developer can compute edge entry and exit points from shape geometry without manually guessing coordinates.
+- [x] **GEO-01**: Developer can compute bounds, center, cardinal anchors, and diagonal anchors for rectangle, rounded rectangle, ellipse, diamond, parallelogram, hexagon, and cylinder nodes.
+- [x] **GEO-02**: Developer can detect AABB collisions and expanded obstacle boxes with configurable margins.
+- [x] **GEO-03**: Developer can compute edge entry and exit points from shape geometry without manually guessing coordinates.
 
 ### Layout And Constraints
 
@@ -101,12 +101,12 @@ Requirements for the initial release. Each maps to roadmap phases.
 | DSL-01 | Phase 5 | Pending |
 | DSL-02 | Phase 5 | Pending |
 | DSL-03 | Phase 5 | Pending |
-| TXT-01 | Phase 2 | Pending |
-| TXT-02 | Phase 2 | Pending |
-| TXT-03 | Phase 2 | Pending |
-| GEO-01 | Phase 2 | Pending |
-| GEO-02 | Phase 2 | Pending |
-| GEO-03 | Phase 2 | Pending |
+| TXT-01 | Phase 2 | Complete |
+| TXT-02 | Phase 2 | Complete |
+| TXT-03 | Phase 2 | Complete |
+| GEO-01 | Phase 2 | Complete |
+| GEO-02 | Phase 2 | Complete |
+| GEO-03 | Phase 2 | Complete |
 | LAY-01 | Phase 3 | Pending |
 | LAY-02 | Phase 3 | Pending |
 | LAY-03 | Phase 3 | Pending |

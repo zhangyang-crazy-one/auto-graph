@@ -11,7 +11,7 @@
 | # | Phase | Goal | Requirements | UI hint |
 |---|-------|------|--------------|---------|
 | 1 | Project Scaffold And Core IR | 3/3 | Complete    | 2026-05-24 |
-| 2 | Text, Labels, And Shape Geometry | Implement measurement, label fitting, and core shape math required before layout | TXT-01, TXT-02, TXT-03, GEO-01, GEO-02, GEO-03 | no |
+| 2 | Text, Labels, And Shape Geometry | 5/5 | Complete   | 2026-05-24 |
 | 3 | Layout, Constraints, And Routing | Produce coordinated node placement and connector paths from measured geometry | LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03 | no |
 | 4 | Coordinated Exporters | Export the same solved diagram to SVG and Excalidraw without duplicating geometry logic | EXP-01, EXP-02, EXP-03 | no |
 | 5 | DSL Parser And CLI | Let users and agents run DGE from YAML/JSON files, stdin, and command-line format flags | DSL-01, DSL-02, DSL-03, CLI-01, CLI-02, CLI-03 | no |
@@ -44,14 +44,14 @@ Plans:
 
 **Requirements:** TXT-01, TXT-02, TXT-03, GEO-01, GEO-02, GEO-03
 
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 
 Plans:
-- [ ] 02-01-PLAN.md — Add Pretext dependency, MIT license/credits, and text measurement contracts/adapters.
-- [ ] 02-02-PLAN.md — Implement renderer-neutral label fitting and multiline/non-English numeric tests.
-- [ ] 02-03-PLAN.md — Implement box utilities and seven-shape geometry with edge-port approximations.
-- [ ] 02-04-PLAN.md — Implement container geometry from known child boxes and optional label layout.
-- [ ] 02-05-PLAN.md — Wire public exports, canonical fixtures, renderer-creep checks, and full verification.
+- [x] 02-01-PLAN.md — Add Pretext dependency, MIT license/credits, and text measurement contracts/adapters.
+- [x] 02-02-PLAN.md — Implement renderer-neutral label fitting and multiline/non-English numeric tests.
+- [x] 02-03-PLAN.md — Implement box utilities and seven-shape geometry with edge-port approximations.
+- [x] 02-04-PLAN.md — Implement container geometry from known child boxes and optional label layout.
+- [x] 02-05-PLAN.md — Wire public exports, canonical fixtures, renderer-creep checks, and full verification.
 
 **Success criteria:**
 1. `TextMeasurer` has a Pretext-backed implementation and a test-friendly fallback.
