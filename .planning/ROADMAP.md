@@ -10,7 +10,7 @@
 
 | # | Phase | Goal | Requirements | UI hint |
 |---|-------|------|--------------|---------|
-| 1 | Project Scaffold And Core IR | Establish the TypeScript package, build/test commands, public types, and deterministic serialization rules | FND-01, FND-02, FND-03 | no |
+| 1 | Project Scaffold And Core IR | 3/3 | Complete   | 2026-05-24 |
 | 2 | Text, Labels, And Shape Geometry | Implement measurement, label fitting, and core shape math required before layout | TXT-01, TXT-02, TXT-03, GEO-01, GEO-02, GEO-03 | no |
 | 3 | Layout, Constraints, And Routing | Produce coordinated node placement and connector paths from measured geometry | LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03 | no |
 | 4 | Coordinated Exporters | Export the same solved diagram to SVG and Excalidraw without duplicating geometry logic | EXP-01, EXP-02, EXP-03 | no |
@@ -25,12 +25,12 @@
 
 **Requirements:** FND-01, FND-02, FND-03
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 01-01-PLAN.md — Create npm, TypeScript, tsup, Vitest, and Biome scaffold.
 - [x] 01-02-PLAN.md — Create public IR type contracts and entrypoint proof.
-- [ ] 01-03-PLAN.md — Create canonical serializer and determinism tests.
+- [x] 01-03-PLAN.md — Create canonical serializer and determinism tests.
 
 **Success criteria:**
 1. `npm` scripts or equivalent commands can build, test, and lint the project.

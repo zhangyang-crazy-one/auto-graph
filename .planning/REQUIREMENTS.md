@@ -11,7 +11,7 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 - [x] **FND-01**: Developer can install project dependencies and run TypeScript build, tests, and lint commands locally.
 - [x] **FND-02**: Developer can import stable public types for diagram intent, normalized IR, coordinated IR, points, boxes, nodes, edges, labels, and constraints.
-- [ ] **FND-03**: The engine serializes numeric output deterministically with stable ordering and documented rounding rules.
+- [x] **FND-03**: The engine serializes numeric output deterministically with stable ordering and documented rounding rules.
 
 ### DSL
 
@@ -97,7 +97,7 @@ Requirements for the initial release. Each maps to roadmap phases.
 |-------------|-------|--------|
 | FND-01 | Phase 1 | Complete |
 | FND-02 | Phase 1 | Complete |
-| FND-03 | Phase 1 | Pending |
+| FND-03 | Phase 1 | Complete |
 | DSL-01 | Phase 5 | Pending |
 | DSL-02 | Phase 5 | Pending |
 | DSL-03 | Phase 5 | Pending |
