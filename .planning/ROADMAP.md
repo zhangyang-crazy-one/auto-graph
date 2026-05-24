@@ -25,6 +25,13 @@
 
 **Requirements:** FND-01, FND-02, FND-03
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Create npm, TypeScript, tsup, Vitest, and Biome scaffold.
+- [ ] 01-02-PLAN.md — Create public IR type contracts and entrypoint proof.
+- [ ] 01-03-PLAN.md — Create canonical serializer and determinism tests.
+
 **Success criteria:**
 1. `npm` scripts or equivalent commands can build, test, and lint the project.
 2. Public TypeScript types exist for intent IR, normalized IR, coordinated IR, geometry primitives, and constraints.
