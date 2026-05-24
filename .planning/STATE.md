@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-05-24T10:29:53.753Z"
+last_updated: "2026-05-24T10:43:17.645Z"
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # State: Diagram Geometry Engine
@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-24)
 
 ## Current Status
 
-Plan 01-01 complete: npm, TypeScript, tsup, Vitest, and Biome scaffold committed. Phase 1 continues with public IR types and deterministic serialization.
+Plans 01-01 and 01-02 complete: npm, TypeScript, tsup, Vitest, and Biome scaffold committed, and public IR types now import from the package entrypoint. Phase 1 continues with deterministic serialization.
 
 ## Active Phase
 
@@ -49,12 +49,12 @@ Phase 1: Project Scaffold And Core IR
 
 ## Open Questions For Phase 1
 
-- Choose exact public module boundaries before creating source files.
 - Decide numeric rounding precision for serialized coordinates.
 
 ## Recent Execution
 
 - 2026-05-24: Completed Plan 01-01 (`01-01-SUMMARY.md`). Task commits: `ea34664`, `90e1e0a`, `8ea864b`, `388538a`.
+- 2026-05-24: Completed Plan 01-02 (`01-02-SUMMARY.md`). Task commits: `4b55b43`, `a8b6a68`, `2721a61`.
 
 ---
 *Initialized: 2026-05-24*
