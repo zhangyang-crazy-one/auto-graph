@@ -41,8 +41,8 @@ created: 2026-05-24
 | 02-01-01 | 01 | 1 | TXT-01 | T-02-01 | Reject or diagnose invalid text/font/layout numeric inputs | unit | `rtk npm test -- text-measurer` | ❌ W0 | ⬜ pending |
 | 02-01-02 | 01 | 1 | TXT-01 | T-02-02 | Guard Pretext runtime availability instead of crashing when Canvas 2D is unavailable | guarded integration | `rtk npm test -- text-measurer` | ❌ W0 | ⬜ pending |
 | 02-02-01 | 02 | 2 | TXT-02, TXT-03 | T-02-03 | Reject or diagnose invalid label sizing options and keep layout renderer-neutral | unit + fixture | `rtk npm test -- label-fitting` | ❌ W0 | ⬜ pending |
-| 02-03-01 | 03 | 2 | GEO-02 | T-02-04 | Reject invalid boxes and non-finite dimensions before collision math | unit | `rtk npm test -- box-geometry` | ❌ W0 | ⬜ pending |
-| 02-03-02 | 03 | 2 | GEO-01, GEO-03 | T-02-05 | Keep shape geometry renderer-neutral and deterministic for all seven v1 shapes | unit | `rtk npm test -- shape-geometry` | ❌ W0 | ⬜ pending |
+| 02-03-01 | 03 | 1 | GEO-02 | T-02-04 | Reject invalid boxes and non-finite dimensions before collision math | unit | `rtk npm test -- box-geometry` | ❌ W0 | ⬜ pending |
+| 02-03-02 | 03 | 1 | GEO-01, GEO-03 | T-02-05 | Keep shape geometry renderer-neutral and deterministic for all seven v1 shapes | unit | `rtk npm test -- shape-geometry` | ❌ W0 | ⬜ pending |
 | 02-04-01 | 04 | 3 | TXT-02, GEO-01, GEO-02 | T-02-06 | Compute container geometry from known child boxes only; do not move children or solve constraints | unit + fixture | `rtk npm test -- container-geometry` | ❌ W0 | ⬜ pending |
 | 02-05-01 | 05 | 4 | TXT-01, TXT-02, TXT-03, GEO-01, GEO-02, GEO-03 | — | N/A | full gate | `rtk npm run verify` | ❌ W0 | ⬜ pending |
 
@@ -77,4 +77,3 @@ All Phase 02 behaviors have automated verification. Real SVG visual inspection i
 - [x] `nyquist_compliant: true` set in frontmatter.
 
 **Approval:** approved 2026-05-24
-

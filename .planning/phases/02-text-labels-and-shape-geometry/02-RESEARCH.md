@@ -75,7 +75,7 @@ Phase 2 should be planned as a prepare-layer geometry package, not as a renderer
 
 The highest-risk dependency is `@chenglou/pretext`: the package is current at `0.0.7`, MIT licensed, ESM-only, and exposes the exact `prepareWithSegments()` / `layoutWithLines()` / `measureLineStats()` / `measureNaturalWidth()` APIs Phase 2 needs. [VERIFIED: npm registry + package tarball d.ts] However, the current local Node `v24.13.0` runtime has `Intl.Segmenter` but no global `OffscreenCanvas`, and a direct Pretext `prepareWithSegments()` smoke test fails with `Text measurement requires OffscreenCanvas or a DOM canvas context.` [VERIFIED: local Node smoke test] Therefore the plan must include a deterministic fallback measurer for default CI and a separate Pretext adapter smoke/integration path that is skipped or guarded when Canvas 2D is unavailable. [VERIFIED: local Node smoke test]
 
-**Primary recommendation:** Plan three implementation slices: `text + labels`, `box + shape geometry`, and `container geometry + fixture validation`; keep all APIs renderer-neutral and export them only through `src/index.ts`. [VERIFIED: Phase 1 verification + 02-CONTEXT.md]
+**Primary recommendation:** Plan implementation slices for `text`, `labels`, `box + shape geometry`, `container geometry`, and final public API/fixture validation; keep all APIs renderer-neutral. Feature plans should test through module barrels (`src/text/index.ts`, `src/labels/index.ts`, `src/geometry/index.ts`, `src/serialization/index.ts`) before Plan 02-05 wires and proves root public exports through `src/index.ts`. [VERIFIED: Phase 1 verification + 02-CONTEXT.md + checker revision 2026-05-24]
 
 ## Project Constraints (from AGENTS.md)
 
@@ -131,7 +131,7 @@ test/
         └── containers.canonical.json
 ```
 
-This structure extends the Phase 1 single-package layout and keeps root-only public exports. [VERIFIED: package.json + src/index.ts + 01-VERIFICATION.md]
+This structure extends the Phase 1 single-package layout and keeps root-only package exports. Module barrels are used for intra-phase feature tests until Plan 02-05 updates `src/index.ts` and proves the public root entrypoint. [VERIFIED: package.json + src/index.ts + 01-VERIFICATION.md + checker revision 2026-05-24]
 
 ## Standard Stack
 
@@ -632,22 +632,19 @@ Source: Existing `NodeShape`, `Box`, `AnchorPoint` contracts and Phase 2 shape d
 | A6 | Container geometry can accept either precomputed label layout or a label plus fitter dependency without circular-import issues. | API Contracts | Planner may need to split modules differently if import graph becomes awkward. |
 | A7 | Fallback language-specific growth is a warning sign. | Common Pitfalls | Some minimal language-specific fixtures may still be justified. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Phase 2 add a Canvas polyfill dependency for Pretext tests?**
    - What we know: Current Node runtime lacks `OffscreenCanvas`, and Pretext measurement fails without Canvas 2D. [VERIFIED: local Node smoke test]
-   - What's unclear: Whether the project wants a native/build dependency for CI this early. [ASSUMED]
-   - Recommendation: Do not add a Canvas polyfill in Phase 2 planning unless the user explicitly accepts the dependency; use deterministic fallback for default tests and guard Pretext integration. [VERIFIED: 02-CONTEXT.md + local Node smoke test]
+   - RESOLVED: No Canvas polyfill dependency is added by default in Phase 2. The deterministic fallback is the default CI path, and Pretext smoke coverage is guarded/skipped when Canvas 2D is unavailable. [VERIFIED: 02-CONTEXT.md + local Node smoke test + checker revision 2026-05-24]
 
 2. **Should `LabelLayout` be added to existing IR types or kept in `labels/` only?**
    - What we know: Existing `Label` is intent metadata only and `CoordinatedNode` currently has `box` and `anchors` but no label layout. [VERIFIED: src/ir/elements.ts]
-   - What's unclear: Whether Phase 2 should extend coordinated IR now or leave it as a helper result until Phase 3. [ASSUMED]
-   - Recommendation: Export `LabelLayout` from `labels/` in Phase 2 and avoid changing `CoordinatedNode` unless a plan specifically needs the public handoff type there. [VERIFIED: 01-VERIFICATION.md root public API pattern]
+   - RESOLVED: `LabelLayout` stays in `src/labels/` for Phase 2. Root public proof happens in Plan 02-05 after label/text/geometry barrels exist. Do not mutate `CoordinatedNode` in Phase 2 unless explicitly required by a later decision. [VERIFIED: 01-VERIFICATION.md root public API pattern + checker revision 2026-05-24]
 
 3. **How strict should numeric tolerances be?**
    - What we know: Canonical serializer rounds to 3 decimals; Phase 2 context allows flexible tolerance but requires drift visibility. [VERIFIED: src/serialization/canonical.ts + 02-CONTEXT.md]
-   - What's unclear: Whether Pretext real measurements will be stable across future Canvas/font environments. [VERIFIED: npm readme caveats]
-   - Recommendation: Use exact equality for fallback geometry and shape math, `toBeCloseTo(..., 3)` for real Pretext adapter tests, and canonical snapshots for stable fixture records. [VERIFIED: 01-VERIFICATION.md + 02-CONTEXT.md]
+   - RESOLVED: Use exact equality for deterministic fallback and pure geometry. Use canonical serializer precision/fixtures for committed numeric records. Use `toBeCloseTo(..., 3)` only for environment-dependent Pretext measurements. [VERIFIED: 01-VERIFICATION.md + 02-CONTEXT.md + checker revision 2026-05-24]
 
 ## Environment Availability
 

@@ -553,7 +553,7 @@ it("rejects non-finite numbers", () => {
 });
 ```
 
-**Guidance:** test `DeterministicTextMeasurer` as the default stable CI path. Pretext tests must be guarded/skipped when Canvas 2D is unavailable. Import all public types and implementations from `../src/index.js`, not internal module paths, unless testing a deliberately private helper.
+**Guidance:** test `DeterministicTextMeasurer` as the default stable CI path. Pretext tests must be guarded/skipped when Canvas 2D is unavailable. During feature implementation before Plan 02-05 wires `src/index.ts`, import text APIs from the module barrel `../src/text/index.js`. Reserve root-entrypoint import proof through `../src/index.js` for `test/public-api.test.ts` in Plan 02-05.
 
 ---
 
@@ -751,7 +751,7 @@ export * from "./serialization/index.js";
 	},
 ```
 
-Planner guidance: add `text`, `labels`, and `geometry` to `src/index.ts`; keep all tests importing from `../src/index.js`; do not add subpath package exports in Phase 2.
+Planner guidance: add `text`, `labels`, and `geometry` to `src/index.ts` in Plan 02-05 only; earlier feature tests should import module barrels (`../src/text/index.js`, `../src/labels/index.js`, `../src/geometry/index.js`, and `../src/serialization/index.js`) so their focused verification can pass before root wiring exists. Do not add package subpath exports in Phase 2.
 
 ### ESM And TypeScript Import Style
 
@@ -949,7 +949,7 @@ Planner guidance: all shell commands in PLAN.md and execution notes must use `rt
 
 ### Key Patterns Identified
 
-- Public APIs are root-entrypoint only: add barrels and re-export through `src/index.ts`, then test via `../src/index.js`.
+- Public package exports remain root-only, but feature-plan tests should use module barrels until Plan 02-05 wires `src/index.ts`; root-entrypoint proof belongs in `test/public-api.test.ts`.
 - Geometry, text, and label APIs must remain renderer-neutral and produce numeric contracts for future layout/routing/exporters.
 - Pure transforms validate finite numeric input with explicit `TypeError` behavior and use diagnostics for recoverable layout conditions.
 - Vitest files use `test/**/*.test.ts`, explicit `describe/expect/it` imports, and focused `rtk npm test -- <name>` commands.
