@@ -14,7 +14,7 @@ Given the same declarative diagram intent, DGE must produce deterministic, colli
 
 ### Validated
 
-(None yet - ship to validate)
+- Phase 1 validated the TypeScript/npm scaffold, root public entrypoint, renderer-free core IR contracts, and deterministic canonical serializer for future fixtures.
 
 ### Active
 
@@ -43,6 +43,12 @@ The current folder contains two source documents:
 
 The design frames DGE as a deterministic geometry calculator for LLM-generated diagrams. The immediate implementation target is a TypeScript package and CLI that can take declarative nodes, edges, constraints, and styles, then output precise coordinates and renderable/exportable diagram formats.
 
+Current implementation state:
+
+- Phase 1 is complete: npm, TypeScript, tsup, Vitest, and Biome tooling are in place.
+- Public IR contracts exist for intent, normalized, and coordinated diagram stages.
+- Canonical serialization is available through the root package entrypoint and verified for deterministic ordering, numeric rounding, anchor ordering, and route-order preservation.
+
 External research confirms the local direction:
 
 - Pretext is a pure JavaScript/TypeScript multiline text measurement and layout library. Its API separates `prepare()` one-time work from cheap arithmetic `layout()` calls, which directly informs DGE's two-stage architecture.
@@ -64,10 +70,10 @@ External research confirms the local direction:
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| TypeScript is the primary implementation language | Pretext and Dagre are NPM-native, and V8 is suitable for geometry hot paths | - Pending |
+| TypeScript is the primary implementation language | Pretext and Dagre are NPM-native, and V8 is suitable for geometry hot paths | - Phase 1 validated the package scaffold and public TypeScript entrypoint |
 | Use Pretext as the default text measurement backend | It already provides DOM-free multiline text measurement with a prepare/layout split | - Pending |
 | Use Dagre for initial directed graph layout only | It solves rank-based graph placement but not DGE's exact constraints, anchors, and routing | - Pending |
-| Model DGE as a geometry engine, not a renderer | Keeps the package composable with SVG, Excalidraw, draw.io, Mermaid, and future skills | - Pending |
+| Model DGE as a geometry engine, not a renderer | Keeps the package composable with SVG, Excalidraw, draw.io, Mermaid, and future skills | - Phase 1 IR stayed renderer-free |
 | Start with SVG and Excalidraw exports | SVG verifies visual geometry quickly; Excalidraw proves editability | - Pending |
 | Defer Python implementation | Python is valuable for data workflows, but it would complicate v1 measurement fidelity | - Pending |
 
@@ -89,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-24 after initialization*
+*Last updated: 2026-05-24 after Phase 1 completion*
