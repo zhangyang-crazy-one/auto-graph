@@ -1,0 +1,41 @@
+{
+  "name": "diagram-geometry-engine",
+  "version": "0.0.0",
+  "description": "Deterministic geometry computation engine for diagrams",
+  "type": "module",
+  "private": true,
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome ci .",
+    "format": "biome check --write .",
+    "verify": "npm run typecheck && npm run build && npm test && npm run lint"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@types/node": "25.9.1",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}
