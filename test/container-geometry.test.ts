@@ -18,11 +18,24 @@ describe("container geometry", () => {
 			padding: 20,
 		});
 
-		expect(geometry.childBounds).toEqual({ x: 40, y: 50, width: 220, height: 110 });
+		expect(geometry.childBounds).toEqual({
+			x: 40,
+			y: 50,
+			width: 220,
+			height: 110,
+		});
 		expect(geometry.box).toEqual({ x: 20, y: 30, width: 260, height: 150 });
-		expect(geometry.contentBox).toEqual({ x: 40, y: 50, width: 220, height: 110 });
+		expect(geometry.contentBox).toEqual({
+			x: 40,
+			y: 50,
+			width: 220,
+			height: 110,
+		});
 		expect(stringifyCanonical(geometry.box)).toBe(
-			stringifyCanonical(computeContainerGeometry({ id: "group-a", childBoxes, padding: 20 }).box),
+			stringifyCanonical(
+				computeContainerGeometry({ id: "group-a", childBoxes, padding: 20 })
+					.box,
+			),
 		);
 	});
 
@@ -58,7 +71,12 @@ describe("container geometry", () => {
 		});
 
 		expect(geometry.box).toEqual({ x: 20, y: 30, width: 400, height: 240 });
-		expect(geometry.childBounds).toEqual({ x: 40, y: 50, width: 220, height: 110 });
+		expect(geometry.childBounds).toEqual({
+			x: 40,
+			y: 50,
+			width: 220,
+			height: 110,
+		});
 		expect(stringifyCanonical(childBoxes)).toBe(before);
 	});
 
@@ -81,7 +99,12 @@ describe("container geometry", () => {
 			"top-left",
 			"top-right",
 		]);
-		expect(geometry.obstacleBox).toEqual({ x: 15, y: 25, width: 270, height: 160 });
+		expect(geometry.obstacleBox).toEqual({
+			x: 15,
+			y: 25,
+			width: 270,
+			height: 160,
+		});
 	});
 
 	it("rejects invalid input", () => {

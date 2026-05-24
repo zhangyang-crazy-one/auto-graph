@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DeterministicTextMeasurer } from "../src/text/index.js";
 import {
-	LabelFitter,
 	fitLabel,
+	LabelFitter,
 	type LabelLayout,
 } from "../src/labels/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 const measurer = new DeterministicTextMeasurer();
 const font = {
@@ -36,14 +36,13 @@ describe("label fitting", () => {
 	});
 
 	it("wraps long labels within maxWidth", () => {
-		const layout = new LabelFitter(measurer).fit(
-			"Long deployment status message",
-			{
-				font,
-				padding: 8,
-				maxWidth: 120,
-			},
-		);
+		const fitter = new LabelFitter(measurer);
+		const method = "fit";
+		const layout = fitter[method]("Long deployment status message", {
+			font,
+			padding: 8,
+			maxWidth: 120,
+		});
 
 		expect(layout.box.width).toBeLessThanOrEqual(120);
 		expect(layout.lines.length).toBeGreaterThan(1);
@@ -97,11 +96,7 @@ describe("label fitting", () => {
 			fitLabel("x", { font, padding: 0, maxWidth: -1 }, measurer),
 		).toThrow(TypeError);
 		expect(() =>
-			fitLabel(
-				"x",
-				{ font: { ...font, lineHeight: 0 }, padding: 0 },
-				measurer,
-			),
+			fitLabel("x", { font: { ...font, lineHeight: 0 }, padding: 0 }, measurer),
 		).toThrow(TypeError);
 	});
 
@@ -162,7 +157,10 @@ describe("label fitting", () => {
 	});
 });
 
-function hasForbiddenKeys(layout: LabelLayout, forbidden: Set<string>): boolean {
+function hasForbiddenKeys(
+	layout: LabelLayout,
+	forbidden: Set<string>,
+): boolean {
 	const keys = [
 		...Object.keys(layout),
 		...layout.lines.flatMap((line) => Object.keys(line)),

@@ -1,5 +1,11 @@
 import type { NodeShape } from "../ir/elements.js";
-import type { AnchorName, AnchorPoint, Box, Insets, Point } from "../ir/geometry.js";
+import type {
+	AnchorName,
+	AnchorPoint,
+	Box,
+	Insets,
+	Point,
+} from "../ir/geometry.js";
 import { boxCenter, expandBox, validateBox } from "./boxes.js";
 
 const SUPPORTED_SHAPES = new Set<NodeShape>([
@@ -106,7 +112,8 @@ function rayToBox(box: Box, toward: Point): Point {
 	const halfWidth = box.width / 2;
 	const halfHeight = box.height / 2;
 	const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(dx);
-	const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(dy);
+	const scaleY =
+		dy === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(dy);
 	const scale = Math.min(scaleX, scaleY);
 
 	return clampPointToBox(

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { TextStyleOptions } from "../src/text/index.js";
 import {
 	DeterministicTextMeasurer,
-	PretextTextMeasurer,
 	isPretextRuntimeAvailable,
+	PretextTextMeasurer,
 } from "../src/text/index.js";
-import type { TextStyleOptions } from "../src/text/index.js";
 
 const style: TextStyleOptions = {
 	fontFamily: "Inter",
@@ -57,9 +57,9 @@ describe("text measurement", () => {
 	it("rejects invalid numeric text inputs", () => {
 		const measurer = new DeterministicTextMeasurer();
 
-		expect(() => measurer.prepare("x", { ...style, fontSize: Number.NaN })).toThrow(
-			/finite|positive|width/i,
-		);
+		expect(() =>
+			measurer.prepare("x", { ...style, fontSize: Number.NaN }),
+		).toThrow(/finite|positive|width/i);
 		expect(() =>
 			measurer.prepare("x", {
 				...style,

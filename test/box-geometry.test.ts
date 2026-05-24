@@ -17,9 +17,7 @@ describe("box geometry", () => {
 			bottom: 4,
 			left: 4,
 		});
-		expect(
-			normalizeInsets({ top: 1, right: 2, bottom: 3, left: 4 }),
-		).toEqual({
+		expect(normalizeInsets({ top: 1, right: 2, bottom: 3, left: 4 })).toEqual({
 			top: 1,
 			right: 2,
 			bottom: 3,
@@ -54,7 +52,9 @@ describe("box geometry", () => {
 		const output = unionBoxes(boxes);
 
 		expect(output).toEqual({ x: -5, y: 15, width: 95, height: 45 });
-		expect(stringifyCanonical(output)).toBe(stringifyCanonical(unionBoxes(boxes)));
+		expect(stringifyCanonical(output)).toBe(
+			stringifyCanonical(unionBoxes(boxes)),
+		);
 		expect(() => unionBoxes([])).toThrow(/empty|box/i);
 	});
 

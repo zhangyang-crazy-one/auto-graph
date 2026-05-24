@@ -5,7 +5,14 @@
 		"clientKind": "git"
 	},
 	"files": {
-		"includes": ["**", "!dist", "!coverage", "!node_modules", "!.planning"]
+		"includes": [
+			"**",
+			"!dist",
+			"!coverage",
+			"!node_modules",
+			"!.planning",
+			"!test/fixtures/phase-02"
+		]
 	},
 	"formatter": {
 		"enabled": true

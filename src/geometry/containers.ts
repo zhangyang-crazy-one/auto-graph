@@ -52,17 +52,19 @@ export function computeContainerGeometry(
 	const shape = computeShapeGeometry({
 		shape: "rectangle",
 		box,
-		obstacleMargin: input.obstacleMargin ?? 0,
 	});
+	const obstacleBox = expandBox(box, input.obstacleMargin ?? 0);
 
 	return {
 		id: input.id,
 		box,
 		contentBox,
 		childBounds,
-		...(input.labelLayout === undefined ? {} : { labelLayout: input.labelLayout }),
+		...(input.labelLayout === undefined
+			? {}
+			: { labelLayout: input.labelLayout }),
 		anchors: shape.anchors,
-		obstacleBox: shape.obstacleBox,
+		obstacleBox,
 		diagnostics: [],
 	};
 }

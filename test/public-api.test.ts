@@ -1,12 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-	DeterministicTextMeasurer,
-	computeContainerGeometry,
-	computeShapeGeometry,
-	expandBox,
-	fitLabel,
-} from "../src/index.js";
 import type {
 	Box,
 	Constraint,
@@ -15,12 +8,19 @@ import type {
 	IntentDiagram,
 	IntentEdge,
 	IntentNode,
-	LabelLayout,
 	Label,
-	ShapeGeometry,
+	LabelLayout,
 	NormalizedDiagram,
 	Point,
+	ShapeGeometry,
 	TextMeasurer,
+} from "../src/index.js";
+import {
+	computeContainerGeometry,
+	computeShapeGeometry,
+	DeterministicTextMeasurer,
+	expandBox,
+	fitLabel,
 } from "../src/index.js";
 
 describe("public API", () => {

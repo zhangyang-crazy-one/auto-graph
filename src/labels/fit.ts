@@ -1,6 +1,6 @@
+import { normalizeInsets } from "../geometry/index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { Box, Insets, Size } from "../ir/geometry.js";
-import { normalizeInsets } from "../geometry/index.js";
 import type { TextLayout, TextMeasurer } from "../text/index.js";
 import { assertFiniteNonNegative, resolveLineHeight } from "../text/index.js";
 import type { LabelFitOptions, LabelLayout, LabelLineLayout } from "./types.js";
@@ -10,74 +10,86 @@ export function fitLabel(
 	options: LabelFitOptions,
 	measurer: TextMeasurer,
 ): LabelLayout {
-	return new LabelFitter(measurer).fit(text, options);
+	return computeLabelLayout(text, options, measurer);
 }
 
 export class LabelFitter {
 	constructor(private readonly measurer: TextMeasurer) {}
 
 	fit(text: string, options: LabelFitOptions): LabelLayout {
-		const padding = normalizeInsets(options.padding);
-		const minSize = normalizeMinSize(options.minSize);
-		const lineHeight = resolveLineHeight(options.font);
-		const maxWidth = normalizeMaxWidth(options.maxWidth);
-		const prepared = this.measurer.prepare(text, options.font);
-		const naturalTextWidth = this.measurer.naturalWidth(prepared);
-		const contentMaxWidth =
-			maxWidth === undefined
-				? naturalTextWidth
-				: Math.max(0, maxWidth - padding.left - padding.right);
-		const textLayout = this.measurer.layout(prepared, contentMaxWidth, lineHeight);
-		const naturalSize = {
-			width: naturalTextWidth,
-			height: textLayout.height,
-		};
-		const contentWidth = Math.max(textLayout.width, minContentWidth(minSize, padding));
-		const contentHeight = Math.max(
-			textLayout.height,
-			minContentHeight(minSize, padding),
-		);
-		const idealWidth = contentWidth + padding.left + padding.right;
-		const idealHeight = contentHeight + padding.top + padding.bottom;
-		const fittedSize = {
-			width: maxWidth === undefined ? idealWidth : Math.min(maxWidth, idealWidth),
-			height: idealHeight,
-		};
-		const box: Box = {
-			x: 0,
-			y: 0,
-			width: fittedSize.width,
-			height: fittedSize.height,
-		};
-		const contentBox: Box = {
-			x: padding.left,
-			y: padding.top,
-			width: Math.max(0, box.width - padding.left - padding.right),
-			height: Math.max(0, box.height - padding.top - padding.bottom),
-		};
-		const overflow = {
-			horizontal: textLayout.width > contentBox.width,
-			vertical:
-				textLayout.height > contentBox.height ||
-				diagnosedHeightConstraintOverflow(textLayout.height, padding, minSize),
-			truncated: options.overflow === "truncate" && textLayout.width > contentBox.width,
-		};
-		const diagnostics = buildDiagnostics(overflow, options.overflow);
-
-		return {
-			text,
-			box,
-			contentBox,
-			naturalSize,
-			fittedSize,
-			padding,
-			font: { ...options.font },
-			lineHeight,
-			lines: buildLines(textLayout, contentBox, lineHeight),
-			overflow,
-			diagnostics,
-		};
+		return computeLabelLayout(text, options, this.measurer);
 	}
+}
+
+function computeLabelLayout(
+	text: string,
+	options: LabelFitOptions,
+	measurer: TextMeasurer,
+): LabelLayout {
+	const padding = normalizeInsets(options.padding);
+	const minSize = normalizeMinSize(options.minSize);
+	const lineHeight = resolveLineHeight(options.font);
+	const maxWidth = normalizeMaxWidth(options.maxWidth);
+	const prepared = measurer.prepare(text, options.font);
+	const naturalTextWidth = measurer.naturalWidth(prepared);
+	const contentMaxWidth =
+		maxWidth === undefined
+			? naturalTextWidth
+			: Math.max(0, maxWidth - padding.left - padding.right);
+	const textLayout = measurer.layout(prepared, contentMaxWidth, lineHeight);
+	const naturalSize = {
+		width: naturalTextWidth,
+		height: textLayout.height,
+	};
+	const contentWidth = Math.max(
+		textLayout.width,
+		minContentWidth(minSize, padding),
+	);
+	const contentHeight = Math.max(
+		textLayout.height,
+		minContentHeight(minSize, padding),
+	);
+	const idealWidth = contentWidth + padding.left + padding.right;
+	const idealHeight = contentHeight + padding.top + padding.bottom;
+	const fittedSize = {
+		width: maxWidth === undefined ? idealWidth : Math.min(maxWidth, idealWidth),
+		height: idealHeight,
+	};
+	const box: Box = {
+		x: 0,
+		y: 0,
+		width: fittedSize.width,
+		height: fittedSize.height,
+	};
+	const contentBox: Box = {
+		x: padding.left,
+		y: padding.top,
+		width: Math.max(0, box.width - padding.left - padding.right),
+		height: Math.max(0, box.height - padding.top - padding.bottom),
+	};
+	const overflow = {
+		horizontal: textLayout.width > contentBox.width,
+		vertical:
+			textLayout.height > contentBox.height ||
+			diagnosedHeightConstraintOverflow(textLayout.height, padding, minSize),
+		truncated:
+			options.overflow === "truncate" && textLayout.width > contentBox.width,
+	};
+	const diagnostics = buildDiagnostics(overflow, options.overflow);
+
+	return {
+		text,
+		box,
+		contentBox,
+		naturalSize,
+		fittedSize,
+		padding,
+		font: { ...options.font },
+		lineHeight,
+		lines: buildLines(textLayout, contentBox, lineHeight),
+		overflow,
+		diagnostics,
+	};
 }
 
 function buildLines(

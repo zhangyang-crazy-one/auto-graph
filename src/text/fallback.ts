@@ -33,7 +33,10 @@ export class DeterministicTextMeasurer implements TextMeasurer {
 		assertFinitePositiveLineHeight(lineHeight);
 
 		const lines = this.wrap(prepared, maxWidth);
-		const width = lines.reduce((current, line) => Math.max(current, line.width), 0);
+		const width = lines.reduce(
+			(current, line) => Math.max(current, line.width),
+			0,
+		);
 
 		return {
 			width,
@@ -72,7 +75,13 @@ export class DeterministicTextMeasurer implements TextMeasurer {
 			for (let start = 0; start < sourceLine.length; start += maxChars) {
 				const text = sourceLine.slice(start, start + maxChars);
 				output.push(
-					createLine(text, text.length * charWidth, segmentIndex, start, start + text.length),
+					createLine(
+						text,
+						text.length * charWidth,
+						segmentIndex,
+						start,
+						start + text.length,
+					),
 				);
 			}
 

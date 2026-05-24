@@ -1,9 +1,9 @@
+import type { PreparedTextWithSegments } from "@chenglou/pretext";
 import {
 	layoutWithLines,
 	measureNaturalWidth,
 	prepareWithSegments,
 } from "@chenglou/pretext";
-import type { PreparedTextWithSegments } from "@chenglou/pretext";
 import type {
 	PreparedText,
 	TextLayout,
@@ -40,7 +40,9 @@ export class PretextTextMeasurer implements TextMeasurer {
 
 		const font = toCanvasFont(style);
 		const options = {
-			...(style.whiteSpace === undefined ? {} : { whiteSpace: style.whiteSpace }),
+			...(style.whiteSpace === undefined
+				? {}
+				: { whiteSpace: style.whiteSpace }),
 			...(style.wordBreak === undefined ? {} : { wordBreak: style.wordBreak }),
 			...(style.letterSpacing === undefined
 				? {}

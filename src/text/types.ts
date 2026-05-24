@@ -43,7 +43,11 @@ export interface TextLayout {
 
 export interface TextMeasurer {
 	prepare(text: string, style: TextStyleOptions): PreparedText;
-	layout(prepared: PreparedText, maxWidth: number, lineHeight?: number): TextLayout;
+	layout(
+		prepared: PreparedText,
+		maxWidth: number,
+		lineHeight?: number,
+	): TextLayout;
 	naturalWidth(prepared: PreparedText): number;
 }
 
@@ -66,7 +70,10 @@ export function validateTextStyle(style: TextStyleOptions): void {
 		assertFinitePositive(style.lineHeight, "lineHeight");
 	}
 
-	if (style.letterSpacing !== undefined && !Number.isFinite(style.letterSpacing)) {
+	if (
+		style.letterSpacing !== undefined &&
+		!Number.isFinite(style.letterSpacing)
+	) {
 		throw new TypeError("letterSpacing must be finite");
 	}
 }

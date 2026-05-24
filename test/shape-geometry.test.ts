@@ -23,7 +23,9 @@ const supportedShapes: NodeShape[] = [
 const box = { x: 0, y: 0, width: 100, height: 60 };
 
 describe("shape geometry", () => {
-	it.each(supportedShapes)("computes anchors and obstacle box for %s", (shape) => {
+	it.each(
+		supportedShapes,
+	)("computes anchors and obstacle box for %s", (shape) => {
 		const geometry = computeShapeGeometry({
 			shape,
 			box,
