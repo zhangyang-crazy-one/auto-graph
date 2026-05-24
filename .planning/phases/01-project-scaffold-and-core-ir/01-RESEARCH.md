@@ -265,7 +265,7 @@ export function stringifyCanonical(value: unknown, precision = DEFAULT_CANONICAL
 - **Renderer-shaped IR:** Do not add SVG attributes, Excalidraw element fields, CSS strings, or draw.io XML concepts to core IR. Export adapters own those later. [VERIFIED: .planning/research/PITFALLS.md]
 - **Installing future algorithm dependencies now:** Do not add Pretext or Dagre to Phase 1 unless a test genuinely needs them; later phases own them. [VERIFIED: .planning/ROADMAP.md]
 - **Plain `JSON.stringify` as the determinism contract:** It is stable for a given object order, but it does not sort equivalent object shapes by itself. Use project-owned canonicalization. [CITED: developer.mozilla.org JSON.stringify]
-- **Array order by insertion accident:** Sort nodes, edges, groups, constraints, labels, diagnostics, anchors, and path points by explicit id/sequence rules where semantic order permits. [VERIFIED: 01-CONTEXT.md]
+- **Array order by insertion accident:** Sort known unordered collections such as nodes, edges, groups, constraints, labels, diagnostics, and anchors by explicit identity or sequence rules where semantic order permits; preserve semantic coordinate/path arrays such as edge `points` in authored/solved order. [VERIFIED: 01-CONTEXT.md]
 - **One mixed `types.ts` file for everything:** It may be quicker, but it hides future boundaries and encourages measurement/layout/export leakage. [VERIFIED: 01-CONTEXT.md]
 
 ## Don't Hand-Roll
@@ -419,20 +419,20 @@ Source: Vitest writing-tests docs and Phase 1 D-14. [CITED: vitest.dev] [VERIFIE
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | The package can use a placeholder package name such as `diagram-geometry-engine` or `@diagram-geometry/core` until publish naming is decided. [ASSUMED] | Standard Stack / Code Examples | Package metadata may need a rename before publishing, but Phase 1 local imports and tests can still pass. |
+| A1 | Phase 1 package metadata uses the locked local package name `diagram-geometry-engine`. [RESOLVED] | Standard Stack / Code Examples | A later publishing phase may still decide a scoped npm name, but Phase 1 plans and tests should not treat the local package name as unresolved. |
 | A2 | `moduleResolution: "Bundler"` is acceptable for this library because tsup is the build tool and Node runtime execution goes through emitted `dist` files. [ASSUMED] | Code Examples | If direct Node execution of TS source is required, planner may need `NodeNext` instead. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Final package name**
    - What we know: Project name is Diagram Geometry Engine and code name is Pretext for Graphics. [VERIFIED: AGENTS.md]
-   - What's unclear: Exact npm package name is not locked.
-   - Recommendation: Use a clearly temporary local name in Phase 1 and keep public imports via package self-reference tests flexible.
+   - Resolution: Phase 1 uses package name `diagram-geometry-engine`.
+   - Impact on plans: `package.json` must use `"name": "diagram-geometry-engine"` and public import tests should keep using the root package entrypoint shape.
 
 2. **Public subpath exports**
    - What we know: Phase 1 needs clean public import boundaries. [VERIFIED: 01-CONTEXT.md]
-   - What's unclear: Whether consumers should import only from `"."` or also from `"./ir"` and `"./serialization"`.
-   - Recommendation: Start with `"."` only unless the planner wants tests proving subpath exports; narrower API is easier to expand later.
+   - Resolution: Phase 1 exposes root `"."` only.
+   - Impact on plans: Do not add `./ir`, `./serialization`, wildcard, or other public subpath exports in Phase 1.
 
 ## Environment Availability
 
