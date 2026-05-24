@@ -9,6 +9,7 @@
 		"declaration": true,
 		"declarationMap": true,
 		"sourceMap": true,
+		"ignoreDeprecations": "6.0",
 		"skipLibCheck": true,
 		"verbatimModuleSyntax": true,
 		"types": ["node", "vitest"]
