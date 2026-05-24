@@ -1,4 +1,12 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+	DeterministicTextMeasurer,
+	computeContainerGeometry,
+	computeShapeGeometry,
+	expandBox,
+	fitLabel,
+} from "../src/index.js";
 import type {
 	Box,
 	Constraint,
@@ -7,9 +15,12 @@ import type {
 	IntentDiagram,
 	IntentEdge,
 	IntentNode,
+	LabelLayout,
 	Label,
+	ShapeGeometry,
 	NormalizedDiagram,
 	Point,
+	TextMeasurer,
 } from "../src/index.js";
 
 describe("public API", () => {
@@ -89,5 +100,40 @@ describe("public API", () => {
 		};
 
 		expect(sample.bounds.width).toBe(120);
+	});
+
+	it("imports Phase 2 APIs from the package entrypoint", () => {
+		const measurer: TextMeasurer = new DeterministicTextMeasurer();
+		const labelLayout: LabelLayout = fitLabel(
+			"Root API",
+			{
+				font: { fontFamily: "Inter", fontSize: 16, lineHeight: 20 },
+				padding: 4,
+			},
+			measurer,
+		);
+		const shapeGeometry: ShapeGeometry = computeShapeGeometry({
+			shape: "rectangle",
+			box: { x: 0, y: 0, width: 100, height: 60 },
+			obstacleMargin: 4,
+		});
+		const containerGeometry = computeContainerGeometry({
+			id: "container-a",
+			childBoxes: [shapeGeometry.box],
+			padding: 8,
+			labelLayout,
+		});
+
+		expect(expandBox(shapeGeometry.box, 4)).toEqual(shapeGeometry.obstacleBox);
+		expect(containerGeometry.labelLayout).toBe(labelLayout);
+		expect(containerGeometry.anchors.length).toBe(9);
+	});
+
+	it("keeps package exports root-only", () => {
+		const packageJson = JSON.parse(
+			readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+		) as { exports: Record<string, unknown> };
+
+		expect(Object.keys(packageJson.exports)).toEqual(["."]);
 	});
 });
