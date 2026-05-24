@@ -60,6 +60,12 @@ describe("text measurement", () => {
 		expect(() => measurer.prepare("x", { ...style, fontSize: Number.NaN })).toThrow(
 			/finite|positive|width/i,
 		);
+		expect(() =>
+			measurer.prepare("x", {
+				...style,
+				fontSize: Number.POSITIVE_INFINITY,
+			}),
+		).toThrow(/finite|positive|width/i);
 		expect(() => measurer.prepare("x", { ...style, fontSize: -1 })).toThrow(
 			/finite|positive|width/i,
 		);
@@ -67,6 +73,9 @@ describe("text measurement", () => {
 		const prepared = measurer.prepare("x", style);
 
 		expect(() => measurer.layout(prepared, Number.NaN)).toThrow(
+			/finite|positive|width/i,
+		);
+		expect(() => measurer.layout(prepared, Number.POSITIVE_INFINITY)).toThrow(
 			/finite|positive|width/i,
 		);
 		expect(() => measurer.layout(prepared, -1)).toThrow(
