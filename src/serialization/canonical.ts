@@ -23,6 +23,7 @@ const UNORDERED_COLLECTION_KEYS = new Set([
 
 const IDENTITY_KEYS = [
 	"id",
+	"name",
 	"sourceId",
 	"targetId",
 	"nodeId",
@@ -36,7 +37,9 @@ export function canonicalize(
 	value: unknown,
 	options: CanonicalizeOptions = {},
 ): CanonicalJson {
-	const precision = options.precision ?? DEFAULT_CANONICAL_PRECISION;
+	const precision = resolvePrecision(
+		options.precision ?? DEFAULT_CANONICAL_PRECISION,
+	);
 
 	return canonicalizeValue(value, precision);
 }
@@ -45,7 +48,19 @@ export function stringifyCanonical(
 	value: unknown,
 	precision = DEFAULT_CANONICAL_PRECISION,
 ): string {
-	return `${JSON.stringify(canonicalize(value, { precision }), null, 2)}\n`;
+	return `${JSON.stringify(
+		canonicalize(value, { precision: resolvePrecision(precision) }),
+		null,
+		2,
+	)}\n`;
+}
+
+function resolvePrecision(precision: number): number {
+	if (!Number.isInteger(precision) || precision < 0) {
+		throw new TypeError("Canonical precision must be a non-negative integer");
+	}
+
+	return precision;
 }
 
 function canonicalizeValue(

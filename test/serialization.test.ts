@@ -147,4 +147,44 @@ describe("canonical serialization", () => {
 			stringifyCanonical(route).indexOf('"x": 0'),
 		);
 	});
+
+	it("sorts unordered anchors by anchor name", () => {
+		const first = {
+			nodes: [
+				{
+					id: "node-a",
+					anchors: [
+						{ name: "right", point: { x: 80, y: 20 } },
+						{ name: "left", point: { x: 0, y: 20 } },
+					],
+				},
+			],
+		};
+		const second = {
+			nodes: [
+				{
+					id: "node-a",
+					anchors: [
+						{ name: "left", point: { x: 0, y: 20 } },
+						{ name: "right", point: { x: 80, y: 20 } },
+					],
+				},
+			],
+		};
+		const output = stringifyCanonical(first);
+
+		expect(output).toBe(stringifyCanonical(second));
+		expect(output.indexOf('"left"')).toBeLessThan(output.indexOf('"right"'));
+	});
+
+	it("rejects invalid precision values", () => {
+		for (const precision of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5]) {
+			expect(() => canonicalize({ x: 1.23 }, { precision })).toThrow(
+				/Canonical precision/,
+			);
+			expect(() => stringifyCanonical({ x: 1.23 }, precision)).toThrow(
+				/Canonical precision/,
+			);
+		}
+	});
 });
