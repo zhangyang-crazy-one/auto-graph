@@ -42,8 +42,8 @@ describe("container geometry", () => {
 		});
 
 		expect(geometry.labelLayout).toBe(labelLayout);
-		expect(geometry.box.y).toBe(10);
-		expect(geometry.box.height).toBe(170);
+		expect(geometry.box.y).toBe(2);
+		expect(geometry.box.height).toBe(178);
 		expect(geometry.contentBox.y).toBe(50);
 	});
 
