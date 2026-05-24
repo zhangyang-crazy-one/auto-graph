@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 import {
@@ -5,6 +6,7 @@ import {
 	fitLabel,
 	type LabelLayout,
 } from "../src/labels/index.js";
+import { stringifyCanonical } from "../src/serialization/index.js";
 
 const measurer = new DeterministicTextMeasurer();
 const font = {
@@ -139,6 +141,24 @@ describe("label fitting", () => {
 		]);
 
 		expect(hasForbiddenKeys(layout, forbidden)).toBe(false);
+	});
+
+	it("matches the committed label canonical fixture", () => {
+		const layout = fitLabel(
+			"服务入口\nمرحبا",
+			{
+				font,
+				padding: { top: 4, right: 6, bottom: 4, left: 6 },
+				maxWidth: 120,
+			},
+			measurer,
+		);
+		const fixture = readFileSync(
+			new URL("./fixtures/phase-02/labels.canonical.json", import.meta.url),
+			"utf8",
+		);
+
+		expect(stringifyCanonical(layout)).toBe(fixture);
 	});
 });
 

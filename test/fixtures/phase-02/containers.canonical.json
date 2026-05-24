@@ -1,0 +1,156 @@
+{
+  "anchors": [
+    {
+      "name": "bottom",
+      "point": {
+        "x": 150,
+        "y": 180
+      }
+    },
+    {
+      "name": "bottom-left",
+      "point": {
+        "x": 20,
+        "y": 180
+      }
+    },
+    {
+      "name": "bottom-right",
+      "point": {
+        "x": 280,
+        "y": 180
+      }
+    },
+    {
+      "name": "center",
+      "point": {
+        "x": 150,
+        "y": 91
+      }
+    },
+    {
+      "name": "left",
+      "point": {
+        "x": 20,
+        "y": 91
+      }
+    },
+    {
+      "name": "right",
+      "point": {
+        "x": 280,
+        "y": 91
+      }
+    },
+    {
+      "name": "top",
+      "point": {
+        "x": 150,
+        "y": 2
+      }
+    },
+    {
+      "name": "top-left",
+      "point": {
+        "x": 20,
+        "y": 2
+      }
+    },
+    {
+      "name": "top-right",
+      "point": {
+        "x": 280,
+        "y": 2
+      }
+    }
+  ],
+  "box": {
+    "height": 178,
+    "width": 260,
+    "x": 20,
+    "y": 2
+  },
+  "childBounds": {
+    "height": 110,
+    "width": 220,
+    "x": 40,
+    "y": 50
+  },
+  "contentBox": {
+    "height": 110,
+    "width": 220,
+    "x": 40,
+    "y": 50
+  },
+  "diagnostics": [],
+  "id": "group-a",
+  "labelLayout": {
+    "box": {
+      "height": 28,
+      "width": 56,
+      "x": 0,
+      "y": 0
+    },
+    "contentBox": {
+      "height": 20,
+      "width": 48,
+      "x": 4,
+      "y": 4
+    },
+    "diagnostics": [],
+    "fittedSize": {
+      "height": 28,
+      "width": 56
+    },
+    "font": {
+      "fontFamily": "Inter",
+      "fontSize": 16,
+      "lineHeight": 20
+    },
+    "lineHeight": 20,
+    "lines": [
+      {
+        "baselineY": 20,
+        "box": {
+          "height": 20,
+          "width": 48,
+          "x": 4,
+          "y": 4
+        },
+        "lineIndex": 0,
+        "sourceEnd": {
+          "graphemeIndex": 5,
+          "segmentIndex": 0
+        },
+        "sourceStart": {
+          "graphemeIndex": 0,
+          "segmentIndex": 0
+        },
+        "text": "Group",
+        "width": 48
+      }
+    ],
+    "naturalSize": {
+      "height": 20,
+      "width": 48
+    },
+    "overflow": {
+      "horizontal": false,
+      "truncated": false,
+      "vertical": false
+    },
+    "padding": {
+      "bottom": 4,
+      "left": 4,
+      "right": 4,
+      "top": 4
+    },
+    "text": "Group"
+  },
+  "obstacleBox": {
+    "height": 188,
+    "width": 270,
+    "x": 15,
+    "y": -3
+  }
+}

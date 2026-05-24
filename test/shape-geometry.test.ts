@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	computeShapeGeometry,
@@ -7,6 +8,7 @@ import {
 } from "../src/geometry/index.js";
 import type { AnchorName } from "../src/ir/geometry.js";
 import type { NodeShape } from "../src/ir/index.js";
+import { stringifyCanonical } from "../src/serialization/index.js";
 
 const supportedShapes: NodeShape[] = [
 	"rectangle",
@@ -96,6 +98,22 @@ describe("shape geometry", () => {
 				box,
 			}),
 		).toThrow(TypeError);
+	});
+
+	it("matches the committed shapes canonical fixture", () => {
+		const records = supportedShapes.map((shape) =>
+			computeShapeGeometry({
+				shape,
+				box,
+				obstacleMargin: 5,
+			}),
+		);
+		const fixture = readFileSync(
+			new URL("./fixtures/phase-02/shapes.canonical.json", import.meta.url),
+			"utf8",
+		);
+
+		expect(stringifyCanonical(records)).toBe(fixture);
 	});
 });
 

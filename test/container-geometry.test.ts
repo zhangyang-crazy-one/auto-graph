@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { computeContainerGeometry } from "../src/geometry/index.js";
 import { fitLabel } from "../src/labels/index.js";
@@ -105,5 +106,29 @@ describe("container geometry", () => {
 				minSize: { height: Number.POSITIVE_INFINITY },
 			}),
 		).toThrow(TypeError);
+	});
+
+	it("matches the committed container canonical fixture", () => {
+		const labelLayout = fitLabel(
+			"Group",
+			{
+				font: { fontFamily: "Inter", fontSize: 16, lineHeight: 20 },
+				padding: 4,
+			},
+			new DeterministicTextMeasurer(),
+		);
+		const geometry = computeContainerGeometry({
+			id: "group-a",
+			childBoxes,
+			padding: 20,
+			labelLayout,
+			obstacleMargin: 5,
+		});
+		const fixture = readFileSync(
+			new URL("./fixtures/phase-02/containers.canonical.json", import.meta.url),
+			"utf8",
+		);
+
+		expect(stringifyCanonical(geometry)).toBe(fixture);
 	});
 });
