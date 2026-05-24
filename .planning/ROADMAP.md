@@ -44,6 +44,15 @@ Plans:
 
 **Requirements:** TXT-01, TXT-02, TXT-03, GEO-01, GEO-02, GEO-03
 
+**Plans:** 5 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Add Pretext dependency, MIT license/credits, and text measurement contracts/adapters.
+- [ ] 02-02-PLAN.md — Implement renderer-neutral label fitting and multiline/non-English numeric tests.
+- [ ] 02-03-PLAN.md — Implement box utilities and seven-shape geometry with edge-port approximations.
+- [ ] 02-04-PLAN.md — Implement container geometry from known child boxes and optional label layout.
+- [ ] 02-05-PLAN.md — Wire public exports, canonical fixtures, renderer-creep checks, and full verification.
+
 **Success criteria:**
 1. `TextMeasurer` has a Pretext-backed implementation and a test-friendly fallback.
 2. `LabelFitter` computes dimensions from label text, font settings, padding, min sizes, and max width.
