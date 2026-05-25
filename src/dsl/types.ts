@@ -21,6 +21,12 @@ export interface ParseDiagramDslResult {
 	diagnostics: DslDiagnostic[];
 }
 
+export interface ParseDiagramDslOptions {
+	sourcePath?: string;
+	sourceFormat?: "yaml" | "json";
+	maxBytes?: number;
+}
+
 export interface NormalizeDiagramDslResult {
 	diagram?: NormalizedDiagram;
 	diagnostics: DslDiagnostic[];
