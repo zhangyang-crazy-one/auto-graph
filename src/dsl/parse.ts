@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { parseDocument } from "yaml";
 import { createParseDiagnostic, sortDslDiagnostics } from "./diagnostics.js";
+import { parseEdgeShorthand } from "./edges.js";
 import { validateDiagramDsl } from "./schema.js";
 import type {
 	DslDiagnostic,
@@ -33,7 +34,12 @@ export function parseDiagramDsl(
 		return { diagnostics: sortDslDiagnostics(parsed.diagnostics) };
 	}
 
-	const validated = validateDiagramDsl(parsed.value);
+	const expanded = expandEdgeShorthand(parsed.value);
+	if (hasErrorDiagnostics(expanded.diagnostics)) {
+		return { diagnostics: sortDslDiagnostics(expanded.diagnostics) };
+	}
+
+	const validated = validateDiagramDsl(expanded.value);
 
 	return {
 		value: validated.value,
@@ -112,4 +118,73 @@ function isJsonSource(options: ParseDiagramDslOptions): boolean {
 
 function hasErrorDiagnostics(diagnostics: DslDiagnostic[]): boolean {
 	return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+
+function expandEdgeShorthand(value: unknown): {
+	value: unknown;
+	diagnostics: DslDiagnostic[];
+} {
+	if (
+		value === null ||
+		typeof value !== "object" ||
+		Array.isArray(value) ||
+		!("edges" in value)
+	) {
+		return { value, diagnostics: [] };
+	}
+
+	const record = value as Record<string, unknown>;
+	if (!Array.isArray(record.edges)) {
+		return { value, diagnostics: [] };
+	}
+
+	const diagnostics: DslDiagnostic[] = [];
+	const edges = record.edges.map((edge, index) => {
+		const shorthand = edgeShorthandText(edge);
+		if (shorthand === undefined) {
+			return edge;
+		}
+
+		const result = parseEdgeShorthand(shorthand, ["edges", index]);
+		diagnostics.push(...result.diagnostics);
+
+		if (result.edge === undefined) {
+			return edge;
+		}
+
+		return {
+			sourceId: result.edge.sourceId,
+			targetId: result.edge.targetId,
+			...(result.edge.label === undefined ? {} : { label: result.edge.label }),
+		};
+	});
+
+	return { value: { ...record, edges }, diagnostics };
+}
+
+function edgeShorthandText(edge: unknown): string | undefined {
+	if (typeof edge === "string") {
+		return edge;
+	}
+
+	if (edge === null || typeof edge !== "object" || Array.isArray(edge)) {
+		return undefined;
+	}
+
+	const entries = Object.entries(edge);
+	if (entries.length !== 1) {
+		return undefined;
+	}
+
+	const entry = entries[0];
+	if (entry === undefined) {
+		return undefined;
+	}
+
+	const [key, value] = entry;
+	if (!key.includes("->") || typeof value !== "string") {
+		return undefined;
+	}
+
+	return `${key}: ${value}`;
 }

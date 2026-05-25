@@ -4,7 +4,7 @@ import type {
 	ParseDiagramDslResult,
 	RenderDiagramDslResult,
 } from "../src/dsl/index.js";
-import { parseDiagramDsl } from "../src/dsl/index.js";
+import { parseDiagramDsl, parseEdgeShorthand } from "../src/dsl/index.js";
 
 describe("DSL parser contract", () => {
 	it("names the planned public DSL APIs", () => {
@@ -102,6 +102,45 @@ edges:
 		expect(yaml.diagnostics).toEqual([]);
 		expect(json.diagnostics).toEqual([]);
 		expect(json.value).toEqual(yaml.value);
+	});
+
+	it("parseEdgeShorthand expands source and target ids", () => {
+		const result = parseEdgeShorthand("api -> db", ["edges", 0]);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.edge).toEqual({
+			sourceId: "api",
+			targetId: "db",
+		});
+	});
+
+	it("parseEdgeShorthand preserves labels after the first colon", () => {
+		const result = parseEdgeShorthand("web -> api: calls: readonly", [
+			"edges",
+			1,
+		]);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.edge).toEqual({
+			sourceId: "web",
+			targetId: "api",
+			label: { text: "calls: readonly" },
+		});
+	});
+
+	it("parseDiagramDsl expands edge shorthand inside parsed values", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  api: { label: API }
+  db: { label: DB }
+edges:
+  - api -> db: reads
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.value).toMatchObject({
+			edges: [{ sourceId: "api", targetId: "db", label: { text: "reads" } }],
+		});
 	});
 	it.todo(
 		"normalizeDiagramDsl maps fixed positions and constraints for DSL-03",

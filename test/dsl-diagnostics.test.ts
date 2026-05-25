@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { DslDiagnostic, DslDiagnosticLayer } from "../src/dsl/index.js";
-import { parseDiagramDsl } from "../src/dsl/index.js";
+import {
+	parseDiagramDsl,
+	parseEdgeShorthand,
+	sortDslDiagnostics,
+} from "../src/dsl/index.js";
 
 describe("DSL diagnostics contract", () => {
 	it("supports layered diagnostics with path and hint fields", () => {
@@ -87,6 +91,59 @@ output:
 			expect(diagnostic.message).toBeDefined();
 			expect(diagnostic.path).toBeDefined();
 		}
+	});
+
+	it("malformed edge shorthand includes the original edge array path", () => {
+		const result = parseEdgeShorthand("api db", ["edges", 0]);
+
+		expect(result.edge).toBeUndefined();
+		expect(result.diagnostics).toEqual([
+			expect.objectContaining({
+				severity: "error",
+				layer: "validate",
+				code: "validate.edge-shorthand.invalid",
+				path: ["edges", 0],
+				hint: 'Use "source -> target" or "source -> target: label".',
+			}),
+		]);
+	});
+
+	it("sortDslDiagnostics orders by severity, layer, path, and code", () => {
+		const sorted = sortDslDiagnostics([
+			{
+				severity: "warning",
+				layer: "parse",
+				code: "parse.yaml.warning",
+				message: "warn",
+			},
+			{
+				severity: "error",
+				layer: "validate",
+				code: "validate.z",
+				message: "z",
+				path: ["nodes", "z"],
+			},
+			{
+				severity: "error",
+				layer: "parse",
+				code: "parse.input.too-large",
+				message: "too large",
+			},
+			{
+				severity: "error",
+				layer: "validate",
+				code: "validate.a",
+				message: "a",
+				path: ["nodes", "a"],
+			},
+		]);
+
+		expect(sorted.map((diagnostic) => diagnostic.code)).toEqual([
+			"parse.input.too-large",
+			"validate.a",
+			"validate.z",
+			"parse.yaml.warning",
+		]);
 	});
 	it.todo("solve errors are converted into solve layer diagnostics");
 	it.todo("export errors are converted into export layer diagnostics");

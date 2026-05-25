@@ -43,12 +43,31 @@ const nodeSchema = z.object({
 	position: pointSchema.optional(),
 });
 
-const structuredEdgeSchema = z.object({
-	id: z.string().optional(),
-	source: z.string(),
-	target: z.string(),
-	label: labelSchema.optional(),
-});
+const structuredEdgeSchema = z
+	.object({
+		id: z.string().optional(),
+		source: z.string().optional(),
+		target: z.string().optional(),
+		sourceId: z.string().optional(),
+		targetId: z.string().optional(),
+		label: labelSchema.optional(),
+	})
+	.superRefine((edge, context) => {
+		if (edge.source === undefined && edge.sourceId === undefined) {
+			context.addIssue({
+				code: "custom",
+				message: "Edge requires source or sourceId.",
+				path: ["source"],
+			});
+		}
+		if (edge.target === undefined && edge.targetId === undefined) {
+			context.addIssue({
+				code: "custom",
+				message: "Edge requires target or targetId.",
+				path: ["target"],
+			});
+		}
+	});
 
 const edgeSchema = z.union([z.string(), structuredEdgeSchema]);
 
