@@ -15,6 +15,8 @@ Given the same declarative diagram intent, DGE must produce deterministic, colli
 ### Validated
 
 - Phase 1 validated the TypeScript/npm scaffold, root public entrypoint, renderer-free core IR contracts, and deterministic canonical serializer for future fixtures.
+- Phase 2 validated Pretext-backed text measurement, label fitting, seven-shape geometry, anchors, obstacle boxes, and container geometry.
+- Phase 3 validated Dagre-backed initial placement, fixed/exact hybrid layout, deterministic constraints, straight/default orthogonal routing, `solveDiagram()`, and canonical coordinated fixtures.
 
 ### Active
 
@@ -46,8 +48,10 @@ The design frames DGE as a deterministic geometry calculator for LLM-generated d
 Current implementation state:
 
 - Phase 1 is complete: npm, TypeScript, tsup, Vitest, and Biome tooling are in place.
-- Public IR contracts exist for intent, normalized, and coordinated diagram stages.
-- Canonical serialization is available through the root package entrypoint and verified for deterministic ordering, numeric rounding, anchor ordering, and route-order preservation.
+- Phase 2 is complete: Pretext-backed and deterministic fallback text measurement, label fitting, shape geometry, anchors, obstacle boxes, and container geometry are available.
+- Phase 3 is complete: `solveDiagram()` converts normalized diagrams into coordinated nodes, groups, routed edges, bounds, diagnostics, and canonical fixtures.
+- Public IR, geometry, text, layout, constraints, routing, solver, and serialization APIs are available through the root package entrypoint.
+- Canonical serialization is verified for deterministic ordering, numeric rounding, anchor ordering, route-order preservation, and Phase 3 solver fixtures.
 
 External research confirms the local direction:
 
@@ -76,6 +80,8 @@ External research confirms the local direction:
 | Model DGE as a geometry engine, not a renderer | Keeps the package composable with SVG, Excalidraw, draw.io, Mermaid, and future skills | - Phase 1 IR stayed renderer-free |
 | Start with SVG and Excalidraw exports | SVG verifies visual geometry quickly; Excalidraw proves editability | - Pending |
 | Defer Python implementation | Python is valuable for data workflows, but it would complicate v1 measurement fidelity | - Pending |
+| Keep Dagre behind a local initial-layout wrapper | Dagre returns graph-center placement, while DGE must own top-left boxes, constraints, diagnostics, and canonical output | - Phase 3 validated this through `runDagreInitialLayout()` and `solveDiagram()` |
+| Keep routing bounded in v1 | Full grid/A* routing is expensive and unnecessary for Phase 3 acceptance fixtures | - Phase 3 uses fixed orthogonal candidates with deterministic fallback diagnostics |
 
 ## Evolution
 
@@ -95,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-24 after Phase 1 completion*
+*Last updated: 2026-05-25 after Phase 3 completion*
