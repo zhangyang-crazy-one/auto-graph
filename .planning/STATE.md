@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-25)
 
 ## Current Status
 
-Phase 4 execution is in progress. Plans 04-01 and 04-02 completed the exporter foundation and SVG exporter: coordinated IR can carry label layout, exporters have shared contracts plus deterministic arrowhead vector geometry, and SVG can render seven shapes, groups, labels, edge paths, and arrowhead polygons.
+Phase 4 execution is in progress. Plans 04-01 through 04-03 completed exporter foundations, SVG output, and the Excalidraw adapter: coordinated IR can carry label layout, SVG renders seven shapes/groups/labels/edges/arrowheads, and Excalidraw JSON preserves editable shapes, text, arrow bindings, and groupIds.
 
 ## Completed Phase
 
@@ -52,6 +52,7 @@ Phase 3: Layout, Constraints, And Routing
 ## Recent Execution
 
 - 2026-05-25: Gathered Phase 04 context (`04-CONTEXT.md`) for coordinated SVG and Excalidraw exporters.
+- 2026-05-25: Completed Plan 04-03 (`04-03-SUMMARY.md`). Task commit: `ab6e70b`.
 - 2026-05-25: Completed Plan 04-02 (`04-02-SUMMARY.md`). Task commit: `82cc5e7`.
 - 2026-05-25: Completed Plan 04-01 (`04-01-SUMMARY.md`). Task commits: `1a1a376`, `387a5b4`.
 - 2026-05-25: Completed Phase 03 (`03-01` through `03-05`). Full verify passed; layout, constraints, routing, solver, public API, and canonical coordinated fixtures are in place.
