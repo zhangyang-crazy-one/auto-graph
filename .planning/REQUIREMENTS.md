@@ -46,9 +46,9 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ### Export
 
-- [ ] **EXP-01**: User can export coordinated diagrams to standalone SVG with shapes, labels, edges, arrowheads, and groups.
-- [ ] **EXP-02**: User can export coordinated diagrams to Excalidraw-compatible JSON with editable shapes, text, and connectors.
-- [ ] **EXP-03**: Exporters consume coordinated IR only and do not independently recompute layout geometry.
+- [x] **EXP-01**: User can export coordinated diagrams to standalone SVG with shapes, labels, edges, arrowheads, and groups.
+- [x] **EXP-02**: User can export coordinated diagrams to Excalidraw-compatible JSON with editable shapes, text, and connectors.
+- [x] **EXP-03**: Exporters consume coordinated IR only and do not independently recompute layout geometry.
 
 ### CLI
 
@@ -114,9 +114,9 @@ Requirements for the initial release. Each maps to roadmap phases.
 | RTE-01 | Phase 3 | Complete |
 | RTE-02 | Phase 3 | Complete |
 | RTE-03 | Phase 3 | Complete |
-| EXP-01 | Phase 4 | Pending |
-| EXP-02 | Phase 4 | Pending |
-| EXP-03 | Phase 4 | Pending |
+| EXP-01 | Phase 4 | Complete |
+| EXP-02 | Phase 4 | Complete |
+| EXP-03 | Phase 4 | Complete |
 | CLI-01 | Phase 5 | Pending |
 | CLI-02 | Phase 5 | Pending |
 | CLI-03 | Phase 5 | Pending |

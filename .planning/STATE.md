@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-05-25T02:07:45.241Z"
+last_updated: "2026-05-25T02:22:07.270Z"
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 17
-  completed_plans: 15
-  percent: 50
+  completed_plans: 17
+  percent: 67
 ---
 
 # State: Diagram Geometry Engine
@@ -19,21 +19,21 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-25)
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
-**Current focus:** Phase 04 — coordinated-exporters
+**Current focus:** Phase 05 — dsl-parser-and-cli
 
 ## Current Status
 
-Phase 4 execution is in progress. Plans 04-01 through 04-03 completed exporter foundations, SVG output, and the Excalidraw adapter: coordinated IR can carry label layout, SVG renders seven shapes/groups/labels/edges/arrowheads, and Excalidraw JSON preserves editable shapes, text, arrow bindings, and groupIds.
+Phase 4 is complete. Coordinated IR now drives root-importable SVG and Excalidraw exporters, one shared fixture locks both golden outputs, and exporter source files are guarded against solver/layout/text/routing/geometry recomputation.
 
 ## Completed Phase
 
-Phase 3: Layout, Constraints, And Routing
+Phase 4: Coordinated Exporters
 
-**Goal:** Produce full coordinated geometry from measured nodes, edges, layout direction, constraints, and routing options.
+**Goal:** Prove the coordinated IR can drive multiple output formats consistently.
 
-**Result:** Complete. `rtk npm run verify` passed with 12 test files / 76 tests. `03-REVIEW.md` is clean, `03-SECURITY.md` has `threats_open: 0`, and `03-VERIFICATION.md` is passed.
+**Result:** Complete. `rtk npm run verify` passed with 13 test files / 83 tests. SVG and Excalidraw exports are published from the root API, shared Phase 4 goldens are committed, and EXP-01 through EXP-03 are complete.
 
-**Next command:** `$gsd-execute-phase 4`
+**Next command:** `$gsd-discuss-phase 5`
 
 ## Known Inputs
 
@@ -51,6 +51,8 @@ Phase 3: Layout, Constraints, And Routing
 
 ## Recent Execution
 
+- 2026-05-25: Completed Plan 04-04 (`04-04-SUMMARY.md`). Task commit: `f743496`; full `rtk npm run verify` passed.
+- 2026-05-25: Completed Phase 04 (`04-01` through `04-04`). SVG and Excalidraw exporters are public, deterministic, fixture-backed, and guarded against geometry recomputation.
 - 2026-05-25: Gathered Phase 04 context (`04-CONTEXT.md`) for coordinated SVG and Excalidraw exporters.
 - 2026-05-25: Completed Plan 04-03 (`04-03-SUMMARY.md`). Task commit: `ab6e70b`.
 - 2026-05-25: Completed Plan 04-02 (`04-02-SUMMARY.md`). Task commit: `82cc5e7`.
