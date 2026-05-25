@@ -12,7 +12,7 @@
 |---|-------|------|--------------|---------|
 | 1 | Project Scaffold And Core IR | 3/3 | Complete    | 2026-05-24 |
 | 2 | Text, Labels, And Shape Geometry | 5/5 | Complete   | 2026-05-24 |
-| 3 | Layout, Constraints, And Routing | Produce coordinated node placement and connector paths from measured geometry | LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03 | no |
+| 3 | Layout, Constraints, And Routing | 5/5 | Complete    | 2026-05-25 |
 | 4 | Coordinated Exporters | Export the same solved diagram to SVG and Excalidraw without duplicating geometry logic | EXP-01, EXP-02, EXP-03 | no |
 | 5 | DSL Parser And CLI | Let users and agents run DGE from YAML/JSON files, stdin, and command-line format flags | DSL-01, DSL-02, DSL-03, CLI-01, CLI-02, CLI-03 | no |
 | 6 | Verification And Release Readiness | Lock correctness with numeric, golden, exporter, and determinism tests | VER-01, VER-02, VER-03, VER-04 | no |
@@ -66,14 +66,14 @@ Plans:
 
 **Requirements:** LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03
 
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 
 Plans:
-- [ ] 03-01-PLAN.md — Add Dagre runtime dependency and initial layout wrapper.
-- [ ] 03-02-PLAN.md — Add fixed-position support and deterministic constraint solving.
-- [ ] 03-03-PLAN.md — Add straight/default orthogonal routing and route simplification.
-- [ ] 03-04-PLAN.md — Integrate layout, constraints, containers, routing, and diagnostics in solveDiagram.
-- [ ] 03-05-PLAN.md — Wire root exports, canonical fixtures, and full Phase 3 verification.
+- [x] 03-01-PLAN.md — Add Dagre runtime dependency and initial layout wrapper.
+- [x] 03-02-PLAN.md — Add fixed-position support and deterministic constraint solving.
+- [x] 03-03-PLAN.md — Add straight/default orthogonal routing and route simplification.
+- [x] 03-04-PLAN.md — Integrate layout, constraints, containers, routing, and diagnostics in solveDiagram.
+- [x] 03-05-PLAN.md — Wire root exports, canonical fixtures, and full Phase 3 verification. (completed 2026-05-25)
 
 **Success criteria:**
 1. Dagre-backed automatic layout handles TB, LR, BT, and RL directions.

@@ -33,16 +33,16 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ### Layout And Constraints
 
-- [ ] **LAY-01**: User can produce an automatic directed graph layout using Dagre-backed placement with TB, LR, BT, and RL directions.
-- [ ] **LAY-02**: User can mix fixed nodes with automatic layout for remaining nodes.
-- [ ] **LAY-03**: User can apply exact, relative, align, distribute, and containment padding constraints after initial layout.
-- [ ] **LAY-04**: User receives diagnostics when constraints conflict or cannot be satisfied without overlap.
+- [x] **LAY-01**: User can produce an automatic directed graph layout using Dagre-backed placement with TB, LR, BT, and RL directions.
+- [x] **LAY-02**: User can mix fixed nodes with automatic layout for remaining nodes.
+- [x] **LAY-03**: User can apply exact, relative, align, distribute, and containment padding constraints after initial layout.
+- [x] **LAY-04**: User receives diagnostics when constraints conflict or cannot be satisfied without overlap.
 
 ### Routing
 
-- [ ] **RTE-01**: User can generate straight and orthogonal connector paths between node anchors.
-- [ ] **RTE-02**: Orthogonal connector paths avoid source and target interiors and simple rectangular obstacles in fixture diagrams.
-- [ ] **RTE-03**: Connector output is simplified by merging collinear segments and removing redundant points.
+- [x] **RTE-01**: User can generate straight and orthogonal connector paths between node anchors.
+- [x] **RTE-02**: Orthogonal connector paths avoid source and target interiors and simple rectangular obstacles in fixture diagrams.
+- [x] **RTE-03**: Connector output is simplified by merging collinear segments and removing redundant points.
 
 ### Export
 
@@ -107,13 +107,13 @@ Requirements for the initial release. Each maps to roadmap phases.
 | GEO-01 | Phase 2 | Complete |
 | GEO-02 | Phase 2 | Complete |
 | GEO-03 | Phase 2 | Complete |
-| LAY-01 | Phase 3 | Pending |
-| LAY-02 | Phase 3 | Pending |
-| LAY-03 | Phase 3 | Pending |
-| LAY-04 | Phase 3 | Pending |
-| RTE-01 | Phase 3 | Pending |
-| RTE-02 | Phase 3 | Pending |
-| RTE-03 | Phase 3 | Pending |
+| LAY-01 | Phase 3 | Complete |
+| LAY-02 | Phase 3 | Complete |
+| LAY-03 | Phase 3 | Complete |
+| LAY-04 | Phase 3 | Complete |
+| RTE-01 | Phase 3 | Complete |
+| RTE-02 | Phase 3 | Complete |
+| RTE-03 | Phase 3 | Complete |
 | EXP-01 | Phase 4 | Pending |
 | EXP-02 | Phase 4 | Pending |
 | EXP-03 | Phase 4 | Pending |
