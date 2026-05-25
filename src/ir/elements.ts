@@ -41,6 +41,7 @@ export interface IntentNode extends NodeBase {
 export interface NormalizedNode extends NodeBase {
 	shape: NodeShape;
 	parentId?: string;
+	position?: Point;
 	size: Size;
 	padding: Insets;
 }

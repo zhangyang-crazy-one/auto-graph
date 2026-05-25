@@ -39,6 +39,7 @@
 		"vitest": "4.1.7"
 	},
 	"dependencies": {
-		"@chenglou/pretext": "^0.0.7"
+		"@chenglou/pretext": "^0.0.7",
+		"@dagrejs/dagre": "^3.0.0"
 	}
 }
