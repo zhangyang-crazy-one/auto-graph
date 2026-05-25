@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-05-25T04:52:50.000Z"
+last_updated: "2026-05-25T05:00:42.000Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 23
-  completed_plans: 22
-  percent: 76
+  completed_plans: 23
+  percent: 79
 ---
 
 # State: Diagram Geometry Engine
@@ -19,21 +19,21 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-25)
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
-**Current focus:** Phase 05 — dsl-parser-and-cli
+**Current focus:** Phase 06 — verification-and-release-readiness
 
 ## Current Status
 
-Phase 5 is in progress. Plans 05-01 through 05-05 are complete; next work is Plan 05-06 for public API exports, package binary proof, static anti-recompute guards, README CLI notes, and full verification.
+Phase 5 is complete. Next work is Phase 6 for milestone-level verification and release readiness.
 
 ## Completed Phase
 
-Phase 4: Coordinated Exporters
+Phase 5: DSL Parser And CLI
 
-**Goal:** Prove the coordinated IR can drive multiple output formats consistently.
+**Goal:** Provide the agent-facing and developer-facing execution surface.
 
-**Result:** Complete. `rtk npm run verify` passed with 13 test files / 83 tests. SVG and Excalidraw exports are published from the root API, shared Phase 4 goldens are committed, and EXP-01 through EXP-03 are complete.
+**Result:** Complete. `rtk npm run verify` passed with 16 test files / 126 passing tests / 3 todo. YAML/JSON DSL parsing, validation diagnostics, normalization, examples, `dge` CLI IO, root DSL API exports, built binary smoke tests, and static DSL/CLI no-recompute guards are in place. DSL-01 through DSL-03 and CLI-01 through CLI-03 are complete.
 
-**Next command:** `$gsd-execute-phase 5`
+**Next command:** `$gsd-discuss-phase 6`
 
 ## Known Inputs
 
@@ -51,6 +51,7 @@ Phase 4: Coordinated Exporters
 
 ## Recent Execution
 
+- 2026-05-25: Completed Plan 05-06 (`05-06-SUMMARY.md`) and Phase 05. Task commit: `7fb5cca`; full `rtk npm run verify` passed.
 - 2026-05-25: Completed Plan 05-05 (`05-05-SUMMARY.md`). Task commit: `9e86c10`.
 - 2026-05-25: Completed Plan 05-04 (`05-04-SUMMARY.md`). Task commit: `55ade11`.
 - 2026-05-25: Completed Plan 05-03 (`05-03-SUMMARY.md`). Task commit: `4c2c897`.

@@ -15,9 +15,9 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ### DSL
 
-- [ ] **DSL-01**: User can define a diagram in YAML or JSON with title, direction, nodes, edges, groups, constraints, and output settings.
-- [ ] **DSL-02**: User receives actionable validation errors for malformed DSL, missing node references, unsupported shapes, and invalid constraints.
-- [ ] **DSL-03**: User can express fixed positions, relative offsets, alignment, distribution, and grouped containment in the DSL.
+- [x] **DSL-01**: User can define a diagram in YAML or JSON with title, direction, nodes, edges, groups, constraints, and output settings.
+- [x] **DSL-02**: User receives actionable validation errors for malformed DSL, missing node references, unsupported shapes, and invalid constraints.
+- [x] **DSL-03**: User can express fixed positions, relative offsets, alignment, distribution, and grouped containment in the DSL.
 
 ### Text And Labels
 
@@ -52,9 +52,9 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ### CLI
 
-- [ ] **CLI-01**: User can run `dge --input diagram.yaml --format svg --output diagram.svg`.
-- [ ] **CLI-02**: User can pipe DSL into the CLI and write SVG or Excalidraw JSON to stdout.
-- [ ] **CLI-03**: CLI exits non-zero with readable errors for invalid input, unsatisfied constraints, and unsupported formats.
+- [x] **CLI-01**: User can run `dge --input diagram.yaml --format svg --output diagram.svg`.
+- [x] **CLI-02**: User can pipe DSL into the CLI and write SVG or Excalidraw JSON to stdout.
+- [x] **CLI-03**: CLI exits non-zero with readable errors for invalid input, unsatisfied constraints, and unsupported formats.
 
 ### Verification
 
@@ -98,9 +98,9 @@ Requirements for the initial release. Each maps to roadmap phases.
 | FND-01 | Phase 1 | Complete |
 | FND-02 | Phase 1 | Complete |
 | FND-03 | Phase 1 | Complete |
-| DSL-01 | Phase 5 | Pending |
-| DSL-02 | Phase 5 | Pending |
-| DSL-03 | Phase 5 | Pending |
+| DSL-01 | Phase 5 | Complete |
+| DSL-02 | Phase 5 | Complete |
+| DSL-03 | Phase 5 | Complete |
 | TXT-01 | Phase 2 | Complete |
 | TXT-02 | Phase 2 | Complete |
 | TXT-03 | Phase 2 | Complete |
@@ -117,9 +117,9 @@ Requirements for the initial release. Each maps to roadmap phases.
 | EXP-01 | Phase 4 | Complete |
 | EXP-02 | Phase 4 | Complete |
 | EXP-03 | Phase 4 | Complete |
-| CLI-01 | Phase 5 | Pending |
-| CLI-02 | Phase 5 | Pending |
-| CLI-03 | Phase 5 | Pending |
+| CLI-01 | Phase 5 | Complete |
+| CLI-02 | Phase 5 | Complete |
+| CLI-03 | Phase 5 | Complete |
 | VER-01 | Phase 6 | Pending |
 | VER-02 | Phase 6 | Pending |
 | VER-03 | Phase 6 | Pending |
@@ -132,4 +132,4 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ---
 *Requirements defined: 2026-05-24*
-*Last updated: 2026-05-24 after initial definition*
+*Last updated: 2026-05-25 after Phase 5 completion*
