@@ -1,4 +1,5 @@
 export * from "./constraints/index.js";
+export * from "./exporters/index.js";
 export * from "./geometry/index.js";
 export * from "./ir/index.js";
 export * from "./labels/index.js";

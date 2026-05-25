@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { NormalizedDiagram } from "../src/ir/index.js";
+import { exportExcalidraw, exportSvg } from "../src/exporters/index.js";
+import type { CoordinatedDiagram, NormalizedDiagram } from "../src/ir/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
 import { solveDiagram } from "../src/solver/index.js";
 
@@ -51,6 +52,36 @@ describe("solver determinism", () => {
 		);
 
 		expect(stringifyCanonical(solveDiagram(input))).toBe(fixture);
+	});
+
+	it("matches committed Phase 4 coordinated exporter fixtures", () => {
+		const fixture = JSON.parse(
+			readFileSync(
+				new URL(
+					"./fixtures/phase-04/coordinated-export.canonical.json",
+					import.meta.url,
+				),
+				"utf8",
+			),
+		) as CoordinatedDiagram;
+		const svgGolden = readFileSync(
+			new URL("./fixtures/phase-04/coordinated-export.svg", import.meta.url),
+			"utf8",
+		);
+		const excalidrawGolden = readFileSync(
+			new URL(
+				"./fixtures/phase-04/coordinated-export.excalidraw.json",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		expect(exportSvg(fixture, { title: "Coordinated Export" })).toBe(svgGolden);
+		expect(
+			stringifyCanonical(
+				JSON.parse(exportExcalidraw(fixture, { title: "Coordinated Export" })),
+			),
+		).toBe(excalidrawGolden);
 	});
 });
 

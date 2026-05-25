@@ -17,10 +17,13 @@ import type {
 } from "../src/index.js";
 import {
 	applyLayoutConstraints,
+	computeArrowhead,
 	computeContainerGeometry,
 	computeShapeGeometry,
 	DeterministicTextMeasurer,
 	expandBox,
+	exportExcalidraw,
+	exportSvg,
 	fitLabel,
 	routeEdge,
 	runDagreInitialLayout,
@@ -197,6 +200,53 @@ describe("public API", () => {
 		expect(solved.diagnostics).toBeDefined();
 		expect(simplifyRoute(routed.points).length).toBeGreaterThan(0);
 		expect(constrained.boxes.size).toBe(2);
+	});
+
+	it("imports Phase 4 exporter APIs from the package entrypoint", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "phase-4-public",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a",
+					shape: "rectangle",
+					label: { text: "A" },
+					box: { x: 0, y: 0, width: 80, height: 40 },
+					anchors: [],
+				},
+				{
+					id: "b",
+					shape: "rectangle",
+					label: { text: "B" },
+					box: { x: 140, y: 0, width: 80, height: 40 },
+					anchors: [],
+				},
+			],
+			edges: [
+				{
+					id: "a-b",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 80, y: 20 },
+						{ x: 140, y: 20 },
+					],
+				},
+			],
+			groups: [],
+			diagnostics: [],
+			bounds: { x: 0, y: 0, width: 220, height: 40 },
+		};
+
+		const svg = exportSvg(diagram);
+		const excalidraw = JSON.parse(exportExcalidraw(diagram)) as {
+			type: string;
+		};
+		const arrowhead = computeArrowhead(diagram.edges[0]?.points ?? []);
+
+		expect(svg).toContain("<svg");
+		expect(excalidraw.type).toBe("excalidraw");
+		expect(arrowhead.tip).toEqual({ x: 140, y: 20 });
 	});
 
 	it("keeps package exports root-only", () => {

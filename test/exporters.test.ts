@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	computeArrowhead,
@@ -103,6 +105,32 @@ describe("exporters", () => {
 			(element) => element.id === "node:ellipse",
 		);
 		expect(groupedNode).toMatchObject({ groupIds: ["group:group-a"] });
+	});
+
+	it("blocks exporter geometry recomputation imports and calls", () => {
+		const forbiddenTerms = [
+			"solveDiagram",
+			"runDagreInitialLayout",
+			"applyLayoutConstraints",
+			"routeEdge",
+			"fitLabel",
+			"TextMeasurer",
+			"computeShapeGeometry",
+			"computeContainerGeometry",
+		];
+		const exporterDir = new URL("../src/exporters", import.meta.url);
+		const sourceFiles = readdirSync(exporterDir)
+			.filter((fileName) => fileName.endsWith(".ts"))
+			.map((fileName) => join(exporterDir.pathname, fileName));
+
+		for (const filePath of sourceFiles) {
+			const content = readFileSync(filePath, "utf8");
+			for (const term of forbiddenTerms) {
+				expect(content, `${filePath} must not contain ${term}`).not.toContain(
+					term,
+				);
+			}
+		}
 	});
 });
 
