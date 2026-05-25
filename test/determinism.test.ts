@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+	normalizeDiagramDsl,
+	parseDiagramDsl,
+	renderDiagramDsl,
+} from "../src/dsl/index.js";
 import { exportExcalidraw, exportSvg } from "../src/exporters/index.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../src/ir/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
@@ -82,6 +87,30 @@ describe("solver determinism", () => {
 				JSON.parse(exportExcalidraw(fixture, { title: "Coordinated Export" })),
 			),
 		).toBe(excalidrawGolden);
+	});
+
+	it("renders the Phase 5 architecture fixture deterministically", () => {
+		const sourcePath = new URL(
+			"./fixtures/phase-05/architecture.yaml",
+			import.meta.url,
+		).pathname;
+		const source = readFileSync(sourcePath, "utf8");
+		const parsedA = parseDiagramDsl(source, { sourcePath });
+		const parsedB = parseDiagramDsl(source, { sourcePath });
+		const normalizedA = normalizeDiagramDsl(parsedA.value);
+		const normalizedB = normalizeDiagramDsl(parsedB.value);
+		const renderedA = renderDiagramDsl(source, { sourcePath });
+		const renderedB = renderDiagramDsl(source, { sourcePath });
+
+		expect(parsedA.diagnostics).toEqual([]);
+		expect(parsedB.diagnostics).toEqual([]);
+		expect(stringifyCanonical(normalizedA.diagram)).toBe(
+			stringifyCanonical(normalizedB.diagram),
+		);
+		expect(stringifyCanonical(renderedA.diagram)).toBe(
+			stringifyCanonical(renderedB.diagram),
+		);
+		expect(renderedA.content).toBe(renderedB.content);
 	});
 });
 

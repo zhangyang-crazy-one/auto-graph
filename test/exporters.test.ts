@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -132,7 +133,69 @@ describe("exporters", () => {
 			}
 		}
 	});
+
+	it("blocks DSL and CLI geometry recomputation imports and calls", () => {
+		const forbiddenPatterns = [
+			/runDagreInitialLayout/,
+			/applyLayoutConstraints/,
+			/routeEdge/,
+			/computeShapeGeometry/,
+			/computeContainerGeometry/,
+			/unionBoxes/,
+			/from\s+["']\.\.\/layout\//,
+			/from\s+["']\.\.\/routing\//,
+			/from\s+["']\.\.\/geometry\//,
+		];
+		const sourceFiles = [
+			...sourceFilesIn(new URL("../src/dsl", import.meta.url)),
+			...sourceFilesIn(new URL("../src/cli", import.meta.url)),
+		];
+
+		for (const filePath of sourceFiles) {
+			const content = readFileSync(filePath, "utf8");
+			for (const pattern of forbiddenPatterns) {
+				expect(
+					content,
+					`${filePath} must not match forbidden recomputation pattern ${pattern}`,
+				).not.toMatch(pattern);
+			}
+		}
+
+		const normalizeSource = readFileSync(
+			new URL("../src/dsl/normalize.ts", import.meta.url),
+			"utf8",
+		);
+		expect(normalizeSource).toContain("fitLabel");
+		expect(normalizeSource).toContain("DeterministicTextMeasurer");
+	});
+
+	it("runs the built dge binary against the architecture example", () => {
+		const binaryPath = new URL("../dist/cli/index.js", import.meta.url)
+			.pathname;
+		const examplePath = new URL(
+			"../examples/architecture.yaml",
+			import.meta.url,
+		).pathname;
+
+		expect(existsSync(binaryPath)).toBe(true);
+		const output = execFileSync(process.execPath, [
+			binaryPath,
+			"--input",
+			examplePath,
+			"--format",
+			"svg",
+		]).toString("utf8");
+
+		expect(output).toContain("<svg");
+		expect(output).toContain("</svg>");
+	});
 });
+
+function sourceFilesIn(directory: URL): string[] {
+	return readdirSync(directory)
+		.filter((fileName) => fileName.endsWith(".ts"))
+		.map((fileName) => join(directory.pathname, fileName));
+}
 
 function createCoordinatedDiagram(): CoordinatedDiagram {
 	const labelLayout = createLabelLayout("Alpha & Beta", {

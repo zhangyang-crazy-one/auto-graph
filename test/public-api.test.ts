@@ -25,6 +25,11 @@ import {
 	exportExcalidraw,
 	exportSvg,
 	fitLabel,
+	normalizeDiagramDsl,
+	parseDiagramDsl,
+	parseEdgeShorthand,
+	renderDiagramDsl,
+	resolveOutputFormat,
 	routeEdge,
 	runDagreInitialLayout,
 	simplifyRoute,
@@ -247,6 +252,40 @@ describe("public API", () => {
 		expect(svg).toContain("<svg");
 		expect(excalidraw.type).toBe("excalidraw");
 		expect(arrowhead.tip).toEqual({ x: 140, y: 20 });
+	});
+
+	it("imports selected Phase 5 DSL APIs from the package entrypoint", () => {
+		const source = `
+title: Public DSL
+layout:
+  direction: LR
+nodes:
+  web:
+    label: Web
+  api:
+    label: API
+edges:
+  - web -> api: calls
+`;
+
+		const parsed = parseDiagramDsl(source);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const rendered = renderDiagramDsl(source);
+		const format = resolveOutputFormat(undefined, undefined);
+		const shorthand = parseEdgeShorthand("web -> api: calls", ["edges", 0]);
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagram?.nodes.map((node) => node.id)).toEqual([
+			"api",
+			"web",
+		]);
+		expect(rendered.content).toContain("<svg");
+		expect(format.format).toBe("svg");
+		expect(shorthand.edge).toMatchObject({
+			sourceId: "web",
+			targetId: "api",
+			label: { text: "calls" },
+		});
 	});
 
 	it("keeps package exports root-only", () => {
