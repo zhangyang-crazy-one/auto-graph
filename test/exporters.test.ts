@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeArrowhead, exportSvg } from "../src/exporters/index.js";
+import {
+	computeArrowhead,
+	exportExcalidraw,
+	exportSvg,
+} from "../src/exporters/index.js";
 import type { CoordinatedDiagram, LabelLayout } from "../src/index.js";
 
 describe("exporters", () => {
@@ -47,6 +51,58 @@ describe("exporters", () => {
 		expect(svg).toContain('d="M 80 60 L 180 60 L 180 130"');
 		expect(svg).toContain('class="edge-arrowhead"');
 		expect(svg).toContain('points="180,130 176,120 184,120"');
+	});
+
+	it("exports deterministic Excalidraw elements with text, bindings, and groupIds", () => {
+		const scene = JSON.parse(exportExcalidraw(createCoordinatedDiagram())) as {
+			type: string;
+			version: number;
+			source: string;
+			elements: Array<Record<string, unknown>>;
+		};
+
+		expect(scene.type).toBe("excalidraw");
+		expect(scene.version).toBe(2);
+		expect(scene.source).toBe("diagram-geometry-engine");
+		expect(scene.elements.map((element) => element.id)).toContain(
+			"node:rectangle",
+		);
+		expect(scene.elements.map((element) => element.id)).toContain(
+			"node-text:rectangle",
+		);
+		expect(scene.elements.map((element) => element.id)).toContain(
+			"group:group-a",
+		);
+
+		const nodeText = scene.elements.find(
+			(element) => element.id === "node-text:rectangle",
+		);
+		expect(nodeText).toMatchObject({
+			type: "text",
+			text: "Alpha & Beta",
+			groupIds: ["group:group-a"],
+		});
+
+		const arrow = scene.elements.find(
+			(element) => element.id === "edge:edge-a-b",
+		);
+		expect(arrow).toMatchObject({
+			type: "arrow",
+			x: 80,
+			y: 60,
+			points: [
+				{ x: 0, y: 0 },
+				{ x: 100, y: 0 },
+				{ x: 100, y: 70 },
+			],
+			startBinding: { elementId: "node:rectangle", focus: 0, gap: 0 },
+			endBinding: { elementId: "node:parallelogram", focus: 0, gap: 0 },
+		});
+
+		const groupedNode = scene.elements.find(
+			(element) => element.id === "node:ellipse",
+		);
+		expect(groupedNode).toMatchObject({ groupIds: ["group:group-a"] });
 	});
 });
 
