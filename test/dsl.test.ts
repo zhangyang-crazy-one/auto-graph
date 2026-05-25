@@ -4,7 +4,13 @@ import type {
 	ParseDiagramDslResult,
 	RenderDiagramDslResult,
 } from "../src/dsl/index.js";
-import { parseDiagramDsl, parseEdgeShorthand } from "../src/dsl/index.js";
+import {
+	normalizeDiagramDsl,
+	parseDiagramDsl,
+	parseEdgeShorthand,
+	renderDiagramDsl,
+	resolveOutputFormat,
+} from "../src/dsl/index.js";
 
 describe("DSL parser contract", () => {
 	it("names the planned public DSL APIs", () => {
@@ -142,10 +148,104 @@ edges:
 			edges: [{ sourceId: "api", targetId: "db", label: { text: "reads" } }],
 		});
 	});
-	it.todo(
-		"normalizeDiagramDsl maps fixed positions and constraints for DSL-03",
-	);
-	it.todo(
-		"renderDiagramDsl dispatches through solve/export instead of recomputing geometry",
-	);
+	it("normalizeDiagramDsl maps sorted nodes, groups, positions, and constraints for DSL-03", () => {
+		const parsed = parseDiagramDsl(`
+id: system
+title: System
+layout: { direction: LR }
+routing: { kind: straight }
+nodes:
+  db: { label: DB }
+  api:
+    label: API
+    position: { x: 100, y: 80 }
+edges:
+  - api -> db: reads
+groups:
+  backend:
+    nodes: [api, db]
+constraints:
+  - kind: relative-position
+    source: db
+    reference: api
+    relation: right-of
+    offset: { x: 80, y: 0 }
+  - kind: align
+    axis: center-y
+    targets: [api, db]
+  - kind: distribute
+    axis: horizontal
+    targets: [api, db]
+    spacing: 120
+  - kind: containment
+    container: backend
+    children: [api, db]
+output:
+  format: excalidraw
+`);
+
+		const result = normalizeDiagramDsl(parsed.value);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.output?.format).toBe("excalidraw");
+		expect(result.diagram?.id).toBe("system");
+		expect(result.diagram?.direction).toBe("LR");
+		expect(result.diagram?.nodes.map((node) => node.id)).toEqual(["api", "db"]);
+		expect(result.diagram?.nodes[0]).toMatchObject({
+			id: "api",
+			shape: "rectangle",
+			position: { x: 100, y: 80 },
+			padding: { top: 12, right: 16, bottom: 12, left: 16 },
+		});
+		expect(result.diagram?.nodes[0]?.size.width).toBeGreaterThanOrEqual(80);
+		expect(result.diagram?.edges[0]).toMatchObject({
+			id: "api-db",
+			source: { nodeId: "api" },
+			target: { nodeId: "db" },
+			label: { text: "reads" },
+		});
+		expect(result.diagram?.groups[0]).toMatchObject({
+			id: "backend",
+			nodeIds: ["api", "db"],
+			padding: { top: 16, right: 16, bottom: 16, left: 16 },
+		});
+		expect(
+			result.diagram?.constraints.map((constraint) => constraint.kind),
+		).toEqual(["relative-position", "align", "distribute", "containment"]);
+	});
+
+	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
+		expect(resolveOutputFormat().format).toBe("svg");
+		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(
+			"excalidraw",
+		);
+		expect(resolveOutputFormat("svg", "excalidraw").format).toBe("svg");
+	});
+
+	it("renderDiagramDsl dispatches through solve/export for SVG and Excalidraw", () => {
+		const source = `
+title: Render
+layout: { direction: LR }
+nodes:
+  api: { label: API, position: { x: 0, y: 0 } }
+  db: { label: DB }
+edges:
+  - api -> db: reads
+constraints:
+  - kind: relative-position
+    source: db
+    reference: api
+    relation: right-of
+    offset: { x: 120, y: 0 }
+`;
+		const svg = renderDiagramDsl(source, { format: "svg" });
+		const excalidraw = renderDiagramDsl(source, { format: "excalidraw" });
+
+		expect(svg.diagnostics).toEqual([]);
+		expect(svg.format).toBe("svg");
+		expect(svg.content).toContain("<svg");
+		expect(excalidraw.diagnostics).toEqual([]);
+		expect(excalidraw.format).toBe("excalidraw");
+		expect(JSON.parse(excalidraw.content ?? "{}").type).toBe("excalidraw");
+	});
 });

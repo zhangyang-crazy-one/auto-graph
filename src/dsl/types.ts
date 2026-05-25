@@ -1,6 +1,7 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
+import type { TextMeasurer } from "../text/types.js";
 
 export type DslDiagnosticLayer =
 	| "parse"
@@ -39,6 +40,7 @@ export interface RenderDiagramDslOptions {
 	sourcePath?: string;
 	sourceFormat?: "yaml" | "json";
 	format?: string;
+	textMeasurer?: TextMeasurer;
 }
 
 export interface RenderDiagramDslResult {

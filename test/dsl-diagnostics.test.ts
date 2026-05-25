@@ -3,6 +3,8 @@ import type { DslDiagnostic, DslDiagnosticLayer } from "../src/dsl/index.js";
 import {
 	parseDiagramDsl,
 	parseEdgeShorthand,
+	renderDiagramDsl,
+	resolveOutputFormat,
 	sortDslDiagnostics,
 } from "../src/dsl/index.js";
 
@@ -148,4 +150,61 @@ output:
 	it.todo("solve errors are converted into solve layer diagnostics");
 	it.todo("export errors are converted into export layer diagnostics");
 	it.todo("JSON diagnostic output remains stable for --json consumers");
+
+	it("reports missing references before render output", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  api: { label: API }
+edges:
+  - api -> missing
+groups:
+  backend:
+    nodes: [api, missing]
+constraints:
+  - kind: relative-position
+    source: missing
+    reference: api
+    relation: right-of
+`);
+
+		expect(result.content).toBeUndefined();
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.reference.missing",
+					path: ["edges", 0, "target"],
+				}),
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.reference.missing",
+					path: ["groups", "backend", "nodes", 1],
+				}),
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.reference.missing",
+					path: ["constraints", 0, "source"],
+				}),
+			]),
+		);
+	});
+
+	it("rejects unsupported output formats", () => {
+		for (const format of ["drawio", "mermaid", "ascii"]) {
+			const result = resolveOutputFormat(format);
+
+			expect(result.format).toBeUndefined();
+			expect(result.diagnostics).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.output-format.unsupported",
+					path: ["output", "format"],
+				}),
+			]);
+		}
+	});
 });
