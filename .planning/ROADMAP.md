@@ -66,6 +66,15 @@ Plans:
 
 **Requirements:** LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03
 
+**Plans:** 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Add Dagre runtime dependency and initial layout wrapper.
+- [ ] 03-02-PLAN.md — Add fixed-position support and deterministic constraint solving.
+- [ ] 03-03-PLAN.md — Add straight/default orthogonal routing and route simplification.
+- [ ] 03-04-PLAN.md — Integrate layout, constraints, containers, routing, and diagnostics in solveDiagram.
+- [ ] 03-05-PLAN.md — Wire root exports, canonical fixtures, and full Phase 3 verification.
+
 **Success criteria:**
 1. Dagre-backed automatic layout handles TB, LR, BT, and RL directions.
 2. Fixed nodes can coexist with automatically placed nodes.
