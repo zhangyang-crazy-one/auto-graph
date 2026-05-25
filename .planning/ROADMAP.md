@@ -13,7 +13,7 @@
 | 1 | Project Scaffold And Core IR | 3/3 | Complete    | 2026-05-24 |
 | 2 | Text, Labels, And Shape Geometry | 5/5 | Complete   | 2026-05-24 |
 | 3 | Layout, Constraints, And Routing | 5/5 | Complete    | 2026-05-25 |
-| 4 | Coordinated Exporters | Export the same solved diagram to SVG and Excalidraw without duplicating geometry logic | EXP-01, EXP-02, EXP-03 | no |
+| 4 | Coordinated Exporters | 1/4 | In Progress|  |
 | 5 | DSL Parser And CLI | Let users and agents run DGE from YAML/JSON files, stdin, and command-line format flags | DSL-01, DSL-02, DSL-03, CLI-01, CLI-02, CLI-03 | no |
 | 6 | Verification And Release Readiness | Lock correctness with numeric, golden, exporter, and determinism tests | VER-01, VER-02, VER-03, VER-04 | no |
 
