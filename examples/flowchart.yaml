@@ -1,0 +1,38 @@
+title: Approval Flow
+layout:
+  direction: TB
+nodes:
+  start:
+    label: Start
+    shape: ellipse
+  review:
+    label: Review Request
+    shape: rectangle
+  decide:
+    label: Approved?
+    shape: diamond
+  done:
+    label: Done
+    shape: ellipse
+edges:
+  - start -> review
+  - review -> decide
+  - decide -> done: yes
+constraints:
+  - kind: relative-position
+    source: review
+    reference: start
+    relation: below
+    offset: { x: 0, y: 100 }
+  - kind: relative-position
+    source: decide
+    reference: review
+    relation: below
+    offset: { x: 0, y: 100 }
+  - kind: relative-position
+    source: done
+    reference: decide
+    relation: below
+    offset: { x: 0, y: 100 }
+output:
+  format: svg

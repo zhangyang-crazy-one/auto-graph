@@ -1,0 +1,57 @@
+{
+	"title": "Service Architecture",
+	"layout": {
+		"direction": "LR"
+	},
+	"nodes": {
+		"web": {
+			"label": "Web App",
+			"shape": "rounded-rectangle"
+		},
+		"api": {
+			"label": "API Service",
+			"shape": "rectangle"
+		},
+		"db": {
+			"label": "Database",
+			"shape": "cylinder"
+		}
+	},
+	"edges": [
+		{
+			"source": "web",
+			"target": "api",
+			"label": "requests"
+		},
+		{
+			"source": "api",
+			"target": "db",
+			"label": "reads"
+		}
+	],
+	"groups": {
+		"backend": {
+			"label": "Backend",
+			"nodes": ["api", "db"]
+		}
+	},
+	"constraints": [
+		{
+			"kind": "relative-position",
+			"source": "api",
+			"reference": "web",
+			"relation": "right-of",
+			"offset": { "x": 140, "y": 0 }
+		},
+		{
+			"kind": "relative-position",
+			"source": "db",
+			"reference": "api",
+			"relation": "right-of",
+			"offset": { "x": 140, "y": 0 }
+		}
+	],
+	"output": {
+		"format": "svg"
+	}
+}

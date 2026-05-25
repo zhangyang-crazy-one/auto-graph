@@ -1,0 +1,31 @@
+title: Group Containment
+layout:
+  direction: LR
+nodes:
+  web:
+    label: Web
+  api:
+    label: API
+  db:
+    label: DB
+    shape: cylinder
+edges:
+  - web -> api: calls
+  - api -> db: reads
+groups:
+  backend:
+    label: Backend
+    nodes: [api, db]
+constraints:
+  - kind: relative-position
+    source: api
+    reference: web
+    relation: right-of
+    offset: { x: 140, y: 0 }
+  - kind: relative-position
+    source: db
+    reference: api
+    relation: below
+    offset: { x: 0, y: 90 }
+output:
+  format: svg

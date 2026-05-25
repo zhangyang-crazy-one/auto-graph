@@ -1,0 +1,28 @@
+title: Edge Labels
+layout:
+  direction: LR
+nodes:
+  api:
+    label: API
+  db:
+    label: DB
+  cache:
+    label: Cache
+edges:
+  - api -> db: reads
+  - source: api
+    target: cache
+    label: warms
+constraints:
+  - kind: relative-position
+    source: db
+    reference: api
+    relation: right-of
+    offset: { x: 140, y: 0 }
+  - kind: relative-position
+    source: cache
+    reference: api
+    relation: below
+    offset: { x: 0, y: 90 }
+output:
+  format: svg

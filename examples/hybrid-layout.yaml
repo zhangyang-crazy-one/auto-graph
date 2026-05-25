@@ -1,0 +1,27 @@
+title: Hybrid Layout
+layout:
+  direction: LR
+nodes:
+  fixed:
+    label: Fixed Gateway
+    position: { x: 20, y: 40 }
+  worker:
+    label: Worker
+  sink:
+    label: Event Sink
+edges:
+  - fixed -> worker: dispatch
+  - worker -> sink: publish
+constraints:
+  - kind: relative-position
+    source: worker
+    reference: fixed
+    relation: right-of
+    offset: { x: 150, y: 0 }
+  - kind: relative-position
+    source: sink
+    reference: worker
+    relation: right-of
+    offset: { x: 150, y: 0 }
+output:
+  format: svg

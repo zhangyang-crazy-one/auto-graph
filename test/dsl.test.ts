@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
 	NormalizeDiagramDslResult,
@@ -11,6 +13,7 @@ import {
 	renderDiagramDsl,
 	resolveOutputFormat,
 } from "../src/dsl/index.js";
+import { stringifyCanonical } from "../src/serialization/index.js";
 
 describe("DSL parser contract", () => {
 	it("names the planned public DSL APIs", () => {
@@ -248,4 +251,61 @@ constraints:
 		expect(excalidraw.format).toBe("excalidraw");
 		expect(JSON.parse(excalidraw.content ?? "{}").type).toBe("excalidraw");
 	});
+
+	it.each([
+		"architecture",
+		"flowchart",
+		"edge-labels",
+		"groups",
+		"hybrid-layout",
+	])("renders Phase 5 %s YAML fixture to SVG", (fixtureName) => {
+		const sourcePath = fixturePath(`${fixtureName}.yaml`);
+		const source = readFixture(`${fixtureName}.yaml`);
+
+		const result = renderDiagramDsl(source, { sourcePath });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.format).toBe("svg");
+		expect(result.content).toMatch(/^<svg/);
+		expect(result.diagram?.title).toBeDefined();
+	});
+
+	it("normalizes architecture YAML and JSON fixtures equivalently", () => {
+		const yaml = normalizeDiagramDsl(
+			parseDiagramDsl(readFixture("architecture.yaml"), {
+				sourcePath: fixturePath("architecture.yaml"),
+			}).value,
+		);
+		const json = normalizeDiagramDsl(
+			parseDiagramDsl(readFixture("architecture.json"), {
+				sourcePath: fixturePath("architecture.json"),
+			}).value,
+		);
+
+		expect(yaml.diagnostics).toEqual([]);
+		expect(json.diagnostics).toEqual([]);
+		expect(
+			stringifyCanonical({
+				nodes: yaml.diagram?.nodes,
+				edges: yaml.diagram?.edges,
+				groups: yaml.diagram?.groups,
+				constraints: yaml.diagram?.constraints,
+			}),
+		).toBe(
+			stringifyCanonical({
+				nodes: json.diagram?.nodes,
+				edges: json.diagram?.edges,
+				groups: json.diagram?.groups,
+				constraints: json.diagram?.constraints,
+			}),
+		);
+	});
 });
+
+function readFixture(name: string): string {
+	return readFileSync(fixturePath(name), "utf8");
+}
+
+function fixturePath(name: string): string {
+	return fileURLToPath(new URL(`./fixtures/phase-05/${name}`, import.meta.url));
+}

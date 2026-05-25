@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runCli } from "../src/cli/run.js";
 
@@ -171,6 +172,43 @@ nodes:
 			code: "io.input.too-large",
 		});
 	});
+
+	it.each([
+		"architecture",
+		"flowchart",
+		"edge-labels",
+		"groups",
+		"hybrid-layout",
+	])("runCli exports Phase 5 %s fixture to SVG stdout", async (fixtureName) => {
+		const io = memoryIo();
+
+		const exitCode = await runCli(
+			["--input", phase05Fixture(`${fixtureName}.yaml`), "--format", "svg"],
+			io.environment,
+		);
+
+		expect(exitCode).toBe(0);
+		expect(io.stdout()).toContain("<svg");
+		expect(io.stderr()).toBe("");
+	});
+
+	it("runCli exports a Phase 5 fixture to Excalidraw JSON stdout", async () => {
+		const io = memoryIo();
+
+		const exitCode = await runCli(
+			[
+				"--input",
+				phase05Fixture("architecture.yaml"),
+				"--format",
+				"excalidraw",
+			],
+			io.environment,
+		);
+
+		expect(exitCode).toBe(0);
+		expect(JSON.parse(io.stdout()).type).toBe("excalidraw");
+		expect(io.stderr()).toBe("");
+	});
 });
 
 function memoryIo(stdin = "") {
@@ -209,4 +247,8 @@ async function tempWorkspace() {
 			await rm(path, { force: true, recursive: true });
 		},
 	};
+}
+
+function phase05Fixture(name: string): string {
+	return fileURLToPath(new URL(`./fixtures/phase-05/${name}`, import.meta.url));
 }
