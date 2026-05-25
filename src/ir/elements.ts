@@ -7,6 +7,7 @@ import type {
 	Point,
 	Size,
 } from "./geometry.js";
+import type { LabelLayout } from "./label-layout.js";
 
 export type NodeShape =
 	| "rectangle"
@@ -44,6 +45,7 @@ export interface NormalizedNode extends NodeBase {
 	position?: Point;
 	size: Size;
 	padding: Insets;
+	labelLayout?: LabelLayout;
 }
 
 export interface CoordinatedNode extends NodeBase {
@@ -51,6 +53,7 @@ export interface CoordinatedNode extends NodeBase {
 	box: Box;
 	anchors: AnchorPoint[];
 	parentId?: string;
+	labelLayout?: LabelLayout;
 }
 
 export interface EdgeEndpoint {
@@ -95,6 +98,7 @@ export interface NormalizedGroup {
 	groupIds: string[];
 	padding: Insets;
 	metadata?: JsonObject;
+	labelLayout?: LabelLayout;
 }
 
 export interface CoordinatedGroup extends NormalizedGroup {

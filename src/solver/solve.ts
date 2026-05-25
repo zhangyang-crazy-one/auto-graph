@@ -140,6 +140,9 @@ function coordinateNodes(
 		coordinated.push({
 			id: node.id,
 			...(node.label === undefined ? {} : { label: node.label }),
+			...(node.labelLayout === undefined
+				? {}
+				: { labelLayout: node.labelLayout }),
 			shape: node.shape,
 			...(node.metadata === undefined ? {} : { metadata: node.metadata }),
 			box: geometry.box,
@@ -197,6 +200,9 @@ function coordinateGroups(
 			id: group.id,
 			childBoxes,
 			padding: group.padding,
+			...(group.labelLayout === undefined
+				? {}
+				: { labelLayout: group.labelLayout }),
 			obstacleMargin: options.obstacleMargin ?? 0,
 		});
 		groupBoxes.set(group.id, geometry.box);
