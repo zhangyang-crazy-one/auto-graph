@@ -1,6 +1,6 @@
+import type { TextCursor, TextStyleOptions } from "../text/index.js";
 import type { Diagnostic } from "./diagnostics.js";
 import type { Box, Insets, Size } from "./geometry.js";
-import type { TextCursor, TextStyleOptions } from "../text/index.js";
 
 export interface LabelLineLayout {
 	text: string;

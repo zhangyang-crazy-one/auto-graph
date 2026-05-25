@@ -1,5 +1,6 @@
 import type { Insets, Size } from "../ir/geometry.js";
 import type { TextStyleOptions } from "../text/index.js";
+
 export type { LabelLayout, LabelLineLayout } from "../ir/label-layout.js";
 
 export interface LabelFitOptions {
