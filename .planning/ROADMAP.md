@@ -14,7 +14,7 @@
 | 2 | Text, Labels, And Shape Geometry | 5/5 | Complete   | 2026-05-24 |
 | 3 | Layout, Constraints, And Routing | 5/5 | Complete    | 2026-05-25 |
 | 4 | Coordinated Exporters | 4/4 | Complete   | 2026-05-25 |
-| 5 | DSL Parser And CLI | 3/6 | In Progress|  |
+| 5 | DSL Parser And CLI | 4/6 | In Progress|  |
 | 6 | Verification And Release Readiness | Lock correctness with numeric, golden, exporter, and determinism tests | VER-01, VER-02, VER-03, VER-04 | no |
 
 ## Phase Details
