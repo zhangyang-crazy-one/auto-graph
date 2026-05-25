@@ -6,10 +6,10 @@ status: ready_to_plan
 last_updated: 2026-05-25T01:10:11.871Z
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
   completed_plans: 13
-  percent: 33
+  percent: 50
 stopped_at: Phase 03 complete (5/5) — ready to discuss Phase 4
 ---
 
@@ -17,24 +17,24 @@ stopped_at: Phase 03 complete (5/5) — ready to discuss Phase 4
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-24)
+See: `.planning/PROJECT.md` (updated 2026-05-25)
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
 **Current focus:** Phase 4 — coordinated exporters
 
 ## Current Status
 
-Phase 2 is complete: text measurement, renderer-neutral label fitting, box/shape geometry, known-child container geometry, root public exports, and canonical numeric fixtures are implemented and verified.
+Phase 3 is complete: Dagre-backed layout, deterministic constraints, straight/default orthogonal routing, `solveDiagram()`, root public exports, canonical coordinated fixtures, code review, security review, and verification are complete. The project is ready to discuss Phase 4 coordinated exporters.
 
 ## Completed Phase
 
-Phase 2: Text, Labels, And Shape Geometry
+Phase 3: Layout, Constraints, And Routing
 
-**Goal:** Implement measurement, label fitting, and core shape math required before layout.
+**Goal:** Produce full coordinated geometry from measured nodes, edges, layout direction, constraints, and routing options.
 
-**Result:** Complete. `rtk npm run verify` passed with 7 test files / 46 tests.
+**Result:** Complete. `rtk npm run verify` passed with 12 test files / 76 tests. `03-REVIEW.md` is clean, `03-SECURITY.md` has `threats_open: 0`, and `03-VERIFICATION.md` is passed.
 
-**Next command:** `$gsd-discuss-phase 3`
+**Next command:** `$gsd-discuss-phase 4`
 
 ## Known Inputs
 
@@ -52,6 +52,7 @@ Phase 2: Text, Labels, And Shape Geometry
 
 ## Recent Execution
 
+- 2026-05-25: Completed Phase 03 (`03-01` through `03-05`). Full verify passed; layout, constraints, routing, solver, public API, and canonical coordinated fixtures are in place.
 - 2026-05-24: Completed Phase 02 (`02-01` through `02-05`). Full verify passed; public root exports and canonical fixtures are in place.
 - 2026-05-24: Completed Plan 01-01 (`01-01-SUMMARY.md`). Task commits: `ea34664`, `90e1e0a`, `8ea864b`, `388538a`.
 - 2026-05-24: Completed Plan 01-02 (`01-02-SUMMARY.md`). Task commits: `4b55b43`, `a8b6a68`, `2721a61`.
