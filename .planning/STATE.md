@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-05-25T03:39:47.000Z"
+last_updated: "2026-05-25T03:49:02.412Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 23
-  completed_plans: 17
+  completed_plans: 18
   percent: 67
 ---
 
@@ -19,7 +19,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-25)
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
-**Current focus:** Phase 5 — DSL Parser And CLI
+**Current focus:** Phase 05 — dsl-parser-and-cli
 
 ## Current Status
 
