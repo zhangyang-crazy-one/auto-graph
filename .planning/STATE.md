@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-05-25T02:22:07.270Z"
+last_updated: "2026-05-25T02:44:12.919Z"
 progress:
   total_phases: 6
   completed_phases: 4
@@ -19,7 +19,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-25)
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
-**Current focus:** Phase 05 — dsl-parser-and-cli
+**Current focus:** Phase 5 — DSL Parser And CLI
 
 ## Current Status
 
@@ -33,7 +33,7 @@ Phase 4: Coordinated Exporters
 
 **Result:** Complete. `rtk npm run verify` passed with 13 test files / 83 tests. SVG and Excalidraw exports are published from the root API, shared Phase 4 goldens are committed, and EXP-01 through EXP-03 are complete.
 
-**Next command:** `$gsd-discuss-phase 5`
+**Next command:** `$gsd-plan-phase 5`
 
 ## Known Inputs
 
@@ -51,6 +51,7 @@ Phase 4: Coordinated Exporters
 
 ## Recent Execution
 
+- 2026-05-25: Gathered Phase 05 context (`05-CONTEXT.md`) for the agent-friendly YAML/JSON DSL and `dge` CLI.
 - 2026-05-25: Completed Plan 04-04 (`04-04-SUMMARY.md`). Task commit: `f743496`; full `rtk npm run verify` passed.
 - 2026-05-25: Completed Phase 04 (`04-01` through `04-04`). SVG and Excalidraw exporters are public, deterministic, fixture-backed, and guarded against geometry recomputation.
 - 2026-05-25: Gathered Phase 04 context (`04-CONTEXT.md`) for coordinated SVG and Excalidraw exporters.
