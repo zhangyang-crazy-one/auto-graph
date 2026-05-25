@@ -1,0 +1,279 @@
+{
+  "bounds": {
+    "height": 320,
+    "width": 80,
+    "x": 0,
+    "y": 0
+  },
+  "diagnostics": [],
+  "direction": "BT",
+  "edges": [
+    {
+      "id": "a-b",
+      "points": [
+        {
+          "x": 40,
+          "y": 280
+        },
+        {
+          "x": 40,
+          "y": 180
+        }
+      ],
+      "source": {
+        "nodeId": "a"
+      },
+      "target": {
+        "nodeId": "b"
+      }
+    },
+    {
+      "id": "b-c",
+      "points": [
+        {
+          "x": 40,
+          "y": 140
+        },
+        {
+          "x": 40,
+          "y": 40
+        }
+      ],
+      "source": {
+        "nodeId": "b"
+      },
+      "target": {
+        "nodeId": "c"
+      }
+    }
+  ],
+  "groups": [],
+  "id": "dagre-directions",
+  "nodes": [
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 40,
+            "y": 320
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 0,
+            "y": 320
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 80,
+            "y": 320
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 40,
+            "y": 300
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 0,
+            "y": 300
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 80,
+            "y": 300
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 40,
+            "y": 280
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 0,
+            "y": 280
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 80,
+            "y": 280
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 0,
+        "y": 280
+      },
+      "id": "a",
+      "shape": "rectangle"
+    },
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 40,
+            "y": 180
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 0,
+            "y": 180
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 80,
+            "y": 180
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 40,
+            "y": 160
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 0,
+            "y": 160
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 80,
+            "y": 160
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 40,
+            "y": 140
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 0,
+            "y": 140
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 80,
+            "y": 140
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 0,
+        "y": 140
+      },
+      "id": "b",
+      "shape": "rectangle"
+    },
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 40,
+            "y": 40
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 0,
+            "y": 40
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 80,
+            "y": 40
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 40,
+            "y": 20
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 0,
+            "y": 20
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 80,
+            "y": 20
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 40,
+            "y": 0
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 80,
+            "y": 0
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 0,
+        "y": 0
+      },
+      "id": "c",
+      "shape": "rectangle"
+    }
+  ]
+}

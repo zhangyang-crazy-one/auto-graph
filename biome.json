@@ -11,7 +11,8 @@
 			"!coverage",
 			"!node_modules",
 			"!.planning",
-			"!test/fixtures/phase-02"
+			"!test/fixtures/phase-02",
+			"!test/fixtures/phase-03"
 		]
 	},
 	"formatter": {

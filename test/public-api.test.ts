@@ -16,11 +16,16 @@ import type {
 	TextMeasurer,
 } from "../src/index.js";
 import {
+	applyLayoutConstraints,
 	computeContainerGeometry,
 	computeShapeGeometry,
 	DeterministicTextMeasurer,
 	expandBox,
 	fitLabel,
+	routeEdge,
+	runDagreInitialLayout,
+	simplifyRoute,
+	solveDiagram,
 } from "../src/index.js";
 
 describe("public API", () => {
@@ -127,6 +132,71 @@ describe("public API", () => {
 		expect(expandBox(shapeGeometry.box, 4)).toEqual(shapeGeometry.obstacleBox);
 		expect(containerGeometry.labelLayout).toBe(labelLayout);
 		expect(containerGeometry.anchors.length).toBe(9);
+	});
+
+	it("imports Phase 3 APIs from the package entrypoint", () => {
+		const diagram: NormalizedDiagram = {
+			id: "phase-3-public",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a",
+					shape: "rectangle",
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 0 },
+				},
+				{
+					id: "b",
+					shape: "rectangle",
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+			edges: [{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			constraints: [
+				{
+					kind: "relative-position",
+					sourceId: "b",
+					referenceId: "a",
+					relation: "right-of",
+					offset: { x: 80, y: 0 },
+				},
+			],
+			diagnostics: [],
+		};
+		const solved = solveDiagram(diagram);
+		const routed = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 0, y: 0, width: 80, height: 40 },
+			}),
+			target: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 160, y: 0, width: 80, height: 40 },
+			}),
+		});
+		const initialLayout = runDagreInitialLayout({
+			direction: "LR",
+			nodes: diagram.nodes.map((node) => ({ id: node.id, size: node.size })),
+			edges: [{ id: "a-b", sourceId: "a", targetId: "b" }],
+		});
+		const constrained = applyLayoutConstraints({
+			direction: "LR",
+			boxes: initialLayout.boxes,
+			nodes: diagram.nodes,
+			groups: [],
+			constraints: diagram.constraints,
+		});
+
+		expect(solved.nodes[0]?.box).toBeDefined();
+		expect(solved.edges[0]?.points).toBeDefined();
+		expect(solved.diagnostics).toBeDefined();
+		expect(simplifyRoute(routed.points).length).toBeGreaterThan(0);
+		expect(constrained.boxes.size).toBe(2);
 	});
 
 	it("keeps package exports root-only", () => {

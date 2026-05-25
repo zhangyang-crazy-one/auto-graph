@@ -1,0 +1,189 @@
+{
+  "bounds": {
+    "height": 120,
+    "width": 240,
+    "x": 0,
+    "y": 0
+  },
+  "diagnostics": [],
+  "direction": "LR",
+  "edges": [
+    {
+      "id": "a-b",
+      "points": [
+        {
+          "x": 80,
+          "y": 40
+        },
+        {
+          "x": 160,
+          "y": 40
+        },
+        {
+          "x": 160,
+          "y": 80
+        }
+      ],
+      "source": {
+        "nodeId": "a"
+      },
+      "target": {
+        "nodeId": "b"
+      }
+    }
+  ],
+  "groups": [],
+  "id": "routing",
+  "nodes": [
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 40,
+            "y": 40
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 0,
+            "y": 40
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 80,
+            "y": 40
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 40,
+            "y": 20
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 0,
+            "y": 20
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 80,
+            "y": 20
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 40,
+            "y": 0
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 80,
+            "y": 0
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 0,
+        "y": 0
+      },
+      "id": "a",
+      "shape": "rectangle"
+    },
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 200,
+            "y": 120
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 160,
+            "y": 120
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 240,
+            "y": 120
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 160,
+            "y": 100
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 240,
+            "y": 100
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 200,
+            "y": 80
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 160,
+            "y": 80
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 240,
+            "y": 80
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 160,
+        "y": 80
+      },
+      "id": "b",
+      "shape": "rectangle"
+    }
+  ]
+}

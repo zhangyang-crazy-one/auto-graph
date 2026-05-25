@@ -1,0 +1,244 @@
+{
+  "bounds": {
+    "height": 340,
+    "width": 380,
+    "x": 0,
+    "y": 0
+  },
+  "diagnostics": [
+    {
+      "code": "layout.edge-reference.missing",
+      "detail": {
+        "edgeId": "missing-edge",
+        "sourceId": "container",
+        "targetId": "missing"
+      },
+      "message": "Edge missing-edge references a missing layout node.",
+      "path": [
+        "edges",
+        "missing-edge"
+      ],
+      "severity": "error"
+    },
+    {
+      "code": "constraints.locked-target-not-moved",
+      "detail": {
+        "nodeId": "child"
+      },
+      "message": "Locked child child was not moved into containment.",
+      "path": [
+        "constraints",
+        "container"
+      ],
+      "severity": "warning"
+    },
+    {
+      "code": "constraints.containment.impossible",
+      "detail": {
+        "containerId": "container",
+        "nodeId": "child"
+      },
+      "message": "Locked child child cannot fit inside container.",
+      "path": [
+        "constraints",
+        "container"
+      ],
+      "severity": "error"
+    },
+    {
+      "code": "solver.group-reference.missing",
+      "detail": {
+        "groupId": "broken-group",
+        "id": "missing"
+      },
+      "message": "Group broken-group references a missing node.",
+      "path": [
+        "groups",
+        "broken-group"
+      ],
+      "severity": "error"
+    },
+    {
+      "code": "solver.group-reference.missing",
+      "detail": {
+        "groupId": "broken-group"
+      },
+      "message": "Group broken-group references a missing child.",
+      "path": [
+        "groups",
+        "broken-group"
+      ],
+      "severity": "error"
+    },
+    {
+      "code": "solver.edge-reference.missing",
+      "detail": {
+        "edgeId": "missing-edge",
+        "sourceId": "container",
+        "targetId": "missing"
+      },
+      "message": "Edge missing-edge references a missing coordinated node.",
+      "path": [
+        "edges",
+        "missing-edge"
+      ],
+      "severity": "error"
+    }
+  ],
+  "direction": "TB",
+  "edges": [],
+  "groups": [],
+  "id": "constraint-diagnostics",
+  "nodes": [
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 340,
+            "y": 340
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 300,
+            "y": 340
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 380,
+            "y": 340
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 340,
+            "y": 320
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 300,
+            "y": 320
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 380,
+            "y": 320
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 340,
+            "y": 300
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 300,
+            "y": 300
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 380,
+            "y": 300
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 300,
+        "y": 300
+      },
+      "id": "child",
+      "shape": "rectangle"
+    },
+    {
+      "anchors": [
+        {
+          "name": "bottom",
+          "point": {
+            "x": 40,
+            "y": 40
+          }
+        },
+        {
+          "name": "bottom-left",
+          "point": {
+            "x": 0,
+            "y": 40
+          }
+        },
+        {
+          "name": "bottom-right",
+          "point": {
+            "x": 80,
+            "y": 40
+          }
+        },
+        {
+          "name": "center",
+          "point": {
+            "x": 40,
+            "y": 20
+          }
+        },
+        {
+          "name": "left",
+          "point": {
+            "x": 0,
+            "y": 20
+          }
+        },
+        {
+          "name": "right",
+          "point": {
+            "x": 80,
+            "y": 20
+          }
+        },
+        {
+          "name": "top",
+          "point": {
+            "x": 40,
+            "y": 0
+          }
+        },
+        {
+          "name": "top-left",
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "name": "top-right",
+          "point": {
+            "x": 80,
+            "y": 0
+          }
+        }
+      ],
+      "box": {
+        "height": 40,
+        "width": 80,
+        "x": 0,
+        "y": 0
+      },
+      "id": "container",
+      "shape": "rectangle"
+    }
+  ]
+}
