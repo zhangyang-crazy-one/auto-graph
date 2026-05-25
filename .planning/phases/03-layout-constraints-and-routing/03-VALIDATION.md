@@ -38,13 +38,13 @@ created: 2026-05-25
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 03-01-01 | 01 | 0 | LAY-01 | T-03-01 | Validate finite Dagre input dimensions before layout. | unit | `rtk npm test -- layout` | ❌ W0 | ⬜ pending |
-| 03-01-02 | 01 | 0 | LAY-01 | — | Convert Dagre center coordinates to DGE top-left boxes. | unit | `rtk npm test -- layout` | ❌ W0 | ⬜ pending |
+| 03-01-01 | 01 | 1 | LAY-01 | T-03-01 | Validate finite Dagre input dimensions before layout. | unit | `rtk npm test -- layout` | ❌ W0 | ⬜ pending |
+| 03-01-02 | 01 | 1 | LAY-01 | — | Convert Dagre center coordinates to DGE top-left boxes. | unit | `rtk npm test -- layout` | ❌ W0 | ⬜ pending |
 | 03-02-01 | 02 | 1 | LAY-03, LAY-04 | T-03-02 | Missing refs and non-finite positions emit diagnostics instead of corrupting output. | unit | `rtk npm test -- constraints` | ❌ W0 | ⬜ pending |
 | 03-02-02 | 02 | 1 | LAY-03, LAY-04 | T-03-02 | Constraint precedence preserves fixed/exact locks. | unit | `rtk npm test -- constraints` | ❌ W0 | ⬜ pending |
 | 03-03-01 | 03 | 1 | RTE-01, RTE-02, RTE-03 | T-03-03 | Routing remains bounded and avoids unbounded pathfinding. | unit | `rtk npm test -- routing` | ❌ W0 | ⬜ pending |
 | 03-04-01 | 04 | 2 | LAY-02, LAY-04, RTE-01, RTE-02 | T-03-01, T-03-02, T-03-03 | Integrated solver returns coordinated IR plus diagnostics without renderer dependency. | integration + fixture | `rtk npm test -- solver determinism` | ❌ W0 | ⬜ pending |
-| 03-05-01 | 05 | 2 | LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03 | T-03-01, T-03-02, T-03-03 | Phase gate proves all Phase 3 outputs are deterministic and renderer-neutral. | full gate | `rtk npm run verify` | ❌ W0 | ⬜ pending |
+| 03-05-01 | 05 | 3 | LAY-01, LAY-02, LAY-03, LAY-04, RTE-01, RTE-02, RTE-03 | T-03-01, T-03-02, T-03-03 | Phase gate proves all Phase 3 outputs are deterministic and renderer-neutral. | full gate | `rtk npm run verify` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
