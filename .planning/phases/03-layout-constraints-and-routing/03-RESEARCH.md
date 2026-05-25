@@ -490,22 +490,22 @@ export function simplifyRoute(points: readonly Point[]): Point[] {
 | A3 | Layered numeric solvers can overwrite earlier moves unless they validate postconditions. | Common Pitfalls | Low; this is standard implementation risk, and mitigation is already locked by diagnostics. |
 | A4 | A route simplifier should use a single pass over duplicate and collinear points. | Common Pitfalls / Code Examples | Low; implementation can choose equivalent deterministic logic. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should route style be added to public IR now?**
    - What we know: Phase 3 must test straight and orthogonal routing, and edge endpoints already support optional anchors. [VERIFIED: 03-CONTEXT.md; VERIFIED: src/ir/elements.ts]
    - What's unclear: `NormalizedEdge` has no route-style property today. [VERIFIED: src/ir/elements.ts]
-   - Recommendation: Add a small renderer-neutral route option such as `routing?: { style?: "orthogonal" | "straight" }` only if tests need public selection; otherwise expose route style through solver options until the DSL phase. [VERIFIED: 03-CONTEXT.md]
+   - RESOLVED: Phase 3 should expose route style through solver/routing options and keep `NormalizedEdge` unchanged unless implementation tests prove a public IR field is necessary. DSL-level route style belongs to Phase 5. [VERIFIED: 03-CONTEXT.md]
 
 2. **How far should auto-node overlap repair go?**
    - What we know: Fixed nodes are hard locks, auto nodes may move, and unresolved overlap should produce diagnostics. [VERIFIED: 03-CONTEXT.md]
    - What's unclear: The exact adjustment budget and direction are discretionary. [VERIFIED: 03-CONTEXT.md]
-   - Recommendation: Use one deterministic axis push based on diagram direction and sorted IDs, then diagnose remaining overlaps. [ASSUMED]
+   - RESOLVED: Use a bounded deterministic repair pass: push automatic nodes along the primary diagram axis using stable sorted IDs and configured spacing, never move fixed/exact nodes, then emit diagnostics for remaining overlaps. [VERIFIED: 03-CONTEXT.md]
 
 3. **Should Dagre compound graph support be used for groups in Phase 3?**
    - What we know: Dagre and graphlib support compound graphs in types/API. [VERIFIED: package dist types]
    - What's unclear: Phase 3 locked simple container solving and deferred complex nested layout. [VERIFIED: 03-CONTEXT.md]
-   - Recommendation: Do not use Dagre compound layout in v1 wrapper; solve groups after child boxes through `computeContainerGeometry()`. [VERIFIED: 03-CONTEXT.md; VERIFIED: src/geometry/containers.ts]
+   - RESOLVED: Do not use Dagre compound layout in the Phase 3 wrapper. Solve groups after child boxes through `computeContainerGeometry()` and emit containment diagnostics for fixed containers whose children cannot fit. [VERIFIED: 03-CONTEXT.md; VERIFIED: src/geometry/containers.ts]
 
 ## Environment Availability
 
