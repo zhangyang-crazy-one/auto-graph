@@ -465,22 +465,19 @@ Keep unsupported future formats as validation errors, not hidden no-op branches.
 | A3 | User-facing examples can live at repo-root `examples/` because no examples convention exists yet. | Recommended Project Structure | If wrong, planner should move examples to the project-preferred fixture/docs path. |
 | A4 | A constrained regex is sufficient for edge shorthand ids after schema validation. | Code Examples | If wrong, implement a small tokenizer for edge shorthand and add negative fixtures. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Phase 5 expose a public `parseDiagramDsl()` API from the root package?**
    - What we know: Existing public APIs are exported through `src/index.ts`. [VERIFIED: src/index.ts; test/public-api.test.ts]
-   - What's unclear: Whether DSL parser is intended as stable library API in v1 or CLI-internal first. [ASSUMED]
-   - Recommendation: Export `parseDiagramDsl()` and `normalizeDiagramDsl()` from root only if tests lock their types; otherwise export a smaller `renderDsl()` pipeline and keep low-level schema private. [ASSUMED]
+   - Resolution: Expose `parseDiagramDsl()`, `normalizeDiagramDsl()`, `renderDiagramDsl()`, and DSL result/diagnostic types through the root package in Phase 5. Keep low-level Zod schema internals private. This matches existing root-only public API patterns while giving agents and developers a reusable programmatic DSL surface. [RESOLVED: 05-06 plan]
 
 2. **Where should label measurement happen when converting DSL to `NormalizedDiagram`?**
    - What we know: `solveDiagram()` accepts `NormalizedDiagram`, and `NormalizedNode.size` is required. [VERIFIED: src/solver/solve.ts; src/ir/elements.ts]
-   - What's unclear: There is no current `prepareDiagram()` entrypoint in the repo. [VERIFIED: rg results]
-   - Recommendation: Add a minimal `prepareDiagram(intent, options)` or `normalizeIntentDiagram()` bridge as part of Phase 5 before CLI orchestration. [VERIFIED: architecture requires prepare/solve/export separation]
+   - Resolution: Add the prepare bridge inside `normalizeDiagramDsl()` / `src/dsl/normalize.ts`. It must produce solver-ready `NormalizedDiagram` values using existing label/text abstractions and deterministic defaults. CLI orchestration must not measure labels directly. [RESOLVED: 05-03 plan]
 
 3. **Should semantic diagnostics include YAML line/column for non-syntax errors?**
    - What we know: YAML parser errors include `linePos`; Zod issues include paths. [CITED: yaml docs; zod docs]
-   - What's unclear: Mapping every Zod path back to YAML AST source ranges may be extra work. [ASSUMED]
-   - Recommendation: Require path and hint in Phase 5; treat exact line/column for validation errors as a stretch unless planner finds a simple AST range mapping. [VERIFIED: Phase 5 D-10]
+   - Resolution: Phase 5 requires path-bearing semantic diagnostics with actionable `hint` text. Exact line/column is required for YAML parse errors when the parser provides it, but semantic validation errors may use DSL paths without line/column unless implementation finds a simple AST range mapping. [RESOLVED: 05-02 and 05-03 plans]
 
 ## Environment Availability
 
