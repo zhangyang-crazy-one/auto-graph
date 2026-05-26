@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeShapeGeometry } from "../src/geometry/index.js";
+import { computeShapeGeometry, intersectsAabb } from "../src/geometry/index.js";
+import type { Box, Point } from "../src/ir/index.js";
 import { routeEdge, simplifyRoute } from "../src/routing/index.js";
 
 describe("routing", () => {
@@ -84,6 +85,22 @@ describe("routing", () => {
 			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
 		);
 	});
+
+	it("routes around a blocking obstacle when an expanded orthogonal lane is available", () => {
+		const obstacle = { x: 120, y: 20, width: 120, height: 120 };
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 100),
+			obstacles: [obstacle],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)?.x).toBeCloseTo(80);
+		expect(result.points.at(-1)?.x).toBeCloseTo(300);
+		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+	});
 });
 
 function shape(x: number, y: number) {
@@ -91,4 +108,31 @@ function shape(x: number, y: number) {
 		shape: "rectangle",
 		box: { x, y, width: 80, height: 40 },
 	});
+}
+
+function routeIntersectsObstacle(points: readonly Point[], obstacle: Box): boolean {
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const a = points[index];
+		const b = points[index + 1];
+		if (a === undefined || b === undefined) {
+			continue;
+		}
+
+		if (intersectsAabb(segmentBox(a, b), obstacle)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function segmentBox(a: Point, b: Point): Box {
+	const minX = Math.min(a.x, b.x);
+	const minY = Math.min(a.y, b.y);
+	return {
+		x: minX,
+		y: minY,
+		width: Math.max(1, Math.abs(a.x - b.x)),
+		height: Math.max(1, Math.abs(a.y - b.y)),
+	};
 }
