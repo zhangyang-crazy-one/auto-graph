@@ -255,8 +255,10 @@ constraints:
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toContain("sysml-frame");
 		expect(result.content).toContain("ibd [block] Processing System");
-		expect(result.content).toContain("class=\"port\"");
-		expect(result.content).toContain("data-port=\"processing_block.cooling_out\"");
+		expect(result.content).toContain('class="port"');
+		expect(result.content).toContain(
+			'data-port="processing_block.cooling_out"',
+		);
 		expect(result.content).toContain("swimlane");
 		expect(result.content).toContain("compartment");
 		expect(result.content).toContain("«block»");

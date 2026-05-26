@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
@@ -121,6 +121,12 @@ describe("solveDiagram", () => {
 			(port) => port.side === "right",
 		);
 		expect(new Set(rightSidePorts?.map((port) => port.box.y)).size).toBe(2);
+		expect(
+			Math.abs(
+				(rightSidePorts?.[1]?.anchor.y ?? 0) -
+					(rightSidePorts?.[0]?.anchor.y ?? 0),
+			),
+		).toBe(14);
 		const cooling = result.diagram?.edges.find(
 			(edge) => edge.id === "cooling_flow",
 		);
