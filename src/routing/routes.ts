@@ -1,7 +1,12 @@
 import { intersectsAabb, validateBox } from "../geometry/boxes.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
-import type { Box, Point } from "../ir/geometry.js";
+import type {
+	AnchorName,
+	Box,
+	DiagramDirection,
+	Point,
+} from "../ir/geometry.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
@@ -9,12 +14,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const source = getEdgePort(
 		input.source,
 		input.target.center,
-		input.sourceAnchor,
+		input.sourceAnchor ?? defaultSourceAnchor(input.direction),
 	);
 	const target = getEdgePort(
 		input.target,
 		input.source.center,
-		input.targetAnchor,
+		input.targetAnchor ?? defaultTargetAnchor(input.direction),
 	);
 
 	if ((input.kind ?? "orthogonal") === "straight") {
@@ -108,6 +113,32 @@ function orthogonalCandidates(
 	}
 
 	return candidates;
+}
+
+function defaultSourceAnchor(direction: DiagramDirection): AnchorName {
+	switch (direction) {
+		case "LR":
+			return "right";
+		case "RL":
+			return "left";
+		case "TB":
+			return "bottom";
+		case "BT":
+			return "top";
+	}
+}
+
+function defaultTargetAnchor(direction: DiagramDirection): AnchorName {
+	switch (direction) {
+		case "LR":
+			return "left";
+		case "RL":
+			return "right";
+		case "TB":
+			return "top";
+		case "BT":
+			return "bottom";
+	}
 }
 
 function expandedObstacleCandidates(

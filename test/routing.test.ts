@@ -52,6 +52,17 @@ describe("routing", () => {
 		}
 	});
 
+	it("uses diagram direction to choose default source and target anchor polarity", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 100),
+		});
+
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 200, y: 120 });
+	});
+
 	it("rejects blocked candidates and chooses a later deterministic obstacle-free route", () => {
 		const result = routeEdge({
 			kind: "orthogonal",
@@ -63,9 +74,9 @@ describe("routing", () => {
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.points).toEqual([
-			{ x: 80, y: 40 },
-			{ x: 80, y: 100 },
-			{ x: 200, y: 100 },
+			{ x: 80, y: 20 },
+			{ x: 200, y: 20 },
+			{ x: 200, y: 120 },
 		]);
 	});
 
@@ -75,7 +86,7 @@ describe("routing", () => {
 			source: shape(0, 0),
 			target: shape(200, 100),
 			obstacles: [
-				{ x: 70, y: 30, width: 30, height: 30 },
+				{ x: 70, y: 10, width: 30, height: 30 },
 				{ x: 100, y: 35, width: 80, height: 20 },
 				{ x: 75, y: 60, width: 20, height: 80 },
 				{ x: 100, y: 95, width: 80, height: 20 },

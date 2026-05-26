@@ -51,9 +51,28 @@ describe("exporters", () => {
 		expect(svg).toContain("node-cylinder");
 		expect(svg).toContain("<tspan");
 		expect(svg).toContain("Alpha &amp; Beta");
-		expect(svg).toContain('d="M 80 60 L 180 60 L 180 130"');
+		expect(svg).toContain('d="M 80 60 L 180 60 L 180 120"');
 		expect(svg).toContain('class="edge-arrowhead"');
 		expect(svg).toContain('points="180,130 176,120 184,120"');
+	});
+
+	it("exports local label layout coordinates at the owning box position", () => {
+		const diagram = createCoordinatedDiagram();
+		const node = diagram.nodes[0];
+		if (node === undefined) {
+			throw new Error("Expected fixture node");
+		}
+		node.box = { x: 100, y: 200, width: 120, height: 60 };
+		node.labelLayout = createLabelLayout("Local Text", {
+			x: 16,
+			y: 12,
+			width: 80,
+			height: 20,
+		});
+
+		const svg = exportSvg(diagram);
+
+		expect(svg).toContain('<tspan x="116" y="227">Local Text</tspan>');
 	});
 
 	it("exports deterministic Excalidraw elements with text, bindings, and groupIds", () => {
