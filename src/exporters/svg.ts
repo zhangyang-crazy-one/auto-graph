@@ -1,5 +1,6 @@
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
+	CoordinatedEdge,
 	CoordinatedGroup,
 	CoordinatedNode,
 	Label,
@@ -37,6 +38,7 @@ export function exportSvg(
 			renderLabel(group.label, group.box, group),
 		),
 		...diagram.nodes.flatMap((node) => renderLabel(node.label, node.box, node)),
+		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge)),
 		"</svg>",
 	];
 
@@ -109,9 +111,84 @@ function renderEdgePath(
 	return `<path class="edge" data-id="${escapeAttribute(id)}" d="${formatPath(pathPointsBeforeArrowhead(points))}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"/>`;
 }
 
+function renderEdgeLabel(edge: CoordinatedEdge): string[] {
+	if (edge.label?.text === undefined || edge.points.length < 2) {
+		return [];
+	}
+
+	const placement = labelPlacementOnPolyline(edge.points);
+	if (placement === undefined) {
+		return [];
+	}
+
+	return [
+		`  <text class="edge-label" data-for="${escapeAttribute(edge.id)}" x="${formatNumber(placement.x)}" y="${formatNumber(placement.y)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(edge.label.text)}</text>`,
+	];
+}
+
 function renderArrowhead(points: readonly Point[], id: string): string {
 	const arrowhead = computeArrowhead(points);
 	return `<polygon class="edge-arrowhead" data-edge="${escapeAttribute(id)}" points="${formatPoints([arrowhead.tip, arrowhead.left, arrowhead.right])}" fill="${EDGE_STROKE}" stroke="${EDGE_STROKE}"/>`;
+}
+
+function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
+	const segments = nonZeroSegments(points);
+	const totalLength = segments.reduce(
+		(sum, segment) => sum + segment.length,
+		0,
+	);
+	if (totalLength <= 0) {
+		return undefined;
+	}
+
+	let remaining = totalLength / 2;
+	for (const segment of segments) {
+		if (remaining <= segment.length) {
+			const ratio = remaining / segment.length;
+			const x = segment.start.x + (segment.end.x - segment.start.x) * ratio;
+			const y = segment.start.y + (segment.end.y - segment.start.y) * ratio;
+			const offset = labelOffset(segment);
+			return { x: x + offset.x, y: y + offset.y };
+		}
+		remaining -= segment.length;
+	}
+
+	const last = segments.at(-1);
+	if (last === undefined) {
+		return undefined;
+	}
+	const offset = labelOffset(last);
+	return { x: last.end.x + offset.x, y: last.end.y + offset.y };
+}
+
+function nonZeroSegments(points: readonly Point[]): Array<{
+	start: Point;
+	end: Point;
+	length: number;
+}> {
+	const segments: Array<{ start: Point; end: Point; length: number }> = [];
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) {
+			continue;
+		}
+		const length = Math.hypot(end.x - start.x, end.y - start.y);
+		if (length > 0) {
+			segments.push({ start, end, length });
+		}
+	}
+	return segments;
+}
+
+function labelOffset(segment: { start: Point; end: Point; length: number }): Point {
+	const offset = 10;
+	const dx = segment.end.x - segment.start.x;
+	const dy = segment.end.y - segment.start.y;
+	return {
+		x: (-dy / segment.length) * offset,
+		y: (dx / segment.length) * offset,
+	};
 }
 
 function pathPointsBeforeArrowhead(points: readonly Point[]): Point[] {
