@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
 
@@ -92,6 +94,39 @@ describe("solveDiagram", () => {
 				"solver.group-reference.missing",
 				"constraints.containment.impossible",
 			]),
+		);
+	});
+
+	it("solves boundary ports and shifted same-side attachments", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/sysml-structure.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		const processing = result.diagram?.nodes.find(
+			(node) => node.id === "processing_block",
+		);
+		expect(processing?.ports?.map((port) => port.id)).toEqual([
+			"cmd_in",
+			"cooling_out",
+			"heating_out",
+		]);
+		const rightSidePorts = processing?.ports?.filter(
+			(port) => port.side === "right",
+		);
+		expect(new Set(rightSidePorts?.map((port) => port.box.y)).size).toBe(2);
+		const cooling = result.diagram?.edges.find(
+			(edge) => edge.id === "cooling_flow",
+		);
+		expect(cooling?.source.portId).toBe("cooling_out");
+		expect(cooling?.points.at(0)).toEqual(
+			processing?.ports?.find((port) => port.id === "cooling_out")?.anchor,
 		);
 	});
 });
