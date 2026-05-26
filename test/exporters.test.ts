@@ -123,6 +123,49 @@ constraints:
 		expect(result.content).toContain('data-edge="source-target"');
 	});
 
+	it("exports Excalidraw dashed edges and hollow triangle arrowheads", () => {
+		const result = renderDiagramDsl(
+			`
+title: Styled Excalidraw Edges
+layout:
+  direction: LR
+nodes:
+  source:
+    label: Source
+    position: { x: 0, y: 0 }
+  target:
+    label: Target
+edges:
+  - source: source
+    target: target
+    style: dashed
+    arrowhead: hollowTriangle
+constraints:
+  - kind: relative-position
+    source: target
+    reference: source
+    relation: right-of
+    offset: { x: 160, y: 0 }
+`,
+			{ format: "excalidraw" },
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toBeDefined();
+		const scene = JSON.parse(result.content ?? "") as {
+			elements: Array<Record<string, unknown>>;
+		};
+		const arrow = scene.elements.find(
+			(element) => element.id === "edge:source-target",
+		);
+
+		expect(arrow).toMatchObject({
+			type: "arrow",
+			strokeStyle: "dashed",
+			endArrowhead: "triangle_outline",
+		});
+	});
+
 	it("exports deterministic Excalidraw elements with text, bindings, and groupIds", () => {
 		const scene = JSON.parse(exportExcalidraw(createCoordinatedDiagram())) as {
 			type: string;
@@ -194,7 +237,7 @@ constraints:
 		expect(arrow).toMatchObject({
 			type: "arrow",
 			strokeStyle: "dashed",
-			endArrowhead: "triangle",
+			endArrowhead: "triangle_outline",
 		});
 	});
 
