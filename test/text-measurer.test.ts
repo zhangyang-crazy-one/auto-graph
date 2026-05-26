@@ -3,6 +3,7 @@ import type { TextStyleOptions } from "../src/text/index.js";
 import {
 	createDefaultTextMeasurer,
 	DeterministicTextMeasurer,
+	installNodeCanvasRuntime,
 	isPretextRuntimeAvailable,
 	PretextTextMeasurer,
 } from "../src/text/index.js";
@@ -122,19 +123,42 @@ describe("text measurement", () => {
 			const prepared = createDefaultTextMeasurer().prepare("Hello", style);
 
 			expect(prepared.backend).toBe("pretext");
+			expect(globalThis.OffscreenCanvas).toBe(TestOffscreenCanvas);
 		} finally {
 			globalThis.OffscreenCanvas = originalOffscreenCanvas;
 		}
 	});
 
-	it("falls back to deterministic text measurement when Pretext runtime support is missing", () => {
+	it("uses Pretext as the default text measurer in a normal Node CLI runtime", () => {
 		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
 		globalThis.OffscreenCanvas =
 			undefined as unknown as typeof globalThis.OffscreenCanvas;
 
 		try {
+			expect(typeof globalThis.OffscreenCanvas).toBe("undefined");
+
 			const prepared = createDefaultTextMeasurer().prepare("Hello", style);
 
+			expect(prepared.backend).toBe("pretext");
+		} finally {
+			globalThis.OffscreenCanvas = originalOffscreenCanvas;
+		}
+	});
+
+	it("preserves deterministic fallback when Node canvas installation fails", () => {
+		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
+		globalThis.OffscreenCanvas =
+			undefined as unknown as typeof globalThis.OffscreenCanvas;
+
+		try {
+			const installed = installNodeCanvasRuntime(() => {
+				throw new Error("canvas unavailable");
+			});
+			const prepared = createDefaultTextMeasurer({
+				installNodeCanvasRuntime: () => installed,
+			}).prepare("Hello", style);
+
+			expect(installed).toBe(false);
 			expect(prepared.backend).toBe("deterministic");
 		} finally {
 			globalThis.OffscreenCanvas = originalOffscreenCanvas;

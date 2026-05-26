@@ -217,6 +217,27 @@ output:
 		).toEqual(["relative-position", "align", "distribute", "containment"]);
 	});
 
+	it("normalizes labels with the default Pretext measurer in Node", () => {
+		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
+		globalThis.OffscreenCanvas =
+			undefined as unknown as typeof globalThis.OffscreenCanvas;
+
+		try {
+			const result = normalizeDiagramDsl({
+				nodes: {
+					api: { label: "API" },
+				},
+			});
+
+			expect(result.diagnostics).toEqual([]);
+			expect(result.diagram?.nodes[0]?.labelLayout?.textBackend).toBe(
+				"pretext",
+			);
+		} finally {
+			globalThis.OffscreenCanvas = originalOffscreenCanvas;
+		}
+	});
+
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
 		expect(resolveOutputFormat().format).toBe("svg");
 		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(
