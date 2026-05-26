@@ -324,7 +324,7 @@ constraints:
 			"utf8",
 		);
 		expect(normalizeSource).toContain("fitLabel");
-		expect(normalizeSource).toContain("DeterministicTextMeasurer");
+		expect(normalizeSource).toContain("createDefaultTextMeasurer");
 	});
 
 	it("runs the built agh binary against the architecture example", () => {
