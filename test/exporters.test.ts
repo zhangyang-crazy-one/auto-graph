@@ -175,6 +175,29 @@ constraints:
 		expect(groupedNode).toMatchObject({ groupIds: ["group:group-a"] });
 	});
 
+	it("exports Excalidraw edge style and arrowhead semantics", () => {
+		const diagram = createCoordinatedDiagram();
+		const edge = diagram.edges[0];
+		if (edge === undefined) {
+			throw new Error("Expected fixture edge");
+		}
+		edge.style = "dashed";
+		edge.arrowhead = "hollowTriangle";
+
+		const scene = JSON.parse(exportExcalidraw(diagram)) as {
+			elements: Array<Record<string, unknown>>;
+		};
+		const arrow = scene.elements.find(
+			(element) => element.id === "edge:edge-a-b",
+		);
+
+		expect(arrow).toMatchObject({
+			type: "arrow",
+			strokeStyle: "dashed",
+			endArrowhead: "triangle",
+		});
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",
