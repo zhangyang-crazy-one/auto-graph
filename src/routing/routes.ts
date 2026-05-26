@@ -91,26 +91,28 @@ function orthogonalCandidates(
 ): Point[][] {
 	const midpointX = (source.x + target.x) / 2;
 	const midpointY = (source.y + target.y) / 2;
-	const candidates = [
-		[source, { x: target.x, y: source.y }, target],
-		[source, { x: source.x, y: target.y }, target],
-	];
+	const candidates: Point[][] = [];
 
 	if (direction === "TB" || direction === "BT") {
-		candidates.push([
-			source,
-			{ x: midpointX, y: source.y },
-			{ x: midpointX, y: target.y },
-			target,
-		]);
-	} else {
 		candidates.push([
 			source,
 			{ x: source.x, y: midpointY },
 			{ x: target.x, y: midpointY },
 			target,
 		]);
+	} else {
+		candidates.push([
+			source,
+			{ x: midpointX, y: source.y },
+			{ x: midpointX, y: target.y },
+			target,
+		]);
 	}
+
+	candidates.push(
+		[source, { x: target.x, y: source.y }, target],
+		[source, { x: source.x, y: target.y }, target],
+	);
 
 	return candidates;
 }
