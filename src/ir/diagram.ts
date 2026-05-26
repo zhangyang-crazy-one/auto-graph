@@ -2,14 +2,17 @@ import type { Constraint } from "./constraints.js";
 import type { Diagnostic } from "./diagnostics.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedFrame,
 	CoordinatedGroup,
 	CoordinatedNode,
+	DiagramFrame,
 	IntentEdge,
 	IntentGroup,
 	IntentNode,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
+	Swimlane,
 } from "./elements.js";
 import type { Box, DiagramDirection, JsonObject } from "./geometry.js";
 
@@ -25,7 +28,9 @@ export interface IntentDiagram {
 	nodes: IntentNode[];
 	edges?: IntentEdge[];
 	groups?: IntentGroup[];
+	swimlanes?: Swimlane[];
 	constraints?: Constraint[];
+	frame?: DiagramFrame;
 	metadata?: DiagramMetadata;
 }
 
@@ -37,8 +42,10 @@ export interface NormalizedDiagram {
 	nodes: NormalizedNode[];
 	edges: NormalizedEdge[];
 	groups: NormalizedGroup[];
+	swimlanes?: Swimlane[];
 	constraints: Constraint[];
 	diagnostics: Diagnostic[];
+	frame?: DiagramFrame;
 	metadata?: DiagramMetadata;
 }
 
@@ -50,7 +57,9 @@ export interface CoordinatedDiagram {
 	nodes: CoordinatedNode[];
 	edges: CoordinatedEdge[];
 	groups: CoordinatedGroup[];
+	swimlanes?: Swimlane[];
 	diagnostics: Diagnostic[];
 	bounds: Box;
+	frame?: CoordinatedFrame;
 	metadata?: DiagramMetadata;
 }

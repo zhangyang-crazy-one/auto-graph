@@ -25,7 +25,6 @@ swimlanes:
 nodes:
   processing_block:
     label: Processing
-    position: { x: 260, y: 80 }
     style:
       fill: "#fff2cc"
     ports:
@@ -51,12 +50,10 @@ nodes:
     position: { x: 40, y: 240 }
   cooling_block:
     label: Cooling
-    position: { x: 520, y: 80 }
     ports:
       command_in: { side: left, kind: flow, label: command }
   heating_block:
     label: Heating
-    position: { x: 520, y: 200 }
     ports:
       command_in: { side: left, kind: flow, label: command }
 edges:

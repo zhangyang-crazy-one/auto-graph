@@ -1,6 +1,8 @@
 import { exportExcalidraw, exportSvg } from "../exporters/index.js";
 import type { ExportResult } from "../exporters/types.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
+import type { JsonObject } from "../ir/geometry.js";
+import type { PortShiftingOptions } from "../solver/index.js";
 import { solveDiagram } from "../solver/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import { normalizeDiagramDsl } from "./normalize.js";
@@ -81,6 +83,7 @@ export function renderDiagramDsl(
 			normalized.diagram.metadata?.routeKind === "straight"
 				? "straight"
 				: "orthogonal",
+		...solvePortShiftingOption(normalized.diagram.metadata?.portShifting),
 	});
 	const solveDiagnostics = solved.diagnostics.map(toSolveDiagnostic);
 	if (hasErrorDiagnostics(solveDiagnostics)) {
@@ -122,6 +125,28 @@ function toSolveDiagnostic(
 	diagnostic: CoordinatedDiagram["diagnostics"][number],
 ): DslDiagnostic {
 	return { ...diagnostic, layer: "solve" };
+}
+
+function solvePortShiftingOption(value: unknown):
+	| {
+			portShifting: PortShiftingOptions;
+	  }
+	| Record<string, never> {
+	if (!isJsonObject(value)) {
+		return {};
+	}
+	const portShifting: PortShiftingOptions = {};
+	if (value.enabled === false) {
+		portShifting.enabled = false;
+	}
+	if (typeof value.spacing === "number") {
+		portShifting.spacing = value.spacing;
+	}
+	return { portShifting };
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toExportDiagnostic(

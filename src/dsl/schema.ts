@@ -39,17 +39,53 @@ const labelSchema = z.union([
 	}),
 ]);
 
+const styleSchema = z.object({
+	fill: z.string().optional(),
+	stroke: z.string().optional(),
+});
+
+const portSideSchema = z.enum(["top", "right", "bottom", "left"]);
+const portKindSchema = z.enum(["proxy", "flow"]);
+
+const portSchema = z.object({
+	label: labelSchema.optional(),
+	side: portSideSchema,
+	kind: portKindSchema.optional(),
+	order: finiteNumberSchema.optional(),
+	style: styleSchema.optional(),
+});
+
+const compartmentsSchema = z.object({
+	stereotype: z.string().optional(),
+	name: z.string().optional(),
+	properties: z
+		.array(z.record(z.string(), z.string()).or(z.string()))
+		.optional(),
+	constraints: z.array(z.string()).optional(),
+});
+
 const nodeSchema = z.object({
 	label: labelSchema.optional(),
 	shape: nodeShapeSchema.optional(),
 	position: pointSchema.optional(),
+	style: styleSchema.optional(),
+	ports: z.record(z.string(), portSchema).optional(),
+	compartments: compartmentsSchema.optional(),
 });
+
+const endpointSchema = z.union([
+	z.string(),
+	z.object({
+		node: z.string(),
+		port: z.string().optional(),
+	}),
+]);
 
 const structuredEdgeSchema = z
 	.object({
 		id: z.string().optional(),
-		source: z.string().optional(),
-		target: z.string().optional(),
+		source: endpointSchema.optional(),
+		target: endpointSchema.optional(),
 		sourceId: z.string().optional(),
 		targetId: z.string().optional(),
 		label: labelSchema.optional(),
@@ -80,6 +116,18 @@ const groupSchema = z.object({
 	nodes: z.array(z.string()).optional(),
 	groups: z.array(z.string()).optional(),
 	padding: insetsSchema.optional(),
+});
+
+const swimlaneSchema = z.object({
+	label: labelSchema.optional(),
+	orientation: z.enum(["vertical", "horizontal"]).optional(),
+	lanes: z.record(
+		z.string(),
+		z.object({
+			label: labelSchema.optional(),
+			children: z.array(z.string()).optional(),
+		}),
+	),
 });
 
 const exactPositionConstraintSchema = z.object({
@@ -152,12 +200,28 @@ export const diagramDslSchema = z.object({
 	routing: z
 		.object({
 			kind: routeKindSchema.optional(),
+			portShifting: z
+				.object({
+					enabled: z.boolean().optional(),
+					spacing: finiteNumberSchema.optional(),
+				})
+				.optional(),
 		})
 		.optional(),
 	nodes: z.record(z.string(), nodeSchema),
 	edges: z.array(edgeSchema).optional(),
 	groups: z.record(z.string(), groupSchema).optional(),
+	swimlanes: z.record(z.string(), swimlaneSchema).optional(),
 	constraints: z.array(constraintSchema).optional(),
+	frame: z
+		.object({
+			kind: z.string(),
+			context: z.string().optional(),
+			name: z.string().optional(),
+			titleTab: z.string(),
+			style: styleSchema.optional(),
+		})
+		.optional(),
 	output: z
 		.object({
 			format: outputFormatSchema.optional(),
