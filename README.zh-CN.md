@@ -9,7 +9,7 @@ auto-graph 是一个确定性的图形几何计算引擎。它把高层 YAML 或
 ## 安装
 
 ```bash
-npm install auto-graph
+npm install @crazyhappyone/auto-graph
 ```
 
 CLI 命令是 `agh`。
@@ -46,7 +46,7 @@ import {
   normalizeDiagramDsl,
   parseDiagramDsl,
   solveDiagram,
-} from "auto-graph";
+} from "@crazyhappyone/auto-graph";
 
 const source = `
 title: Architecture

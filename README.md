@@ -9,7 +9,7 @@ The project is not a visual editor and not a renderer-first diagramming tool. It
 ## Install
 
 ```bash
-npm install auto-graph
+npm install @crazyhappyone/auto-graph
 ```
 
 The CLI command is `agh`.
@@ -46,7 +46,7 @@ import {
   normalizeDiagramDsl,
   parseDiagramDsl,
   solveDiagram,
-} from "auto-graph";
+} from "@crazyhappyone/auto-graph";
 
 const source = `
 title: Architecture
