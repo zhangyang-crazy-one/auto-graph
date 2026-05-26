@@ -15,7 +15,7 @@
 | 3 | Layout, Constraints, And Routing | 5/5 | Complete    | 2026-05-25 |
 | 4 | Coordinated Exporters | 4/4 | Complete   | 2026-05-25 |
 | 5 | DSL Parser And CLI | 6/6 | Complete   | 2026-05-25 |
-| 6 | Verification And Release Readiness | Lock correctness with numeric, golden, exporter, and determinism tests | VER-01, VER-02, VER-03, VER-04 | no |
+| 6 | Verification And Release Readiness | Lock correctness with numeric, golden, exporter, and determinism tests | Complete | 2026-05-26 |
 
 ## Phase Details
 

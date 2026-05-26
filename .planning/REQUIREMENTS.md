@@ -58,10 +58,10 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ### Verification
 
-- [ ] **VER-01**: Test suite includes numeric unit tests for shape geometry, labels, constraints, and routing.
-- [ ] **VER-02**: Test suite includes golden coordinated IR fixtures for architecture diagrams, flowcharts, edge labels, and hybrid layout.
-- [ ] **VER-03**: Test suite includes golden SVG and Excalidraw exports generated from the same coordinated IR.
-- [ ] **VER-04**: Test suite includes determinism checks that repeated runs produce identical normalized outputs.
+- [x] **VER-01**: Test suite includes numeric unit tests for shape geometry, labels, constraints, and routing.
+- [x] **VER-02**: Test suite includes golden coordinated IR fixtures for architecture diagrams, flowcharts, edge labels, and hybrid layout.
+- [x] **VER-03**: Test suite includes golden SVG and Excalidraw exports generated from the same coordinated IR.
+- [x] **VER-04**: Test suite includes determinism checks that repeated runs produce identical normalized outputs.
 
 ## v2 Requirements
 
@@ -120,10 +120,10 @@ Requirements for the initial release. Each maps to roadmap phases.
 | CLI-01 | Phase 5 | Complete |
 | CLI-02 | Phase 5 | Complete |
 | CLI-03 | Phase 5 | Complete |
-| VER-01 | Phase 6 | Pending |
-| VER-02 | Phase 6 | Pending |
-| VER-03 | Phase 6 | Pending |
-| VER-04 | Phase 6 | Pending |
+| VER-01 | Phase 6 | Complete |
+| VER-02 | Phase 6 | Complete |
+| VER-03 | Phase 6 | Complete |
+| VER-04 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 29 total
@@ -132,4 +132,4 @@ Requirements for the initial release. Each maps to roadmap phases.
 
 ---
 *Requirements defined: 2026-05-24*
-*Last updated: 2026-05-25 after Phase 5 completion*
+*Last updated: 2026-05-26 after Phase 6 completion*
