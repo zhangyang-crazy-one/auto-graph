@@ -2,12 +2,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import {
 	computeArrowhead,
 	exportExcalidraw,
 	exportSvg,
 } from "../src/exporters/index.js";
-import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { CoordinatedDiagram, LabelLayout } from "../src/index.js";
 
 describe("exporters", () => {
@@ -90,6 +90,37 @@ describe("exporters", () => {
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toContain("user command");
 		expect(result.content).toContain("coolingPower_W");
+	});
+
+	it("exports dashed edges and hollow triangle arrowheads", () => {
+		const result = renderDiagramDsl(`
+title: Styled Edges
+layout:
+  direction: LR
+nodes:
+  source:
+    label: Source
+    position: { x: 0, y: 0 }
+  target:
+    label: Target
+edges:
+  - source: source
+    target: target
+    label: realizes
+    style: dashed
+    arrowhead: hollowTriangle
+constraints:
+  - kind: relative-position
+    source: target
+    reference: source
+    relation: right-of
+    offset: { x: 160, y: 0 }
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('stroke-dasharray="6 4"');
+		expect(result.content).toContain('fill="none"');
+		expect(result.content).toContain('data-edge="source-target"');
 	});
 
 	it("exports deterministic Excalidraw elements with text, bindings, and groupIds", () => {

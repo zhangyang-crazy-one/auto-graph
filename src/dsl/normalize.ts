@@ -131,6 +131,12 @@ function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
 			source: { nodeId: sourceId },
 			target: { nodeId: targetId },
 			...(label === undefined ? {} : { label }),
+			...(typeof edge === "string" || edge.style === undefined
+				? {}
+				: { style: edge.style }),
+			...(typeof edge === "string" || edge.arrowhead === undefined
+				? {}
+				: { arrowhead: edge.arrowhead }),
 		};
 	});
 }

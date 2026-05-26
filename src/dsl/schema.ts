@@ -5,6 +5,8 @@ import type { DslDiagnostic } from "./types.js";
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
 const routeKindSchema = z.enum(["orthogonal", "straight"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw"]);
+const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
+const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
 const nodeShapeSchema = z.enum([
 	"rectangle",
 	"rounded-rectangle",
@@ -51,6 +53,8 @@ const structuredEdgeSchema = z
 		sourceId: z.string().optional(),
 		targetId: z.string().optional(),
 		label: labelSchema.optional(),
+		style: edgeStrokeStyleSchema.optional(),
+		arrowhead: edgeArrowheadSchema.optional(),
 	})
 	.superRefine((edge, context) => {
 		if (edge.source === undefined && edge.sourceId === undefined) {

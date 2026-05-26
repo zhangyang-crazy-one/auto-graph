@@ -27,11 +27,11 @@ export function exportSvg(
 		`  <rect class="background" x="${formatNumber(diagram.bounds.x)}" y="${formatNumber(diagram.bounds.y)}" width="${formatNumber(diagram.bounds.width)}" height="${formatNumber(diagram.bounds.height)}" fill="#ffffff"/>`,
 		...diagram.groups.map((group) => indent(renderGroup(group))),
 		...diagram.edges.flatMap((edge) => {
-			const path = renderEdgePath(edge.points, edge.id);
+			const path = renderEdgePath(edge);
 			if (path === undefined) {
 				return [];
 			}
-			return [indent(path), indent(renderArrowhead(edge.points, edge.id))];
+			return [indent(path), indent(renderArrowhead(edge))];
 		}),
 		...diagram.nodes.map((node) => indent(renderNode(node))),
 		...diagram.groups.flatMap((group) =>
@@ -100,15 +100,13 @@ function renderLabel(
 	];
 }
 
-function renderEdgePath(
-	points: readonly Point[],
-	id: string,
-): string | undefined {
-	if (points.length < 2) {
+function renderEdgePath(edge: CoordinatedEdge): string | undefined {
+	if (edge.points.length < 2) {
 		return undefined;
 	}
 
-	return `<path class="edge" data-id="${escapeAttribute(id)}" d="${formatPath(pathPointsBeforeArrowhead(points))}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"/>`;
+	const dash = edge.style === "dashed" ? ' stroke-dasharray="6 4"' : "";
+	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${formatPath(pathPointsBeforeArrowhead(edge.points))}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
 }
 
 function renderEdgeLabel(edge: CoordinatedEdge): string[] {
@@ -126,9 +124,10 @@ function renderEdgeLabel(edge: CoordinatedEdge): string[] {
 	];
 }
 
-function renderArrowhead(points: readonly Point[], id: string): string {
-	const arrowhead = computeArrowhead(points);
-	return `<polygon class="edge-arrowhead" data-edge="${escapeAttribute(id)}" points="${formatPoints([arrowhead.tip, arrowhead.left, arrowhead.right])}" fill="${EDGE_STROKE}" stroke="${EDGE_STROKE}"/>`;
+function renderArrowhead(edge: CoordinatedEdge): string {
+	const arrowhead = computeArrowhead(edge.points);
+	const fill = edge.arrowhead === "hollowTriangle" ? "none" : EDGE_STROKE;
+	return `<polygon class="edge-arrowhead" data-edge="${escapeAttribute(edge.id)}" points="${formatPoints([arrowhead.tip, arrowhead.left, arrowhead.right])}" fill="${fill}" stroke="${EDGE_STROKE}"/>`;
 }
 
 function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
@@ -181,7 +180,11 @@ function nonZeroSegments(points: readonly Point[]): Array<{
 	return segments;
 }
 
-function labelOffset(segment: { start: Point; end: Point; length: number }): Point {
+function labelOffset(segment: {
+	start: Point;
+	end: Point;
+	length: number;
+}): Point {
 	const offset = 10;
 	const dx = segment.end.x - segment.start.x;
 	const dy = segment.end.y - segment.start.y;
