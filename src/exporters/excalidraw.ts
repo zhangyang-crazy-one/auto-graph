@@ -3,6 +3,7 @@ import type {
 	CoordinatedEdge,
 	CoordinatedGroup,
 	CoordinatedNode,
+	EdgeArrowhead,
 	Label,
 	NodeShape,
 } from "../ir/elements.js";
@@ -87,7 +88,7 @@ interface ExcalidrawArrowElement extends ExcalidrawElementBase<"arrow"> {
 	startBinding: { elementId: string; focus: 0; gap: 0 };
 	endBinding: { elementId: string; focus: 0; gap: 0 };
 	startArrowhead: null;
-	endArrowhead: "arrow";
+	endArrowhead: "arrow" | "triangle" | "triangle_outline";
 }
 
 export function exportExcalidraw(
@@ -187,11 +188,12 @@ function renderArrow(edge: CoordinatedEdge): ExcalidrawArrowElement {
 			height: box.height,
 		}),
 		backgroundColor: "transparent",
+		strokeStyle: edge.style ?? "solid",
 		points: relativePoints,
 		startBinding: { elementId: `node:${edge.source.nodeId}`, focus: 0, gap: 0 },
 		endBinding: { elementId: `node:${edge.target.nodeId}`, focus: 0, gap: 0 },
 		startArrowhead: null,
-		endArrowhead: "arrow",
+		endArrowhead: mapArrowhead(edge.arrowhead),
 	};
 }
 
@@ -281,6 +283,19 @@ function mapShape(shape: NodeShape): ExcalidrawShapeElement["type"] {
 			return "hexagon";
 		case "cylinder":
 			return "cylinder";
+	}
+}
+
+function mapArrowhead(
+	arrowhead: EdgeArrowhead | undefined,
+): ExcalidrawArrowElement["endArrowhead"] {
+	switch (arrowhead) {
+		case undefined:
+			return "arrow";
+		case "triangle":
+			return "triangle";
+		case "hollowTriangle":
+			return "triangle_outline";
 	}
 }
 

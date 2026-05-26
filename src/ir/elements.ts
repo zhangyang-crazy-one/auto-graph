@@ -61,11 +61,16 @@ export interface EdgeEndpoint {
 	anchor?: AnchorName;
 }
 
+export type EdgeStrokeStyle = "solid" | "dashed";
+export type EdgeArrowhead = "triangle" | "hollowTriangle";
+
 export interface IntentEdge {
 	id?: string;
 	sourceId: string;
 	targetId: string;
 	label?: Label;
+	style?: EdgeStrokeStyle;
+	arrowhead?: EdgeArrowhead;
 	metadata?: JsonObject;
 }
 
@@ -74,6 +79,8 @@ export interface NormalizedEdge {
 	source: EdgeEndpoint;
 	target: EdgeEndpoint;
 	label?: Label;
+	style?: EdgeStrokeStyle;
+	arrowhead?: EdgeArrowhead;
 	metadata?: JsonObject;
 }
 

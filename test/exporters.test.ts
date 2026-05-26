@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import {
 	computeArrowhead,
 	exportExcalidraw,
@@ -75,6 +76,96 @@ describe("exporters", () => {
 		expect(svg).toContain('<tspan x="116" y="227">Local Text</tspan>');
 	});
 
+	it("exports edge labels from the routed diagram", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/edge-labels.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain("user command");
+		expect(result.content).toContain("coolingPower_W");
+	});
+
+	it("exports dashed edges and hollow triangle arrowheads", () => {
+		const result = renderDiagramDsl(`
+title: Styled Edges
+layout:
+  direction: LR
+nodes:
+  source:
+    label: Source
+    position: { x: 0, y: 0 }
+  target:
+    label: Target
+edges:
+  - source: source
+    target: target
+    label: realizes
+    style: dashed
+    arrowhead: hollowTriangle
+constraints:
+  - kind: relative-position
+    source: target
+    reference: source
+    relation: right-of
+    offset: { x: 160, y: 0 }
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('stroke-dasharray="6 4"');
+		expect(result.content).toContain('fill="none"');
+		expect(result.content).toContain('data-edge="source-target"');
+	});
+
+	it("exports Excalidraw dashed edges and hollow triangle arrowheads", () => {
+		const result = renderDiagramDsl(
+			`
+title: Styled Excalidraw Edges
+layout:
+  direction: LR
+nodes:
+  source:
+    label: Source
+    position: { x: 0, y: 0 }
+  target:
+    label: Target
+edges:
+  - source: source
+    target: target
+    style: dashed
+    arrowhead: hollowTriangle
+constraints:
+  - kind: relative-position
+    source: target
+    reference: source
+    relation: right-of
+    offset: { x: 160, y: 0 }
+`,
+			{ format: "excalidraw" },
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toBeDefined();
+		const scene = JSON.parse(result.content ?? "") as {
+			elements: Array<Record<string, unknown>>;
+		};
+		const arrow = scene.elements.find(
+			(element) => element.id === "edge:source-target",
+		);
+
+		expect(arrow).toMatchObject({
+			type: "arrow",
+			strokeStyle: "dashed",
+			endArrowhead: "triangle_outline",
+		});
+	});
+
 	it("exports deterministic Excalidraw elements with text, bindings, and groupIds", () => {
 		const scene = JSON.parse(exportExcalidraw(createCoordinatedDiagram())) as {
 			type: string;
@@ -125,6 +216,29 @@ describe("exporters", () => {
 			(element) => element.id === "node:ellipse",
 		);
 		expect(groupedNode).toMatchObject({ groupIds: ["group:group-a"] });
+	});
+
+	it("exports Excalidraw edge style and arrowhead semantics", () => {
+		const diagram = createCoordinatedDiagram();
+		const edge = diagram.edges[0];
+		if (edge === undefined) {
+			throw new Error("Expected fixture edge");
+		}
+		edge.style = "dashed";
+		edge.arrowhead = "hollowTriangle";
+
+		const scene = JSON.parse(exportExcalidraw(diagram)) as {
+			elements: Array<Record<string, unknown>>;
+		};
+		const arrow = scene.elements.find(
+			(element) => element.id === "edge:edge-a-b",
+		);
+
+		expect(arrow).toMatchObject({
+			type: "arrow",
+			strokeStyle: "dashed",
+			endArrowhead: "triangle_outline",
+		});
 	});
 
 	it("blocks exporter geometry recomputation imports and calls", () => {

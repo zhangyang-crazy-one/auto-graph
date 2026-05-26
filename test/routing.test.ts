@@ -63,6 +63,30 @@ describe("routing", () => {
 		expect(result.points.at(-1)).toEqual({ x: 200, y: 120 });
 	});
 
+	it("selects vertical default anchors from relative geometry when anchors are omitted", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(20, 180),
+		});
+
+		expect(result.points.at(0)).toEqual({ x: 40, y: 40 });
+		expect(result.points.at(-1)).toEqual({ x: 60, y: 180 });
+	});
+
+	it("preserves explicit anchors over auto-port selection", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(20, 180),
+			sourceAnchor: "right",
+			targetAnchor: "left",
+		});
+
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 20, y: 200 });
+	});
+
 	it("rejects blocked candidates and chooses a later deterministic obstacle-free route", () => {
 		const result = routeEdge({
 			kind: "orthogonal",
