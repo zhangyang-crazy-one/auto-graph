@@ -11,15 +11,20 @@ import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
+	const defaultAnchors = defaultAnchorsForGeometry(
+		input.source.box,
+		input.target.box,
+		input.direction,
+	);
 	const source = getEdgePort(
 		input.source,
 		input.target.center,
-		input.sourceAnchor ?? defaultSourceAnchor(input.direction),
+		input.sourceAnchor ?? defaultAnchors.sourceAnchor,
 	);
 	const target = getEdgePort(
 		input.target,
 		input.source.center,
-		input.targetAnchor ?? defaultTargetAnchor(input.direction),
+		input.targetAnchor ?? defaultAnchors.targetAnchor,
 	);
 
 	if ((input.kind ?? "orthogonal") === "straight") {
@@ -128,6 +133,32 @@ function defaultSourceAnchor(direction: DiagramDirection): AnchorName {
 		case "BT":
 			return "top";
 	}
+}
+
+function defaultAnchorsForGeometry(
+	source: Box,
+	target: Box,
+	direction: DiagramDirection,
+): { sourceAnchor: AnchorName; targetAnchor: AnchorName } {
+	const dx = target.x + target.width / 2 - (source.x + source.width / 2);
+	const dy = target.y + target.height / 2 - (source.y + source.height / 2);
+
+	if (Math.abs(dy) > Math.abs(dx)) {
+		return dy >= 0
+			? { sourceAnchor: "bottom", targetAnchor: "top" }
+			: { sourceAnchor: "top", targetAnchor: "bottom" };
+	}
+
+	if (Math.abs(dx) > 0) {
+		return dx >= 0
+			? { sourceAnchor: "right", targetAnchor: "left" }
+			: { sourceAnchor: "left", targetAnchor: "right" };
+	}
+
+	return {
+		sourceAnchor: defaultSourceAnchor(direction),
+		targetAnchor: defaultTargetAnchor(direction),
+	};
 }
 
 function defaultTargetAnchor(direction: DiagramDirection): AnchorName {
