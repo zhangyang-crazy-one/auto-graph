@@ -241,6 +241,29 @@ constraints:
 		});
 	});
 
+	it("exports SysML visual structures from DSL", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/sysml-structure.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain("sysml-frame");
+		expect(result.content).toContain("ibd [block] Processing System");
+		expect(result.content).toContain("class=\"port\"");
+		expect(result.content).toContain("data-port=\"processing_block.cooling_out\"");
+		expect(result.content).toContain("swimlane");
+		expect(result.content).toContain("compartment");
+		expect(result.content).toContain("«block»");
+		expect(result.content).toContain("#fff2cc");
+		expect(result.content).toContain("coolingPower_W");
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",
