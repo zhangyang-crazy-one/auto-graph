@@ -61,7 +61,7 @@ export async function writeFileAtomic(
 	content: string,
 ): Promise<void> {
 	const dir = dirname(path);
-	const tempDir = await mkdtemp(join(dir, ".dge-output-"));
+	const tempDir = await mkdtemp(join(dir, ".agh-output-"));
 	const tempPath = join(tempDir, "output.tmp");
 
 	try {

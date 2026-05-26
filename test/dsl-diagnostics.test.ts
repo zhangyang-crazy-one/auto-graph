@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DslDiagnostic, DslDiagnosticLayer } from "../src/dsl/index.js";
 import {
 	parseDiagramDsl,
@@ -7,6 +7,7 @@ import {
 	resolveOutputFormat,
 	sortDslDiagnostics,
 } from "../src/dsl/index.js";
+import * as exporters from "../src/exporters/index.js";
 
 describe("DSL diagnostics contract", () => {
 	it("supports layered diagnostics with path and hint fields", () => {
@@ -147,9 +148,77 @@ output:
 			"parse.yaml.warning",
 		]);
 	});
-	it.todo("solve errors are converted into solve layer diagnostics");
-	it.todo("export errors are converted into export layer diagnostics");
-	it.todo("JSON diagnostic output remains stable for --json consumers");
+	it("solve errors are converted into solve layer diagnostics", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  a: { label: A }
+constraints:
+  - kind: exact-position
+    target: a
+    position: { x: 10, y: 10 }
+  - kind: exact-position
+    target: a
+    position: { x: 20, y: 20 }
+`);
+
+		expect(result.content).toBeUndefined();
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					severity: "error",
+					layer: "solve",
+					code: "constraints.conflict.exact-position",
+				}),
+			]),
+		);
+	});
+
+	it("export errors are converted into export layer diagnostics", () => {
+		const spy = vi.spyOn(exporters, "exportSvg").mockImplementation(() => {
+			throw new Error("Mock export error");
+		});
+
+		try {
+			const result = renderDiagramDsl(`
+nodes:
+  a: { label: A }
+`);
+			expect(result.content).toBeUndefined();
+			expect(result.diagnostics).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					layer: "export",
+					code: "export.failed",
+					message: "Mock export error",
+				}),
+			]);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("JSON diagnostic output remains stable for --json consumers", () => {
+		const diagnostic: DslDiagnostic = {
+			severity: "error",
+			layer: "validate",
+			code: "validate.reference.missing",
+			message: "Missing node reference",
+			path: ["edges", 0, "target"],
+			hint: "Define the missing node.",
+		};
+
+		const serialized = JSON.stringify(diagnostic);
+		const parsed = JSON.parse(serialized);
+
+		expect(parsed).toEqual({
+			severity: "error",
+			layer: "validate",
+			code: "validate.reference.missing",
+			message: "Missing node reference",
+			path: ["edges", 0, "target"],
+			hint: "Define the missing node.",
+		});
+	});
 
 	it("reports missing references before render output", () => {
 		const result = renderDiagramDsl(`

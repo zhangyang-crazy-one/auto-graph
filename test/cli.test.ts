@@ -29,10 +29,10 @@ edges:
   - api -> missing
 `;
 
-describe("dge CLI contract", () => {
+describe("agh CLI contract", () => {
 	it("names the planned CLI command surface", () => {
 		const usageAnchors = [
-			"dge",
+			"agh",
 			"--input",
 			"--output",
 			"--format",
@@ -43,7 +43,7 @@ describe("dge CLI contract", () => {
 			"atomic",
 		];
 
-		expect(usageAnchors).toContain("dge");
+		expect(usageAnchors).toContain("agh");
 		expect(usageAnchors).toContain("--input");
 		expect(usageAnchors).toContain("--output");
 		expect(usageAnchors).toContain("--format");
@@ -239,7 +239,7 @@ function memoryIo(stdin = "") {
 }
 
 async function tempWorkspace() {
-	const path = await mkdtemp(join(tmpdir(), "dge-cli-"));
+	const path = await mkdtemp(join(tmpdir(), "agh-cli-"));
 
 	return {
 		path,

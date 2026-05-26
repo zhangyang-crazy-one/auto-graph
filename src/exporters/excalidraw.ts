@@ -133,7 +133,7 @@ export function exportExcalidraw(
 	const scene = {
 		type: "excalidraw",
 		version: 2,
-		source: "diagram-geometry-engine",
+		source: "auto-graph",
 		elements,
 		appState: {
 			name: options.title ?? diagram.title ?? diagram.id,

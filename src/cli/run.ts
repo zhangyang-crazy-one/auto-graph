@@ -81,7 +81,7 @@ export async function runCli(
 
 function buildCommand(): Command {
 	return new Command()
-		.name("dge")
+		.name("agh")
 		.exitOverride()
 		.configureOutput({
 			writeOut: () => {},

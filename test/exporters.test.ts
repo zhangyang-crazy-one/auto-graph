@@ -66,7 +66,7 @@ describe("exporters", () => {
 
 		expect(scene.type).toBe("excalidraw");
 		expect(scene.version).toBe(2);
-		expect(scene.source).toBe("diagram-geometry-engine");
+		expect(scene.source).toBe("auto-graph");
 		expect(scene.elements.map((element) => element.id)).toContain(
 			"node:rectangle",
 		);
@@ -169,7 +169,7 @@ describe("exporters", () => {
 		expect(normalizeSource).toContain("DeterministicTextMeasurer");
 	});
 
-	it("runs the built dge binary against the architecture example", () => {
+	it("runs the built agh binary against the architecture example", () => {
 		const binaryPath = new URL("../dist/cli/index.js", import.meta.url)
 			.pathname;
 		const examplePath = new URL(
