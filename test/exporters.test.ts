@@ -7,6 +7,7 @@ import {
 	exportExcalidraw,
 	exportSvg,
 } from "../src/exporters/index.js";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { CoordinatedDiagram, LabelLayout } from "../src/index.js";
 
 describe("exporters", () => {
@@ -73,6 +74,22 @@ describe("exporters", () => {
 		const svg = exportSvg(diagram);
 
 		expect(svg).toContain('<tspan x="116" y="227">Local Text</tspan>');
+	});
+
+	it("exports edge labels from the routed diagram", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/edge-labels.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain("user command");
+		expect(result.content).toContain("coolingPower_W");
 	});
 
 	it("exports deterministic Excalidraw elements with text, bindings, and groupIds", () => {

@@ -1,0 +1,31 @@
+title: Phase 8 Edge Labels
+layout:
+  direction: LR
+routing:
+  kind: orthogonal
+nodes:
+  hmi:
+    label: HMI
+    position: { x: 0, y: 0 }
+  processing:
+    label: Processing
+  cooling:
+    label: Cooling
+edges:
+  - hmi -> processing: user command
+  - source: processing
+    target: cooling
+    label: coolingPower_W
+constraints:
+  - kind: relative-position
+    source: processing
+    reference: hmi
+    relation: right-of
+    offset: { x: 180, y: 0 }
+  - kind: relative-position
+    source: cooling
+    reference: processing
+    relation: right-of
+    offset: { x: 180, y: 0 }
+output:
+  format: svg
