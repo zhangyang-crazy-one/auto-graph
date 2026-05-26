@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TextStyleOptions } from "../src/text/index.js";
 import {
+	createDefaultTextMeasurer,
 	DeterministicTextMeasurer,
 	isPretextRuntimeAvailable,
 	PretextTextMeasurer,
@@ -99,5 +100,44 @@ describe("text measurement", () => {
 		const prepared = new PretextTextMeasurer().prepare("Hello", style);
 
 		expect(prepared.backend).toBe("pretext");
+	});
+
+	it("uses Pretext as the default text measurer when the runtime supports it", () => {
+		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
+		class TestOffscreenCanvas {
+			getContext(contextId: string) {
+				return contextId === "2d"
+					? {
+							measureText: (text: string) => ({
+								width: text.length * style.fontSize * 0.5,
+							}),
+						}
+					: null;
+			}
+		}
+		globalThis.OffscreenCanvas =
+			TestOffscreenCanvas as unknown as typeof globalThis.OffscreenCanvas;
+
+		try {
+			const prepared = createDefaultTextMeasurer().prepare("Hello", style);
+
+			expect(prepared.backend).toBe("pretext");
+		} finally {
+			globalThis.OffscreenCanvas = originalOffscreenCanvas;
+		}
+	});
+
+	it("falls back to deterministic text measurement when Pretext runtime support is missing", () => {
+		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
+		globalThis.OffscreenCanvas =
+			undefined as unknown as typeof globalThis.OffscreenCanvas;
+
+		try {
+			const prepared = createDefaultTextMeasurer().prepare("Hello", style);
+
+			expect(prepared.backend).toBe("deterministic");
+		} finally {
+			globalThis.OffscreenCanvas = originalOffscreenCanvas;
+		}
 	});
 });

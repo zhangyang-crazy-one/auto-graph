@@ -12,7 +12,7 @@ import type {
 } from "../ir/elements.js";
 import type { Insets, Point, Size } from "../ir/geometry.js";
 import { fitLabel } from "../labels/index.js";
-import { DeterministicTextMeasurer, type TextMeasurer } from "../text/index.js";
+import { createDefaultTextMeasurer, type TextMeasurer } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import type { DiagramDsl } from "./schema.js";
 import type { DslDiagnostic, NormalizeDiagramDslResult } from "./types.js";
@@ -51,7 +51,7 @@ export function normalizeDiagramDsl(
 		};
 	}
 
-	const measurer = options.textMeasurer ?? new DeterministicTextMeasurer();
+	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
 	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
 	const diagram: NormalizedDiagram = {
