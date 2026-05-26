@@ -22,6 +22,14 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	}
 
 	const candidates = orthogonalCandidates(source, target, input.direction);
+	candidates.push(
+		...expandedObstacleCandidates(
+			source,
+			target,
+			input.direction,
+			input.obstacles ?? [],
+		),
+	);
 	for (const candidate of candidates) {
 		if (!routeIntersectsObstacles(candidate, input.obstacles ?? [])) {
 			return { points: simplifyRoute(candidate), diagnostics };
@@ -100,6 +108,70 @@ function orthogonalCandidates(
 	}
 
 	return candidates;
+}
+
+function expandedObstacleCandidates(
+	source: Point,
+	target: Point,
+	direction: RouteEdgeInput["direction"],
+	obstacles: readonly Box[],
+): Point[][] {
+	if (obstacles.length === 0) {
+		return [];
+	}
+
+	const margin = 16;
+	const candidates: Point[][] = [];
+
+	if (direction === "TB" || direction === "BT") {
+		const lanes = sortedUniqueLanes(
+			obstacles.flatMap((obstacle) => [
+				obstacle.x - margin,
+				obstacle.x + obstacle.width + margin,
+			]),
+			(source.x + target.x) / 2,
+		);
+
+		for (const laneX of lanes) {
+			candidates.push([
+				source,
+				{ x: laneX, y: source.y },
+				{ x: laneX, y: target.y },
+				target,
+			]);
+		}
+	} else {
+		const lanes = sortedUniqueLanes(
+			obstacles.flatMap((obstacle) => [
+				obstacle.y - margin,
+				obstacle.y + obstacle.height + margin,
+			]),
+			(source.y + target.y) / 2,
+		);
+
+		for (const laneY of lanes) {
+			candidates.push([
+				source,
+				{ x: source.x, y: laneY },
+				{ x: target.x, y: laneY },
+				target,
+			]);
+		}
+	}
+
+	return candidates;
+}
+
+function sortedUniqueLanes(
+	lanes: readonly number[],
+	midpoint: number,
+): number[] {
+	return [...new Set(lanes)]
+		.filter((lane) => Number.isFinite(lane))
+		.sort((left, right) => {
+			const distance = Math.abs(left - midpoint) - Math.abs(right - midpoint);
+			return distance === 0 ? left - right : distance;
+		});
 }
 
 function routeIntersectsObstacles(

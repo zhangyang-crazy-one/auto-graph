@@ -75,6 +75,7 @@ describe("routing", () => {
 			source: shape(0, 0),
 			target: shape(200, 100),
 			obstacles: [
+				{ x: 70, y: 30, width: 30, height: 30 },
 				{ x: 100, y: 35, width: 80, height: 20 },
 				{ x: 75, y: 60, width: 20, height: 80 },
 				{ x: 100, y: 95, width: 80, height: 20 },
@@ -110,7 +111,10 @@ function shape(x: number, y: number) {
 	});
 }
 
-function routeIntersectsObstacle(points: readonly Point[], obstacle: Box): boolean {
+function routeIntersectsObstacle(
+	points: readonly Point[],
+	obstacle: Box,
+): boolean {
 	for (let index = 0; index < points.length - 1; index += 1) {
 		const a = points[index];
 		const b = points[index + 1];
