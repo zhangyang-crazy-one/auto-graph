@@ -438,6 +438,69 @@ describe("solveDiagram", () => {
 		}
 	});
 
+	it("stacks same-rank vertical swimlane children instead of collapsing them", () => {
+		const result = solveDiagram({
+			id: "vertical-flow-swimlane-same-rank",
+			direction: "LR",
+			nodes: [
+				node("independent_a"),
+				node("independent_b"),
+				node("start"),
+				node("finish"),
+			],
+			edges: [
+				{
+					id: "start-finish",
+					source: { nodeId: "start" },
+					target: { nodeId: "finish" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "activity",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{
+							id: "independent",
+							children: ["independent_a", "independent_b"],
+						},
+						{
+							id: "flow",
+							children: ["start", "finish"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+		const independentA = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "independent_a",
+		);
+		const independentB = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "independent_b",
+		);
+		const flowLane = result.swimlanes?.[0]?.lanes.find(
+			(lane) => lane.id === "flow",
+		);
+
+		if (independentA === undefined || independentB === undefined) {
+			throw new Error("Expected independent nodes");
+		}
+		expect(result.diagnostics).toEqual([]);
+		expect(independentB.box.y).toBeGreaterThanOrEqual(
+			independentA.box.y + independentA.box.height,
+		);
+		expect(flowLane?.contentBox?.height).toBeGreaterThan(
+			(independentA.box.height + independentB.box.height) * 2,
+		);
+	});
+
 	it("preserves empty contract lane slots before populated lanes", () => {
 		const result = solveDiagram({
 			id: "contract-swimlane-empty-slot",

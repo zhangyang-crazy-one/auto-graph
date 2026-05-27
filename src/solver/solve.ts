@@ -295,9 +295,16 @@ function applyVerticalSwimlaneContract(
 		: new Map<string, number>();
 	const maxRank =
 		flowRanks.size === 0 ? 0 : Math.max(...Array.from(flowRanks.values()));
-	const rankSpacing = Math.max(96, maxChildHeight + padding * 2);
+	const rankStackGap = Math.max(8, padding / 2);
+	const maxRankStackHeight = maxVerticalRankStackHeight(
+		swimlane,
+		nodeBoxes,
+		flowRanks,
+		rankStackGap,
+	);
+	const rankSpacing = Math.max(96, maxRankStackHeight + padding);
 	const contentHeight =
-		maxRank === 0 ? maxChildHeight : maxChildHeight + maxRank * rankSpacing;
+		maxRank === 0 ? maxChildHeight : maxRankStackHeight + maxRank * rankSpacing;
 	const slotWidth =
 		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
 	const laneContentTop = top + headerHeight + padding;
@@ -334,6 +341,7 @@ function applyVerticalSwimlaneContract(
 			movedChildIds,
 			flowRanks,
 			rankSpacing,
+			rankStackGap,
 			{
 				x: target.x - bounds.x,
 				y: laneContentTop,
@@ -450,6 +458,30 @@ function rankCyclicSwimlaneChildren(
 	return ranks;
 }
 
+function maxVerticalRankStackHeight(
+	swimlane: Swimlane,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	flowRanks: ReadonlyMap<string, number>,
+	gap: number,
+): number {
+	let maxHeight = 0;
+	for (const lane of swimlane.lanes) {
+		for (const stack of rankStacks(
+			lane.children,
+			nodeBoxes,
+			flowRanks,
+		).values()) {
+			const height = stack.reduce(
+				(total, item, index) =>
+					total + item.box.height + (index === 0 ? 0 : gap),
+				0,
+			);
+			maxHeight = Math.max(maxHeight, height);
+		}
+	}
+	return maxHeight;
+}
+
 function moveRankedVerticalLaneChildren(
 	childIds: readonly string[],
 	nodeBoxes: Map<string, Box>,
@@ -458,33 +490,60 @@ function moveRankedVerticalLaneChildren(
 	movedChildIds: Set<string>,
 	flowRanks: ReadonlyMap<string, number>,
 	rankSpacing: number,
+	rankStackGap: number,
 	target: Point,
 ): void {
+	for (const [rank, stack] of rankStacks(childIds, nodeBoxes, flowRanks)) {
+		let yOffset = 0;
+		for (const item of stack) {
+			const { childId, box } = item;
+			if (locks.has(childId)) {
+				diagnostics.push({
+					severity: "warning",
+					code: "constraints.locked-target-not-moved",
+					message: `Locked child ${childId} was not moved into contract swimlane slot.`,
+					path: ["swimlanes"],
+					detail: { nodeId: childId },
+				});
+				continue;
+			}
+			const next = {
+				...box,
+				x: box.x + target.x,
+				y: target.y + rank * rankSpacing + yOffset,
+			};
+			if (next.x !== box.x || next.y !== box.y) {
+				movedChildIds.add(childId);
+			}
+			nodeBoxes.set(childId, next);
+			yOffset += box.height + rankStackGap;
+		}
+	}
+}
+
+function rankStacks(
+	childIds: readonly string[],
+	nodeBoxes: ReadonlyMap<string, Box>,
+	flowRanks: ReadonlyMap<string, number>,
+): Map<number, Array<{ childId: string; box: Box }>> {
+	const stacks = new Map<number, Array<{ childId: string; box: Box }>>();
 	for (const childId of childIds) {
 		const box = nodeBoxes.get(childId);
 		if (box === undefined) {
 			continue;
 		}
-		if (locks.has(childId)) {
-			diagnostics.push({
-				severity: "warning",
-				code: "constraints.locked-target-not-moved",
-				message: `Locked child ${childId} was not moved into contract swimlane slot.`,
-				path: ["swimlanes"],
-				detail: { nodeId: childId },
-			});
-			continue;
-		}
-		const next = {
-			...box,
-			x: box.x + target.x,
-			y: target.y + (flowRanks.get(childId) ?? 0) * rankSpacing,
-		};
-		if (next.x !== box.x || next.y !== box.y) {
-			movedChildIds.add(childId);
-		}
-		nodeBoxes.set(childId, next);
+		const rank = flowRanks.get(childId) ?? 0;
+		const stack = stacks.get(rank) ?? [];
+		stack.push({ childId, box });
+		stacks.set(rank, stack);
 	}
+	for (const stack of stacks.values()) {
+		stack.sort((a, b) => {
+			const deltaY = a.box.y - b.box.y;
+			return deltaY === 0 ? a.childId.localeCompare(b.childId) : deltaY;
+		});
+	}
+	return stacks;
 }
 
 function applyHorizontalSwimlaneContract(
