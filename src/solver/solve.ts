@@ -2,6 +2,7 @@ import { applyLayoutConstraints } from "../constraints/index.js";
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
+	intersectsAabb,
 	unionBoxes,
 } from "../geometry/index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
@@ -39,6 +40,16 @@ interface SwimlaneContractLayout {
 	slotHeight: number;
 }
 
+interface SwimlaneContractResult {
+	layouts: Map<string, SwimlaneContractLayout>;
+	diagnostics: Diagnostic[];
+}
+
+interface LayoutLockLike {
+	nodeId: string;
+	source: string;
+}
+
 export function solveDiagram(
 	diagram: NormalizedDiagram,
 	options: SolveDiagramOptions = {},
@@ -73,7 +84,10 @@ export function solveDiagram(
 	const swimlaneContracts = applySwimlaneLayoutContracts(
 		diagram.swimlanes ?? [],
 		constrained.boxes,
+		constrained.locks,
+		options?.overlapSpacing ?? 40,
 	);
+	diagnostics.push(...swimlaneContracts.diagnostics);
 
 	const coordinatedNodes = coordinateNodes(
 		nodes,
@@ -100,7 +114,7 @@ export function solveDiagram(
 	const coordinatedSwimlanes = coordinateSwimlanes(
 		diagram.swimlanes ?? [],
 		constrained.boxes,
-		swimlaneContracts,
+		swimlaneContracts.layouts,
 	);
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
@@ -158,8 +172,11 @@ export function solveDiagram(
 function applySwimlaneLayoutContracts(
 	swimlanes: readonly Swimlane[],
 	nodeBoxes: Map<string, Box>,
-): Map<string, SwimlaneContractLayout> {
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	overlapSpacing: number,
+): SwimlaneContractResult {
 	const layouts = new Map<string, SwimlaneContractLayout>();
+	const diagnostics: Diagnostic[] = [];
 	for (const swimlane of swimlanes) {
 		if ((swimlane.layout ?? "overlay") !== "contract") {
 			continue;
@@ -167,17 +184,25 @@ function applySwimlaneLayoutContracts(
 		if (swimlane.lanes.length === 0) {
 			continue;
 		}
-		const layout = applySingleSwimlaneContract(swimlane, nodeBoxes);
+		const layout = applySingleSwimlaneContract(
+			swimlane,
+			nodeBoxes,
+			locks,
+			diagnostics,
+		);
 		if (layout !== undefined) {
 			layouts.set(swimlane.id, layout);
 		}
 	}
-	return layouts;
+	diagnostics.push(...reportSwimlaneOverlaps(nodeBoxes, locks, overlapSpacing));
+	return { layouts, diagnostics };
 }
 
 function applySingleSwimlaneContract(
 	swimlane: Swimlane,
 	nodeBoxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
 ): SwimlaneContractLayout | undefined {
 	const headerHeight = swimlane.headerHeight ?? 28;
 	const padding = swimlane.padding ?? 16;
@@ -201,6 +226,8 @@ function applySingleSwimlaneContract(
 			laneBounds,
 			headerHeight,
 			padding,
+			locks,
+			diagnostics,
 		);
 	}
 	return applyHorizontalSwimlaneContract(
@@ -209,6 +236,8 @@ function applySingleSwimlaneContract(
 		laneBounds,
 		headerHeight,
 		padding,
+		locks,
+		diagnostics,
 	);
 }
 
@@ -218,6 +247,8 @@ function applyVerticalSwimlaneContract(
 	laneBounds: ReadonlyArray<Box | undefined>,
 	headerHeight: number,
 	padding: number,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
 ): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
@@ -238,7 +269,7 @@ function applyVerticalSwimlaneContract(
 			x: left + slotWidth * index + padding,
 			y: laneContentTop,
 		};
-		moveLaneChildren(lane.children, nodeBoxes, {
+		moveLaneChildren(lane.children, nodeBoxes, locks, diagnostics, {
 			x: target.x - bounds.x,
 			y: target.y - bounds.y,
 		});
@@ -268,6 +299,8 @@ function applyHorizontalSwimlaneContract(
 	laneBounds: ReadonlyArray<Box | undefined>,
 	headerHeight: number,
 	padding: number,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
 ): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
@@ -289,7 +322,7 @@ function applyHorizontalSwimlaneContract(
 			x: left + padding,
 			y: top + slotHeight * index + headerHeight + padding,
 		};
-		moveLaneChildren(lane.children, nodeBoxes, {
+		moveLaneChildren(lane.children, nodeBoxes, locks, diagnostics, {
 			x: target.x - bounds.x,
 			y: target.y - bounds.y,
 		});
@@ -311,11 +344,23 @@ function applyHorizontalSwimlaneContract(
 function moveLaneChildren(
 	childIds: readonly string[],
 	nodeBoxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
 	offset: Point,
 ): void {
 	for (const childId of childIds) {
 		const box = nodeBoxes.get(childId);
 		if (box === undefined) {
+			continue;
+		}
+		if (locks.has(childId)) {
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.locked-target-not-moved",
+				message: `Locked child ${childId} was not moved into contract swimlane slot.`,
+				path: ["swimlanes"],
+				detail: { nodeId: childId },
+			});
 			continue;
 		}
 		nodeBoxes.set(childId, {
@@ -324,6 +369,43 @@ function moveLaneChildren(
 			y: box.y + offset.y,
 		});
 	}
+}
+
+function reportSwimlaneOverlaps(
+	nodeBoxes: ReadonlyMap<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	overlapSpacing: number,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	const ids = [...nodeBoxes.keys()].sort();
+	for (const firstId of ids) {
+		for (const secondId of ids) {
+			if (firstId >= secondId) {
+				continue;
+			}
+			const first = nodeBoxes.get(firstId);
+			const second = nodeBoxes.get(secondId);
+			if (first === undefined || second === undefined) {
+				continue;
+			}
+			if (!intersectsAabb(first, second)) {
+				continue;
+			}
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.overlap.unresolved",
+				message: `Boxes ${firstId} and ${secondId} still overlap after contract swimlane placement with configured spacing ${overlapSpacing}.`,
+				path: ["swimlanes"],
+				detail: {
+					firstId,
+					secondId,
+					firstLocked: locks.has(firstId),
+					secondLocked: locks.has(secondId),
+				},
+			});
+		}
+	}
+	return diagnostics;
 }
 
 function coordinateNodes(

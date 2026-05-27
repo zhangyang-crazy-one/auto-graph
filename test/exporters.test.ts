@@ -322,10 +322,8 @@ swimlanes:
 nodes:
   source_a:
     label: Source A
-    position: { x: 40, y: 40 }
   target_a:
     label: Target A
-    position: { x: 320, y: 40 }
 `);
 
 		expect(result.diagnostics).toEqual([]);

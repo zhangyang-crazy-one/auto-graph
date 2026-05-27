@@ -302,6 +302,40 @@ constraints:
 		);
 	});
 
+	it("rejects negative swimlane sizing during validation", () => {
+		const result = parseDiagramDsl(`
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: -1
+    padding: -2
+    orientation: vertical
+    lanes:
+      lane_a:
+        children: [a]
+nodes:
+  a: { label: A }
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.schema.invalid",
+					path: ["swimlanes", "behavior", "headerHeight"],
+				}),
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.schema.invalid",
+					path: ["swimlanes", "behavior", "padding"],
+				}),
+			]),
+		);
+	});
+
 	it("rejects unsupported output formats", () => {
 		for (const format of ["drawio", "mermaid", "ascii"]) {
 			const result = resolveOutputFormat(format);

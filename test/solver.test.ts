@@ -267,10 +267,10 @@ describe("solveDiagram", () => {
 			id: "contract-swimlane",
 			direction: "LR",
 			nodes: [
-				node("source_a", { x: 40, y: 40 }),
-				node("source_b", { x: 40, y: 120 }),
-				node("target_a", { x: 320, y: 40 }),
-				node("target_b", { x: 320, y: 120 }),
+				node("source_a"),
+				node("source_b"),
+				node("target_a"),
+				node("target_b"),
 			],
 			edges: [
 				{
@@ -343,7 +343,7 @@ describe("solveDiagram", () => {
 		const result = solveDiagram({
 			id: "contract-swimlane-empty-slot",
 			direction: "LR",
-			nodes: [node("work", { x: 300, y: 120 })],
+			nodes: [node("work")],
 			edges: [],
 			groups: [],
 			swimlanes: [
@@ -383,6 +383,77 @@ describe("solveDiagram", () => {
 			populatedLane.contentBox.x + populatedLane.contentBox.width,
 		);
 		expect(work.box.y).toBeGreaterThanOrEqual(populatedLane.contentBox.y);
+	});
+
+	it("does not move locked nodes into contract swimlane slots", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-locked-node",
+			direction: "LR",
+			nodes: [
+				node("locked", { x: 300, y: 120 }),
+				node("free", { x: 420, y: 120 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [{ id: "lane", children: ["locked", "free"] }],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(
+			result.nodes.find((coordinatedNode) => coordinatedNode.id === "locked")
+				?.box,
+		).toMatchObject({
+			x: 300,
+			y: 120,
+		});
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.locked-target-not-moved",
+				detail: expect.objectContaining({ nodeId: "locked" }),
+			}),
+		);
+	});
+
+	it("reports overlaps introduced by contract swimlane placement", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-overlap",
+			direction: "LR",
+			nodes: [node("lane_child"), node("outside", { x: 40, y: 80 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [{ id: "lane", children: ["lane_child"] }],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					firstId: "lane_child",
+					secondId: "outside",
+				}),
+			}),
+		);
 	});
 });
 
