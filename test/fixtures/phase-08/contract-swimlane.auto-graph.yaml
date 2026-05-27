@@ -1,0 +1,33 @@
+title: Contract Swimlane Fixture
+layout:
+  direction: LR
+swimlanes:
+  behavior:
+    label: Behavior Triad
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: vertical
+    lanes:
+      left:
+        label: Source
+        children: [source_a, source_b]
+      right:
+        label: Target
+        children: [target_a, target_b]
+nodes:
+  source_a:
+    label: Source A
+    position: { x: 40, y: 40 }
+  source_b:
+    label: Source B
+    position: { x: 40, y: 120 }
+  target_a:
+    label: Target A
+    position: { x: 320, y: 40 }
+  target_b:
+    label: Target B
+    position: { x: 320, y: 120 }
+edges:
+  - source_a -> target_a: flow
+  - source_b -> target_b: flow

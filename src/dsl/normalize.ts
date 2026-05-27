@@ -356,6 +356,13 @@ function normalizeSwimlanes(dsl: DiagramDsl): Swimlane[] {
 				id,
 				...(label === undefined ? {} : { label }),
 				orientation: swimlane?.orientation ?? "vertical",
+				layout: swimlane?.layout ?? "overlay",
+				...(swimlane?.headerHeight === undefined
+					? {}
+					: { headerHeight: swimlane.headerHeight }),
+				...(swimlane?.padding === undefined
+					? {}
+					: { padding: swimlane.padding }),
 				lanes: Object.keys(swimlane?.lanes ?? {})
 					.sort()
 					.map((laneId) => {

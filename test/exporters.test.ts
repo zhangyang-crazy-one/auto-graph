@@ -285,6 +285,24 @@ constraints:
 		expect(result.content).toContain("coolingPower_W");
 	});
 
+	it("exports contract swimlane header and content regions from DSL", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/contract-swimlane.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-header"');
+		expect(result.content).toContain('class="swimlane-content"');
+		expect(result.content).toContain('data-lane-header="behavior.left"');
+		expect(result.content).toContain('data-lane-content="behavior.right"');
+	});
+
 	it("does not render duplicate centered labels for compartment nodes", () => {
 		const result = renderDiagramDsl(`
 nodes:

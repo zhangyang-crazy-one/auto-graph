@@ -64,6 +64,7 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
+	applySwimlaneLayoutContracts(diagram.swimlanes ?? [], constrained.boxes);
 
 	const coordinatedNodes = coordinateNodes(
 		nodes,
@@ -142,6 +143,144 @@ export function solveDiagram(
 		...(frame === undefined ? {} : { frame }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
+}
+
+function applySwimlaneLayoutContracts(
+	swimlanes: readonly Swimlane[],
+	nodeBoxes: Map<string, Box>,
+): void {
+	for (const swimlane of swimlanes) {
+		if ((swimlane.layout ?? "overlay") !== "contract") {
+			continue;
+		}
+		if (swimlane.lanes.length === 0) {
+			continue;
+		}
+		applySingleSwimlaneContract(swimlane, nodeBoxes);
+	}
+}
+
+function applySingleSwimlaneContract(
+	swimlane: Swimlane,
+	nodeBoxes: Map<string, Box>,
+): void {
+	const headerHeight = swimlane.headerHeight ?? 28;
+	const padding = swimlane.padding ?? 16;
+	const laneBounds = swimlane.lanes.map((lane) => {
+		const childBoxes = lane.children
+			.map((child) => nodeBoxes.get(child))
+			.filter((box): box is Box => box !== undefined);
+		return childBoxes.length === 0 ? undefined : unionBoxes(childBoxes);
+	});
+	const populatedBounds = laneBounds.filter(
+		(box): box is Box => box !== undefined,
+	);
+	if (populatedBounds.length === 0) {
+		return;
+	}
+
+	if (swimlane.orientation === "vertical") {
+		applyVerticalSwimlaneContract(
+			swimlane,
+			nodeBoxes,
+			laneBounds,
+			headerHeight,
+			padding,
+		);
+	} else {
+		applyHorizontalSwimlaneContract(
+			swimlane,
+			nodeBoxes,
+			laneBounds,
+			headerHeight,
+			padding,
+		);
+	}
+}
+
+function applyVerticalSwimlaneContract(
+	swimlane: Swimlane,
+	nodeBoxes: Map<string, Box>,
+	laneBounds: ReadonlyArray<Box | undefined>,
+	headerHeight: number,
+	padding: number,
+): void {
+	const populatedBounds = laneBounds.filter(
+		(box): box is Box => box !== undefined,
+	);
+	const top = Math.min(...populatedBounds.map((box) => box.y));
+	const left = Math.min(...populatedBounds.map((box) => box.x));
+	const laneWidth =
+		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
+	const laneContentTop = top + headerHeight + padding;
+
+	for (let index = 0; index < swimlane.lanes.length; index += 1) {
+		const lane = swimlane.lanes[index];
+		const bounds = laneBounds[index];
+		if (lane === undefined || bounds === undefined) {
+			continue;
+		}
+		const target = {
+			x: left + laneWidth * index + padding,
+			y: laneContentTop,
+		};
+		moveLaneChildren(lane.children, nodeBoxes, {
+			x: target.x - bounds.x,
+			y: target.y - bounds.y,
+		});
+	}
+}
+
+function applyHorizontalSwimlaneContract(
+	swimlane: Swimlane,
+	nodeBoxes: Map<string, Box>,
+	laneBounds: ReadonlyArray<Box | undefined>,
+	headerHeight: number,
+	padding: number,
+): void {
+	const populatedBounds = laneBounds.filter(
+		(box): box is Box => box !== undefined,
+	);
+	const top = Math.min(...populatedBounds.map((box) => box.y));
+	const left = Math.min(...populatedBounds.map((box) => box.x));
+	const laneHeight =
+		Math.max(...populatedBounds.map((box) => box.height)) +
+		headerHeight +
+		padding * 2;
+
+	for (let index = 0; index < swimlane.lanes.length; index += 1) {
+		const lane = swimlane.lanes[index];
+		const bounds = laneBounds[index];
+		if (lane === undefined || bounds === undefined) {
+			continue;
+		}
+		const target = {
+			x: left + padding,
+			y: top + laneHeight * index + headerHeight + padding,
+		};
+		moveLaneChildren(lane.children, nodeBoxes, {
+			x: target.x - bounds.x,
+			y: target.y - bounds.y,
+		});
+	}
+}
+
+function moveLaneChildren(
+	childIds: readonly string[],
+	nodeBoxes: Map<string, Box>,
+	offset: Point,
+): void {
+	for (const childId of childIds) {
+		const box = nodeBoxes.get(childId);
+		if (box === undefined) {
+			continue;
+		}
+		nodeBoxes.set(childId, {
+			...box,
+			x: box.x + offset.x,
+			y: box.y + offset.y,
+		});
+	}
 }
 
 function coordinateNodes(
@@ -299,20 +438,24 @@ function coordinateSwimlanes(
 	swimlanes: readonly Swimlane[],
 	nodeBoxes: ReadonlyMap<string, Box>,
 ): Swimlane[] {
-	const titleSize = 28;
-	const padding = 16;
 	return swimlanes.map((swimlane) => {
-		const laneBoxes = swimlane.lanes.flatMap((lane) => {
+		const layout = swimlane.layout ?? "overlay";
+		const headerHeight = swimlane.headerHeight ?? 28;
+		const padding = swimlane.padding ?? 16;
+		const laneContentBoxes = swimlane.lanes.map((lane) => {
 			const childBoxes = lane.children
 				.map((child) => nodeBoxes.get(child))
 				.filter((box): box is Box => box !== undefined);
-			return childBoxes.length === 0 ? [] : [unionBoxes(childBoxes)];
+			return childBoxes.length === 0 ? undefined : unionBoxes(childBoxes);
 		});
 		const laneUnion =
-			laneBoxes.length === 0
+			laneContentBoxes.filter((box): box is Box => box !== undefined).length ===
+			0
 				? { x: 0, y: 0, width: 120, height: 80 }
-				: unionBoxes(laneBoxes);
-		const outer = expand(laneUnion, padding, titleSize);
+				: unionBoxes(
+						laneContentBoxes.filter((box): box is Box => box !== undefined),
+					);
+		const outer = expand(laneUnion, padding, headerHeight);
 		const laneCount = Math.max(1, swimlane.lanes.length);
 		const lanes = swimlane.lanes.map((lane, index) => {
 			const box =
@@ -329,9 +472,52 @@ function coordinateSwimlanes(
 							width: outer.width,
 							height: outer.height / laneCount,
 						};
-			return { ...lane, box };
+			const headerBox =
+				layout === "contract"
+					? swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y,
+								width: box.width,
+								height: headerHeight,
+							}
+						: {
+								x: box.x,
+								y: box.y,
+								width: box.width,
+								height: headerHeight,
+							}
+					: undefined;
+			const contentBox =
+				layout === "contract"
+					? swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y + headerHeight,
+								width: box.width,
+								height: Math.max(0, box.height - headerHeight),
+							}
+						: {
+								x: box.x,
+								y: box.y + headerHeight,
+								width: box.width,
+								height: Math.max(0, box.height - headerHeight),
+							}
+					: undefined;
+			return {
+				...lane,
+				box,
+				...(headerBox === undefined ? {} : { headerBox }),
+				...(contentBox === undefined ? {} : { contentBox }),
+			};
 		});
-		return { ...swimlane, lanes, box: outer };
+		return {
+			...swimlane,
+			lanes,
+			box: outer,
+			...(headerHeight === undefined ? {} : { headerHeight }),
+			...(padding === undefined ? {} : { padding }),
+		};
 	});
 }
 

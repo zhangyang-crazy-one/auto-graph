@@ -121,6 +121,9 @@ const groupSchema = z.object({
 const swimlaneSchema = z.object({
 	label: labelSchema.optional(),
 	orientation: z.enum(["vertical", "horizontal"]).optional(),
+	layout: z.enum(["overlay", "contract"]).optional(),
+	headerHeight: finiteNumberSchema.optional(),
+	padding: finiteNumberSchema.optional(),
 	lanes: z.record(
 		z.string(),
 		z.object({

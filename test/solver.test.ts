@@ -261,6 +261,83 @@ describe("solveDiagram", () => {
 		expect(result.swimlanes?.[0]?.box?.x).toBeGreaterThan(200);
 		expect(result.swimlanes?.[0]?.box?.y).toBeGreaterThan(100);
 	});
+
+	it("treats contract swimlanes as physical lane regions with reserved headers", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane",
+			direction: "LR",
+			nodes: [
+				node("source_a", { x: 40, y: 40 }),
+				node("source_b", { x: 40, y: 120 }),
+				node("target_a", { x: 320, y: 40 }),
+				node("target_b", { x: 320, y: 120 }),
+			],
+			edges: [
+				{
+					id: "source_a-target_a",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+				},
+				{
+					id: "source_b-target_b",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					label: { text: "Behavior Triad" },
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{
+							id: "left",
+							label: { text: "Source" },
+							children: ["source_a", "source_b"],
+						},
+						{
+							id: "right",
+							label: { text: "Target" },
+							children: ["target_a", "target_b"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const swimlane = result.swimlanes?.[0];
+		const firstLane = swimlane?.lanes[0];
+		const secondLane = swimlane?.lanes[1];
+
+		expect(swimlane?.box).toBeDefined();
+		expect(firstLane?.headerBox?.height).toBe(24);
+		expect(secondLane?.headerBox?.height).toBe(24);
+		expect(firstLane?.contentBox?.y).toBeGreaterThan(
+			(firstLane?.headerBox?.y ?? 0) + 20,
+		);
+		expect(secondLane?.contentBox?.y).toBeGreaterThan(
+			(secondLane?.headerBox?.y ?? 0) + 20,
+		);
+		expect(
+			result.nodes.find((node) => node.id === "source_a")?.box.y,
+		).toBeGreaterThanOrEqual(firstLane?.contentBox?.y ?? 0);
+		expect(
+			result.nodes.find((node) => node.id === "target_a")?.box.x,
+		).toBeGreaterThan(
+			result.nodes.find((node) => node.id === "source_a")?.box.x ?? 0,
+		);
+		expect(result.edges[0]?.points.at(0)).toEqual(
+			result.nodes
+				.find((node) => node.id === "source_a")
+				?.anchors.find((anchor) => anchor.name === "right")?.point,
+		);
+	});
 });
 
 function sampleDiagram(): NormalizedDiagram {
