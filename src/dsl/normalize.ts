@@ -347,35 +347,29 @@ function formatCompartmentEntry(
 }
 
 function normalizeSwimlanes(dsl: DiagramDsl): Swimlane[] {
-	return Object.keys(dsl.swimlanes ?? {})
-		.sort()
-		.map((id) => {
-			const swimlane = dsl.swimlanes?.[id];
-			const label = toLabel(swimlane?.label);
-			return {
-				id,
-				...(label === undefined ? {} : { label }),
-				orientation: swimlane?.orientation ?? "vertical",
-				layout: swimlane?.layout ?? "overlay",
-				...(swimlane?.headerHeight === undefined
-					? {}
-					: { headerHeight: swimlane.headerHeight }),
-				...(swimlane?.padding === undefined
-					? {}
-					: { padding: swimlane.padding }),
-				lanes: Object.keys(swimlane?.lanes ?? {})
-					.sort()
-					.map((laneId) => {
-						const lane = swimlane?.lanes[laneId];
-						const laneLabel = toLabel(lane?.label);
-						return {
-							id: laneId,
-							...(laneLabel === undefined ? {} : { label: laneLabel }),
-							children: [...(lane?.children ?? [])],
-						};
-					}),
-			};
-		});
+	return Object.keys(dsl.swimlanes ?? {}).map((id) => {
+		const swimlane = dsl.swimlanes?.[id];
+		const label = toLabel(swimlane?.label);
+		return {
+			id,
+			...(label === undefined ? {} : { label }),
+			orientation: swimlane?.orientation ?? "vertical",
+			layout: swimlane?.layout ?? "overlay",
+			...(swimlane?.headerHeight === undefined
+				? {}
+				: { headerHeight: swimlane.headerHeight }),
+			...(swimlane?.padding === undefined ? {} : { padding: swimlane.padding }),
+			lanes: Object.keys(swimlane?.lanes ?? {}).map((laneId) => {
+				const lane = swimlane?.lanes[laneId];
+				const laneLabel = toLabel(lane?.label);
+				return {
+					id: laneId,
+					...(laneLabel === undefined ? {} : { label: laneLabel }),
+					children: [...(lane?.children ?? [])],
+				};
+			}),
+		};
+	});
 }
 
 function normalizeGroups(

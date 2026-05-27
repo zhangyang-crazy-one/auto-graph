@@ -122,13 +122,25 @@ function renderSwimlane(swimlane: Swimlane): string[] {
 		}
 		if (lane.label?.text !== undefined) {
 			const labelBox = lane.headerBox ?? lane.box;
-			lines.push(
-				`    <text class="swimlane-label" x="${formatNumber(labelBox.x + labelBox.width / 2)}" y="${formatNumber(labelBox.y + labelBox.height / 2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(lane.label.text)}</text>`,
-			);
+			lines.push(renderSwimlaneLabel(swimlane, lane.label.text, labelBox));
 		}
 	}
 	lines.push("  </g>");
 	return lines;
+}
+
+function renderSwimlaneLabel(
+	swimlane: Swimlane,
+	text: string,
+	labelBox: Box,
+): string {
+	const x = labelBox.x + labelBox.width / 2;
+	const y = labelBox.y + labelBox.height / 2;
+	const transform =
+		swimlane.orientation === "horizontal"
+			? ` transform="rotate(-90 ${formatNumber(x)} ${formatNumber(y)})"`
+			: "";
+	return `    <text class="swimlane-label" x="${formatNumber(x)}" y="${formatNumber(y)}" text-anchor="middle" dominant-baseline="middle"${transform} font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(text)}</text>`;
 }
 
 function renderPorts(node: CoordinatedNode): string[] {

@@ -332,6 +332,36 @@ nodes:
 		expect(result.content).not.toContain('class="swimlane-label"');
 	});
 
+	it("rotates horizontal contract swimlane header labels", () => {
+		const result = renderDiagramDsl(`
+title: Horizontal Contract Swimlane
+layout:
+  direction: TB
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: horizontal
+    lanes:
+      observe:
+        label: Observe
+        children: [observe_node]
+      decide:
+        label: Decide
+        children: [decide_node]
+nodes:
+  observe_node:
+    label: Observe Node
+  decide_node:
+    label: Decide Node
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-label"');
+		expect(result.content).toContain('transform="rotate(-90');
+	});
+
 	it("does not render duplicate centered labels for compartment nodes", () => {
 		const result = renderDiagramDsl(`
 nodes:

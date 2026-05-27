@@ -478,6 +478,54 @@ describe("solveDiagram", () => {
 		).toBe(false);
 	});
 
+	it("filters overlap diagnostics resolved by contract swimlane placement", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-resolved-overlap",
+			direction: "LR",
+			nodes: [node("left"), node("right")],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{ id: "left_lane", children: ["left"] },
+						{ id: "right_lane", children: ["right"] },
+					],
+				},
+			],
+			constraints: [
+				{
+					kind: "align",
+					axis: "x",
+					targetIds: ["left", "right"],
+				},
+				{
+					kind: "align",
+					axis: "y",
+					targetIds: ["left", "right"],
+				},
+			],
+			diagnostics: [],
+		});
+
+		expect(
+			result.diagnostics.filter(
+				(diagnostic) => diagnostic.code === "constraints.overlap.unresolved",
+			),
+		).toEqual([]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.swimlane-contract.invalidated",
+				detail: expect.objectContaining({ constraintKind: "align" }),
+			}),
+		);
+	});
+
 	it("places horizontal contract swimlane headers beside row content", () => {
 		const result = solveDiagram({
 			id: "horizontal-contract-swimlane",
