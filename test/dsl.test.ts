@@ -267,6 +267,25 @@ output:
 		).toEqual(["input", "process", "output"]);
 	});
 
+	it("preserves top-to-bottom primary reading direction metadata", () => {
+		const result = normalizeDiagramDsl({
+			layout: {
+				direction: "LR",
+				primaryReadingDirection: "top_to_bottom",
+			},
+			nodes: {
+				start: { label: "Start" },
+				work: { label: "Work" },
+			},
+			edges: ["start -> work"],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.metadata?.primaryReadingDirection).toBe(
+			"top_to_bottom",
+		);
+	});
+
 	it("sizes compartment nodes from their rendered row count", () => {
 		const result = normalizeDiagramDsl({
 			nodes: {

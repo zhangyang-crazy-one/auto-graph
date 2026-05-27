@@ -86,6 +86,8 @@ export function solveDiagram(
 	const swimlaneContracts = applySwimlaneLayoutContracts(
 		diagram.swimlanes ?? [],
 		constraints,
+		edges,
+		isTopToBottomReadingDirection(diagram.metadata?.primaryReadingDirection),
 		constrained.boxes,
 		constrained.locks,
 		options?.overlapSpacing ?? 40,
@@ -178,6 +180,8 @@ export function solveDiagram(
 function applySwimlaneLayoutContracts(
 	swimlanes: readonly Swimlane[],
 	constraints: readonly Constraint[],
+	edges: readonly NormalizedEdge[],
+	topToBottomFlow: boolean,
 	nodeBoxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	overlapSpacing: number,
@@ -194,6 +198,8 @@ function applySwimlaneLayoutContracts(
 		}
 		const layout = applySingleSwimlaneContract(
 			swimlane,
+			edges,
+			topToBottomFlow,
 			nodeBoxes,
 			locks,
 			diagnostics,
@@ -218,6 +224,8 @@ function applySwimlaneLayoutContracts(
 
 function applySingleSwimlaneContract(
 	swimlane: Swimlane,
+	edges: readonly NormalizedEdge[],
+	topToBottomFlow: boolean,
 	nodeBoxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	diagnostics: Diagnostic[],
@@ -241,6 +249,8 @@ function applySingleSwimlaneContract(
 	if (swimlane.orientation === "vertical") {
 		return applyVerticalSwimlaneContract(
 			swimlane,
+			edges,
+			topToBottomFlow,
 			nodeBoxes,
 			laneBounds,
 			headerHeight,
@@ -264,6 +274,8 @@ function applySingleSwimlaneContract(
 
 function applyVerticalSwimlaneContract(
 	swimlane: Swimlane,
+	edges: readonly NormalizedEdge[],
+	topToBottomFlow: boolean,
 	nodeBoxes: Map<string, Box>,
 	laneBounds: ReadonlyArray<Box | undefined>,
 	headerHeight: number,
@@ -277,6 +289,15 @@ function applyVerticalSwimlaneContract(
 	);
 	const top = Math.min(...populatedBounds.map((box) => box.y));
 	const left = Math.min(...populatedBounds.map((box) => box.x));
+	const maxChildHeight = Math.max(...populatedBounds.map((box) => box.height));
+	const flowRanks = topToBottomFlow
+		? rankVerticalSwimlaneChildren(swimlane, edges)
+		: new Map<string, number>();
+	const maxRank =
+		flowRanks.size === 0 ? 0 : Math.max(...Array.from(flowRanks.values()));
+	const rankSpacing = Math.max(96, maxChildHeight + padding * 2);
+	const contentHeight =
+		maxRank === 0 ? maxChildHeight : maxChildHeight + maxRank * rankSpacing;
 	const slotWidth =
 		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
 	const laneContentTop = top + headerHeight + padding;
@@ -291,15 +312,31 @@ function applyVerticalSwimlaneContract(
 			x: left + slotWidth * index + padding,
 			y: laneContentTop,
 		};
-		moveLaneChildren(
+		if (maxRank === 0) {
+			moveLaneChildren(
+				lane.children,
+				nodeBoxes,
+				locks,
+				diagnostics,
+				movedChildIds,
+				{
+					x: target.x - bounds.x,
+					y: target.y - bounds.y,
+				},
+			);
+			continue;
+		}
+		moveRankedVerticalLaneChildren(
 			lane.children,
 			nodeBoxes,
 			locks,
 			diagnostics,
 			movedChildIds,
+			flowRanks,
+			rankSpacing,
 			{
 				x: target.x - bounds.x,
-				y: target.y - bounds.y,
+				y: laneContentTop,
 			},
 		);
 	}
@@ -309,17 +346,145 @@ function applyVerticalSwimlaneContract(
 			x: left,
 			y: top,
 			width: slotWidth * swimlane.lanes.length,
-			height:
-				Math.max(...populatedBounds.map((box) => box.height)) +
-				padding * 2 +
-				headerHeight,
+			height: contentHeight + padding * 2 + headerHeight,
 		},
 		slotWidth,
-		slotHeight:
-			Math.max(...populatedBounds.map((box) => box.height)) +
-			padding * 2 +
-			headerHeight,
+		slotHeight: contentHeight + padding * 2 + headerHeight,
 	};
+}
+
+function isTopToBottomReadingDirection(value: unknown): boolean {
+	return value === "top_to_bottom" || value === "top-to-bottom";
+}
+
+function rankVerticalSwimlaneChildren(
+	swimlane: Swimlane,
+	edges: readonly NormalizedEdge[],
+): Map<string, number> {
+	const childOrder = new Map<string, number>();
+	for (const lane of swimlane.lanes) {
+		for (const childId of lane.children) {
+			if (!childOrder.has(childId)) {
+				childOrder.set(childId, childOrder.size);
+			}
+		}
+	}
+	if (childOrder.size === 0) {
+		return new Map();
+	}
+
+	const childIds = new Set(childOrder.keys());
+	const relevantEdges = edges.filter(
+		(edge) =>
+			childIds.has(edge.source.nodeId) &&
+			childIds.has(edge.target.nodeId) &&
+			edge.source.nodeId !== edge.target.nodeId,
+	);
+	if (relevantEdges.length === 0) {
+		return new Map();
+	}
+
+	const ranks = new Map([...childIds].map((id) => [id, 0]));
+	const outgoing = new Map<string, string[]>();
+	const inDegree = new Map([...childIds].map((id) => [id, 0]));
+	for (const edge of relevantEdges) {
+		const targets = outgoing.get(edge.source.nodeId) ?? [];
+		targets.push(edge.target.nodeId);
+		outgoing.set(edge.source.nodeId, targets);
+		inDegree.set(
+			edge.target.nodeId,
+			(inDegree.get(edge.target.nodeId) ?? 0) + 1,
+		);
+	}
+
+	const queue = [...childIds]
+		.filter((id) => (inDegree.get(id) ?? 0) === 0)
+		.sort((a, b) => (childOrder.get(a) ?? 0) - (childOrder.get(b) ?? 0));
+	let visited = 0;
+	for (let cursor = 0; cursor < queue.length; cursor += 1) {
+		const sourceId = queue[cursor];
+		if (sourceId === undefined) {
+			continue;
+		}
+		visited += 1;
+		for (const targetId of outgoing.get(sourceId) ?? []) {
+			ranks.set(
+				targetId,
+				Math.max(ranks.get(targetId) ?? 0, (ranks.get(sourceId) ?? 0) + 1),
+			);
+			const nextInDegree = (inDegree.get(targetId) ?? 0) - 1;
+			inDegree.set(targetId, nextInDegree);
+			if (nextInDegree === 0) {
+				queue.push(targetId);
+			}
+		}
+	}
+
+	return visited === childIds.size
+		? ranks
+		: rankCyclicSwimlaneChildren(childIds, relevantEdges);
+}
+
+function rankCyclicSwimlaneChildren(
+	childIds: ReadonlySet<string>,
+	edges: readonly NormalizedEdge[],
+): Map<string, number> {
+	const maxRank = Math.max(0, childIds.size - 1);
+	const ranks = new Map([...childIds].map((id) => [id, 0]));
+	for (let iteration = 0; iteration < childIds.size; iteration += 1) {
+		let changed = false;
+		for (const edge of edges) {
+			const nextRank = Math.min(
+				maxRank,
+				(ranks.get(edge.source.nodeId) ?? 0) + 1,
+			);
+			if (nextRank > (ranks.get(edge.target.nodeId) ?? 0)) {
+				ranks.set(edge.target.nodeId, nextRank);
+				changed = true;
+			}
+		}
+		if (!changed) {
+			break;
+		}
+	}
+	return ranks;
+}
+
+function moveRankedVerticalLaneChildren(
+	childIds: readonly string[],
+	nodeBoxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
+	movedChildIds: Set<string>,
+	flowRanks: ReadonlyMap<string, number>,
+	rankSpacing: number,
+	target: Point,
+): void {
+	for (const childId of childIds) {
+		const box = nodeBoxes.get(childId);
+		if (box === undefined) {
+			continue;
+		}
+		if (locks.has(childId)) {
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.locked-target-not-moved",
+				message: `Locked child ${childId} was not moved into contract swimlane slot.`,
+				path: ["swimlanes"],
+				detail: { nodeId: childId },
+			});
+			continue;
+		}
+		const next = {
+			...box,
+			x: box.x + target.x,
+			y: target.y + (flowRanks.get(childId) ?? 0) * rankSpacing,
+		};
+		if (next.x !== box.x || next.y !== box.y) {
+			movedChildIds.add(childId);
+		}
+		nodeBoxes.set(childId, next);
+	}
 }
 
 function applyHorizontalSwimlaneContract(
