@@ -7,6 +7,10 @@ const routeKindSchema = z.enum(["orthogonal", "straight"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
+const primaryReadingDirectionSchema = z.enum([
+	"top_to_bottom",
+	"top-to-bottom",
+]);
 const nodeShapeSchema = z.enum([
 	"rectangle",
 	"rounded-rectangle",
@@ -199,6 +203,7 @@ export const diagramDslSchema = z.object({
 	layout: z
 		.object({
 			direction: directionSchema.optional(),
+			primaryReadingDirection: primaryReadingDirectionSchema.optional(),
 		})
 		.optional(),
 	routing: z

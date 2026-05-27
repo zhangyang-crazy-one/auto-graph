@@ -339,6 +339,168 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("distributes vertical contract swimlane children by top-to-bottom flow rank", () => {
+		const result = solveDiagram({
+			id: "vertical-flow-swimlane",
+			direction: "LR",
+			nodes: [
+				node("init"),
+				node("scan"),
+				node("recv"),
+				node("decide"),
+				node("final"),
+			],
+			edges: [
+				{
+					id: "init-scan",
+					source: { nodeId: "init" },
+					target: { nodeId: "scan" },
+				},
+				{
+					id: "scan-recv",
+					source: { nodeId: "scan" },
+					target: { nodeId: "recv" },
+				},
+				{
+					id: "recv-decide",
+					source: { nodeId: "recv" },
+					target: { nodeId: "decide" },
+				},
+				{
+					id: "decide-final",
+					source: { nodeId: "decide" },
+					target: { nodeId: "final" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "activity",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{
+							id: "radar",
+							label: { text: "Radar" },
+							children: ["init", "scan", "decide"],
+						},
+						{
+							id: "fire_control",
+							label: { text: "Fire Control" },
+							children: ["recv", "final"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+		const y = (id: string) => {
+			const box = result.nodes.find(
+				(coordinatedNode) => coordinatedNode.id === id,
+			)?.box;
+			if (box === undefined) {
+				throw new Error(`Expected node ${id}`);
+			}
+			return box.y;
+		};
+		const firstLane = result.swimlanes?.[0]?.lanes.find(
+			(lane) => lane.id === "radar",
+		);
+		const secondLane = result.swimlanes?.[0]?.lanes.find(
+			(lane) => lane.id === "fire_control",
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(y("scan")).toBeGreaterThan(y("init"));
+		expect(y("recv")).toBeGreaterThan(y("scan"));
+		expect(y("decide")).toBeGreaterThan(y("recv"));
+		expect(y("final")).toBeGreaterThan(y("decide"));
+		expect(new Set(["init", "scan", "decide"].map(y)).size).toBe(3);
+		expect(result.swimlanes?.[0]?.box?.height).toBeGreaterThan(400);
+		expect(firstLane?.contentBox?.height).toBeGreaterThan(380);
+		expect(secondLane?.contentBox?.height).toBe(firstLane?.contentBox?.height);
+		for (const id of ["init", "scan", "recv", "decide", "final"]) {
+			const box = result.nodes.find(
+				(coordinatedNode) => coordinatedNode.id === id,
+			)?.box;
+			const lane = firstLane?.children.includes(id) ? firstLane : secondLane;
+			if (box === undefined || lane?.contentBox === undefined) {
+				throw new Error(`Expected lane content for ${id}`);
+			}
+			expect(box.y).toBeGreaterThanOrEqual(lane.contentBox.y);
+			expect(box.y + box.height).toBeLessThanOrEqual(
+				lane.contentBox.y + lane.contentBox.height,
+			);
+		}
+	});
+
+	it("stacks same-rank vertical swimlane children instead of collapsing them", () => {
+		const result = solveDiagram({
+			id: "vertical-flow-swimlane-same-rank",
+			direction: "LR",
+			nodes: [
+				node("independent_a"),
+				node("independent_b"),
+				node("start"),
+				node("finish"),
+			],
+			edges: [
+				{
+					id: "start-finish",
+					source: { nodeId: "start" },
+					target: { nodeId: "finish" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "activity",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{
+							id: "independent",
+							children: ["independent_a", "independent_b"],
+						},
+						{
+							id: "flow",
+							children: ["start", "finish"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+		const independentA = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "independent_a",
+		);
+		const independentB = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "independent_b",
+		);
+		const flowLane = result.swimlanes?.[0]?.lanes.find(
+			(lane) => lane.id === "flow",
+		);
+
+		if (independentA === undefined || independentB === undefined) {
+			throw new Error("Expected independent nodes");
+		}
+		expect(result.diagnostics).toEqual([]);
+		expect(independentB.box.y).toBeGreaterThanOrEqual(
+			independentA.box.y + independentA.box.height,
+		);
+		expect(flowLane?.contentBox?.height).toBeGreaterThan(
+			(independentA.box.height + independentB.box.height) * 2,
+		);
+	});
+
 	it("preserves empty contract lane slots before populated lanes", () => {
 		const result = solveDiagram({
 			id: "contract-swimlane-empty-slot",
