@@ -250,7 +250,7 @@ output:
 							"coolingPower_W: Real",
 							"heatingPower_W: Real",
 							"mass_kg: Real",
-							"temperature_C: Real",
+							"temperatureEnvelopeUpperLimit_C: Real",
 						],
 						constraints: [
 							"coolingPower_W >= 0",
@@ -264,6 +264,41 @@ output:
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.diagram?.nodes[0]?.size.height).toBeGreaterThan(130);
+		expect(result.diagram?.nodes[0]?.size.width).toBeGreaterThan(190);
+	});
+
+	it("keeps legacy edge IDs and structured endpoints consistent when both are set", () => {
+		const result = normalizeDiagramDsl({
+			nodes: {
+				legacySource: { label: "Legacy Source" },
+				legacyTarget: { label: "Legacy Target" },
+				structuredSource: {
+					label: "Structured Source",
+					ports: { out: { side: "right" } },
+				},
+				structuredTarget: {
+					label: "Structured Target",
+					ports: { in: { side: "left" } },
+				},
+			},
+			edges: [
+				{
+					sourceId: "legacySource",
+					targetId: "legacyTarget",
+					source: { node: "structuredSource", port: "out" },
+					target: { node: "structuredTarget", port: "in" },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.edges[0]).toMatchObject({
+			id: "legacySource-legacyTarget",
+			source: { nodeId: "legacySource" },
+			target: { nodeId: "legacyTarget" },
+		});
+		expect(result.diagram?.edges[0]?.source.portId).toBeUndefined();
+		expect(result.diagram?.edges[0]?.target.portId).toBeUndefined();
 	});
 
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {

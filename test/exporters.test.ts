@@ -281,6 +281,24 @@ nodes:
 		expect(result.content).not.toContain('class="label" data-for="block"');
 	});
 
+	it("honors custom port stroke styles in SVG output", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  block:
+    label: Block
+    ports:
+      flow:
+        side: right
+        style:
+          fill: "#d9ead3"
+          stroke: "#16a34a"
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('data-port="block.flow"');
+		expect(result.content).toContain('stroke="#16a34a"');
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",

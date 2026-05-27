@@ -123,6 +123,10 @@ function normalizeNodes(
 				node?.compartments === undefined
 					? undefined
 					: compartments(node.compartments);
+			const compartmentWidth =
+				nodeCompartments === undefined
+					? 0
+					: compartmentNaturalWidth(id, label, nodeCompartments, measurer);
 
 			return {
 				id,
@@ -139,7 +143,11 @@ function normalizeNodes(
 					? {}
 					: { compartments: nodeCompartments }),
 				size: {
-					width: Math.max(DEFAULT_NODE_MIN_SIZE.width, fittedSize?.width ?? 0),
+					width: Math.max(
+						DEFAULT_NODE_MIN_SIZE.width,
+						fittedSize?.width ?? 0,
+						compartmentWidth,
+					),
 					height: Math.max(
 						nodeCompartments === undefined
 							? DEFAULT_NODE_MIN_SIZE.height
@@ -167,22 +175,57 @@ function compartmentHeight(value: NodeCompartments): number {
 	);
 }
 
+function compartmentNaturalWidth(
+	id: string,
+	label: Label | undefined,
+	value: NodeCompartments,
+	measurer: TextMeasurer,
+): number {
+	const rows = compartmentRows(id, label, value);
+	const maxRowWidth = rows.reduce((width, row) => {
+		const prepared = measurer.prepare(row, DEFAULT_FONT);
+		return Math.max(width, measurer.naturalWidth(prepared));
+	}, 0);
+	return Math.ceil(
+		maxRowWidth + DEFAULT_NODE_PADDING.left + DEFAULT_NODE_PADDING.right,
+	);
+}
+
+function compartmentRows(
+	id: string,
+	label: Label | undefined,
+	value: NodeCompartments,
+): string[] {
+	return [
+		...(value.stereotype === undefined ? [] : [value.stereotype]),
+		value.name ?? label?.text ?? id,
+		...(value.properties ?? []),
+		...(value.constraints ?? []),
+	];
+}
+
 function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
 	const counts = new Map<string, number>();
 
 	return (dsl.edges ?? []).map((edge) => {
 		const source = typeof edge === "string" ? undefined : edge.source;
 		const target = typeof edge === "string" ? undefined : edge.target;
-		const sourceEndpoint = endpoint(edge === "string" ? undefined : source);
-		const targetEndpoint = endpoint(edge === "string" ? undefined : target);
 		const sourceId =
 			typeof edge === "string"
 				? ""
-				: (edge.sourceId ?? sourceEndpoint?.nodeId ?? "");
+				: (edge.sourceId ?? endpointNodeId(source) ?? "");
 		const targetId =
 			typeof edge === "string"
 				? ""
-				: (edge.targetId ?? targetEndpoint?.nodeId ?? "");
+				: (edge.targetId ?? endpointNodeId(target) ?? "");
+		const sourceEndpoint =
+			typeof edge === "string"
+				? { nodeId: sourceId }
+				: endpoint(source, edge.sourceId);
+		const targetEndpoint =
+			typeof edge === "string"
+				? { nodeId: targetId }
+				: endpoint(target, edge.targetId);
 		const baseId = `${sourceId}-${targetId}`;
 		const count = counts.get(baseId) ?? 0;
 		counts.set(baseId, count + 1);
@@ -194,8 +237,8 @@ function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
 
 		return {
 			id,
-			source: sourceEndpoint ?? { nodeId: sourceId },
-			target: targetEndpoint ?? { nodeId: targetId },
+			source: sourceEndpoint,
+			target: targetEndpoint,
 			...(label === undefined ? {} : { label }),
 			...(typeof edge === "string" || edge.style === undefined
 				? {}
@@ -228,9 +271,20 @@ function normalizePorts(
 
 function endpoint(
 	value: string | { node: string; port?: string | undefined } | undefined,
-): NormalizedEdge["source"] | undefined {
+	nodeIdOverride?: string | undefined,
+): NormalizedEdge["source"] {
+	if (nodeIdOverride !== undefined) {
+		return {
+			nodeId: nodeIdOverride,
+			...(typeof value === "object" &&
+			value.node === nodeIdOverride &&
+			value.port !== undefined
+				? { portId: value.port }
+				: {}),
+		};
+	}
 	if (value === undefined) {
-		return undefined;
+		return { nodeId: "" };
 	}
 	if (typeof value === "string") {
 		return { nodeId: value };
@@ -412,6 +466,8 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 		}
 		const sourceId = edge.sourceId ?? endpointNodeId(edge.source);
 		const targetId = edge.targetId ?? endpointNodeId(edge.target);
+		const sourceEndpoint = endpoint(edge.source, edge.sourceId);
+		const targetEndpoint = endpoint(edge.target, edge.targetId);
 		if (sourceId !== undefined && !nodeIds.has(sourceId)) {
 			diagnostics.push(referenceMissing(["edges", index, "source"], sourceId));
 		}
@@ -420,13 +476,13 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 		}
 		validateEndpointPort(
 			dsl,
-			edge.source,
+			sourceEndpoint,
 			["edges", index, "source"],
 			diagnostics,
 		);
 		validateEndpointPort(
 			dsl,
-			edge.target,
+			targetEndpoint,
 			["edges", index, "target"],
 			diagnostics,
 		);
@@ -588,24 +644,17 @@ function endpointNodeId(
 
 function validateEndpointPort(
 	dsl: DiagramDsl,
-	endpointValue:
-		| string
-		| { node: string; port?: string | undefined }
-		| undefined,
+	endpointValue: NormalizedEdge["source"],
 	path: Array<string | number>,
 	diagnostics: DslDiagnostic[],
 ): void {
-	if (
-		endpointValue === undefined ||
-		typeof endpointValue === "string" ||
-		endpointValue.port === undefined
-	) {
+	if (endpointValue.portId === undefined) {
 		return;
 	}
 
-	const node = dsl.nodes[endpointValue.node];
-	if (node !== undefined && node.ports?.[endpointValue.port] === undefined) {
-		diagnostics.push(referenceMissing([...path, "port"], endpointValue.port));
+	const node = dsl.nodes[endpointValue.nodeId];
+	if (node !== undefined && node.ports?.[endpointValue.portId] === undefined) {
+		diagnostics.push(referenceMissing([...path, "port"], endpointValue.portId));
 	}
 }
 

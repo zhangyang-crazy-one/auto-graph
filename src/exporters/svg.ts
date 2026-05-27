@@ -122,7 +122,7 @@ function renderSwimlane(swimlane: Swimlane): string[] {
 
 function renderPorts(node: CoordinatedNode): string[] {
 	return (node.ports ?? []).flatMap((port) => [
-		`  <rect class="port" data-kind="${escapeAttribute(port.kind)}" data-port="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(port.box.x)}" y="${formatNumber(port.box.y)}" width="${formatNumber(port.box.width)}" height="${formatNumber(port.box.height)}" fill="${escapeAttribute(port.style?.fill ?? "#d9ead3")}" stroke="${STROKE}"/>`,
+		`  <rect class="port" data-kind="${escapeAttribute(port.kind)}" data-port="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(port.box.x)}" y="${formatNumber(port.box.y)}" width="${formatNumber(port.box.width)}" height="${formatNumber(port.box.height)}" fill="${escapeAttribute(port.style?.fill ?? "#d9ead3")}" stroke="${escapeAttribute(port.style?.stroke ?? STROKE)}"/>`,
 		...(port.label?.text === undefined
 			? []
 			: [

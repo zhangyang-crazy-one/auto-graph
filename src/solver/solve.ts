@@ -105,6 +105,11 @@ export function solveDiagram(
 	);
 	const allBoxes = [
 		...coordinatedNodes.map((node) => node.box),
+		...coordinatedNodes.flatMap((node) =>
+			(node.ports ?? []).flatMap((port) =>
+				port.label === undefined ? [port.box] : [port.box, portLabelBox(port)],
+			),
+		),
 		...groupBoxes.values(),
 		...coordinatedSwimlanes.flatMap((swimlane) =>
 			swimlane.box === undefined ? [] : [swimlane.box],
@@ -220,7 +225,7 @@ function coordinatePorts(
 				sorted.length,
 				portShifting,
 			);
-			const box = portBox(anchor, side as CoordinatedPort["side"]);
+			const box = portBox(anchor);
 			coordinated.push({ ...port, box, anchor });
 		}
 	}
@@ -264,14 +269,29 @@ function portAnchor(
 	}
 }
 
-function portBox(anchor: Point, side: CoordinatedPort["side"]): Box {
+function portBox(anchor: Point): Box {
 	const size = 10;
-	const horizontal = side === "left" || side === "right";
 	return {
 		x: anchor.x - size / 2,
 		y: anchor.y - size / 2,
-		width: horizontal ? size : size,
-		height: horizontal ? size : size,
+		width: size,
+		height: size,
+	};
+}
+
+function portLabelBox(port: CoordinatedPort): Box {
+	const textWidth = Math.max(0, (port.label?.text.length ?? 0) * 6);
+	const height = 12;
+	const gap = 8;
+	const x =
+		port.side === "left"
+			? port.anchor.x - gap - textWidth
+			: port.anchor.x + gap;
+	return {
+		x,
+		y: port.anchor.y - 8 - height,
+		width: textWidth,
+		height,
 	};
 }
 
@@ -282,13 +302,11 @@ function coordinateSwimlanes(
 	const titleSize = 28;
 	const padding = 16;
 	return swimlanes.map((swimlane) => {
-		const laneBoxes = swimlane.lanes.map((lane) => {
+		const laneBoxes = swimlane.lanes.flatMap((lane) => {
 			const childBoxes = lane.children
 				.map((child) => nodeBoxes.get(child))
 				.filter((box): box is Box => box !== undefined);
-			return childBoxes.length === 0
-				? { x: 0, y: 0, width: 120, height: 80 }
-				: unionBoxes(childBoxes);
+			return childBoxes.length === 0 ? [] : [unionBoxes(childBoxes)];
 		});
 		const laneUnion =
 			laneBoxes.length === 0

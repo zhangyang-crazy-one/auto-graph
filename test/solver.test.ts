@@ -175,6 +175,38 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("includes boundary ports and port labels in diagram bounds", () => {
+		const result = solveDiagram({
+			id: "port-bounds",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "left",
+							side: "left",
+							kind: "proxy",
+							label: { text: "external" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const source = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "source",
+		);
+		const port = source?.ports?.[0];
+
+		expect(port).toBeDefined();
+		expect(result.bounds.x).toBeLessThanOrEqual(port?.box.x ?? 0);
+		expect(result.bounds.x).toBeLessThan(port?.box.x ?? 0);
+	});
+
 	it("solves empty swimlanes without crashing", () => {
 		const result = solveDiagram({
 			id: "empty-swimlane",
@@ -202,6 +234,32 @@ describe("solveDiagram", () => {
 			height: expect.any(Number),
 		});
 		expect(result.swimlanes?.[0]?.lanes).toEqual([]);
+	});
+
+	it("ignores empty lanes when deriving populated swimlane extents", () => {
+		const result = solveDiagram({
+			id: "mixed-swimlane",
+			direction: "LR",
+			nodes: [node("a", { x: 300, y: 200 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "lanes",
+					orientation: "vertical",
+					lanes: [
+						{ id: "empty", children: [] },
+						{ id: "populated", children: ["a"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.swimlanes?.[0]?.box?.x).toBeGreaterThan(200);
+		expect(result.swimlanes?.[0]?.box?.y).toBeGreaterThan(100);
 	});
 });
 
