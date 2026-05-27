@@ -47,7 +47,11 @@ export function exportSvg(
 		...diagram.groups.flatMap((group) =>
 			renderLabel(group.label, group.box, group),
 		),
-		...diagram.nodes.flatMap((node) => renderLabel(node.label, node.box, node)),
+		...diagram.nodes.flatMap((node) =>
+			node.compartments === undefined
+				? renderLabel(node.label, node.box, node)
+				: [],
+		),
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge)),
 		"</svg>",
 	];

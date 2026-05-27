@@ -238,6 +238,34 @@ output:
 		}
 	});
 
+	it("sizes compartment nodes from their rendered row count", () => {
+		const result = normalizeDiagramDsl({
+			nodes: {
+				block: {
+					label: "Processing",
+					compartments: {
+						stereotype: "«block»",
+						name: "Processing",
+						properties: [
+							"coolingPower_W: Real",
+							"heatingPower_W: Real",
+							"mass_kg: Real",
+							"temperature_C: Real",
+						],
+						constraints: [
+							"coolingPower_W >= 0",
+							"heatingPower_W >= 0",
+							"temperature_C < 85",
+						],
+					},
+				},
+			},
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.nodes[0]?.size.height).toBeGreaterThan(130);
+	});
+
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
 		expect(resolveOutputFormat().format).toBe("svg");
 		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(

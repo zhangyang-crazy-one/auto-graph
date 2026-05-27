@@ -266,6 +266,21 @@ constraints:
 		expect(result.content).toContain("coolingPower_W");
 	});
 
+	it("does not render duplicate centered labels for compartment nodes", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  block:
+    label: Processing
+    compartments:
+      stereotype: "«block»"
+      name: Processing
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="compartment-name"');
+		expect(result.content).not.toContain('class="label" data-for="block"');
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",

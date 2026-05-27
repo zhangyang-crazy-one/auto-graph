@@ -119,6 +119,10 @@ function normalizeNodes(
 			const labelLayout =
 				label === undefined ? undefined : fitDslLabel(label, measurer);
 			const fittedSize = labelLayout?.fittedSize;
+			const nodeCompartments =
+				node?.compartments === undefined
+					? undefined
+					: compartments(node.compartments);
 
 			return {
 				id,
@@ -131,15 +135,15 @@ function normalizeNodes(
 				...(node?.ports === undefined
 					? {}
 					: { ports: normalizePorts(node.ports) }),
-				...(node?.compartments === undefined
+				...(nodeCompartments === undefined
 					? {}
-					: { compartments: compartments(node.compartments) }),
+					: { compartments: nodeCompartments }),
 				size: {
 					width: Math.max(DEFAULT_NODE_MIN_SIZE.width, fittedSize?.width ?? 0),
 					height: Math.max(
-						node?.compartments === undefined
+						nodeCompartments === undefined
 							? DEFAULT_NODE_MIN_SIZE.height
-							: 100,
+							: compartmentHeight(nodeCompartments),
 						fittedSize?.height ?? 0,
 					),
 				},
@@ -147,6 +151,20 @@ function normalizeNodes(
 				...(labelLayout === undefined ? {} : { labelLayout }),
 			};
 		});
+}
+
+function compartmentHeight(value: NodeCompartments): number {
+	const rowCount =
+		(value.stereotype === undefined ? 0 : 1) +
+		1 +
+		(value.properties?.length ?? 0) +
+		(value.constraints?.length ?? 0);
+	const rowHeight = 16;
+	const verticalPadding = 20;
+	return Math.max(
+		DEFAULT_NODE_MIN_SIZE.height,
+		rowCount * rowHeight + verticalPadding,
+	);
 }
 
 function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
