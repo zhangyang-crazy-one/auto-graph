@@ -158,6 +158,7 @@ title: System
 layout: { direction: LR }
 routing: { kind: straight }
 nodes:
+  container: { label: Container }
   db: { label: DB }
   api:
     label: API
@@ -181,7 +182,7 @@ constraints:
     targets: [api, db]
     spacing: 120
   - kind: containment
-    container: backend
+    container: container
     children: [api, db]
 output:
   format: excalidraw
@@ -193,7 +194,11 @@ output:
 		expect(result.output?.format).toBe("excalidraw");
 		expect(result.diagram?.id).toBe("system");
 		expect(result.diagram?.direction).toBe("LR");
-		expect(result.diagram?.nodes.map((node) => node.id)).toEqual(["api", "db"]);
+		expect(result.diagram?.nodes.map((node) => node.id)).toEqual([
+			"api",
+			"container",
+			"db",
+		]);
 		expect(result.diagram?.nodes[0]).toMatchObject({
 			id: "api",
 			shape: "rectangle",
