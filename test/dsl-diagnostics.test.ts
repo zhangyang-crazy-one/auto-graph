@@ -261,6 +261,47 @@ constraints:
 		);
 	});
 
+	it("rejects containment containers that cannot be solved before render output", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  api: { label: API }
+  db: { label: DB }
+groups:
+  backend:
+    nodes: [api, db]
+swimlanes:
+  system:
+    lanes:
+      app:
+        children: [api]
+constraints:
+  - kind: containment
+    container: backend
+    children: [api]
+  - kind: containment
+    container: system.app
+    children: [db]
+`);
+
+		expect(result.content).toBeUndefined();
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.reference.missing",
+					path: ["constraints", 0, "container"],
+				}),
+				expect.objectContaining({
+					severity: "error",
+					layer: "validate",
+					code: "validate.reference.missing",
+					path: ["constraints", 1, "container"],
+				}),
+			]),
+		);
+	});
+
 	it("rejects unsupported output formats", () => {
 		for (const format of ["drawio", "mermaid", "ascii"]) {
 			const result = resolveOutputFormat(format);

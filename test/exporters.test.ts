@@ -76,6 +76,25 @@ describe("exporters", () => {
 		expect(svg).toContain('<tspan x="116" y="227">Local Text</tspan>');
 	});
 
+	it("exports local label layout coordinates for negative owning box positions", () => {
+		const diagram = createCoordinatedDiagram();
+		const node = diagram.nodes[0];
+		if (node === undefined) {
+			throw new Error("Expected fixture node");
+		}
+		node.box = { x: -100, y: -50, width: 120, height: 60 };
+		node.labelLayout = createLabelLayout("Negative Text", {
+			x: 16,
+			y: 12,
+			width: 80,
+			height: 20,
+		});
+
+		const svg = exportSvg(diagram);
+
+		expect(svg).toContain('<tspan x="-84" y="-23">Negative Text</tspan>');
+	});
+
 	it("exports edge labels from the routed diagram", () => {
 		const source = readFileSync(
 			new URL(

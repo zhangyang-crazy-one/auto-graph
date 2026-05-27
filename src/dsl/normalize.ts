@@ -454,11 +454,6 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 	const diagnostics: DslDiagnostic[] = [];
 	const nodeIds = new Set(Object.keys(dsl.nodes));
 	const groupIds = new Set(Object.keys(dsl.groups ?? {}));
-	const swimlaneLaneIds = new Set(
-		Object.entries(dsl.swimlanes ?? {}).flatMap(([swimlaneId, swimlane]) =>
-			Object.keys(swimlane.lanes).map((laneId) => `${swimlaneId}.${laneId}`),
-		),
-	);
 
 	(dsl.edges ?? []).forEach((edge, index) => {
 		if (typeof edge === "string") {
@@ -579,13 +574,12 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 				break;
 			case "containment": {
 				const container = constraint.containerId ?? constraint.container;
-				if (
-					container !== undefined &&
-					!hasNodeOrGroup(container, nodeIds, groupIds, swimlaneLaneIds)
-				) {
-					diagnostics.push(
-						referenceMissing(["constraints", index, "container"], container),
-					);
+				if (container !== undefined) {
+					if (!nodeIds.has(container)) {
+						diagnostics.push(
+							referenceMissing(["constraints", index, "container"], container),
+						);
+					}
 				}
 				(constraint.childIds ?? constraint.children ?? []).forEach(
 					(child, childIndex) => {
