@@ -290,7 +290,11 @@ function coordinateSwimlanes(
 				? { x: 0, y: 0, width: 120, height: 80 }
 				: unionBoxes(childBoxes);
 		});
-		const outer = expand(unionBoxes(laneBoxes), padding, titleSize);
+		const laneUnion =
+			laneBoxes.length === 0
+				? { x: 0, y: 0, width: 120, height: 80 }
+				: unionBoxes(laneBoxes);
+		const outer = expand(laneUnion, padding, titleSize);
 		const laneCount = Math.max(1, swimlane.lanes.length);
 		const lanes = swimlane.lanes.map((lane, index) => {
 			const box =
@@ -489,10 +493,10 @@ function portGeometry(
 		...nodeGeometry,
 		box: port.box,
 		center: port.anchor,
-		anchors: [
-			{ name: "center", point: port.anchor },
-			{ name: port.side, point: port.anchor },
-		],
+		anchors: nodeGeometry.anchors.map((anchor) => ({
+			name: anchor.name,
+			point: port.anchor,
+		})),
 		obstacleBox: port.box,
 	};
 }

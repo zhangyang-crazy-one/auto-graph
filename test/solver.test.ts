@@ -135,6 +135,74 @@ describe("solveDiagram", () => {
 			processing?.ports?.find((port) => port.id === "cooling_out")?.anchor,
 		);
 	});
+
+	it("routes port edges when auto anchor selection chooses a different side", () => {
+		const result = solveDiagram({
+			id: "vertical-port-edge",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [{ id: "out", side: "right", kind: "proxy" }],
+				},
+				{
+					...node("target", { x: 0, y: 200 }),
+					ports: [{ id: "in", side: "left", kind: "proxy" }],
+				},
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source", portId: "out" },
+					target: { nodeId: "target", portId: "in" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.edges[0]?.points.at(0)).toEqual(
+			result.nodes
+				.find((coordinatedNode) => coordinatedNode.id === "source")
+				?.ports?.find((port) => port.id === "out")?.anchor,
+		);
+		expect(result.edges[0]?.points.at(-1)).toEqual(
+			result.nodes
+				.find((coordinatedNode) => coordinatedNode.id === "target")
+				?.ports?.find((port) => port.id === "in")?.anchor,
+		);
+	});
+
+	it("solves empty swimlanes without crashing", () => {
+		const result = solveDiagram({
+			id: "empty-swimlane",
+			direction: "LR",
+			nodes: [node("a", { x: 0, y: 0 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "empty",
+					label: { text: "Empty" },
+					orientation: "vertical",
+					lanes: [],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.swimlanes?.[0]?.box).toMatchObject({
+			x: expect.any(Number),
+			y: expect.any(Number),
+			width: expect.any(Number),
+			height: expect.any(Number),
+		});
+		expect(result.swimlanes?.[0]?.lanes).toEqual([]);
+	});
 });
 
 function sampleDiagram(): NormalizedDiagram {
