@@ -217,6 +217,90 @@ output:
 		).toEqual(["relative-position", "align", "distribute", "containment"]);
 	});
 
+	it("normalizes labels with the default Pretext measurer in Node", () => {
+		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
+		globalThis.OffscreenCanvas =
+			undefined as unknown as typeof globalThis.OffscreenCanvas;
+
+		try {
+			const result = normalizeDiagramDsl({
+				nodes: {
+					api: { label: "API" },
+				},
+			});
+
+			expect(result.diagnostics).toEqual([]);
+			expect(result.diagram?.nodes[0]?.labelLayout?.textBackend).toBe(
+				"pretext",
+			);
+		} finally {
+			globalThis.OffscreenCanvas = originalOffscreenCanvas;
+		}
+	});
+
+	it("sizes compartment nodes from their rendered row count", () => {
+		const result = normalizeDiagramDsl({
+			nodes: {
+				block: {
+					label: "Processing",
+					compartments: {
+						stereotype: "«block»",
+						name: "Processing",
+						properties: [
+							"coolingPower_W: Real",
+							"heatingPower_W: Real",
+							"mass_kg: Real",
+							"temperatureEnvelopeUpperLimit_C: Real",
+						],
+						constraints: [
+							"coolingPower_W >= 0",
+							"heatingPower_W >= 0",
+							"temperature_C < 85",
+						],
+					},
+				},
+			},
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.nodes[0]?.size.height).toBeGreaterThan(130);
+		expect(result.diagram?.nodes[0]?.size.width).toBeGreaterThan(190);
+	});
+
+	it("keeps legacy edge IDs and structured endpoints consistent when both are set", () => {
+		const result = normalizeDiagramDsl({
+			nodes: {
+				legacySource: { label: "Legacy Source" },
+				legacyTarget: { label: "Legacy Target" },
+				structuredSource: {
+					label: "Structured Source",
+					ports: { out: { side: "right" } },
+				},
+				structuredTarget: {
+					label: "Structured Target",
+					ports: { in: { side: "left" } },
+				},
+			},
+			edges: [
+				{
+					sourceId: "legacySource",
+					targetId: "legacyTarget",
+					source: { node: "structuredSource", port: "out" },
+					target: { node: "structuredTarget", port: "in" },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.edges[0]).toMatchObject({
+			id: "legacySource-legacyTarget",
+			source: { nodeId: "legacySource" },
+			target: { nodeId: "legacyTarget" },
+		});
+		expect(result.diagram?.edges[0]?.source.portId).toBeUndefined();
+		expect(result.diagram?.edges[0]?.target.portId).toBeUndefined();
+	});
+
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
 		expect(resolveOutputFormat().format).toBe("svg");
 		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(

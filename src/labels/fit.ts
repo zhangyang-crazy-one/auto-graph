@@ -85,6 +85,7 @@ function computeLabelLayout(
 		fittedSize,
 		padding,
 		font: { ...options.font },
+		textBackend: prepared.backend,
 		lineHeight,
 		lines: buildLines(textLayout, contentBox, lineHeight),
 		overflow,

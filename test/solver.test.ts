@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
 
@@ -93,6 +95,171 @@ describe("solveDiagram", () => {
 				"constraints.containment.impossible",
 			]),
 		);
+	});
+
+	it("solves boundary ports and shifted same-side attachments", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/sysml-structure.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		const processing = result.diagram?.nodes.find(
+			(node) => node.id === "processing_block",
+		);
+		expect(processing?.ports?.map((port) => port.id)).toEqual([
+			"cmd_in",
+			"cooling_out",
+			"heating_out",
+		]);
+		const rightSidePorts = processing?.ports?.filter(
+			(port) => port.side === "right",
+		);
+		expect(new Set(rightSidePorts?.map((port) => port.box.y)).size).toBe(2);
+		expect(
+			Math.abs(
+				(rightSidePorts?.[1]?.anchor.y ?? 0) -
+					(rightSidePorts?.[0]?.anchor.y ?? 0),
+			),
+		).toBe(14);
+		const cooling = result.diagram?.edges.find(
+			(edge) => edge.id === "cooling_flow",
+		);
+		expect(cooling?.source.portId).toBe("cooling_out");
+		expect(cooling?.points.at(0)).toEqual(
+			processing?.ports?.find((port) => port.id === "cooling_out")?.anchor,
+		);
+	});
+
+	it("routes port edges when auto anchor selection chooses a different side", () => {
+		const result = solveDiagram({
+			id: "vertical-port-edge",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [{ id: "out", side: "right", kind: "proxy" }],
+				},
+				{
+					...node("target", { x: 0, y: 200 }),
+					ports: [{ id: "in", side: "left", kind: "proxy" }],
+				},
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source", portId: "out" },
+					target: { nodeId: "target", portId: "in" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.edges[0]?.points.at(0)).toEqual(
+			result.nodes
+				.find((coordinatedNode) => coordinatedNode.id === "source")
+				?.ports?.find((port) => port.id === "out")?.anchor,
+		);
+		expect(result.edges[0]?.points.at(-1)).toEqual(
+			result.nodes
+				.find((coordinatedNode) => coordinatedNode.id === "target")
+				?.ports?.find((port) => port.id === "in")?.anchor,
+		);
+	});
+
+	it("includes boundary ports and port labels in diagram bounds", () => {
+		const result = solveDiagram({
+			id: "port-bounds",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "left",
+							side: "left",
+							kind: "proxy",
+							label: { text: "external" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const source = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "source",
+		);
+		const port = source?.ports?.[0];
+
+		expect(port).toBeDefined();
+		expect(result.bounds.x).toBeLessThanOrEqual(port?.box.x ?? 0);
+		expect(result.bounds.x).toBeLessThan(port?.box.x ?? 0);
+	});
+
+	it("solves empty swimlanes without crashing", () => {
+		const result = solveDiagram({
+			id: "empty-swimlane",
+			direction: "LR",
+			nodes: [node("a", { x: 0, y: 0 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "empty",
+					label: { text: "Empty" },
+					orientation: "vertical",
+					lanes: [],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.swimlanes?.[0]?.box).toMatchObject({
+			x: expect.any(Number),
+			y: expect.any(Number),
+			width: expect.any(Number),
+			height: expect.any(Number),
+		});
+		expect(result.swimlanes?.[0]?.lanes).toEqual([]);
+	});
+
+	it("ignores empty lanes when deriving populated swimlane extents", () => {
+		const result = solveDiagram({
+			id: "mixed-swimlane",
+			direction: "LR",
+			nodes: [node("a", { x: 300, y: 200 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "lanes",
+					orientation: "vertical",
+					lanes: [
+						{ id: "empty", children: [] },
+						{ id: "populated", children: ["a"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.swimlanes?.[0]?.box?.x).toBeGreaterThan(200);
+		expect(result.swimlanes?.[0]?.box?.y).toBeGreaterThan(100);
 	});
 });
 

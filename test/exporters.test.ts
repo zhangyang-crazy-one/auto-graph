@@ -241,6 +241,64 @@ constraints:
 		});
 	});
 
+	it("exports SysML visual structures from DSL", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/sysml-structure.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain("sysml-frame");
+		expect(result.content).toContain("ibd [block] Processing System");
+		expect(result.content).toContain('class="port"');
+		expect(result.content).toContain(
+			'data-port="processing_block.cooling_out"',
+		);
+		expect(result.content).toContain("swimlane");
+		expect(result.content).toContain("compartment");
+		expect(result.content).toContain("«block»");
+		expect(result.content).toContain("#fff2cc");
+		expect(result.content).toContain("coolingPower_W");
+	});
+
+	it("does not render duplicate centered labels for compartment nodes", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  block:
+    label: Processing
+    compartments:
+      stereotype: "«block»"
+      name: Processing
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="compartment-name"');
+		expect(result.content).not.toContain('class="label" data-for="block"');
+	});
+
+	it("honors custom port stroke styles in SVG output", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  block:
+    label: Block
+    ports:
+      flow:
+        side: right
+        style:
+          fill: "#d9ead3"
+          stroke: "#16a34a"
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('data-port="block.flow"');
+		expect(result.content).toContain('stroke="#16a34a"');
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",
@@ -299,7 +357,7 @@ constraints:
 			"utf8",
 		);
 		expect(normalizeSource).toContain("fitLabel");
-		expect(normalizeSource).toContain("DeterministicTextMeasurer");
+		expect(normalizeSource).toContain("createDefaultTextMeasurer");
 	});
 
 	it("runs the built agh binary against the architecture example", () => {

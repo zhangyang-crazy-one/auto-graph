@@ -80,5 +80,6 @@
     "right": 6,
     "top": 4
   },
-  "text": "服务入口\nمرحبا"
+  "text": "服务入口\nمرحبا",
+  "textBackend": "deterministic"
 }

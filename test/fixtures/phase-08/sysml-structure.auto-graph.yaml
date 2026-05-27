@@ -1,0 +1,87 @@
+title: SysML Structure Fixture
+layout:
+  direction: LR
+frame:
+  kind: ibd
+  context: Processing System
+  name: Cooling Control Internal Block
+  titleTab: "ibd [block] Processing System [Cooling Control Internal Block]"
+routing:
+  kind: orthogonal
+  portShifting:
+    enabled: true
+    spacing: 14
+swimlanes:
+  behavior_activity:
+    label: Behavior Triad Activity
+    orientation: vertical
+    lanes:
+      hmi:
+        label: HMI
+        children: [user_command]
+      processing:
+        label: Processing
+        children: [parse_command]
+nodes:
+  processing_block:
+    label: Processing
+    style:
+      fill: "#fff2cc"
+    ports:
+      cmd_in: { side: left, kind: proxy, order: 0, label: cmd }
+      cooling_out: { side: right, kind: flow, order: 0, label: coolingPower_W }
+      heating_out: { side: right, kind: flow, order: 1, label: heatingPower_W }
+    compartments:
+      stereotype: "«block»"
+      name: Processing
+      properties:
+        - coolingPower_W: Real
+        - heatingPower_W: Real
+      constraints:
+        - coolingPower_W >= 0
+  user_command:
+    label: user command
+    position: { x: 40, y: 60 }
+  parse_command:
+    label: parse command
+    position: { x: 40, y: 150 }
+  status_update:
+    label: status update
+    position: { x: 40, y: 240 }
+  cooling_block:
+    label: Cooling
+    ports:
+      command_in: { side: left, kind: flow, label: command }
+  heating_block:
+    label: Heating
+    ports:
+      command_in: { side: left, kind: flow, label: command }
+edges:
+  - id: command_flow
+    source: user_command
+    target: { node: processing_block, port: cmd_in }
+    label: user command
+  - id: cooling_flow
+    source: { node: processing_block, port: cooling_out }
+    target: { node: cooling_block, port: command_in }
+    label: coolingPower_W
+  - id: heating_flow
+    source: { node: processing_block, port: heating_out }
+    target: { node: heating_block, port: command_in }
+    label: heatingPower_W
+constraints:
+  - kind: relative-position
+    source: processing_block
+    reference: user_command
+    relation: right-of
+    offset: { x: 180, y: 0 }
+  - kind: relative-position
+    source: cooling_block
+    reference: processing_block
+    relation: right-of
+    offset: { x: 180, y: 0 }
+  - kind: relative-position
+    source: heating_block
+    reference: processing_block
+    relation: right-of
+    offset: { x: 180, y: 120 }

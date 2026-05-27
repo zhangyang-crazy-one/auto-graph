@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runCli } from "../src/cli/run.js";
+import { PretextTextMeasurer } from "../src/text/index.js";
 
 const VALID_DSL = `
 title: CLI
@@ -68,6 +69,28 @@ describe("agh CLI contract", () => {
 		expect(exitCode).toBe(0);
 		expect(io.stdout()).toContain("<svg");
 		expect(io.stderr()).toBe("");
+	});
+
+	it("runCli uses the default Pretext text measurer without exposing backend in SVG", async () => {
+		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
+		globalThis.OffscreenCanvas =
+			undefined as unknown as typeof globalThis.OffscreenCanvas;
+		const prepareSpy = vi.spyOn(PretextTextMeasurer.prototype, "prepare");
+
+		try {
+			const io = memoryIo(VALID_DSL);
+
+			const exitCode = await runCli(["--format", "svg"], io.environment);
+
+			expect(exitCode).toBe(0);
+			expect(io.stdout()).toContain("<svg");
+			expect(io.stderr()).toBe("");
+			expect(prepareSpy).toHaveBeenCalled();
+			expect(io.stdout()).not.toContain("pretext");
+		} finally {
+			prepareSpy.mockRestore();
+			globalThis.OffscreenCanvas = originalOffscreenCanvas;
+		}
 	});
 
 	it("runCli reads stdin and writes Excalidraw JSON to stdout", async () => {

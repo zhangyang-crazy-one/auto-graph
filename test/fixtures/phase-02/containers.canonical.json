@@ -145,7 +145,8 @@
       "right": 4,
       "top": 4
     },
-    "text": "Group"
+    "text": "Group",
+    "textBackend": "deterministic"
   },
   "obstacleBox": {
     "height": 188,

@@ -2,13 +2,17 @@ import type { Constraint } from "../ir/constraints.js";
 import type { NormalizedDiagram } from "../ir/diagram.js";
 import type {
 	Label,
+	NodeCompartments,
+	NodePort,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
+	Swimlane,
+	VisualStyle,
 } from "../ir/elements.js";
 import type { Insets, Point, Size } from "../ir/geometry.js";
 import { fitLabel } from "../labels/index.js";
-import { DeterministicTextMeasurer, type TextMeasurer } from "../text/index.js";
+import { createDefaultTextMeasurer, type TextMeasurer } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import type { DiagramDsl } from "./schema.js";
 import type { DslDiagnostic, NormalizeDiagramDslResult } from "./types.js";
@@ -47,8 +51,9 @@ export function normalizeDiagramDsl(
 		};
 	}
 
-	const measurer = options.textMeasurer ?? new DeterministicTextMeasurer();
+	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
+	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
 	const diagram: NormalizedDiagram = {
 		id: options.id ?? dsl.id ?? "diagram",
 		...(dsl.title === undefined ? {} : { title: dsl.title }),
@@ -56,15 +61,41 @@ export function normalizeDiagramDsl(
 		nodes: normalizeNodes(dsl, measurer),
 		edges: normalizeEdges(dsl),
 		groups: normalizeGroups(dsl, measurer),
+		swimlanes: normalizeSwimlanes(dsl),
 		constraints: normalizeConstraints(dsl),
 		diagnostics: [],
-		metadata: { routeKind },
+		...(dsl.frame === undefined ? {} : { frame: normalizeFrame(dsl.frame) }),
+		metadata: {
+			routeKind,
+			...(portShifting === undefined ? {} : { portShifting }),
+		},
 	};
 
 	return {
 		diagram,
 		diagnostics: [],
 		...outputResult(dsl),
+	};
+}
+
+function normalizePortShifting(
+	portShifting: NonNullable<DiagramDsl["routing"]>["portShifting"] | undefined,
+):
+	| {
+			enabled?: boolean;
+			spacing?: number;
+	  }
+	| undefined {
+	if (portShifting === undefined) {
+		return undefined;
+	}
+	return {
+		...(portShifting.enabled === undefined
+			? {}
+			: { enabled: portShifting.enabled }),
+		...(portShifting.spacing === undefined
+			? {}
+			: { spacing: portShifting.spacing }),
 	};
 }
 
@@ -88,6 +119,14 @@ function normalizeNodes(
 			const labelLayout =
 				label === undefined ? undefined : fitDslLabel(label, measurer);
 			const fittedSize = labelLayout?.fittedSize;
+			const nodeCompartments =
+				node?.compartments === undefined
+					? undefined
+					: compartments(node.compartments);
+			const compartmentWidth =
+				nodeCompartments === undefined
+					? 0
+					: compartmentNaturalWidth(id, label, nodeCompartments, measurer);
 
 			return {
 				id,
@@ -96,10 +135,23 @@ function normalizeNodes(
 				...(node?.position === undefined
 					? {}
 					: { position: point(node.position) }),
+				...(node?.style === undefined ? {} : { style: style(node.style) }),
+				...(node?.ports === undefined
+					? {}
+					: { ports: normalizePorts(node.ports) }),
+				...(nodeCompartments === undefined
+					? {}
+					: { compartments: nodeCompartments }),
 				size: {
-					width: Math.max(DEFAULT_NODE_MIN_SIZE.width, fittedSize?.width ?? 0),
+					width: Math.max(
+						DEFAULT_NODE_MIN_SIZE.width,
+						fittedSize?.width ?? 0,
+						compartmentWidth,
+					),
 					height: Math.max(
-						DEFAULT_NODE_MIN_SIZE.height,
+						nodeCompartments === undefined
+							? DEFAULT_NODE_MIN_SIZE.height
+							: compartmentHeight(nodeCompartments),
 						fittedSize?.height ?? 0,
 					),
 				},
@@ -109,14 +161,71 @@ function normalizeNodes(
 		});
 }
 
+function compartmentHeight(value: NodeCompartments): number {
+	const rowCount =
+		(value.stereotype === undefined ? 0 : 1) +
+		1 +
+		(value.properties?.length ?? 0) +
+		(value.constraints?.length ?? 0);
+	const rowHeight = 16;
+	const verticalPadding = 20;
+	return Math.max(
+		DEFAULT_NODE_MIN_SIZE.height,
+		rowCount * rowHeight + verticalPadding,
+	);
+}
+
+function compartmentNaturalWidth(
+	id: string,
+	label: Label | undefined,
+	value: NodeCompartments,
+	measurer: TextMeasurer,
+): number {
+	const rows = compartmentRows(id, label, value);
+	const maxRowWidth = rows.reduce((width, row) => {
+		const prepared = measurer.prepare(row, DEFAULT_FONT);
+		return Math.max(width, measurer.naturalWidth(prepared));
+	}, 0);
+	return Math.ceil(
+		maxRowWidth + DEFAULT_NODE_PADDING.left + DEFAULT_NODE_PADDING.right,
+	);
+}
+
+function compartmentRows(
+	id: string,
+	label: Label | undefined,
+	value: NodeCompartments,
+): string[] {
+	return [
+		...(value.stereotype === undefined ? [] : [value.stereotype]),
+		value.name ?? label?.text ?? id,
+		...(value.properties ?? []),
+		...(value.constraints ?? []),
+	];
+}
+
 function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
 	const counts = new Map<string, number>();
 
 	return (dsl.edges ?? []).map((edge) => {
+		const source = typeof edge === "string" ? undefined : edge.source;
+		const target = typeof edge === "string" ? undefined : edge.target;
 		const sourceId =
-			typeof edge === "string" ? "" : (edge.sourceId ?? edge.source ?? "");
+			typeof edge === "string"
+				? ""
+				: (edge.sourceId ?? endpointNodeId(source) ?? "");
 		const targetId =
-			typeof edge === "string" ? "" : (edge.targetId ?? edge.target ?? "");
+			typeof edge === "string"
+				? ""
+				: (edge.targetId ?? endpointNodeId(target) ?? "");
+		const sourceEndpoint =
+			typeof edge === "string"
+				? { nodeId: sourceId }
+				: endpoint(source, edge.sourceId);
+		const targetEndpoint =
+			typeof edge === "string"
+				? { nodeId: targetId }
+				: endpoint(target, edge.targetId);
 		const baseId = `${sourceId}-${targetId}`;
 		const count = counts.get(baseId) ?? 0;
 		counts.set(baseId, count + 1);
@@ -128,8 +237,8 @@ function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
 
 		return {
 			id,
-			source: { nodeId: sourceId },
-			target: { nodeId: targetId },
+			source: sourceEndpoint,
+			target: targetEndpoint,
 			...(label === undefined ? {} : { label }),
 			...(typeof edge === "string" || edge.style === undefined
 				? {}
@@ -139,6 +248,127 @@ function normalizeEdges(dsl: DiagramDsl): NormalizedEdge[] {
 				: { arrowhead: edge.arrowhead }),
 		};
 	});
+}
+
+function normalizePorts(
+	ports: NonNullable<DiagramDsl["nodes"][string]>["ports"],
+): NodePort[] {
+	return Object.keys(ports ?? {})
+		.sort()
+		.map((id) => {
+			const port = ports?.[id];
+			const label = toLabel(port?.label);
+			return {
+				id,
+				...(label === undefined ? {} : { label }),
+				side: port?.side ?? "right",
+				kind: port?.kind ?? "proxy",
+				...(port?.order === undefined ? {} : { order: port.order }),
+				...(port?.style === undefined ? {} : { style: style(port.style) }),
+			};
+		});
+}
+
+function endpoint(
+	value: string | { node: string; port?: string | undefined } | undefined,
+	nodeIdOverride?: string | undefined,
+): NormalizedEdge["source"] {
+	if (nodeIdOverride !== undefined) {
+		return {
+			nodeId: nodeIdOverride,
+			...(typeof value === "object" &&
+			value.node === nodeIdOverride &&
+			value.port !== undefined
+				? { portId: value.port }
+				: {}),
+		};
+	}
+	if (value === undefined) {
+		return { nodeId: "" };
+	}
+	if (typeof value === "string") {
+		return { nodeId: value };
+	}
+	return {
+		nodeId: value.node,
+		...(value.port === undefined ? {} : { portId: value.port }),
+	};
+}
+
+function style(value: {
+	fill?: string | undefined;
+	stroke?: string | undefined;
+}): VisualStyle {
+	return {
+		...(value.fill === undefined ? {} : { fill: value.fill }),
+		...(value.stroke === undefined ? {} : { stroke: value.stroke }),
+	};
+}
+
+function compartments(value: {
+	stereotype?: string | undefined;
+	name?: string | undefined;
+	properties?: Array<Record<string, string> | string> | undefined;
+	constraints?: string[] | undefined;
+}): NodeCompartments {
+	return {
+		...(value.stereotype === undefined ? {} : { stereotype: value.stereotype }),
+		...(value.name === undefined ? {} : { name: value.name }),
+		...(value.properties === undefined
+			? {}
+			: { properties: value.properties.map(formatCompartmentEntry) }),
+		...(value.constraints === undefined
+			? {}
+			: { constraints: [...value.constraints] }),
+	};
+}
+
+function normalizeFrame(frame: NonNullable<DiagramDsl["frame"]>) {
+	return {
+		kind: frame.kind,
+		...(frame.context === undefined ? {} : { context: frame.context }),
+		...(frame.name === undefined ? {} : { name: frame.name }),
+		titleTab: frame.titleTab,
+		...(frame.style === undefined ? {} : { style: style(frame.style) }),
+	};
+}
+
+function formatCompartmentEntry(
+	value: Record<string, string> | string,
+): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	const [entry] = Object.entries(value);
+	if (entry === undefined) {
+		return "";
+	}
+	return `${entry[0]}: ${entry[1]}`;
+}
+
+function normalizeSwimlanes(dsl: DiagramDsl): Swimlane[] {
+	return Object.keys(dsl.swimlanes ?? {})
+		.sort()
+		.map((id) => {
+			const swimlane = dsl.swimlanes?.[id];
+			const label = toLabel(swimlane?.label);
+			return {
+				id,
+				...(label === undefined ? {} : { label }),
+				orientation: swimlane?.orientation ?? "vertical",
+				lanes: Object.keys(swimlane?.lanes ?? {})
+					.sort()
+					.map((laneId) => {
+						const lane = swimlane?.lanes[laneId];
+						const laneLabel = toLabel(lane?.label);
+						return {
+							id: laneId,
+							...(laneLabel === undefined ? {} : { label: laneLabel }),
+							children: [...(lane?.children ?? [])],
+						};
+					}),
+			};
+		});
 }
 
 function normalizeGroups(
@@ -224,19 +454,38 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 	const diagnostics: DslDiagnostic[] = [];
 	const nodeIds = new Set(Object.keys(dsl.nodes));
 	const groupIds = new Set(Object.keys(dsl.groups ?? {}));
+	const swimlaneLaneIds = new Set(
+		Object.entries(dsl.swimlanes ?? {}).flatMap(([swimlaneId, swimlane]) =>
+			Object.keys(swimlane.lanes).map((laneId) => `${swimlaneId}.${laneId}`),
+		),
+	);
 
 	(dsl.edges ?? []).forEach((edge, index) => {
 		if (typeof edge === "string") {
 			return;
 		}
-		const sourceId = edge.sourceId ?? edge.source;
-		const targetId = edge.targetId ?? edge.target;
+		const sourceId = edge.sourceId ?? endpointNodeId(edge.source);
+		const targetId = edge.targetId ?? endpointNodeId(edge.target);
+		const sourceEndpoint = endpoint(edge.source, edge.sourceId);
+		const targetEndpoint = endpoint(edge.target, edge.targetId);
 		if (sourceId !== undefined && !nodeIds.has(sourceId)) {
 			diagnostics.push(referenceMissing(["edges", index, "source"], sourceId));
 		}
 		if (targetId !== undefined && !nodeIds.has(targetId)) {
 			diagnostics.push(referenceMissing(["edges", index, "target"], targetId));
 		}
+		validateEndpointPort(
+			dsl,
+			sourceEndpoint,
+			["edges", index, "source"],
+			diagnostics,
+		);
+		validateEndpointPort(
+			dsl,
+			targetEndpoint,
+			["edges", index, "target"],
+			diagnostics,
+		);
 	});
 
 	for (const [groupId, group] of Object.entries(dsl.groups ?? {})) {
@@ -254,6 +503,28 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 				);
 			}
 		});
+	}
+
+	for (const [swimlaneId, swimlane] of Object.entries(dsl.swimlanes ?? {})) {
+		for (const [laneId, lane] of Object.entries(swimlane.lanes)) {
+			(lane.children ?? []).forEach((child, childIndex) => {
+				if (!nodeIds.has(child)) {
+					diagnostics.push(
+						referenceMissing(
+							[
+								"swimlanes",
+								swimlaneId,
+								"lanes",
+								laneId,
+								"children",
+								childIndex,
+							],
+							child,
+						),
+					);
+				}
+			});
+		}
 	}
 
 	(dsl.constraints ?? []).forEach((constraint, index) => {
@@ -310,7 +581,7 @@ function validateReferences(dsl: DiagramDsl): DslDiagnostic[] {
 				const container = constraint.containerId ?? constraint.container;
 				if (
 					container !== undefined &&
-					!hasNodeOrGroup(container, nodeIds, groupIds)
+					!hasNodeOrGroup(container, nodeIds, groupIds, swimlaneLaneIds)
 				) {
 					diagnostics.push(
 						referenceMissing(["constraints", index, "container"], container),
@@ -354,8 +625,37 @@ function hasNodeOrGroup(
 	id: string,
 	nodeIds: ReadonlySet<string>,
 	groupIds: ReadonlySet<string>,
+	swimlaneLaneIds: ReadonlySet<string> = new Set(),
 ): boolean {
-	return nodeIds.has(id) || groupIds.has(id);
+	return nodeIds.has(id) || groupIds.has(id) || swimlaneLaneIds.has(id);
+}
+
+function endpointNodeId(
+	endpointValue:
+		| string
+		| { node: string; port?: string | undefined }
+		| undefined,
+): string | undefined {
+	if (typeof endpointValue === "string" || endpointValue === undefined) {
+		return endpointValue;
+	}
+	return endpointValue.node;
+}
+
+function validateEndpointPort(
+	dsl: DiagramDsl,
+	endpointValue: NormalizedEdge["source"],
+	path: Array<string | number>,
+	diagnostics: DslDiagnostic[],
+): void {
+	if (endpointValue.portId === undefined) {
+		return;
+	}
+
+	const node = dsl.nodes[endpointValue.nodeId];
+	if (node !== undefined && node.ports?.[endpointValue.portId] === undefined) {
+		diagnostics.push(referenceMissing([...path, "port"], endpointValue.portId));
+	}
 }
 
 function toLabel(

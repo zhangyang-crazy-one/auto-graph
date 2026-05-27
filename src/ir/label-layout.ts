@@ -1,4 +1,8 @@
-import type { TextCursor, TextStyleOptions } from "../text/index.js";
+import type {
+	TextCursor,
+	TextMeasurementBackend,
+	TextStyleOptions,
+} from "../text/index.js";
 import type { Diagnostic } from "./diagnostics.js";
 import type { Box, Insets, Size } from "./geometry.js";
 
@@ -20,6 +24,7 @@ export interface LabelLayout {
 	fittedSize: Size;
 	padding: Insets;
 	font: TextStyleOptions;
+	textBackend?: TextMeasurementBackend;
 	lineHeight: number;
 	lines: LabelLineLayout[];
 	overflow: {

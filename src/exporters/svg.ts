@@ -1,10 +1,12 @@
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedFrame,
 	CoordinatedGroup,
 	CoordinatedNode,
 	Label,
 	NodeShape,
+	Swimlane,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import { computeArrowhead } from "./arrow.js";
@@ -25,6 +27,12 @@ export function exportSvg(
 		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(diagram.bounds)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
 		`  <rect class="background" x="${formatNumber(diagram.bounds.x)}" y="${formatNumber(diagram.bounds.y)}" width="${formatNumber(diagram.bounds.width)}" height="${formatNumber(diagram.bounds.height)}" fill="#ffffff"/>`,
+		...(diagram.frame === undefined
+			? []
+			: [indent(renderFrame(diagram.frame))]),
+		...(diagram.swimlanes ?? []).flatMap((swimlane) =>
+			renderSwimlane(swimlane),
+		),
 		...diagram.groups.map((group) => indent(renderGroup(group))),
 		...diagram.edges.flatMap((edge) => {
 			const path = renderEdgePath(edge);
@@ -34,10 +42,16 @@ export function exportSvg(
 			return [indent(path), indent(renderArrowhead(edge))];
 		}),
 		...diagram.nodes.map((node) => indent(renderNode(node))),
+		...diagram.nodes.flatMap((node) => renderCompartments(node)),
+		...diagram.nodes.flatMap((node) => renderPorts(node)),
 		...diagram.groups.flatMap((group) =>
 			renderLabel(group.label, group.box, group),
 		),
-		...diagram.nodes.flatMap((node) => renderLabel(node.label, node.box, node)),
+		...diagram.nodes.flatMap((node) =>
+			node.compartments === undefined
+				? renderLabel(node.label, node.box, node)
+				: [],
+		),
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge)),
 		"</svg>",
 	];
@@ -50,7 +64,9 @@ function renderGroup(group: CoordinatedGroup): string {
 }
 
 function renderNode(node: CoordinatedNode): string {
-	const common = `class="node node-${node.shape}" data-id="${escapeAttribute(node.id)}" fill="${NODE_FILL}" stroke="${STROKE}"`;
+	const fill = node.style?.fill ?? NODE_FILL;
+	const stroke = node.style?.stroke ?? STROKE;
+	const common = `class="node node-${node.shape}" data-id="${escapeAttribute(node.id)}" fill="${escapeAttribute(fill)}" stroke="${escapeAttribute(stroke)}"`;
 	switch (node.shape) {
 		case "rectangle":
 			return renderRect(node.box, common);
@@ -65,6 +81,109 @@ function renderNode(node: CoordinatedNode): string {
 		case "cylinder":
 			return `<path ${common} d="${formatCylinderPath(node.box)}"/>`;
 	}
+}
+
+function renderFrame(frame: CoordinatedFrame): string {
+	const stroke = frame.style?.stroke ?? "#6b7280";
+	const fill = frame.style?.fill ?? "transparent";
+	return [
+		`<g class="sysml-frame" data-kind="${escapeAttribute(frame.kind)}">`,
+		`  <rect class="sysml-frame-border" x="${formatNumber(frame.box.x)}" y="${formatNumber(frame.box.y)}" width="${formatNumber(frame.box.width)}" height="${formatNumber(frame.box.height)}" fill="${escapeAttribute(fill)}" stroke="${escapeAttribute(stroke)}"/>`,
+		`  <path class="sysml-title-tab" d="M ${formatNumber(frame.titleBox.x)} ${formatNumber(frame.titleBox.y + frame.titleBox.height)} L ${formatNumber(frame.titleBox.x)} ${formatNumber(frame.titleBox.y)} L ${formatNumber(frame.titleBox.x + frame.titleBox.width - 16)} ${formatNumber(frame.titleBox.y)} L ${formatNumber(frame.titleBox.x + frame.titleBox.width)} ${formatNumber(frame.titleBox.y + frame.titleBox.height)} Z" fill="#f3f4f6" stroke="${escapeAttribute(stroke)}"/>`,
+		`  <text class="sysml-title-tab-label" x="${formatNumber(frame.titleBox.x + 8)}" y="${formatNumber(frame.titleBox.y + frame.titleBox.height / 2)}" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(frame.titleTab)}</text>`,
+		"</g>",
+	].join("\n");
+}
+
+function renderSwimlane(swimlane: Swimlane): string[] {
+	if (swimlane.box === undefined) {
+		return [];
+	}
+	const lines = [
+		`  <g class="swimlane" data-id="${escapeAttribute(swimlane.id)}">`,
+		`    <rect class="swimlane-frame" x="${formatNumber(swimlane.box.x)}" y="${formatNumber(swimlane.box.y)}" width="${formatNumber(swimlane.box.width)}" height="${formatNumber(swimlane.box.height)}" fill="#ffffff" stroke="${STROKE}"/>`,
+	];
+	for (const lane of swimlane.lanes) {
+		if (lane.box === undefined) {
+			continue;
+		}
+		lines.push(
+			`    <rect class="swimlane-lane" data-lane="${escapeAttribute(`${swimlane.id}.${lane.id}`)}" x="${formatNumber(lane.box.x)}" y="${formatNumber(lane.box.y)}" width="${formatNumber(lane.box.width)}" height="${formatNumber(lane.box.height)}" fill="none" stroke="${STROKE}"/>`,
+		);
+		if (lane.label?.text !== undefined) {
+			lines.push(
+				`    <text class="swimlane-label" x="${formatNumber(lane.box.x + lane.box.width / 2)}" y="${formatNumber(lane.box.y + 16)}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(lane.label.text)}</text>`,
+			);
+		}
+	}
+	lines.push("  </g>");
+	return lines;
+}
+
+function renderPorts(node: CoordinatedNode): string[] {
+	return (node.ports ?? []).flatMap((port) => [
+		`  <rect class="port" data-kind="${escapeAttribute(port.kind)}" data-port="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(port.box.x)}" y="${formatNumber(port.box.y)}" width="${formatNumber(port.box.width)}" height="${formatNumber(port.box.height)}" fill="${escapeAttribute(port.style?.fill ?? "#d9ead3")}" stroke="${escapeAttribute(port.style?.stroke ?? STROKE)}"/>`,
+		...(port.label?.text === undefined
+			? []
+			: [
+					`  <text class="port-label" data-for="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(portLabelX(port.anchor.x, port.side))}" y="${formatNumber(port.anchor.y - 8)}" text-anchor="${port.side === "left" ? "end" : "start"}" font-family="${FONT_FAMILY}" font-size="10" fill="#111827">${escapeXml(port.label.text)}</text>`,
+				]),
+	]);
+}
+
+function renderCompartments(node: CoordinatedNode): string[] {
+	const compartments = node.compartments;
+	if (compartments === undefined) {
+		return [];
+	}
+	const rows = [
+		...(compartments.stereotype === undefined
+			? []
+			: [{ className: "stereotype", text: compartments.stereotype }]),
+		{
+			className: "name",
+			text: compartments.name ?? node.label?.text ?? node.id,
+		},
+		...(compartments.properties ?? []).map((text) => ({
+			className: "properties",
+			text,
+		})),
+		...(compartments.constraints ?? []).map((text) => ({
+			className: "constraints",
+			text,
+		})),
+	];
+	const lineHeight = 16;
+	const lines = [
+		`  <g class="compartment" data-for="${escapeAttribute(node.id)}">`,
+	];
+	for (let index = 0; index < rows.length; index += 1) {
+		const row = rows[index];
+		if (row === undefined) {
+			continue;
+		}
+		const y = node.box.y + 18 + index * lineHeight;
+		if (index > 1) {
+			lines.push(
+				`    <line class="compartment-separator" x1="${formatNumber(node.box.x)}" y1="${formatNumber(y - 12)}" x2="${formatNumber(node.box.x + node.box.width)}" y2="${formatNumber(y - 12)}" stroke="${STROKE}"/>`,
+			);
+		}
+		lines.push(
+			`    <text class="compartment-${row.className}" x="${formatNumber(node.box.x + node.box.width / 2)}" y="${formatNumber(y)}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#111827">${escapeXml(row.text)}</text>`,
+		);
+	}
+	lines.push("  </g>");
+	return lines;
+}
+
+function portLabelX(x: number, side: string): number {
+	if (side === "left") {
+		return x - 8;
+	}
+	if (side === "right") {
+		return x + 8;
+	}
+	return x + 8;
 }
 
 function renderRect(box: Box, attributes: string): string {
