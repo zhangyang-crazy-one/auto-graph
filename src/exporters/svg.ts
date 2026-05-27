@@ -197,9 +197,7 @@ function renderLabel(
 ): string[] {
 	const labelLayout = item.labelLayout;
 	if (labelLayout?.lines !== undefined && labelLayout.lines.length > 0) {
-		const offset = isAbsoluteLabelLayout(labelLayout.box, box)
-			? { x: 0, y: 0 }
-			: { x: box.x, y: box.y };
+		const offset = { x: box.x, y: box.y };
 		return [
 			`  <text class="label" data-for="${escapeAttribute(item.id)}" font-family="${FONT_FAMILY}" font-size="${formatNumber(labelLayout.font.fontSize)}" fill="#111827">`,
 			...labelLayout.lines.map(
@@ -320,15 +318,6 @@ function pathPointsBeforeArrowhead(points: readonly Point[]): Point[] {
 		y: (arrowhead.left.y + arrowhead.right.y) / 2,
 	};
 	return [...points.slice(0, -1), base];
-}
-
-function isAbsoluteLabelLayout(labelBox: Box, itemBox: Box): boolean {
-	return (
-		labelBox.x >= itemBox.x &&
-		labelBox.y >= itemBox.y &&
-		labelBox.x + labelBox.width <= itemBox.x + itemBox.width &&
-		labelBox.y + labelBox.height <= itemBox.y + itemBox.height
-	);
 }
 
 function shapePoints(
