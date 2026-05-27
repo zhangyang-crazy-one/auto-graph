@@ -1,6 +1,6 @@
 {
 	"name": "@crazyhappyone/auto-graph",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"description": "Deterministic geometry computation engine for diagrams",
 	"type": "module",
 	"sideEffects": false,
