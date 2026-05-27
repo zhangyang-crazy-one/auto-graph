@@ -261,6 +261,331 @@ describe("solveDiagram", () => {
 		expect(result.swimlanes?.[0]?.box?.x).toBeGreaterThan(200);
 		expect(result.swimlanes?.[0]?.box?.y).toBeGreaterThan(100);
 	});
+
+	it("treats contract swimlanes as physical lane regions with reserved headers", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane",
+			direction: "LR",
+			nodes: [
+				node("source_a"),
+				node("source_b"),
+				node("target_a"),
+				node("target_b"),
+			],
+			edges: [
+				{
+					id: "source_a-target_a",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+				},
+				{
+					id: "source_b-target_b",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					label: { text: "Behavior Triad" },
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{
+							id: "left",
+							label: { text: "Source" },
+							children: ["source_a", "source_b"],
+						},
+						{
+							id: "right",
+							label: { text: "Target" },
+							children: ["target_a", "target_b"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const swimlane = result.swimlanes?.[0];
+		const firstLane = swimlane?.lanes[0];
+		const secondLane = swimlane?.lanes[1];
+
+		expect(swimlane?.box).toBeDefined();
+		expect(firstLane?.headerBox?.height).toBe(24);
+		expect(secondLane?.headerBox?.height).toBe(24);
+		expect(firstLane?.contentBox?.y).toBeGreaterThan(
+			(firstLane?.headerBox?.y ?? 0) + 20,
+		);
+		expect(secondLane?.contentBox?.y).toBeGreaterThan(
+			(secondLane?.headerBox?.y ?? 0) + 20,
+		);
+		expect(
+			result.nodes.find((node) => node.id === "source_a")?.box.y,
+		).toBeGreaterThanOrEqual(firstLane?.contentBox?.y ?? 0);
+		expect(
+			result.nodes.find((node) => node.id === "target_a")?.box.x,
+		).toBeGreaterThan(
+			result.nodes.find((node) => node.id === "source_a")?.box.x ?? 0,
+		);
+		expect(result.edges[0]?.points.at(0)).toEqual(
+			result.nodes
+				.find((node) => node.id === "source_a")
+				?.anchors.find((anchor) => anchor.name === "right")?.point,
+		);
+	});
+
+	it("preserves empty contract lane slots before populated lanes", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-empty-slot",
+			direction: "LR",
+			nodes: [node("work")],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{ id: "empty", children: [] },
+						{ id: "populated", children: ["work"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const swimlane = result.swimlanes?.[0];
+		const emptyLane = swimlane?.lanes.find((lane) => lane.id === "empty");
+		const populatedLane = swimlane?.lanes.find(
+			(lane) => lane.id === "populated",
+		);
+		const work = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "work",
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		if (work === undefined || populatedLane?.contentBox === undefined) {
+			throw new Error("Expected populated lane and work node");
+		}
+		expect(emptyLane?.box?.width).toBe(populatedLane?.box?.width);
+		expect(populatedLane?.box?.x).toBeGreaterThan(emptyLane?.box?.x ?? 0);
+		expect(work.box.x).toBeGreaterThanOrEqual(populatedLane.contentBox.x);
+		expect(work.box.x + work.box.width).toBeLessThanOrEqual(
+			populatedLane.contentBox.x + populatedLane.contentBox.width,
+		);
+		expect(work.box.y).toBeGreaterThanOrEqual(populatedLane.contentBox.y);
+	});
+
+	it("does not move locked nodes into contract swimlane slots", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-locked-node",
+			direction: "LR",
+			nodes: [
+				node("locked", { x: 300, y: 120 }),
+				node("free", { x: 420, y: 120 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [{ id: "lane", children: ["locked", "free"] }],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(
+			result.nodes.find((coordinatedNode) => coordinatedNode.id === "locked")
+				?.box,
+		).toMatchObject({
+			x: 300,
+			y: 120,
+		});
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.locked-target-not-moved",
+				detail: expect.objectContaining({ nodeId: "locked" }),
+			}),
+		);
+	});
+
+	it("reports overlaps introduced by contract swimlane placement", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-overlap",
+			direction: "LR",
+			nodes: [node("lane_child"), node("outside", { x: 40, y: 80 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [{ id: "lane", children: ["lane_child"] }],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					firstId: "lane_child",
+					secondId: "outside",
+				}),
+			}),
+		);
+	});
+
+	it("does not emit swimlane overlap diagnostics without contract placement", () => {
+		const result = solveDiagram({
+			id: "plain-overlap",
+			direction: "LR",
+			nodes: [
+				node("first", { x: 40, y: 80 }),
+				node("second", { x: 40, y: 80 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(
+			result.diagnostics.some((diagnostic) =>
+				diagnostic.path?.includes("swimlanes"),
+			),
+		).toBe(false);
+	});
+
+	it("filters overlap diagnostics resolved by contract swimlane placement", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-resolved-overlap",
+			direction: "LR",
+			nodes: [node("left"), node("right")],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{ id: "left_lane", children: ["left"] },
+						{ id: "right_lane", children: ["right"] },
+					],
+				},
+			],
+			constraints: [
+				{
+					kind: "align",
+					axis: "x",
+					targetIds: ["left", "right"],
+				},
+				{
+					kind: "align",
+					axis: "y",
+					targetIds: ["left", "right"],
+				},
+			],
+			diagnostics: [],
+		});
+
+		expect(
+			result.diagnostics.filter(
+				(diagnostic) => diagnostic.code === "constraints.overlap.unresolved",
+			),
+		).toEqual([]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.swimlane-contract.invalidated",
+				detail: expect.objectContaining({ constraintKind: "align" }),
+			}),
+		);
+	});
+
+	it("places horizontal contract swimlane headers beside row content", () => {
+		const result = solveDiagram({
+			id: "horizontal-contract-swimlane",
+			direction: "TB",
+			nodes: [node("observe"), node("decide")],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "horizontal",
+					lanes: [
+						{
+							id: "observe_lane",
+							label: { text: "Observe" },
+							children: ["observe"],
+						},
+						{
+							id: "decide_lane",
+							label: { text: "Decide" },
+							children: ["decide"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		const firstLane = result.swimlanes?.[0]?.lanes[0];
+		const observe = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "observe",
+		);
+
+		if (
+			firstLane?.headerBox === undefined ||
+			firstLane.contentBox === undefined ||
+			observe === undefined
+		) {
+			throw new Error("Expected horizontal contract lane and observe node");
+		}
+		expect(firstLane.headerBox).toMatchObject({
+			x: firstLane.box?.x,
+			y: firstLane.box?.y,
+			width: 24,
+			height: firstLane.box?.height,
+		});
+		expect(firstLane.contentBox).toMatchObject({
+			x: (firstLane.box?.x ?? 0) + 24,
+			y: firstLane.box?.y,
+			height: firstLane.box?.height,
+		});
+		expect(observe.box.x).toBeGreaterThanOrEqual(firstLane.contentBox.x);
+		expect(observe.box.y).toBeGreaterThanOrEqual(firstLane.contentBox.y);
+		expect(observe.box.y + observe.box.height).toBeLessThanOrEqual(
+			firstLane.contentBox.y + firstLane.contentBox.height,
+		);
+	});
 });
 
 function sampleDiagram(): NormalizedDiagram {

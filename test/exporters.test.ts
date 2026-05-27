@@ -285,6 +285,83 @@ constraints:
 		expect(result.content).toContain("coolingPower_W");
 	});
 
+	it("exports contract swimlane header and content regions from DSL", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/contract-swimlane.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-header"');
+		expect(result.content).toContain('class="swimlane-content"');
+		expect(result.content).toContain('data-lane-header="behavior.left"');
+		expect(result.content).toContain('data-lane-content="behavior.right"');
+	});
+
+	it("exports contract swimlane regions even without lane labels", () => {
+		const result = renderDiagramDsl(`
+title: Unlabeled Contract Swimlane
+layout:
+  direction: LR
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: vertical
+    lanes:
+      source:
+        children: [source_a]
+      target:
+        children: [target_a]
+nodes:
+  source_a:
+    label: Source A
+  target_a:
+    label: Target A
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-header"');
+		expect(result.content).toContain('class="swimlane-content"');
+		expect(result.content).not.toContain('class="swimlane-label"');
+	});
+
+	it("rotates horizontal contract swimlane header labels", () => {
+		const result = renderDiagramDsl(`
+title: Horizontal Contract Swimlane
+layout:
+  direction: TB
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: horizontal
+    lanes:
+      observe:
+        label: Observe
+        children: [observe_node]
+      decide:
+        label: Decide
+        children: [decide_node]
+nodes:
+  observe_node:
+    label: Observe Node
+  decide_node:
+    label: Decide Node
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-label"');
+		expect(result.content).toContain('transform="rotate(-90');
+	});
+
 	it("does not render duplicate centered labels for compartment nodes", () => {
 		const result = renderDiagramDsl(`
 nodes:

@@ -243,6 +243,30 @@ output:
 		}
 	});
 
+	it("preserves author-declared contract swimlane lane order", () => {
+		const result = normalizeDiagramDsl({
+			nodes: {
+				input_node: { label: "Input" },
+				process_node: { label: "Process" },
+				output_node: { label: "Output" },
+			},
+			swimlanes: {
+				flow: {
+					layout: "contract",
+					lanes: {
+						input: { children: ["input_node"] },
+						process: { children: ["process_node"] },
+						output: { children: ["output_node"] },
+					},
+				},
+			},
+		});
+
+		expect(
+			result.diagram?.swimlanes?.[0]?.lanes.map((lane) => lane.id),
+		).toEqual(["input", "process", "output"]);
+	});
+
 	it("sizes compartment nodes from their rendered row count", () => {
 		const result = normalizeDiagramDsl({
 			nodes: {

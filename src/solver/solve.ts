@@ -2,8 +2,10 @@ import { applyLayoutConstraints } from "../constraints/index.js";
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
+	intersectsAabb,
 	unionBoxes,
 } from "../geometry/index.js";
+import type { Constraint } from "../ir/constraints.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type {
@@ -31,6 +33,23 @@ export interface SolveDiagramOptions {
 export interface PortShiftingOptions {
 	enabled?: boolean;
 	spacing?: number;
+}
+
+interface SwimlaneContractLayout {
+	box: Box;
+	slotWidth: number;
+	slotHeight: number;
+}
+
+interface SwimlaneContractResult {
+	layouts: Map<string, SwimlaneContractLayout>;
+	diagnostics: Diagnostic[];
+	movedChildIds: Set<string>;
+}
+
+interface LayoutLockLike {
+	nodeId: string;
+	source: string;
 }
 
 export function solveDiagram(
@@ -64,6 +83,17 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
+	const swimlaneContracts = applySwimlaneLayoutContracts(
+		diagram.swimlanes ?? [],
+		constraints,
+		constrained.boxes,
+		constrained.locks,
+		options?.overlapSpacing ?? 40,
+	);
+	if (swimlaneContracts.layouts.size > 0) {
+		removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
+	}
+	diagnostics.push(...swimlaneContracts.diagnostics);
 
 	const coordinatedNodes = coordinateNodes(
 		nodes,
@@ -90,6 +120,7 @@ export function solveDiagram(
 	const coordinatedSwimlanes = coordinateSwimlanes(
 		diagram.swimlanes ?? [],
 		constrained.boxes,
+		swimlaneContracts.layouts,
 	);
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
@@ -142,6 +173,570 @@ export function solveDiagram(
 		...(frame === undefined ? {} : { frame }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
+}
+
+function applySwimlaneLayoutContracts(
+	swimlanes: readonly Swimlane[],
+	constraints: readonly Constraint[],
+	nodeBoxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	overlapSpacing: number,
+): SwimlaneContractResult {
+	const layouts = new Map<string, SwimlaneContractLayout>();
+	const diagnostics: Diagnostic[] = [];
+	const movedChildIds = new Set<string>();
+	for (const swimlane of swimlanes) {
+		if ((swimlane.layout ?? "overlay") !== "contract") {
+			continue;
+		}
+		if (swimlane.lanes.length === 0) {
+			continue;
+		}
+		const layout = applySingleSwimlaneContract(
+			swimlane,
+			nodeBoxes,
+			locks,
+			diagnostics,
+			movedChildIds,
+		);
+		if (layout !== undefined) {
+			layouts.set(swimlane.id, layout);
+		}
+	}
+	if (layouts.size > 0) {
+		diagnostics.push(
+			...reportSwimlaneOverlaps(nodeBoxes, locks, overlapSpacing),
+			...reportSwimlaneConstraintInvalidations(
+				constraints,
+				nodeBoxes,
+				movedChildIds,
+			),
+		);
+	}
+	return { layouts, diagnostics, movedChildIds };
+}
+
+function applySingleSwimlaneContract(
+	swimlane: Swimlane,
+	nodeBoxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
+	movedChildIds: Set<string>,
+): SwimlaneContractLayout | undefined {
+	const headerHeight = swimlane.headerHeight ?? 28;
+	const padding = swimlane.padding ?? 16;
+	const laneBounds = swimlane.lanes.map((lane) => {
+		const childBoxes = lane.children
+			.map((child) => nodeBoxes.get(child))
+			.filter((box): box is Box => box !== undefined);
+		return childBoxes.length === 0 ? undefined : unionBoxes(childBoxes);
+	});
+	const populatedBounds = laneBounds.filter(
+		(box): box is Box => box !== undefined,
+	);
+	if (populatedBounds.length === 0) {
+		return undefined;
+	}
+
+	if (swimlane.orientation === "vertical") {
+		return applyVerticalSwimlaneContract(
+			swimlane,
+			nodeBoxes,
+			laneBounds,
+			headerHeight,
+			padding,
+			locks,
+			diagnostics,
+			movedChildIds,
+		);
+	}
+	return applyHorizontalSwimlaneContract(
+		swimlane,
+		nodeBoxes,
+		laneBounds,
+		headerHeight,
+		padding,
+		locks,
+		diagnostics,
+		movedChildIds,
+	);
+}
+
+function applyVerticalSwimlaneContract(
+	swimlane: Swimlane,
+	nodeBoxes: Map<string, Box>,
+	laneBounds: ReadonlyArray<Box | undefined>,
+	headerHeight: number,
+	padding: number,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
+	movedChildIds: Set<string>,
+): SwimlaneContractLayout {
+	const populatedBounds = laneBounds.filter(
+		(box): box is Box => box !== undefined,
+	);
+	const top = Math.min(...populatedBounds.map((box) => box.y));
+	const left = Math.min(...populatedBounds.map((box) => box.x));
+	const slotWidth =
+		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
+	const laneContentTop = top + headerHeight + padding;
+
+	for (let index = 0; index < swimlane.lanes.length; index += 1) {
+		const lane = swimlane.lanes[index];
+		const bounds = laneBounds[index];
+		if (lane === undefined || bounds === undefined) {
+			continue;
+		}
+		const target = {
+			x: left + slotWidth * index + padding,
+			y: laneContentTop,
+		};
+		moveLaneChildren(
+			lane.children,
+			nodeBoxes,
+			locks,
+			diagnostics,
+			movedChildIds,
+			{
+				x: target.x - bounds.x,
+				y: target.y - bounds.y,
+			},
+		);
+	}
+
+	return {
+		box: {
+			x: left,
+			y: top,
+			width: slotWidth * swimlane.lanes.length,
+			height:
+				Math.max(...populatedBounds.map((box) => box.height)) +
+				padding * 2 +
+				headerHeight,
+		},
+		slotWidth,
+		slotHeight:
+			Math.max(...populatedBounds.map((box) => box.height)) +
+			padding * 2 +
+			headerHeight,
+	};
+}
+
+function applyHorizontalSwimlaneContract(
+	swimlane: Swimlane,
+	nodeBoxes: Map<string, Box>,
+	laneBounds: ReadonlyArray<Box | undefined>,
+	headerHeight: number,
+	padding: number,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
+	movedChildIds: Set<string>,
+): SwimlaneContractLayout {
+	const populatedBounds = laneBounds.filter(
+		(box): box is Box => box !== undefined,
+	);
+	const top = Math.min(...populatedBounds.map((box) => box.y));
+	const left = Math.min(...populatedBounds.map((box) => box.x));
+	const slotWidth =
+		Math.max(...populatedBounds.map((box) => box.width)) +
+		headerHeight +
+		padding * 2;
+	const slotHeight =
+		Math.max(...populatedBounds.map((box) => box.height)) + padding * 2;
+
+	for (let index = 0; index < swimlane.lanes.length; index += 1) {
+		const lane = swimlane.lanes[index];
+		const bounds = laneBounds[index];
+		if (lane === undefined || bounds === undefined) {
+			continue;
+		}
+		const target = {
+			x: left + headerHeight + padding,
+			y: top + slotHeight * index + padding,
+		};
+		moveLaneChildren(
+			lane.children,
+			nodeBoxes,
+			locks,
+			diagnostics,
+			movedChildIds,
+			{
+				x: target.x - bounds.x,
+				y: target.y - bounds.y,
+			},
+		);
+	}
+
+	return {
+		box: {
+			x: left,
+			y: top,
+			width: slotWidth,
+			height: slotHeight * swimlane.lanes.length,
+		},
+		slotWidth,
+		slotHeight,
+	};
+}
+
+function moveLaneChildren(
+	childIds: readonly string[],
+	nodeBoxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	diagnostics: Diagnostic[],
+	movedChildIds: Set<string>,
+	offset: Point,
+): void {
+	for (const childId of childIds) {
+		const box = nodeBoxes.get(childId);
+		if (box === undefined) {
+			continue;
+		}
+		if (locks.has(childId)) {
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.locked-target-not-moved",
+				message: `Locked child ${childId} was not moved into contract swimlane slot.`,
+				path: ["swimlanes"],
+				detail: { nodeId: childId },
+			});
+			continue;
+		}
+		if (offset.x !== 0 || offset.y !== 0) {
+			movedChildIds.add(childId);
+		}
+		nodeBoxes.set(childId, {
+			...box,
+			x: box.x + offset.x,
+			y: box.y + offset.y,
+		});
+	}
+}
+
+function removeResolvedOverlapDiagnostics(
+	diagnostics: Diagnostic[],
+	nodeBoxes: ReadonlyMap<string, Box>,
+): void {
+	for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+		const diagnostic = diagnostics[index];
+		if (diagnostic?.code !== "constraints.overlap.unresolved") {
+			continue;
+		}
+		const firstId = detailString(diagnostic, "firstId");
+		const secondId = detailString(diagnostic, "secondId");
+		const first = firstId === undefined ? undefined : nodeBoxes.get(firstId);
+		const second = secondId === undefined ? undefined : nodeBoxes.get(secondId);
+		if (
+			first !== undefined &&
+			second !== undefined &&
+			!intersectsAabb(first, second)
+		) {
+			diagnostics.splice(index, 1);
+		}
+	}
+}
+
+function reportSwimlaneConstraintInvalidations(
+	constraints: readonly Constraint[],
+	nodeBoxes: ReadonlyMap<string, Box>,
+	movedChildIds: ReadonlySet<string>,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	for (const constraint of constraints) {
+		const invalidatedNodeIds = movedConstraintNodeIds(
+			constraint,
+			nodeBoxes,
+			movedChildIds,
+		);
+		if (invalidatedNodeIds.length === 0) {
+			continue;
+		}
+		diagnostics.push({
+			severity: "warning",
+			code: "constraints.swimlane-contract.invalidated",
+			message: `Contract swimlane placement moved node(s) after ${constraint.kind} constraint solving; final geometry no longer satisfies that constraint.`,
+			path: ["swimlanes"],
+			detail: {
+				constraintKind: constraint.kind,
+				...(constraint.id === undefined ? {} : { constraintId: constraint.id }),
+				nodeIds: invalidatedNodeIds,
+			},
+		});
+	}
+	return diagnostics;
+}
+
+function movedConstraintNodeIds(
+	constraint: Constraint,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	movedChildIds: ReadonlySet<string>,
+): string[] {
+	switch (constraint.kind) {
+		case "exact-position":
+			return [];
+		case "containment":
+			return movedContainmentViolations(constraint, nodeBoxes, movedChildIds);
+		case "relative-position":
+			return movedRelativeViolations(constraint, nodeBoxes, movedChildIds);
+		case "align":
+			return movedAlignViolations(constraint, nodeBoxes, movedChildIds);
+		case "distribute":
+			return movedDistributeViolations(constraint, nodeBoxes, movedChildIds);
+	}
+}
+
+function movedContainmentViolations(
+	constraint: Extract<Constraint, { kind: "containment" }>,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	movedChildIds: ReadonlySet<string>,
+): string[] {
+	const container = nodeBoxes.get(constraint.containerId);
+	if (container === undefined) {
+		return [];
+	}
+	const content = paddedContentBox(container, constraint.padding);
+	return constraint.childIds.filter((childId) => {
+		if (!movedChildIds.has(childId)) {
+			return false;
+		}
+		const child = nodeBoxes.get(childId);
+		return child !== undefined && !boxInside(child, content);
+	});
+}
+
+function movedRelativeViolations(
+	constraint: Extract<Constraint, { kind: "relative-position" }>,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	movedChildIds: ReadonlySet<string>,
+): string[] {
+	if (
+		!movedChildIds.has(constraint.sourceId) &&
+		!movedChildIds.has(constraint.referenceId)
+	) {
+		return [];
+	}
+	const source = nodeBoxes.get(constraint.sourceId);
+	const reference = nodeBoxes.get(constraint.referenceId);
+	if (source === undefined || reference === undefined) {
+		return [];
+	}
+	return sameBoxPosition(
+		source,
+		expectedRelativeBox(source, reference, constraint),
+	)
+		? []
+		: [constraint.sourceId];
+}
+
+function movedAlignViolations(
+	constraint: Extract<Constraint, { kind: "align" }>,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	movedChildIds: ReadonlySet<string>,
+): string[] {
+	if (!constraint.targetIds.some((id) => movedChildIds.has(id))) {
+		return [];
+	}
+	const targets = constraint.targetIds
+		.map((id) => ({ id, box: nodeBoxes.get(id) }))
+		.filter(
+			(target): target is { id: string; box: Box } => target.box !== undefined,
+		);
+	const anchor = targets[0];
+	if (anchor === undefined) {
+		return [];
+	}
+	const expected = alignmentValue(anchor.box, constraint.axis);
+	return targets
+		.filter(
+			(target) =>
+				movedChildIds.has(target.id) &&
+				!sameNumber(alignmentValue(target.box, constraint.axis), expected),
+		)
+		.map((target) => target.id);
+}
+
+function movedDistributeViolations(
+	constraint: Extract<Constraint, { kind: "distribute" }>,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	movedChildIds: ReadonlySet<string>,
+): string[] {
+	if (!constraint.targetIds.some((id) => movedChildIds.has(id))) {
+		return [];
+	}
+	const targets = constraint.targetIds
+		.map((id) => ({ id, box: nodeBoxes.get(id) }))
+		.filter(
+			(target): target is { id: string; box: Box } => target.box !== undefined,
+		)
+		.sort((a, b) => {
+			const delta =
+				constraint.axis === "horizontal"
+					? a.box.x - b.box.x
+					: a.box.y - b.box.y;
+			return delta === 0 ? a.id.localeCompare(b.id) : delta;
+		});
+	if (targets.length < 3) {
+		return [];
+	}
+	const first = targets[0];
+	const last = targets.at(-1);
+	if (first === undefined || last === undefined) {
+		return [];
+	}
+	const expectedSpacing =
+		constraint.spacing ??
+		(distributionStart(last.box, constraint.axis) -
+			distributionStart(first.box, constraint.axis)) /
+			(targets.length - 1);
+	return targets
+		.slice(1)
+		.filter((target, index) => {
+			const previous = targets[index];
+			if (previous === undefined || !movedChildIds.has(target.id)) {
+				return false;
+			}
+			return !sameNumber(
+				distributionStart(target.box, constraint.axis) -
+					distributionStart(previous.box, constraint.axis),
+				expectedSpacing,
+			);
+		})
+		.map((target) => target.id);
+}
+
+function expectedRelativeBox(
+	source: Box,
+	reference: Box,
+	constraint: Extract<Constraint, { kind: "relative-position" }>,
+): Box {
+	const offset = constraint.offset ?? { x: 0, y: 0 };
+	switch (constraint.relation) {
+		case "above":
+			return {
+				...source,
+				x: reference.x + offset.x,
+				y: reference.y - source.height + offset.y,
+			};
+		case "right-of":
+			return {
+				...source,
+				x: reference.x + reference.width + offset.x,
+				y: reference.y + offset.y,
+			};
+		case "below":
+			return {
+				...source,
+				x: reference.x + offset.x,
+				y: reference.y + reference.height + offset.y,
+			};
+		case "left-of":
+			return {
+				...source,
+				x: reference.x - source.width + offset.x,
+				y: reference.y + offset.y,
+			};
+	}
+}
+
+function paddedContentBox(container: Box, padding: Insets | undefined): Box {
+	const margin = padding ?? { top: 0, right: 0, bottom: 0, left: 0 };
+	return {
+		x: container.x + margin.left,
+		y: container.y + margin.top,
+		width: container.width - margin.left - margin.right,
+		height: container.height - margin.top - margin.bottom,
+	};
+}
+
+function boxInside(child: Box, container: Box): boolean {
+	return (
+		child.x >= container.x &&
+		child.y >= container.y &&
+		child.x + child.width <= container.x + container.width &&
+		child.y + child.height <= container.y + container.height
+	);
+}
+
+function sameBoxPosition(first: Box, second: Box): boolean {
+	return sameNumber(first.x, second.x) && sameNumber(first.y, second.y);
+}
+
+function sameNumber(first: number, second: number): boolean {
+	return Math.abs(first - second) < 0.001;
+}
+
+function alignmentValue(
+	box: Box,
+	axis: Extract<Constraint, { kind: "align" }>["axis"],
+): number {
+	switch (axis) {
+		case "x":
+		case "left":
+			return box.x;
+		case "y":
+		case "top":
+			return box.y;
+		case "center-x":
+			return box.x + box.width / 2;
+		case "center-y":
+			return box.y + box.height / 2;
+		case "right":
+			return box.x + box.width;
+		case "bottom":
+			return box.y + box.height;
+	}
+}
+
+function distributionStart(
+	box: Box,
+	axis: Extract<Constraint, { kind: "distribute" }>["axis"],
+): number {
+	return axis === "horizontal" ? box.x : box.y;
+}
+
+function detailString(
+	diagnostic: Diagnostic,
+	key: "firstId" | "secondId",
+): string | undefined {
+	const value = diagnostic.detail?.[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function reportSwimlaneOverlaps(
+	nodeBoxes: ReadonlyMap<string, Box>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	overlapSpacing: number,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	const ids = [...nodeBoxes.keys()].sort();
+	for (const firstId of ids) {
+		for (const secondId of ids) {
+			if (firstId >= secondId) {
+				continue;
+			}
+			const first = nodeBoxes.get(firstId);
+			const second = nodeBoxes.get(secondId);
+			if (first === undefined || second === undefined) {
+				continue;
+			}
+			if (!intersectsAabb(first, second)) {
+				continue;
+			}
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.overlap.unresolved",
+				message: `Boxes ${firstId} and ${secondId} still overlap after contract swimlane placement with configured spacing ${overlapSpacing}.`,
+				path: ["swimlanes"],
+				detail: {
+					firstId,
+					secondId,
+					firstLocked: locks.has(firstId),
+					secondLocked: locks.has(secondId),
+				},
+			});
+		}
+	}
+	return diagnostics;
 }
 
 function coordinateNodes(
@@ -298,21 +893,86 @@ function portLabelBox(port: CoordinatedPort): Box {
 function coordinateSwimlanes(
 	swimlanes: readonly Swimlane[],
 	nodeBoxes: ReadonlyMap<string, Box>,
+	layouts: ReadonlyMap<string, SwimlaneContractLayout>,
 ): Swimlane[] {
-	const titleSize = 28;
-	const padding = 16;
 	return swimlanes.map((swimlane) => {
-		const laneBoxes = swimlane.lanes.flatMap((lane) => {
+		const layout = swimlane.layout ?? "overlay";
+		const headerHeight = swimlane.headerHeight ?? 28;
+		const padding = swimlane.padding ?? 16;
+		const contractLayout = layouts.get(swimlane.id);
+		if (layout === "contract" && contractLayout !== undefined) {
+			const lanes = swimlane.lanes.map((lane, index) => {
+				const box =
+					swimlane.orientation === "vertical"
+						? {
+								x: contractLayout.box.x + contractLayout.slotWidth * index,
+								y: contractLayout.box.y,
+								width: contractLayout.slotWidth,
+								height: contractLayout.box.height,
+							}
+						: {
+								x: contractLayout.box.x,
+								y: contractLayout.box.y + contractLayout.slotHeight * index,
+								width: contractLayout.box.width,
+								height: contractLayout.slotHeight,
+							};
+				const headerBox =
+					swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y,
+								width: box.width,
+								height: headerHeight,
+							}
+						: {
+								x: box.x,
+								y: box.y,
+								width: headerHeight,
+								height: box.height,
+							};
+				const contentBox =
+					swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y + headerHeight,
+								width: box.width,
+								height: Math.max(0, box.height - headerHeight),
+							}
+						: {
+								x: box.x + headerHeight,
+								y: box.y,
+								width: Math.max(0, box.width - headerHeight),
+								height: box.height,
+							};
+				return {
+					...lane,
+					box,
+					headerBox,
+					contentBox,
+				};
+			});
+			return {
+				...swimlane,
+				lanes,
+				box: contractLayout.box,
+				...(headerHeight === undefined ? {} : { headerHeight }),
+				...(padding === undefined ? {} : { padding }),
+			};
+		}
+		const laneContentBoxes = swimlane.lanes.map((lane) => {
 			const childBoxes = lane.children
 				.map((child) => nodeBoxes.get(child))
 				.filter((box): box is Box => box !== undefined);
-			return childBoxes.length === 0 ? [] : [unionBoxes(childBoxes)];
+			return childBoxes.length === 0 ? undefined : unionBoxes(childBoxes);
 		});
 		const laneUnion =
-			laneBoxes.length === 0
+			laneContentBoxes.filter((box): box is Box => box !== undefined).length ===
+			0
 				? { x: 0, y: 0, width: 120, height: 80 }
-				: unionBoxes(laneBoxes);
-		const outer = expand(laneUnion, padding, titleSize);
+				: unionBoxes(
+						laneContentBoxes.filter((box): box is Box => box !== undefined),
+					);
+		const outer = expand(laneUnion, padding, headerHeight);
 		const laneCount = Math.max(1, swimlane.lanes.length);
 		const lanes = swimlane.lanes.map((lane, index) => {
 			const box =
@@ -329,9 +989,52 @@ function coordinateSwimlanes(
 							width: outer.width,
 							height: outer.height / laneCount,
 						};
-			return { ...lane, box };
+			const headerBox =
+				layout === "contract"
+					? swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y,
+								width: box.width,
+								height: headerHeight,
+							}
+						: {
+								x: box.x,
+								y: box.y,
+								width: headerHeight,
+								height: box.height,
+							}
+					: undefined;
+			const contentBox =
+				layout === "contract"
+					? swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y + headerHeight,
+								width: box.width,
+								height: Math.max(0, box.height - headerHeight),
+							}
+						: {
+								x: box.x + headerHeight,
+								y: box.y,
+								width: Math.max(0, box.width - headerHeight),
+								height: box.height,
+							}
+					: undefined;
+			return {
+				...lane,
+				box,
+				...(headerBox === undefined ? {} : { headerBox }),
+				...(contentBox === undefined ? {} : { contentBox }),
+			};
 		});
-		return { ...swimlane, lanes, box: outer };
+		return {
+			...swimlane,
+			lanes,
+			box: outer,
+			...(headerHeight === undefined ? {} : { headerHeight }),
+			...(padding === undefined ? {} : { padding }),
+		};
 	});
 }
 

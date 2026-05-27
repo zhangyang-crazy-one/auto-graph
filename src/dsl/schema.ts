@@ -18,6 +18,7 @@ const nodeShapeSchema = z.enum([
 ]);
 
 const finiteNumberSchema = z.number().finite();
+const nonNegativeNumberSchema = finiteNumberSchema.min(0);
 
 const pointSchema = z.object({
 	x: finiteNumberSchema,
@@ -121,6 +122,9 @@ const groupSchema = z.object({
 const swimlaneSchema = z.object({
 	label: labelSchema.optional(),
 	orientation: z.enum(["vertical", "horizontal"]).optional(),
+	layout: z.enum(["overlay", "contract"]).optional(),
+	headerHeight: nonNegativeNumberSchema.optional(),
+	padding: nonNegativeNumberSchema.optional(),
 	lanes: z.record(
 		z.string(),
 		z.object({

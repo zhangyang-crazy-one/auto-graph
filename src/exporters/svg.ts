@@ -110,14 +110,37 @@ function renderSwimlane(swimlane: Swimlane): string[] {
 		lines.push(
 			`    <rect class="swimlane-lane" data-lane="${escapeAttribute(`${swimlane.id}.${lane.id}`)}" x="${formatNumber(lane.box.x)}" y="${formatNumber(lane.box.y)}" width="${formatNumber(lane.box.width)}" height="${formatNumber(lane.box.height)}" fill="none" stroke="${STROKE}"/>`,
 		);
-		if (lane.label?.text !== undefined) {
+		if (lane.headerBox !== undefined) {
 			lines.push(
-				`    <text class="swimlane-label" x="${formatNumber(lane.box.x + lane.box.width / 2)}" y="${formatNumber(lane.box.y + 16)}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(lane.label.text)}</text>`,
+				`    <rect class="swimlane-header" data-lane-header="${escapeAttribute(`${swimlane.id}.${lane.id}`)}" x="${formatNumber(lane.headerBox.x)}" y="${formatNumber(lane.headerBox.y)}" width="${formatNumber(lane.headerBox.width)}" height="${formatNumber(lane.headerBox.height)}" fill="#f3f4f6" stroke="${STROKE}"/>`,
 			);
+		}
+		if (lane.contentBox !== undefined) {
+			lines.push(
+				`    <rect class="swimlane-content" data-lane-content="${escapeAttribute(`${swimlane.id}.${lane.id}`)}" x="${formatNumber(lane.contentBox.x)}" y="${formatNumber(lane.contentBox.y)}" width="${formatNumber(lane.contentBox.width)}" height="${formatNumber(lane.contentBox.height)}" fill="none" stroke="none"/>`,
+			);
+		}
+		if (lane.label?.text !== undefined) {
+			const labelBox = lane.headerBox ?? lane.box;
+			lines.push(renderSwimlaneLabel(swimlane, lane.label.text, labelBox));
 		}
 	}
 	lines.push("  </g>");
 	return lines;
+}
+
+function renderSwimlaneLabel(
+	swimlane: Swimlane,
+	text: string,
+	labelBox: Box,
+): string {
+	const x = labelBox.x + labelBox.width / 2;
+	const y = labelBox.y + labelBox.height / 2;
+	const transform =
+		swimlane.orientation === "horizontal"
+			? ` transform="rotate(-90 ${formatNumber(x)} ${formatNumber(y)})"`
+			: "";
+	return `    <text class="swimlane-label" x="${formatNumber(x)}" y="${formatNumber(y)}" text-anchor="middle" dominant-baseline="middle"${transform} font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(text)}</text>`;
 }
 
 function renderPorts(node: CoordinatedNode): string[] {

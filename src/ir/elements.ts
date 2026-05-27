@@ -146,20 +146,26 @@ export interface CoordinatedGroup extends NormalizedGroup {
 }
 
 export type SwimlaneOrientation = "vertical" | "horizontal";
+export type SwimlaneLayout = "overlay" | "contract";
 
 export interface SwimlaneLane {
 	id: string;
 	label?: Label;
 	children: string[];
 	box?: Box;
+	headerBox?: Box;
+	contentBox?: Box;
 }
 
 export interface Swimlane {
 	id: string;
 	label?: Label;
 	orientation: SwimlaneOrientation;
+	layout?: SwimlaneLayout;
 	lanes: SwimlaneLane[];
 	box?: Box;
+	headerHeight?: number;
+	padding?: number;
 }
 
 export interface DiagramFrame {
