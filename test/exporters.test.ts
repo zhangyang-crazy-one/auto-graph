@@ -303,6 +303,37 @@ constraints:
 		expect(result.content).toContain('data-lane-content="behavior.right"');
 	});
 
+	it("exports contract swimlane regions even without lane labels", () => {
+		const result = renderDiagramDsl(`
+title: Unlabeled Contract Swimlane
+layout:
+  direction: LR
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: vertical
+    lanes:
+      source:
+        children: [source_a]
+      target:
+        children: [target_a]
+nodes:
+  source_a:
+    label: Source A
+    position: { x: 40, y: 40 }
+  target_a:
+    label: Target A
+    position: { x: 320, y: 40 }
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-header"');
+		expect(result.content).toContain('class="swimlane-content"');
+		expect(result.content).not.toContain('class="swimlane-label"');
+	});
+
 	it("does not render duplicate centered labels for compartment nodes", () => {
 		const result = renderDiagramDsl(`
 nodes:

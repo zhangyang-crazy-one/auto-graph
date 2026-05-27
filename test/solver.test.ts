@@ -338,6 +338,52 @@ describe("solveDiagram", () => {
 				?.anchors.find((anchor) => anchor.name === "right")?.point,
 		);
 	});
+
+	it("preserves empty contract lane slots before populated lanes", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-empty-slot",
+			direction: "LR",
+			nodes: [node("work", { x: 300, y: 120 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{ id: "empty", children: [] },
+						{ id: "populated", children: ["work"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const swimlane = result.swimlanes?.[0];
+		const emptyLane = swimlane?.lanes.find((lane) => lane.id === "empty");
+		const populatedLane = swimlane?.lanes.find(
+			(lane) => lane.id === "populated",
+		);
+		const work = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "work",
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		if (work === undefined || populatedLane?.contentBox === undefined) {
+			throw new Error("Expected populated lane and work node");
+		}
+		expect(emptyLane?.box?.width).toBe(populatedLane?.box?.width);
+		expect(populatedLane?.box?.x).toBeGreaterThan(emptyLane?.box?.x ?? 0);
+		expect(work.box.x).toBeGreaterThanOrEqual(populatedLane.contentBox.x);
+		expect(work.box.x + work.box.width).toBeLessThanOrEqual(
+			populatedLane.contentBox.x + populatedLane.contentBox.width,
+		);
+		expect(work.box.y).toBeGreaterThanOrEqual(populatedLane.contentBox.y);
+	});
 });
 
 function sampleDiagram(): NormalizedDiagram {

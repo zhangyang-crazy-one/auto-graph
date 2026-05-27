@@ -33,6 +33,12 @@ export interface PortShiftingOptions {
 	spacing?: number;
 }
 
+interface SwimlaneContractLayout {
+	box: Box;
+	slotWidth: number;
+	slotHeight: number;
+}
+
 export function solveDiagram(
 	diagram: NormalizedDiagram,
 	options: SolveDiagramOptions = {},
@@ -64,7 +70,10 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
-	applySwimlaneLayoutContracts(diagram.swimlanes ?? [], constrained.boxes);
+	const swimlaneContracts = applySwimlaneLayoutContracts(
+		diagram.swimlanes ?? [],
+		constrained.boxes,
+	);
 
 	const coordinatedNodes = coordinateNodes(
 		nodes,
@@ -91,6 +100,7 @@ export function solveDiagram(
 	const coordinatedSwimlanes = coordinateSwimlanes(
 		diagram.swimlanes ?? [],
 		constrained.boxes,
+		swimlaneContracts,
 	);
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
@@ -148,7 +158,8 @@ export function solveDiagram(
 function applySwimlaneLayoutContracts(
 	swimlanes: readonly Swimlane[],
 	nodeBoxes: Map<string, Box>,
-): void {
+): Map<string, SwimlaneContractLayout> {
+	const layouts = new Map<string, SwimlaneContractLayout>();
 	for (const swimlane of swimlanes) {
 		if ((swimlane.layout ?? "overlay") !== "contract") {
 			continue;
@@ -156,14 +167,18 @@ function applySwimlaneLayoutContracts(
 		if (swimlane.lanes.length === 0) {
 			continue;
 		}
-		applySingleSwimlaneContract(swimlane, nodeBoxes);
+		const layout = applySingleSwimlaneContract(swimlane, nodeBoxes);
+		if (layout !== undefined) {
+			layouts.set(swimlane.id, layout);
+		}
 	}
+	return layouts;
 }
 
 function applySingleSwimlaneContract(
 	swimlane: Swimlane,
 	nodeBoxes: Map<string, Box>,
-): void {
+): SwimlaneContractLayout | undefined {
 	const headerHeight = swimlane.headerHeight ?? 28;
 	const padding = swimlane.padding ?? 16;
 	const laneBounds = swimlane.lanes.map((lane) => {
@@ -176,19 +191,11 @@ function applySingleSwimlaneContract(
 		(box): box is Box => box !== undefined,
 	);
 	if (populatedBounds.length === 0) {
-		return;
+		return undefined;
 	}
 
 	if (swimlane.orientation === "vertical") {
-		applyVerticalSwimlaneContract(
-			swimlane,
-			nodeBoxes,
-			laneBounds,
-			headerHeight,
-			padding,
-		);
-	} else {
-		applyHorizontalSwimlaneContract(
+		return applyVerticalSwimlaneContract(
 			swimlane,
 			nodeBoxes,
 			laneBounds,
@@ -196,6 +203,13 @@ function applySingleSwimlaneContract(
 			padding,
 		);
 	}
+	return applyHorizontalSwimlaneContract(
+		swimlane,
+		nodeBoxes,
+		laneBounds,
+		headerHeight,
+		padding,
+	);
 }
 
 function applyVerticalSwimlaneContract(
@@ -204,13 +218,13 @@ function applyVerticalSwimlaneContract(
 	laneBounds: ReadonlyArray<Box | undefined>,
 	headerHeight: number,
 	padding: number,
-): void {
+): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
 	);
 	const top = Math.min(...populatedBounds.map((box) => box.y));
 	const left = Math.min(...populatedBounds.map((box) => box.x));
-	const laneWidth =
+	const slotWidth =
 		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
 	const laneContentTop = top + headerHeight + padding;
 
@@ -221,7 +235,7 @@ function applyVerticalSwimlaneContract(
 			continue;
 		}
 		const target = {
-			x: left + laneWidth * index + padding,
+			x: left + slotWidth * index + padding,
 			y: laneContentTop,
 		};
 		moveLaneChildren(lane.children, nodeBoxes, {
@@ -229,6 +243,23 @@ function applyVerticalSwimlaneContract(
 			y: target.y - bounds.y,
 		});
 	}
+
+	return {
+		box: {
+			x: left,
+			y: top,
+			width: slotWidth * swimlane.lanes.length,
+			height:
+				Math.max(...populatedBounds.map((box) => box.height)) +
+				padding * 2 +
+				headerHeight,
+		},
+		slotWidth,
+		slotHeight:
+			Math.max(...populatedBounds.map((box) => box.height)) +
+			padding * 2 +
+			headerHeight,
+	};
 }
 
 function applyHorizontalSwimlaneContract(
@@ -237,13 +268,13 @@ function applyHorizontalSwimlaneContract(
 	laneBounds: ReadonlyArray<Box | undefined>,
 	headerHeight: number,
 	padding: number,
-): void {
+): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
 	);
 	const top = Math.min(...populatedBounds.map((box) => box.y));
 	const left = Math.min(...populatedBounds.map((box) => box.x));
-	const laneHeight =
+	const slotHeight =
 		Math.max(...populatedBounds.map((box) => box.height)) +
 		headerHeight +
 		padding * 2;
@@ -256,13 +287,25 @@ function applyHorizontalSwimlaneContract(
 		}
 		const target = {
 			x: left + padding,
-			y: top + laneHeight * index + headerHeight + padding,
+			y: top + slotHeight * index + headerHeight + padding,
 		};
 		moveLaneChildren(lane.children, nodeBoxes, {
 			x: target.x - bounds.x,
 			y: target.y - bounds.y,
 		});
 	}
+
+	return {
+		box: {
+			x: left,
+			y: top,
+			width: Math.max(...populatedBounds.map((box) => box.width)) + padding * 2,
+			height: slotHeight * swimlane.lanes.length,
+		},
+		slotWidth:
+			Math.max(...populatedBounds.map((box) => box.width)) + padding * 2,
+		slotHeight,
+	};
 }
 
 function moveLaneChildren(
@@ -437,11 +480,54 @@ function portLabelBox(port: CoordinatedPort): Box {
 function coordinateSwimlanes(
 	swimlanes: readonly Swimlane[],
 	nodeBoxes: ReadonlyMap<string, Box>,
+	layouts: ReadonlyMap<string, SwimlaneContractLayout>,
 ): Swimlane[] {
 	return swimlanes.map((swimlane) => {
 		const layout = swimlane.layout ?? "overlay";
 		const headerHeight = swimlane.headerHeight ?? 28;
 		const padding = swimlane.padding ?? 16;
+		const contractLayout = layouts.get(swimlane.id);
+		if (layout === "contract" && contractLayout !== undefined) {
+			const lanes = swimlane.lanes.map((lane, index) => {
+				const box =
+					swimlane.orientation === "vertical"
+						? {
+								x: contractLayout.box.x + contractLayout.slotWidth * index,
+								y: contractLayout.box.y,
+								width: contractLayout.slotWidth,
+								height: contractLayout.box.height,
+							}
+						: {
+								x: contractLayout.box.x,
+								y: contractLayout.box.y + contractLayout.slotHeight * index,
+								width: contractLayout.box.width,
+								height: contractLayout.slotHeight,
+							};
+				return {
+					...lane,
+					box,
+					headerBox: {
+						x: box.x,
+						y: box.y,
+						width: box.width,
+						height: headerHeight,
+					},
+					contentBox: {
+						x: box.x,
+						y: box.y + headerHeight,
+						width: box.width,
+						height: Math.max(0, box.height - headerHeight),
+					},
+				};
+			});
+			return {
+				...swimlane,
+				lanes,
+				box: contractLayout.box,
+				...(headerHeight === undefined ? {} : { headerHeight }),
+				...(padding === undefined ? {} : { padding }),
+			};
+		}
 		const laneContentBoxes = swimlane.lanes.map((lane) => {
 			const childBoxes = lane.children
 				.map((child) => nodeBoxes.get(child))
