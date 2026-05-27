@@ -194,7 +194,11 @@ function applySwimlaneLayoutContracts(
 			layouts.set(swimlane.id, layout);
 		}
 	}
-	diagnostics.push(...reportSwimlaneOverlaps(nodeBoxes, locks, overlapSpacing));
+	if (layouts.size > 0) {
+		diagnostics.push(
+			...reportSwimlaneOverlaps(nodeBoxes, locks, overlapSpacing),
+		);
+	}
 	return { layouts, diagnostics };
 }
 
@@ -307,10 +311,12 @@ function applyHorizontalSwimlaneContract(
 	);
 	const top = Math.min(...populatedBounds.map((box) => box.y));
 	const left = Math.min(...populatedBounds.map((box) => box.x));
-	const slotHeight =
-		Math.max(...populatedBounds.map((box) => box.height)) +
+	const slotWidth =
+		Math.max(...populatedBounds.map((box) => box.width)) +
 		headerHeight +
 		padding * 2;
+	const slotHeight =
+		Math.max(...populatedBounds.map((box) => box.height)) + padding * 2;
 
 	for (let index = 0; index < swimlane.lanes.length; index += 1) {
 		const lane = swimlane.lanes[index];
@@ -319,8 +325,8 @@ function applyHorizontalSwimlaneContract(
 			continue;
 		}
 		const target = {
-			x: left + padding,
-			y: top + slotHeight * index + headerHeight + padding,
+			x: left + headerHeight + padding,
+			y: top + slotHeight * index + padding,
 		};
 		moveLaneChildren(lane.children, nodeBoxes, locks, diagnostics, {
 			x: target.x - bounds.x,
@@ -332,11 +338,10 @@ function applyHorizontalSwimlaneContract(
 		box: {
 			x: left,
 			y: top,
-			width: Math.max(...populatedBounds.map((box) => box.width)) + padding * 2,
+			width: slotWidth,
 			height: slotHeight * swimlane.lanes.length,
 		},
-		slotWidth:
-			Math.max(...populatedBounds.map((box) => box.width)) + padding * 2,
+		slotWidth,
 		slotHeight,
 	};
 }
@@ -585,21 +590,39 @@ function coordinateSwimlanes(
 								width: contractLayout.box.width,
 								height: contractLayout.slotHeight,
 							};
+				const headerBox =
+					swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y,
+								width: box.width,
+								height: headerHeight,
+							}
+						: {
+								x: box.x,
+								y: box.y,
+								width: headerHeight,
+								height: box.height,
+							};
+				const contentBox =
+					swimlane.orientation === "vertical"
+						? {
+								x: box.x,
+								y: box.y + headerHeight,
+								width: box.width,
+								height: Math.max(0, box.height - headerHeight),
+							}
+						: {
+								x: box.x + headerHeight,
+								y: box.y,
+								width: Math.max(0, box.width - headerHeight),
+								height: box.height,
+							};
 				return {
 					...lane,
 					box,
-					headerBox: {
-						x: box.x,
-						y: box.y,
-						width: box.width,
-						height: headerHeight,
-					},
-					contentBox: {
-						x: box.x,
-						y: box.y + headerHeight,
-						width: box.width,
-						height: Math.max(0, box.height - headerHeight),
-					},
+					headerBox,
+					contentBox,
 				};
 			});
 			return {
@@ -652,8 +675,8 @@ function coordinateSwimlanes(
 						: {
 								x: box.x,
 								y: box.y,
-								width: box.width,
-								height: headerHeight,
+								width: headerHeight,
+								height: box.height,
 							}
 					: undefined;
 			const contentBox =
@@ -666,10 +689,10 @@ function coordinateSwimlanes(
 								height: Math.max(0, box.height - headerHeight),
 							}
 						: {
-								x: box.x,
-								y: box.y + headerHeight,
-								width: box.width,
-								height: Math.max(0, box.height - headerHeight),
+								x: box.x + headerHeight,
+								y: box.y,
+								width: Math.max(0, box.width - headerHeight),
+								height: box.height,
 							}
 					: undefined;
 			return {

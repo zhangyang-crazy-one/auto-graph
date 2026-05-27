@@ -121,8 +121,9 @@ function renderSwimlane(swimlane: Swimlane): string[] {
 			);
 		}
 		if (lane.label?.text !== undefined) {
+			const labelBox = lane.headerBox ?? lane.box;
 			lines.push(
-				`    <text class="swimlane-label" x="${formatNumber(lane.box.x + lane.box.width / 2)}" y="${formatNumber((lane.headerBox ?? lane.box).y + 16)}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(lane.label.text)}</text>`,
+				`    <text class="swimlane-label" x="${formatNumber(labelBox.x + labelBox.width / 2)}" y="${formatNumber(labelBox.y + labelBox.height / 2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(lane.label.text)}</text>`,
 			);
 		}
 	}

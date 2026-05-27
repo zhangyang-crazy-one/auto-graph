@@ -455,6 +455,89 @@ describe("solveDiagram", () => {
 			}),
 		);
 	});
+
+	it("does not emit swimlane overlap diagnostics without contract placement", () => {
+		const result = solveDiagram({
+			id: "plain-overlap",
+			direction: "LR",
+			nodes: [
+				node("first", { x: 40, y: 80 }),
+				node("second", { x: 40, y: 80 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(
+			result.diagnostics.some((diagnostic) =>
+				diagnostic.path?.includes("swimlanes"),
+			),
+		).toBe(false);
+	});
+
+	it("places horizontal contract swimlane headers beside row content", () => {
+		const result = solveDiagram({
+			id: "horizontal-contract-swimlane",
+			direction: "TB",
+			nodes: [node("observe"), node("decide")],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "horizontal",
+					lanes: [
+						{
+							id: "observe_lane",
+							label: { text: "Observe" },
+							children: ["observe"],
+						},
+						{
+							id: "decide_lane",
+							label: { text: "Decide" },
+							children: ["decide"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		const firstLane = result.swimlanes?.[0]?.lanes[0];
+		const observe = result.nodes.find(
+			(coordinatedNode) => coordinatedNode.id === "observe",
+		);
+
+		if (
+			firstLane?.headerBox === undefined ||
+			firstLane.contentBox === undefined ||
+			observe === undefined
+		) {
+			throw new Error("Expected horizontal contract lane and observe node");
+		}
+		expect(firstLane.headerBox).toMatchObject({
+			x: firstLane.box?.x,
+			y: firstLane.box?.y,
+			width: 24,
+			height: firstLane.box?.height,
+		});
+		expect(firstLane.contentBox).toMatchObject({
+			x: (firstLane.box?.x ?? 0) + 24,
+			y: firstLane.box?.y,
+			height: firstLane.box?.height,
+		});
+		expect(observe.box.x).toBeGreaterThanOrEqual(firstLane.contentBox.x);
+		expect(observe.box.y).toBeGreaterThanOrEqual(firstLane.contentBox.y);
+		expect(observe.box.y + observe.box.height).toBeLessThanOrEqual(
+			firstLane.contentBox.y + firstLane.contentBox.height,
+		);
+	});
 });
 
 function sampleDiagram(): NormalizedDiagram {
