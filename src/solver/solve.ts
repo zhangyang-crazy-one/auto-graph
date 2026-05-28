@@ -1480,6 +1480,9 @@ function coordinateBaseTextAnnotations(input: {
 	const annotations: SolvedTextAnnotation[] = [];
 
 	for (const node of input.nodes) {
+		if (node.compartments !== undefined) {
+			continue;
+		}
 		if (node.labelLayout === undefined && node.label === undefined) {
 			continue;
 		}
@@ -1558,7 +1561,7 @@ function coordinateBaseTextAnnotations(input: {
 				measurer,
 			);
 			annotations.push(
-				buildTextAnnotation({
+				buildAnchorCenteredTextAnnotation({
 					ownerId: node.id,
 					surfaceKind: "compartment-row",
 					surfaceIndex: index,
@@ -1579,22 +1582,26 @@ function coordinateBaseTextAnnotations(input: {
 			if (lane.label?.text === undefined || lane.box === undefined) {
 				continue;
 			}
+			const labelBox = lane.headerBox ?? lane.box;
 			const layout = fitLabel(
 				lane.label.text,
 				{
 					font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
 					padding: { top: 0, right: 0, bottom: 0, left: 0 },
 					minSize: { width: 0, height: 0 },
-					maxWidth: lane.box.width,
+					maxWidth:
+						swimlane.orientation === "horizontal"
+							? labelBox.height
+							: labelBox.width,
 				},
 				measurer,
 			);
 			annotations.push(
-				buildTextAnnotation({
+				buildAnchorCenteredTextAnnotation({
 					ownerId: `${swimlane.id}.${lane.id}`,
 					surfaceKind: "swimlane-label",
 					layout,
-					anchor: lane.headerBox ?? lane.box,
+					anchor: labelBox,
 				}),
 			);
 		}
@@ -1649,7 +1656,7 @@ function coordinateFrameTextAnnotation(
 		},
 		createDefaultTextMeasurer(),
 	);
-	return buildTextAnnotation({
+	return buildAnchorCenteredTextAnnotation({
 		ownerId: frame.kind,
 		surfaceKind: "frame-title",
 		layout,
@@ -1683,6 +1690,27 @@ function buildTextAnnotation(input: {
 		fontSize: input.layout.font.fontSize,
 		textBackend: input.layout.textBackend,
 	};
+}
+
+function buildAnchorCenteredTextAnnotation(input: {
+	ownerId: string;
+	surfaceKind: TextSurfaceKind;
+	surfaceIndex?: number;
+	layout: LabelLayout;
+	anchor: Box;
+}): SolvedTextAnnotation {
+	return buildCenteredTextAnnotation({
+		ownerId: input.ownerId,
+		surfaceKind: input.surfaceKind,
+		...(input.surfaceIndex === undefined
+			? {}
+			: { surfaceIndex: input.surfaceIndex }),
+		layout: input.layout,
+		center: {
+			x: input.anchor.x + input.anchor.width / 2,
+			y: input.anchor.y + input.anchor.height / 2,
+		},
+	});
 }
 
 function buildCenteredTextAnnotation(input: {

@@ -264,6 +264,17 @@ describe("solveDiagram", () => {
 		expect(
 			compartmentRows?.map((annotation) => annotation.surfaceIndex),
 		).toEqual([0, 1, 2, 3]);
+		expect(
+			result.textAnnotations?.some(
+				(annotation) => annotation.surfaceKind === "node-label",
+			),
+		).toBe(false);
+		for (const row of compartmentRows ?? []) {
+			expect(row.box.x + row.box.width / 2).toBeCloseTo(
+				(row.anchor.x ?? 0) +
+					("width" in row.anchor ? row.anchor.width / 2 : 0),
+			);
+		}
 	});
 
 	it("includes solved text boxes in bounds and suppresses intentional internal label collisions", () => {
@@ -926,6 +937,52 @@ describe("solveDiagram", () => {
 		expect(observe.box.y + observe.box.height).toBeLessThanOrEqual(
 			firstLane.contentBox.y + firstLane.contentBox.height,
 		);
+	});
+
+	it("centers horizontal swimlane labels in headers and measures them against header height", () => {
+		const result = solveDiagram({
+			id: "horizontal-swimlane-label-annotation",
+			direction: "TB",
+			nodes: [node("observe", { x: 100, y: 120 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "horizontal",
+					lanes: [
+						{
+							id: "observe_lane",
+							label: { text: "Long Horizontal Lane Label" },
+							children: ["observe"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		const lane = result.swimlanes?.[0]?.lanes[0];
+		const label = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "swimlane-label",
+		);
+
+		if (lane?.headerBox === undefined || label === undefined) {
+			throw new Error(
+				"Expected horizontal swimlane header and label annotation",
+			);
+		}
+		expect(label.box.x + label.box.width / 2).toBeCloseTo(
+			lane.headerBox.x + lane.headerBox.width / 2,
+		);
+		expect(label.box.y + label.box.height / 2).toBeCloseTo(
+			lane.headerBox.y + lane.headerBox.height / 2,
+		);
+		expect(label.box.width).toBeLessThanOrEqual(lane.headerBox.height);
+		expect(label.lines.length).toBeGreaterThan(1);
 	});
 });
 

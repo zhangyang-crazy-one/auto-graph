@@ -366,6 +366,54 @@ nodes:
 		expect(result.content).toContain('transform="rotate(-90');
 	});
 
+	it("preserves rotation for wrapped horizontal swimlane header labels", () => {
+		const result = renderDiagramDsl(`
+title: Horizontal Contract Swimlane
+layout:
+  direction: TB
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: horizontal
+    lanes:
+      observe:
+        label: Very Long Horizontal Lane Label
+        children: [observe_node]
+nodes:
+  observe_node:
+    label: Observe Node
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-label"');
+		expect(result.content).toContain('transform="rotate(-90');
+		expect(result.content).toContain("<tspan");
+	});
+
+	it("keeps ports above compartment overlays", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  block:
+    label: Processing
+    compartments:
+      name: Processing
+      properties: [flow]
+    ports:
+      inlet:
+        side: left
+        kind: proxy
+`);
+		const compartmentIndex =
+			result.content?.indexOf('class="compartment"') ?? -1;
+		const portIndex = result.content?.indexOf('class="port"') ?? -1;
+
+		expect(result.diagnostics).toEqual([]);
+		expect(compartmentIndex).toBeGreaterThanOrEqual(0);
+		expect(portIndex).toBeGreaterThan(compartmentIndex);
+	});
+
 	it("does not render duplicate centered labels for compartment nodes", () => {
 		const result = renderDiagramDsl(`
 nodes:
@@ -379,6 +427,13 @@ nodes:
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toContain('class="compartment-name"');
 		expect(result.content).not.toContain('class="label" data-for="block"');
+		expect(
+			result.diagram?.textAnnotations?.some(
+				(annotation) =>
+					annotation.surfaceKind === "node-label" &&
+					annotation.ownerId === "block",
+			),
+		).toBe(false);
 	});
 
 	it("exports solved text annotation metadata for every supported SVG text surface", () => {

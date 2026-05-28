@@ -43,8 +43,8 @@ export function exportSvg(
 				: [indent(path), indent(renderArrowhead(edge))];
 		}),
 		...diagram.nodes.map((node) => indent(renderNode(node))),
-		...diagram.nodes.flatMap((node) => renderPorts(node, annotations)),
 		...diagram.nodes.flatMap((node) => renderCompartments(node, annotations)),
+		...diagram.nodes.flatMap((node) => renderPorts(node, annotations)),
 		...diagram.groups.flatMap((group) =>
 			renderLabel(group.label, group.box, group, annotations, "group-label"),
 		),
@@ -372,7 +372,7 @@ function renderSolvedTextAnnotation(
 	}
 	if (annotation.lines.length > 1) {
 		return [
-			`${options.indent}<text ${attrs.join(" ")}>`,
+			`${options.indent}<text ${attrs.join(" ")}${rotate}>`,
 			...annotation.lines.map(
 				(line) =>
 					`${options.indent}  <tspan x="${formatNumber(textLineX(annotation, line, options))}" y="${formatNumber(annotation.box.y + line.baselineY)}">${escapeXml(line.text)}</tspan>`,
