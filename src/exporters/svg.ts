@@ -357,6 +357,7 @@ function renderSolvedTextAnnotation(
 		: "";
 	const attrs = [
 		`class="${className}"`,
+		`data-for="${escapeAttribute(annotation.ownerId)}"`,
 		`data-text-surface="${escapeAttribute(annotation.surfaceKind)}"`,
 		`data-owner-id="${escapeAttribute(annotation.ownerId)}"`,
 		`data-text-backend="${escapeAttribute(annotation.textBackend ?? "deterministic")}"`,
@@ -365,7 +366,7 @@ function renderSolvedTextAnnotation(
 		`fill="#111827"`,
 	];
 	if (options.mode === "center") {
-		attrs.push('text-anchor="middle"', 'dominant-baseline="middle"');
+		attrs.push('text-anchor="middle"');
 	} else {
 		attrs.push(`text-anchor="${options.textAnchor ?? "start"}"`);
 	}
@@ -374,16 +375,37 @@ function renderSolvedTextAnnotation(
 			`${options.indent}<text ${attrs.join(" ")}>`,
 			...annotation.lines.map(
 				(line) =>
-					`${options.indent}  <tspan x="${formatNumber(x)}" y="${formatNumber(y + line.lineIndex * (annotation.fontSize * 1.2))}">${escapeXml(line.text)}</tspan>`,
+					`${options.indent}  <tspan x="${formatNumber(textLineX(annotation, line, options))}" y="${formatNumber(annotation.box.y + line.baselineY)}">${escapeXml(line.text)}</tspan>`,
 			),
 			`${options.indent}</text>`,
 		];
 	}
 	const line = annotation.lines[0];
 	const text = line?.text ?? options.fallbackText ?? annotation.text;
+	const singleLineAttrs =
+		options.mode === "center"
+			? [...attrs, 'dominant-baseline="middle"']
+			: attrs;
 	return [
-		`${options.indent}<text ${attrs.join(" ")} x="${formatNumber(x)}" y="${formatNumber(y)}"${rotate}>${escapeXml(text)}</text>`,
+		`${options.indent}<text ${singleLineAttrs.join(" ")} x="${formatNumber(x)}" y="${formatNumber(y)}"${rotate}>${escapeXml(text)}</text>`,
 	];
+}
+
+function textLineX(
+	annotation: SolvedTextAnnotation,
+	line: SolvedTextAnnotation["lines"][number],
+	options: {
+		mode: "center" | "start";
+		textAnchor?: string;
+	},
+): number {
+	if (options.mode === "center") {
+		return annotation.box.x + line.box.x + line.box.width / 2;
+	}
+	if ((options.textAnchor ?? "start") === "end") {
+		return annotation.box.x + line.box.x + line.box.width;
+	}
+	return annotation.box.x + line.box.x;
 }
 
 function findAnnotation(

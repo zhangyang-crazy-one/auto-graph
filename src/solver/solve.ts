@@ -1531,7 +1531,7 @@ function coordinateBaseTextAnnotations(input: {
 					ownerId: `${node.id}.${port.id}`,
 					surfaceKind: "port-label",
 					layout,
-					anchor: port.box,
+					anchor: portLabelBox(port),
 				}),
 			);
 		}
@@ -1624,11 +1624,11 @@ function coordinateEdgeTextAnnotations(
 			measurer,
 		);
 		annotations.push(
-			buildTextAnnotation({
+			buildCenteredTextAnnotation({
 				ownerId: edge.id,
 				surfaceKind: "edge-label",
 				layout,
-				anchor: edgeLabelAnchor(edge.points),
+				center: edgeLabelAnchor(edge.points),
 			}),
 		);
 	}
@@ -1678,6 +1678,34 @@ function buildTextAnnotation(input: {
 			height: input.layout.box.height,
 		},
 		anchor: input.anchor,
+		paddings: input.layout.padding,
+		lines: input.layout.lines,
+		fontSize: input.layout.font.fontSize,
+		textBackend: input.layout.textBackend,
+	};
+}
+
+function buildCenteredTextAnnotation(input: {
+	ownerId: string;
+	surfaceKind: TextSurfaceKind;
+	surfaceIndex?: number;
+	layout: LabelLayout;
+	center: Point;
+}): SolvedTextAnnotation {
+	return {
+		text: input.layout.text,
+		ownerId: input.ownerId,
+		surfaceKind: input.surfaceKind,
+		...(input.surfaceIndex === undefined
+			? {}
+			: { surfaceIndex: input.surfaceIndex }),
+		box: {
+			x: input.center.x - input.layout.box.width / 2,
+			y: input.center.y - input.layout.box.height / 2,
+			width: input.layout.box.width,
+			height: input.layout.box.height,
+		},
+		anchor: input.center,
 		paddings: input.layout.padding,
 		lines: input.layout.lines,
 		fontSize: input.layout.font.fontSize,
@@ -1798,13 +1826,11 @@ function fallbackLabelLayout(text: string): LabelLayout {
 	};
 }
 
-function edgeLabelAnchor(points: readonly Point[]): Box {
+function edgeLabelAnchor(points: readonly Point[]): Point {
 	const placement = labelPlacementOnPolyline(points);
 	return {
 		x: placement?.x ?? 0,
 		y: placement?.y ?? 0,
-		width: 0,
-		height: 0,
 	};
 }
 

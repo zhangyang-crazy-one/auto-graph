@@ -8,7 +8,11 @@ import {
 	exportExcalidraw,
 	exportSvg,
 } from "../src/exporters/index.js";
-import type { CoordinatedDiagram, LabelLayout } from "../src/index.js";
+import type {
+	CoordinatedDiagram,
+	LabelLayout,
+	LabelLineLayout,
+} from "../src/index.js";
 
 describe("exporters", () => {
 	it("computes arrowhead geometry from the final non-zero segment", () => {
@@ -406,11 +410,52 @@ nodes:
 		expect(result.content).toContain(
 			'data-owner-id="processing_block.cooling_out"',
 		);
+		expect(result.content).toContain('data-for="processing_block.cooling_out"');
 		expect(result.content).toContain('data-text-backend="pretext"');
 		expect(result.content).toContain('data-text-surface="edge-label"');
 		expect(result.content).toContain('data-text-surface="compartment-row"');
 		expect(result.content).toContain('data-text-surface="swimlane-label"');
 		expect(result.content).toContain('data-text-surface="frame-title"');
+	});
+
+	it("exports multiline solved text annotations from solved line boxes and baselines", () => {
+		const diagram = createCoordinatedDiagram();
+		diagram.textAnnotations = [
+			{
+				text: "First line Second line",
+				ownerId: "rectangle",
+				surfaceKind: "node-label",
+				box: { x: 10, y: 20, width: 80, height: 36 },
+				anchor: { x: 10, y: 20, width: 80, height: 36 },
+				paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+				lines: [
+					createLabelLine("First line", {
+						x: 4,
+						y: 0,
+						width: 60,
+						height: 18,
+						baselineY: 13,
+						lineIndex: 0,
+					}),
+					createLabelLine("Second line", {
+						x: 10,
+						y: 18,
+						width: 70,
+						height: 18,
+						baselineY: 31,
+						lineIndex: 1,
+					}),
+				],
+				fontSize: 14,
+				textBackend: "deterministic",
+			},
+		];
+
+		const svg = exportSvg(diagram);
+
+		expect(svg).toContain('class="label" data-for="rectangle"');
+		expect(svg).toContain('<tspan x="44" y="33">First line</tspan>');
+		expect(svg).toContain('<tspan x="55" y="51">Second line</tspan>');
 	});
 
 	it("honors custom port stroke styles in SVG output", () => {
@@ -631,5 +676,30 @@ function createLabelLayout(text: string, box: LabelLayout["box"]): LabelLayout {
 		],
 		overflow: { horizontal: false, vertical: false, truncated: false },
 		diagnostics: [],
+	};
+}
+
+function createLabelLine(
+	text: string,
+	options: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		baselineY: number;
+		lineIndex: number;
+	},
+): LabelLineLayout {
+	return {
+		text,
+		box: {
+			x: options.x,
+			y: options.y,
+			width: options.width,
+			height: options.height,
+		},
+		baselineY: options.baselineY,
+		width: options.width,
+		lineIndex: options.lineIndex,
 	};
 }

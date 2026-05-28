@@ -303,6 +303,73 @@ describe("solveDiagram", () => {
 		).toBe(false);
 	});
 
+	it("anchors solved port label annotations to the external label box", () => {
+		const result = solveDiagram({
+			id: "port-label-anchor",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "left",
+							side: "left",
+							kind: "proxy",
+							label: { text: "external" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const source = result.nodes.find((item) => item.id === "source");
+		const port = source?.ports?.find((item) => item.id === "left");
+		const portLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "port-label",
+		);
+
+		expect(port).toBeDefined();
+		expect(portLabel).toBeDefined();
+		expect(portLabel?.anchor.x).toBeLessThan(port?.box.x ?? 0);
+		expect(portLabel?.box.x).toBeLessThan(port?.box.x ?? 0);
+		expect(portLabel?.box.x).toBeLessThan(source?.box.x ?? 0);
+	});
+
+	it("centers solved edge label annotation boxes on the routed label placement", () => {
+		const result = solveDiagram({
+			id: "edge-label-anchor",
+			direction: "LR",
+			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 200, y: 0 })],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+					label: { text: "realizes" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const edgeLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+
+		expect(edgeLabel).toBeDefined();
+		expect(edgeLabel?.box.width).toBeGreaterThan(0);
+		expect(edgeLabel?.box.height).toBeGreaterThan(0);
+		expect(edgeLabel?.box.x).toBeCloseTo(
+			(edgeLabel?.anchor.x ?? 0) - (edgeLabel?.box.width ?? 0) / 2,
+		);
+		expect(edgeLabel?.box.y).toBeCloseTo(
+			(edgeLabel?.anchor.y ?? 0) - (edgeLabel?.box.height ?? 0) / 2,
+		);
+	});
+
 	it("reports unresolved overlap between externally placed solved text boxes", () => {
 		const result = solveDiagram({
 			id: "text-overlap",
