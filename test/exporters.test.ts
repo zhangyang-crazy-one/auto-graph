@@ -13,6 +13,7 @@ import type {
 	LabelLayout,
 	LabelLineLayout,
 } from "../src/index.js";
+import { solveDiagram } from "../src/solver/index.js";
 
 describe("exporters", () => {
 	it("computes arrowhead geometry from the final non-zero segment", () => {
@@ -97,6 +98,32 @@ describe("exporters", () => {
 		const svg = exportSvg(diagram);
 
 		expect(svg).toContain('<tspan x="-84" y="-23">Negative Text</tspan>');
+	});
+
+	it("keeps plain solveDiagram node labels centered without prepared label layout", () => {
+		const diagram = solveDiagram({
+			id: "plain-label",
+			direction: "LR",
+			nodes: [
+				{
+					id: "node",
+					label: { text: "Alpha" },
+					shape: "rectangle",
+					position: { x: 100, y: 200 },
+					size: { width: 120, height: 60 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const svg = exportSvg(diagram);
+
+		expect(svg).toContain('data-text-surface="node-label"');
+		expect(svg).toContain('x="160" y="230"');
 	});
 
 	it("exports edge labels from the routed diagram", () => {

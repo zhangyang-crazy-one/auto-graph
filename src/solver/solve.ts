@@ -1506,8 +1506,12 @@ function coordinateBaseTextAnnotations(input: {
 		}
 		const layout =
 			node.labelLayout ?? fallbackLabelLayout(node.label?.text ?? "");
+		const buildAnnotation =
+			node.labelLayout === undefined
+				? buildAnchorCenteredTextAnnotation
+				: buildTextAnnotation;
 		annotations.push(
-			buildTextAnnotation({
+			buildAnnotation({
 				ownerId: node.id,
 				surfaceKind: "node-label",
 				layout,
@@ -1522,8 +1526,12 @@ function coordinateBaseTextAnnotations(input: {
 		}
 		const layout =
 			group.labelLayout ?? fallbackLabelLayout(group.label?.text ?? "");
+		const buildAnnotation =
+			group.labelLayout === undefined
+				? buildAnchorCenteredTextAnnotation
+				: buildTextAnnotation;
 		annotations.push(
-			buildTextAnnotation({
+			buildAnnotation({
 				ownerId: group.id,
 				surfaceKind: "group-label",
 				layout,
@@ -1728,6 +1736,7 @@ function buildAnchorCenteredTextAnnotation(input: {
 			x: input.anchor.x + input.anchor.width / 2,
 			y: input.anchor.y + input.anchor.height / 2,
 		},
+		anchor: input.anchor,
 	});
 }
 
@@ -1737,6 +1746,7 @@ function buildCenteredTextAnnotation(input: {
 	surfaceIndex?: number;
 	layout: LabelLayout;
 	center: Point;
+	anchor?: Box | Point;
 }): SolvedTextAnnotation {
 	return {
 		text: input.layout.text,
@@ -1751,7 +1761,7 @@ function buildCenteredTextAnnotation(input: {
 			width: input.layout.box.width,
 			height: input.layout.box.height,
 		},
-		anchor: input.center,
+		anchor: input.anchor ?? input.center,
 		paddings: input.layout.padding,
 		lines: input.layout.lines,
 		fontSize: input.layout.font.fontSize,
