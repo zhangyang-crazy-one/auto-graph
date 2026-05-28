@@ -266,6 +266,88 @@ describe("solveDiagram", () => {
 		).toEqual([0, 1, 2, 3]);
 	});
 
+	it("includes solved text boxes in bounds and suppresses intentional internal label collisions", () => {
+		const result = solveDiagram({
+			id: "text-bounds",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "out",
+							side: "left",
+							kind: "proxy",
+							label: { text: "very long external command port" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const portLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "port-label",
+		);
+
+		expect(portLabel).toBeDefined();
+		expect(result.bounds.x).toBeLessThanOrEqual(portLabel?.box.x ?? 0);
+		expect(
+			result.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.detail?.textSurfaceKind === "node-label" &&
+					diagnostic.detail?.conflictingObjectKind === "port-label",
+			),
+		).toBe(false);
+	});
+
+	it("reports unresolved overlap between externally placed solved text boxes", () => {
+		const result = solveDiagram({
+			id: "text-overlap",
+			direction: "LR",
+			nodes: [
+				{
+					...node("left", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "out",
+							side: "right",
+							kind: "proxy",
+							label: { text: "shared interface" },
+						},
+					],
+				},
+				{
+					...node("right", { x: 115, y: 0 }),
+					ports: [
+						{
+							id: "in",
+							side: "left",
+							kind: "proxy",
+							label: { text: "shared interface" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					textSurfaceKind: "port-label",
+					conflictingObjectKind: "port-label",
+				}),
+			}),
+		);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",

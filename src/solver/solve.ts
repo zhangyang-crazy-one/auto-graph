@@ -162,11 +162,24 @@ export function solveDiagram(
 			: coordinateFrame(diagram.frame, contentBounds);
 	const frameTextAnnotation =
 		frame === undefined ? [] : [coordinateFrameTextAnnotation(frame)];
+	const routingTextObstacles = [
+		...baseTextAnnotations
+			.filter(
+				(annotation) =>
+					annotation.surfaceKind === "swimlane-label" ||
+					annotation.surfaceKind === "frame-title",
+			)
+			.map((annotation) => annotation.box),
+		...frameTextAnnotation.map((annotation) => annotation.box),
+	];
 	const coordinatedEdges = coordinateEdges(
 		edges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+		[
+			...[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+			...routingTextObstacles,
+		],
 		diagram.direction,
 		options,
 		diagnostics,
@@ -177,6 +190,7 @@ export function solveDiagram(
 		...frameTextAnnotation,
 		...edgeTextAnnotations,
 	];
+	diagnostics.push(...reportTextAnnotationCollisions(textAnnotations));
 
 	return {
 		id: diagram.id,
@@ -1669,6 +1683,94 @@ function buildTextAnnotation(input: {
 		fontSize: input.layout.font.fontSize,
 		textBackend: input.layout.textBackend,
 	};
+}
+
+function reportTextAnnotationCollisions(
+	annotations: readonly SolvedTextAnnotation[],
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+
+	const relevantAnnotations = annotations.filter((annotation) =>
+		isExternallyPlacedText(annotation.surfaceKind),
+	);
+
+	for (
+		let annotationIndex = 0;
+		annotationIndex < relevantAnnotations.length;
+		annotationIndex += 1
+	) {
+		const annotation = relevantAnnotations[annotationIndex];
+		if (annotation === undefined) {
+			continue;
+		}
+
+		for (
+			let otherIndex = annotationIndex + 1;
+			otherIndex < relevantAnnotations.length;
+			otherIndex += 1
+		) {
+			const other = relevantAnnotations[otherIndex];
+			if (other === undefined) {
+				continue;
+			}
+			if (!intersectsAabb(annotation.box, other.box)) {
+				continue;
+			}
+			if (
+				annotation.ownerId === other.ownerId &&
+				annotation.surfaceKind === other.surfaceKind
+			) {
+				continue;
+			}
+
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.overlap.unresolved",
+				message: `Text surface ${annotation.surfaceKind} for ${annotation.ownerId} overlaps text surface ${other.surfaceKind} for ${other.ownerId}.`,
+				path: ["textAnnotations", annotation.surfaceKind, annotation.ownerId],
+				detail: compactDetail({
+					textSurfaceKind: annotation.surfaceKind,
+					ownerId: annotation.ownerId,
+					conflictingObjectId: other.ownerId,
+					conflictingObjectKind: other.surfaceKind,
+					surfaceIndex: annotation.surfaceIndex,
+					otherSurfaceKind: other.surfaceKind,
+					otherSurfaceIndex: other.surfaceIndex,
+					textBackend: annotation.textBackend,
+				}),
+			});
+		}
+	}
+
+	return diagnostics;
+}
+
+function compactDetail(
+	detail: Record<string, string | number | boolean | undefined>,
+): Record<string, string | number | boolean> {
+	return Object.fromEntries(
+		Object.entries(detail).filter(
+			(entry): entry is [string, string | number | boolean] =>
+				entry[1] !== undefined,
+		),
+	);
+}
+
+function isExternallyPlacedText(surfaceKind: TextSurfaceKind): boolean {
+	switch (surfaceKind) {
+		case "port-label":
+			return true;
+		case "edge-label":
+			return false;
+		case "swimlane-label":
+			return true;
+		case "frame-title":
+			return true;
+		case "node-label":
+		case "group-label":
+		case "compartment-row":
+			return false;
+	}
 }
 
 function fallbackLabelLayout(text: string): LabelLayout {
