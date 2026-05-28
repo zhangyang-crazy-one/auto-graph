@@ -236,6 +236,36 @@ describe("solveDiagram", () => {
 		expect(result.swimlanes?.[0]?.lanes).toEqual([]);
 	});
 
+	it("emits indexed solved text annotations for compartment rows", () => {
+		const result = solveDiagram({
+			id: "compartment-annotations",
+			direction: "LR",
+			nodes: [
+				{
+					...node("block", { x: 0, y: 0 }),
+					compartments: {
+						stereotype: "«block»",
+						name: "Block",
+						properties: ["alpha", "beta"],
+					},
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const compartmentRows = result.textAnnotations?.filter(
+			(annotation) => annotation.surfaceKind === "compartment-row",
+		);
+
+		expect(compartmentRows).toHaveLength(4);
+		expect(
+			compartmentRows?.map((annotation) => annotation.surfaceIndex),
+		).toEqual([0, 1, 2, 3]);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",

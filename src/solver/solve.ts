@@ -20,8 +20,15 @@ import type {
 	Swimlane,
 } from "../ir/elements.js";
 import type { Box, Insets, Point } from "../ir/geometry.js";
+import type {
+	LabelLayout,
+	SolvedTextAnnotation,
+	TextSurfaceKind,
+} from "../ir/label-layout.js";
+import { fitLabel } from "../labels/index.js";
 import { runDagreInitialLayout } from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
+import { createDefaultTextMeasurer } from "../text/index.js";
 
 export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
@@ -127,15 +134,11 @@ export function solveDiagram(
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
 	);
-	const coordinatedEdges = coordinateEdges(
-		edges,
-		nodeGeometryById,
-		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
-		diagram.direction,
-		options,
-		diagnostics,
-	);
+	const baseTextAnnotations = coordinateBaseTextAnnotations({
+		nodes: coordinatedNodes,
+		groups: coordinatedGroups,
+		swimlanes: coordinatedSwimlanes,
+	});
 	const allBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
@@ -147,6 +150,7 @@ export function solveDiagram(
 		...coordinatedSwimlanes.flatMap((swimlane) =>
 			swimlane.box === undefined ? [] : [swimlane.box],
 		),
+		...baseTextAnnotations.map((annotation) => annotation.box),
 	];
 	const contentBounds =
 		allBoxes.length === 0
@@ -156,6 +160,23 @@ export function solveDiagram(
 		diagram.frame === undefined
 			? undefined
 			: coordinateFrame(diagram.frame, contentBounds);
+	const frameTextAnnotation =
+		frame === undefined ? [] : [coordinateFrameTextAnnotation(frame)];
+	const coordinatedEdges = coordinateEdges(
+		edges,
+		nodeGeometryById,
+		coordinatedNodes,
+		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+		diagram.direction,
+		options,
+		diagnostics,
+	);
+	const edgeTextAnnotations = coordinateEdgeTextAnnotations(coordinatedEdges);
+	const textAnnotations = [
+		...baseTextAnnotations,
+		...frameTextAnnotation,
+		...edgeTextAnnotations,
+	];
 
 	return {
 		id: diagram.id,
@@ -170,9 +191,18 @@ export function solveDiagram(
 		diagnostics,
 		bounds:
 			frame === undefined
-				? contentBounds
-				: unionBoxes([contentBounds, frame.box, frame.titleBox]),
+				? unionBoxes([
+						contentBounds,
+						...edgeTextAnnotations.map((annotation) => annotation.box),
+					])
+				: unionBoxes([
+						contentBounds,
+						frame.box,
+						frame.titleBox,
+						...edgeTextAnnotations.map((annotation) => annotation.box),
+					]),
 		...(frame === undefined ? {} : { frame }),
+		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
 }
@@ -1425,6 +1455,334 @@ function coordinateEdges(
 	}
 
 	return coordinated;
+}
+
+function coordinateBaseTextAnnotations(input: {
+	nodes: readonly CoordinatedNode[];
+	groups: readonly CoordinatedGroup[];
+	swimlanes: readonly Swimlane[];
+}): SolvedTextAnnotation[] {
+	const measurer = createDefaultTextMeasurer();
+	const annotations: SolvedTextAnnotation[] = [];
+
+	for (const node of input.nodes) {
+		if (node.labelLayout === undefined && node.label === undefined) {
+			continue;
+		}
+		const layout =
+			node.labelLayout ?? fallbackLabelLayout(node.label?.text ?? "");
+		annotations.push(
+			buildTextAnnotation({
+				ownerId: node.id,
+				surfaceKind: "node-label",
+				layout,
+				anchor: node.box,
+			}),
+		);
+	}
+
+	for (const group of input.groups) {
+		if (group.labelLayout === undefined && group.label === undefined) {
+			continue;
+		}
+		const layout =
+			group.labelLayout ?? fallbackLabelLayout(group.label?.text ?? "");
+		annotations.push(
+			buildTextAnnotation({
+				ownerId: group.id,
+				surfaceKind: "group-label",
+				layout,
+				anchor: group.box,
+			}),
+		);
+	}
+
+	for (const node of input.nodes) {
+		for (const port of node.ports ?? []) {
+			if (port.label?.text === undefined) {
+				continue;
+			}
+			const layout = fitLabel(
+				port.label.text,
+				{
+					font: { fontFamily: "Arial", fontSize: 10, lineHeight: 12 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					minSize: { width: 0, height: 0 },
+					maxWidth: 160,
+				},
+				measurer,
+			);
+			annotations.push(
+				buildTextAnnotation({
+					ownerId: `${node.id}.${port.id}`,
+					surfaceKind: "port-label",
+					layout,
+					anchor: port.box,
+				}),
+			);
+		}
+	}
+
+	for (const node of input.nodes) {
+		if (node.compartments === undefined) {
+			continue;
+		}
+		const rows = compartmentRows(node);
+		for (let index = 0; index < rows.length; index += 1) {
+			const row = rows[index];
+			if (row === undefined) {
+				continue;
+			}
+			const layout = fitLabel(
+				row,
+				{
+					font: { fontFamily: "Arial", fontSize: 11, lineHeight: 13 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					minSize: { width: 0, height: 0 },
+					maxWidth: node.box.width,
+				},
+				measurer,
+			);
+			annotations.push(
+				buildTextAnnotation({
+					ownerId: node.id,
+					surfaceKind: "compartment-row",
+					surfaceIndex: index,
+					layout,
+					anchor: {
+						x: node.box.x,
+						y: node.box.y + 18 + index * 16,
+						width: node.box.width,
+						height: 16,
+					},
+				}),
+			);
+		}
+	}
+
+	for (const swimlane of input.swimlanes) {
+		for (const lane of swimlane.lanes) {
+			if (lane.label?.text === undefined || lane.box === undefined) {
+				continue;
+			}
+			const layout = fitLabel(
+				lane.label.text,
+				{
+					font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					minSize: { width: 0, height: 0 },
+					maxWidth: lane.box.width,
+				},
+				measurer,
+			);
+			annotations.push(
+				buildTextAnnotation({
+					ownerId: `${swimlane.id}.${lane.id}`,
+					surfaceKind: "swimlane-label",
+					layout,
+					anchor: lane.headerBox ?? lane.box,
+				}),
+			);
+		}
+	}
+
+	return annotations;
+}
+
+function coordinateEdgeTextAnnotations(
+	edges: readonly CoordinatedEdge[],
+): SolvedTextAnnotation[] {
+	const measurer = createDefaultTextMeasurer();
+	const annotations: SolvedTextAnnotation[] = [];
+
+	for (const edge of edges) {
+		if (edge.label?.text === undefined) {
+			continue;
+		}
+		const layout = fitLabel(
+			edge.label.text,
+			{
+				font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				minSize: { width: 0, height: 0 },
+				maxWidth: 200,
+			},
+			measurer,
+		);
+		annotations.push(
+			buildTextAnnotation({
+				ownerId: edge.id,
+				surfaceKind: "edge-label",
+				layout,
+				anchor: edgeLabelAnchor(edge.points),
+			}),
+		);
+	}
+
+	return annotations;
+}
+
+function coordinateFrameTextAnnotation(
+	frame: CoordinatedFrame,
+): SolvedTextAnnotation {
+	const layout = fitLabel(
+		frame.titleTab,
+		{
+			font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			minSize: { width: 0, height: 0 },
+			maxWidth: frame.titleBox.width,
+		},
+		createDefaultTextMeasurer(),
+	);
+	return buildTextAnnotation({
+		ownerId: frame.kind,
+		surfaceKind: "frame-title",
+		layout,
+		anchor: frame.titleBox,
+	});
+}
+
+function buildTextAnnotation(input: {
+	ownerId: string;
+	surfaceKind: TextSurfaceKind;
+	surfaceIndex?: number;
+	layout: LabelLayout;
+	anchor: Box;
+}): SolvedTextAnnotation {
+	return {
+		text: input.layout.text,
+		ownerId: input.ownerId,
+		surfaceKind: input.surfaceKind,
+		...(input.surfaceIndex === undefined
+			? {}
+			: { surfaceIndex: input.surfaceIndex }),
+		box: {
+			x: input.anchor.x + input.layout.box.x,
+			y: input.anchor.y + input.layout.box.y,
+			width: input.layout.box.width,
+			height: input.layout.box.height,
+		},
+		anchor: input.anchor,
+		paddings: input.layout.padding,
+		lines: input.layout.lines,
+		fontSize: input.layout.font.fontSize,
+		textBackend: input.layout.textBackend,
+	};
+}
+
+function fallbackLabelLayout(text: string): LabelLayout {
+	const width = Math.max(0, text.length * 7);
+	return {
+		text,
+		box: { x: 0, y: 0, width, height: 14 },
+		contentBox: { x: 0, y: 0, width, height: 14 },
+		naturalSize: { width, height: 14 },
+		fittedSize: { width, height: 14 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+		lineHeight: 14,
+		lines: [
+			{
+				text,
+				box: { x: 0, y: 0, width, height: 14 },
+				baselineY: 11.2,
+				width,
+				lineIndex: 0,
+			},
+		],
+		overflow: { horizontal: false, vertical: false, truncated: false },
+		diagnostics: [],
+	};
+}
+
+function edgeLabelAnchor(points: readonly Point[]): Box {
+	const placement = labelPlacementOnPolyline(points);
+	return {
+		x: placement?.x ?? 0,
+		y: placement?.y ?? 0,
+		width: 0,
+		height: 0,
+	};
+}
+
+function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
+	const segments = nonZeroSegments(points);
+	const totalLength = segments.reduce(
+		(sum, segment) => sum + segment.length,
+		0,
+	);
+	if (totalLength <= 0) {
+		return undefined;
+	}
+
+	let remaining = totalLength / 2;
+	for (const segment of segments) {
+		if (remaining <= segment.length) {
+			const ratio = remaining / segment.length;
+			const x = segment.start.x + (segment.end.x - segment.start.x) * ratio;
+			const y = segment.start.y + (segment.end.y - segment.start.y) * ratio;
+			const offset = labelOffset(segment);
+			return { x: x + offset.x, y: y + offset.y };
+		}
+		remaining -= segment.length;
+	}
+
+	const last = segments.at(-1);
+	if (last === undefined) {
+		return undefined;
+	}
+	const offset = labelOffset(last);
+	return { x: last.end.x + offset.x, y: last.end.y + offset.y };
+}
+
+function nonZeroSegments(points: readonly Point[]): Array<{
+	start: Point;
+	end: Point;
+	length: number;
+}> {
+	const segments: Array<{ start: Point; end: Point; length: number }> = [];
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) {
+			continue;
+		}
+		const length = Math.hypot(end.x - start.x, end.y - start.y);
+		if (length > 0) {
+			segments.push({ start, end, length });
+		}
+	}
+	return segments;
+}
+
+function labelOffset(segment: {
+	start: Point;
+	end: Point;
+	length: number;
+}): Point {
+	const offset = 10;
+	const dx = segment.end.x - segment.start.x;
+	const dy = segment.end.y - segment.start.y;
+	return {
+		x: (-dy / segment.length) * offset,
+		y: (dx / segment.length) * offset,
+	};
+}
+
+function compartmentRows(node: CoordinatedNode): string[] {
+	const compartments = node.compartments;
+	if (compartments === undefined) {
+		return [];
+	}
+	return [
+		...(compartments.stereotype === undefined ? [] : [compartments.stereotype]),
+		...(compartments.name === undefined
+			? [node.label?.text ?? node.id]
+			: [compartments.name]),
+		...(compartments.properties ?? []),
+		...(compartments.constraints ?? []),
+	];
 }
 
 function portGeometry(

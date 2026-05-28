@@ -377,6 +377,42 @@ nodes:
 		expect(result.content).not.toContain('class="label" data-for="block"');
 	});
 
+	it("exports solved text annotation metadata for every supported SVG text surface", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/sysml-structure.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+		const surfaces = result.diagram?.textAnnotations?.map(
+			(annotation) => annotation.surfaceKind,
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(surfaces).toEqual(
+			expect.arrayContaining([
+				"node-label",
+				"port-label",
+				"edge-label",
+				"compartment-row",
+				"swimlane-label",
+				"frame-title",
+			]),
+		);
+		expect(result.content).toContain('data-text-surface="port-label"');
+		expect(result.content).toContain(
+			'data-owner-id="processing_block.cooling_out"',
+		);
+		expect(result.content).toContain('data-text-backend="pretext"');
+		expect(result.content).toContain('data-text-surface="edge-label"');
+		expect(result.content).toContain('data-text-surface="compartment-row"');
+		expect(result.content).toContain('data-text-surface="swimlane-label"');
+		expect(result.content).toContain('data-text-surface="frame-title"');
+	});
+
 	it("honors custom port stroke styles in SVG output", () => {
 		const result = renderDiagramDsl(`
 nodes:

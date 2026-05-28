@@ -15,6 +15,7 @@ import type {
 	Swimlane,
 } from "./elements.js";
 import type { Box, DiagramDirection, JsonObject } from "./geometry.js";
+import type { SolvedTextAnnotation } from "./label-layout.js";
 
 export type DiagramStage = "intent" | "normalized" | "coordinated";
 
@@ -58,6 +59,7 @@ export interface CoordinatedDiagram {
 	edges: CoordinatedEdge[];
 	groups: CoordinatedGroup[];
 	swimlanes?: Swimlane[];
+	textAnnotations?: SolvedTextAnnotation[];
 	diagnostics: Diagnostic[];
 	bounds: Box;
 	frame?: CoordinatedFrame;
