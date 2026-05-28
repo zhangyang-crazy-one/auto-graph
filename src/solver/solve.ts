@@ -163,23 +163,15 @@ export function solveDiagram(
 	const frameTextAnnotation =
 		frame === undefined ? [] : [coordinateFrameTextAnnotation(frame)];
 	const routingTextObstacles = [
-		...baseTextAnnotations
-			.filter(
-				(annotation) =>
-					annotation.surfaceKind === "swimlane-label" ||
-					annotation.surfaceKind === "frame-title",
-			)
-			.map((annotation) => annotation.box),
-		...frameTextAnnotation.map((annotation) => annotation.box),
+		...baseTextAnnotations.filter(isPreRouteTextObstacle),
+		...frameTextAnnotation.filter(isPreRouteTextObstacle),
 	];
 	const coordinatedEdges = coordinateEdges(
 		edges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[
-			...[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
-			...routingTextObstacles,
-		],
+		[...[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox)],
+		routingTextObstacles,
 		diagram.direction,
 		options,
 		diagnostics,
@@ -191,6 +183,9 @@ export function solveDiagram(
 		...edgeTextAnnotations,
 	];
 	diagnostics.push(...reportTextAnnotationCollisions(textAnnotations));
+	diagnostics.push(
+		...reportRouteTextClearance(coordinatedEdges, textAnnotations),
+	);
 
 	return {
 		id: diagram.id,
@@ -1407,6 +1402,7 @@ function coordinateEdges(
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
 	obstacles: readonly Box[],
+	textObstacles: readonly SolvedTextAnnotation[],
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
@@ -1439,6 +1435,7 @@ function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
+		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
 
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
@@ -1451,10 +1448,18 @@ function coordinateEdges(
 			...(edge.target.anchor === undefined
 				? {}
 				: { targetAnchor: edge.target.anchor }),
-			obstacles: obstacles.filter(
-				(obstacle) =>
-					obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
-			),
+			obstacles: obstacles
+				.filter(
+					(obstacle) =>
+						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
+				)
+				.concat(
+					textObstacles
+						.filter(
+							(annotation) => !connectedTextOwners.has(annotation.ownerId),
+						)
+						.map((annotation) => annotation.box),
+				),
 		});
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
@@ -1469,6 +1474,19 @@ function coordinateEdges(
 	}
 
 	return coordinated;
+}
+
+function edgeConnectedTextOwnerIds(
+	edge: NormalizedEdge | CoordinatedEdge,
+): Set<string> {
+	const owners = new Set<string>();
+	if (edge.source.portId !== undefined) {
+		owners.add(`${edge.source.nodeId}.${edge.source.portId}`);
+	}
+	if (edge.target.portId !== undefined) {
+		owners.add(`${edge.target.nodeId}.${edge.target.portId}`);
+	}
+	return owners;
 }
 
 function coordinateBaseTextAnnotations(input: {
@@ -1799,6 +1817,105 @@ function reportTextAnnotationCollisions(
 	}
 
 	return diagnostics;
+}
+
+function reportRouteTextClearance(
+	edges: readonly CoordinatedEdge[],
+	annotations: readonly SolvedTextAnnotation[],
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	const relevantAnnotations = annotations.filter(isRouteClearanceText);
+
+	for (const edge of edges) {
+		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
+		for (const annotation of relevantAnnotations) {
+			if (
+				annotation.ownerId === edge.id ||
+				connectedTextOwners.has(annotation.ownerId)
+			) {
+				continue;
+			}
+			if (!routeIntersectsTextBox(edge.points, annotation.box)) {
+				continue;
+			}
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.text-clearance.unresolved",
+				message: `Edge ${edge.id} intersects solved text surface ${annotation.surfaceKind} for ${annotation.ownerId}.`,
+				path: ["edges", edge.id],
+				detail: compactDetail({
+					edgeId: edge.id,
+					textSurfaceKind: annotation.surfaceKind,
+					conflictingObjectId: annotation.ownerId,
+					surfaceIndex: annotation.surfaceIndex,
+					textBackend: annotation.textBackend,
+				}),
+			});
+		}
+	}
+
+	return diagnostics;
+}
+
+function isPreRouteTextObstacle(annotation: SolvedTextAnnotation): boolean {
+	if (annotation.surfaceKind === "edge-label") {
+		return false;
+	}
+	return isRouteClearanceText(annotation);
+}
+
+function isRouteClearanceText(annotation: SolvedTextAnnotation): boolean {
+	switch (annotation.surfaceKind) {
+		case "port-label":
+		case "edge-label":
+		case "swimlane-label":
+		case "frame-title":
+			return true;
+		case "node-label":
+		case "group-label":
+		case "compartment-row":
+			return textExtendsOutsideAnchor(annotation);
+	}
+}
+
+function textExtendsOutsideAnchor(annotation: SolvedTextAnnotation): boolean {
+	if (!("width" in annotation.anchor)) {
+		return true;
+	}
+	const epsilon = 0.001;
+	return (
+		annotation.box.x < annotation.anchor.x - epsilon ||
+		annotation.box.y < annotation.anchor.y - epsilon ||
+		annotation.box.x + annotation.box.width >
+			annotation.anchor.x + annotation.anchor.width + epsilon ||
+		annotation.box.y + annotation.box.height >
+			annotation.anchor.y + annotation.anchor.height + epsilon
+	);
+}
+
+function routeIntersectsTextBox(points: readonly Point[], box: Box): boolean {
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) {
+			continue;
+		}
+		if (intersectsAabb(segmentBox(start, end), box)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function segmentBox(start: Point, end: Point): Box {
+	const minX = Math.min(start.x, end.x);
+	const minY = Math.min(start.y, end.y);
+	return {
+		x: minX,
+		y: minY,
+		width: Math.max(1, Math.abs(start.x - end.x)),
+		height: Math.max(1, Math.abs(start.y - end.y)),
+	};
 }
 
 function compactDetail(

@@ -426,6 +426,93 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("routes around externally placed port-label text obstacles", () => {
+		const result = solveDiagram({
+			id: "port-label-route-clearance",
+			direction: "TB",
+			nodes: [
+				{
+					...node("label_owner", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "labeled",
+							side: "right",
+							kind: "proxy",
+							label: { text: "blocking route label" },
+						},
+					],
+				},
+				node("source", { x: 80, y: -100 }),
+				node("target", { x: 80, y: 80 }),
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const portLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "port-label",
+		);
+		const route = result.edges.find((edge) => edge.id === "source-target");
+
+		expect(portLabel).toBeDefined();
+		expect(route).toBeDefined();
+		expect(route?.points.some((point) => point.x !== 120)).toBe(true);
+		expect(
+			result.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.code === "routing.text-clearance.unresolved" &&
+					diagnostic.detail?.textSurfaceKind === "port-label",
+			),
+		).toBe(false);
+	});
+
+	it("reports edge-label clearance conflicts after route placement", () => {
+		const result = solveDiagram({
+			id: "edge-label-clearance",
+			direction: "LR",
+			nodes: [
+				node("source_a", { x: 0, y: 0 }),
+				node("target_a", { x: 240, y: 0 }),
+				node("source_b", { x: 120, y: -120 }),
+				node("target_b", { x: 120, y: 120 }),
+			],
+			edges: [
+				{
+					id: "labeled",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+					label: { text: "route label" },
+				},
+				{
+					id: "crossing",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "crossing",
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
