@@ -8,7 +8,12 @@ import {
 	exportExcalidraw,
 	exportSvg,
 } from "../src/exporters/index.js";
-import type { CoordinatedDiagram, LabelLayout } from "../src/index.js";
+import type {
+	CoordinatedDiagram,
+	LabelLayout,
+	LabelLineLayout,
+} from "../src/index.js";
+import { solveDiagram } from "../src/solver/index.js";
 
 describe("exporters", () => {
 	it("computes arrowhead geometry from the final non-zero segment", () => {
@@ -93,6 +98,32 @@ describe("exporters", () => {
 		const svg = exportSvg(diagram);
 
 		expect(svg).toContain('<tspan x="-84" y="-23">Negative Text</tspan>');
+	});
+
+	it("keeps plain solveDiagram node labels centered without prepared label layout", () => {
+		const diagram = solveDiagram({
+			id: "plain-label",
+			direction: "LR",
+			nodes: [
+				{
+					id: "node",
+					label: { text: "Alpha" },
+					shape: "rectangle",
+					position: { x: 100, y: 200 },
+					size: { width: 120, height: 60 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const svg = exportSvg(diagram);
+
+		expect(svg).toContain('data-text-surface="node-label"');
+		expect(svg).toContain('x="160" y="230"');
 	});
 
 	it("exports edge labels from the routed diagram", () => {
@@ -362,6 +393,54 @@ nodes:
 		expect(result.content).toContain('transform="rotate(-90');
 	});
 
+	it("preserves rotation for wrapped horizontal swimlane header labels", () => {
+		const result = renderDiagramDsl(`
+title: Horizontal Contract Swimlane
+layout:
+  direction: TB
+swimlanes:
+  behavior:
+    layout: contract
+    headerHeight: 24
+    padding: 16
+    orientation: horizontal
+    lanes:
+      observe:
+        label: Very Long Horizontal Lane Label
+        children: [observe_node]
+nodes:
+  observe_node:
+    label: Observe Node
+`);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="swimlane-label"');
+		expect(result.content).toContain('transform="rotate(-90');
+		expect(result.content).toContain("<tspan");
+	});
+
+	it("keeps ports above compartment overlays", () => {
+		const result = renderDiagramDsl(`
+nodes:
+  block:
+    label: Processing
+    compartments:
+      name: Processing
+      properties: [flow]
+    ports:
+      inlet:
+        side: left
+        kind: proxy
+`);
+		const compartmentIndex =
+			result.content?.indexOf('class="compartment"') ?? -1;
+		const portIndex = result.content?.indexOf('class="port"') ?? -1;
+
+		expect(result.diagnostics).toEqual([]);
+		expect(compartmentIndex).toBeGreaterThanOrEqual(0);
+		expect(portIndex).toBeGreaterThan(compartmentIndex);
+	});
+
 	it("does not render duplicate centered labels for compartment nodes", () => {
 		const result = renderDiagramDsl(`
 nodes:
@@ -375,6 +454,90 @@ nodes:
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toContain('class="compartment-name"');
 		expect(result.content).not.toContain('class="label" data-for="block"');
+		expect(
+			result.diagram?.textAnnotations?.some(
+				(annotation) =>
+					annotation.surfaceKind === "node-label" &&
+					annotation.ownerId === "block",
+			),
+		).toBe(false);
+	});
+
+	it("exports solved text annotation metadata for every supported SVG text surface", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/phase-08/sysml-structure.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+
+		const result = renderDiagramDsl(source, { format: "svg" });
+		const surfaces = result.diagram?.textAnnotations?.map(
+			(annotation) => annotation.surfaceKind,
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(surfaces).toEqual(
+			expect.arrayContaining([
+				"node-label",
+				"port-label",
+				"edge-label",
+				"compartment-row",
+				"swimlane-label",
+				"frame-title",
+			]),
+		);
+		expect(result.content).toContain('data-text-surface="port-label"');
+		expect(result.content).toContain(
+			'data-owner-id="processing_block.cooling_out"',
+		);
+		expect(result.content).toContain('data-for="processing_block.cooling_out"');
+		expect(result.content).toContain('data-text-backend="pretext"');
+		expect(result.content).toContain('data-text-surface="edge-label"');
+		expect(result.content).toContain('data-text-surface="compartment-row"');
+		expect(result.content).toContain('data-text-surface="swimlane-label"');
+		expect(result.content).toContain('data-text-surface="frame-title"');
+	});
+
+	it("exports multiline solved text annotations from solved line boxes and baselines", () => {
+		const diagram = createCoordinatedDiagram();
+		diagram.textAnnotations = [
+			{
+				text: "First line Second line",
+				ownerId: "rectangle",
+				surfaceKind: "node-label",
+				box: { x: 10, y: 20, width: 80, height: 36 },
+				anchor: { x: 10, y: 20, width: 80, height: 36 },
+				paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+				lines: [
+					createLabelLine("First line", {
+						x: 4,
+						y: 0,
+						width: 60,
+						height: 18,
+						baselineY: 13,
+						lineIndex: 0,
+					}),
+					createLabelLine("Second line", {
+						x: 10,
+						y: 18,
+						width: 70,
+						height: 18,
+						baselineY: 31,
+						lineIndex: 1,
+					}),
+				],
+				fontSize: 14,
+				textBackend: "deterministic",
+			},
+		];
+
+		const svg = exportSvg(diagram);
+
+		expect(svg).toContain('class="label" data-for="rectangle"');
+		expect(svg).toContain('<tspan x="44" y="33">First line</tspan>');
+		expect(svg).toContain('<tspan x="55" y="51">Second line</tspan>');
 	});
 
 	it("honors custom port stroke styles in SVG output", () => {
@@ -595,5 +758,30 @@ function createLabelLayout(text: string, box: LabelLayout["box"]): LabelLayout {
 		],
 		overflow: { horizontal: false, vertical: false, truncated: false },
 		diagnostics: [],
+	};
+}
+
+function createLabelLine(
+	text: string,
+	options: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		baselineY: number;
+		lineIndex: number;
+	},
+): LabelLineLayout {
+	return {
+		text,
+		box: {
+			x: options.x,
+			y: options.y,
+			width: options.width,
+			height: options.height,
+		},
+		baselineY: options.baselineY,
+		width: options.width,
+		lineIndex: options.lineIndex,
 	};
 }
