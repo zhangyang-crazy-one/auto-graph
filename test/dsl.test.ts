@@ -349,6 +349,86 @@ output:
 		expect(result.diagram?.edges[0]?.target.portId).toBeUndefined();
 	});
 
+	it("parses and normalizes first-class evidence blocks", () => {
+		const parsed = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: traceability-matrix
+    rows: [need-1, need-2]
+    cols: [function-1, function-2]
+    position: { x: 420, y: 40 }
+    cells:
+      - ["covered", { text: "gap", fill: "#fff3cd" }]
+      - ["", "covered"]
+tables:
+  - id: value-properties
+    columns:
+      - { id: property, label: Property }
+      - { id: type, label: Type }
+    rows:
+      - id: mass-row
+        cells:
+          property: mass_kg
+          type: Real
+evidencePanels:
+  - id: symbol-legend
+    kind: legend
+    items:
+      - id: satisfied
+        label: Satisfied
+        detail: Trace exists
+`);
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(parsed.value).toMatchObject({
+			matrices: [{ id: "traceability-matrix" }],
+			tables: [{ id: "value-properties" }],
+			evidencePanels: [{ id: "symbol-legend", kind: "legend" }],
+		});
+
+		const result = normalizeDiagramDsl(parsed.value);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.matrices?.[0]).toMatchObject({
+			id: "traceability-matrix",
+			rows: ["need-1", "need-2"],
+			cols: ["function-1", "function-2"],
+			position: { x: 420, y: 40 },
+			cells: [
+				[{ text: "covered" }, { text: "gap", style: { fill: "#fff3cd" } }],
+				[{ text: "" }, { text: "covered" }],
+			],
+		});
+		expect(result.diagram?.tables?.[0]).toMatchObject({
+			id: "value-properties",
+			columns: [
+				{ id: "property", label: { text: "Property" } },
+				{ id: "type", label: { text: "Type" } },
+			],
+			rows: [
+				{
+					id: "mass-row",
+					cells: {
+						property: { text: "mass_kg" },
+						type: { text: "Real" },
+					},
+				},
+			],
+		});
+		expect(result.diagram?.evidencePanels?.[0]).toMatchObject({
+			id: "symbol-legend",
+			kind: "legend",
+			items: [
+				{
+					id: "satisfied",
+					label: { text: "Satisfied" },
+					detail: { text: "Trace exists" },
+				},
+			],
+		});
+	});
+
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
 		expect(resolveOutputFormat().format).toBe("svg");
 		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(
