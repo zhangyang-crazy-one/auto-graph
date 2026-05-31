@@ -177,6 +177,80 @@ describe("canonical serialization", () => {
 		expect(output.indexOf('"left"')).toBeLessThan(output.indexOf('"right"'));
 	});
 
+	it("keeps evidence block collections deterministic without reordering semantic internals", () => {
+		const diagram = {
+			matrices: [
+				{
+					id: "z-verification-matrix",
+					rows: ["verify-a", "verify-b"],
+					cols: ["requirement", "function"],
+					cells: [
+						[{ text: "case-a" }, { text: "pass" }],
+						[{ text: "case-b" }, { text: "watch" }],
+					],
+				},
+				{
+					id: "a-traceability-matrix",
+					rows: ["need-b", "need-a"],
+					cols: ["function-b", "function-a"],
+					cells: [
+						[{ text: "b-b" }, { text: "b-a" }],
+						[{ text: "a-b" }, { text: "a-a" }],
+					],
+				},
+			],
+			tables: [
+				{
+					id: "z-params",
+					columns: [
+						{ id: "parameter", label: { text: "Parameter" } },
+						{ id: "source", label: { text: "Source" } },
+					],
+					rows: [
+						{
+							id: "row-b",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+						{
+							id: "row-a",
+							cells: { parameter: { text: "power_w" } },
+						},
+					],
+				},
+			],
+			evidencePanels: [
+				{
+					id: "z-note",
+					kind: "note",
+					items: [
+						{ id: "second", label: { text: "Second" } },
+						{ id: "first", label: { text: "First" } },
+					],
+				},
+				{
+					id: "a-rule",
+					kind: "rule",
+					items: [{ id: "rule-1", label: { text: "Rule" } }],
+				},
+			],
+		};
+
+		const output = stringifyCanonical(diagram);
+
+		expect(output.indexOf("a-traceability-matrix")).toBeLessThan(
+			output.indexOf("z-verification-matrix"),
+		);
+		expect(output.indexOf("need-b")).toBeLessThan(output.indexOf("need-a"));
+		expect(output.indexOf("function-b")).toBeLessThan(
+			output.indexOf("function-a"),
+		);
+		expect(output.indexOf("b-b")).toBeLessThan(output.indexOf("a-a"));
+		expect(output.indexOf("row-b")).toBeLessThan(output.indexOf("row-a"));
+		expect(output.indexOf("parameter")).toBeLessThan(output.indexOf("source"));
+		expect(output.indexOf("a-rule")).toBeLessThan(output.indexOf("z-note"));
+		expect(output.indexOf("second")).toBeLessThan(output.indexOf("first"));
+	});
+
 	it("rejects invalid precision values", () => {
 		for (const precision of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5]) {
 			expect(() => canonicalize({ x: 1.23 }, { precision })).toThrow(

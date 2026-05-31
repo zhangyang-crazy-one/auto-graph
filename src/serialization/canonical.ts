@@ -19,6 +19,17 @@ const UNORDERED_COLLECTION_KEYS = new Set([
 	"constraints",
 	"diagnostics",
 	"anchors",
+	"matrices",
+	"tables",
+	"evidencePanels",
+]);
+
+const ORDERED_COLLECTION_KEYS = new Set([
+	"rows",
+	"cols",
+	"cells",
+	"columns",
+	"items",
 ]);
 
 const IDENTITY_KEYS = [
@@ -138,6 +149,10 @@ function canonicalizeObject(
 }
 
 function shouldSortArray(value: unknown[], parentKey?: string): boolean {
+	if (parentKey !== undefined && ORDERED_COLLECTION_KEYS.has(parentKey)) {
+		return false;
+	}
+
 	if (parentKey === "points" || value.every(isPointLikeRecord)) {
 		return false;
 	}
