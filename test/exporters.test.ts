@@ -559,68 +559,7 @@ nodes:
 	});
 
 	it("renders evidence blocks in SVG with physical matrix cells, table stripes, and panel kinds", () => {
-		const source = `
-title: Evidence Blocks
-layout: { direction: LR }
-nodes:
-  anchor:
-    label: Anchor
-    position: { x: 0, y: 0 }
-matrices:
-  - id: coverage-matrix
-    rows: [need-1, need-2]
-    cols: [function-1, function-2]
-    position: { x: 220, y: 20 }
-    size: { width: 200, height: 90 }
-    cells:
-      - [covered, gap]
-      - [derived, covered]
-tables:
-  - id: parameter-table
-    columns:
-      - { id: parameter, label: Parameter }
-      - { id: value, label: Value }
-      - { id: source, label: Source }
-    rows:
-      - id: row-one
-        cells:
-          parameter: mass
-          value: 12kg
-          source: test
-      - id: row-two
-        cells:
-          parameter: power
-          value: 80W
-          source: analysis
-    position: { x: 220, y: 140 }
-    size: { width: 360, height: 102 }
-evidencePanels:
-  - id: legend-panel
-    kind: legend
-    position: { x: 220, y: 280 }
-    size: { width: 320, height: 72 }
-    items:
-      - { id: solid, label: Solid, detail: Required trace }
-  - id: rule-panel
-    kind: rule
-    position: { x: 560, y: 280 }
-    size: { width: 320, height: 72 }
-    items:
-      - { id: one-hop, label: One-hop, detail: No skips }
-  - id: note-panel
-    kind: note
-    position: { x: 220, y: 380 }
-    size: { width: 320, height: 72 }
-    items:
-      - { id: warning, label: Warning, detail: Explain gaps }
-  - id: verification-panel
-    kind: verification
-    position: { x: 560, y: 380 }
-    size: { width: 320, height: 72 }
-    items:
-      - { id: test-case, label: Test case, detail: Pass }
-`;
-		const result = renderDiagramDsl(source, { format: "svg" });
+		const result = renderDiagramDsl(evidenceBlocksSource(), { format: "svg" });
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toContain('class="matrix-block"');
@@ -639,6 +578,69 @@ evidencePanels:
 		expect(result.content).toContain('data-col="parameter" x="220"');
 		expect(result.content).toContain('data-col="value" x="340"');
 		expect(result.content).toContain('data-col="source" x="460"');
+	});
+
+	it("exports evidence blocks to deterministic editable Excalidraw elements", () => {
+		const result = renderDiagramDsl(evidenceBlocksSource(), {
+			format: "excalidraw",
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		const scene = JSON.parse(result.content ?? "{}") as {
+			elements: Array<Record<string, unknown>>;
+		};
+		const ids = scene.elements.map((element) => element.id);
+
+		expect(ids).toEqual(
+			expect.arrayContaining([
+				"matrix:coverage-matrix",
+				"matrix-text:coverage-matrix",
+				"table:parameter-table",
+				"table-text:parameter-table",
+				"evidence-panel:verification-panel",
+				"evidence-panel-text:verification-panel",
+			]),
+		);
+		expect(scene.elements.find((element) => element.id === "matrix:coverage-matrix"))
+			.toMatchObject({
+				type: "rectangle",
+				x: 220,
+				y: 20,
+				width: 200,
+				height: 90,
+				groupIds: ["matrix:coverage-matrix"],
+			});
+		expect(scene.elements.find((element) => element.id === "table:parameter-table"))
+			.toMatchObject({
+				type: "rectangle",
+				x: 220,
+				y: 140,
+				width: 360,
+				height: 102,
+				groupIds: ["table:parameter-table"],
+			});
+		expect(
+			scene.elements.find(
+				(element) => element.id === "evidence-panel:verification-panel",
+			),
+		).toMatchObject({
+			type: "rectangle",
+			x: 560,
+			y: 380,
+			width: 320,
+			height: 72,
+			groupIds: ["evidence-panel:verification-panel"],
+		});
+		expect(
+			scene.elements.find(
+				(element) => element.id === "evidence-panel-text:verification-panel",
+			),
+		).toMatchObject({
+			type: "text",
+			text: "verification: verification-panel\nTest case: Pass",
+			containerId: "evidence-panel:verification-panel",
+			groupIds: ["evidence-panel:verification-panel"],
+		});
 	});
 
 	it("blocks exporter geometry recomputation imports and calls", () => {
@@ -732,6 +734,70 @@ function sourceFilesIn(directory: URL): string[] {
 
 function countOccurrences(value: string, token: string): number {
 	return value.split(token).length - 1;
+}
+
+function evidenceBlocksSource(): string {
+	return `
+title: Evidence Blocks
+layout: { direction: LR }
+nodes:
+  anchor:
+    label: Anchor
+    position: { x: 0, y: 0 }
+matrices:
+  - id: coverage-matrix
+    rows: [need-1, need-2]
+    cols: [function-1, function-2]
+    position: { x: 220, y: 20 }
+    size: { width: 200, height: 90 }
+    cells:
+      - [covered, gap]
+      - [derived, covered]
+tables:
+  - id: parameter-table
+    columns:
+      - { id: parameter, label: Parameter }
+      - { id: value, label: Value }
+      - { id: source, label: Source }
+    rows:
+      - id: row-one
+        cells:
+          parameter: mass
+          value: 12kg
+          source: test
+      - id: row-two
+        cells:
+          parameter: power
+          value: 80W
+          source: analysis
+    position: { x: 220, y: 140 }
+    size: { width: 360, height: 102 }
+evidencePanels:
+  - id: legend-panel
+    kind: legend
+    position: { x: 220, y: 280 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: solid, label: Solid, detail: Required trace }
+  - id: rule-panel
+    kind: rule
+    position: { x: 560, y: 280 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: one-hop, label: One-hop, detail: No skips }
+  - id: note-panel
+    kind: note
+    position: { x: 220, y: 380 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: warning, label: Warning, detail: Explain gaps }
+  - id: verification-panel
+    kind: verification
+    position: { x: 560, y: 380 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: test-case, label: Test case, detail: Pass }
+`;
 }
 
 function createCoordinatedDiagram(): CoordinatedDiagram {
