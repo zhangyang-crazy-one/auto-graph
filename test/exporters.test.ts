@@ -558,6 +558,89 @@ nodes:
 		expect(result.content).toContain('stroke="#16a34a"');
 	});
 
+	it("renders evidence blocks in SVG with physical matrix cells, table stripes, and panel kinds", () => {
+		const source = `
+title: Evidence Blocks
+layout: { direction: LR }
+nodes:
+  anchor:
+    label: Anchor
+    position: { x: 0, y: 0 }
+matrices:
+  - id: coverage-matrix
+    rows: [need-1, need-2]
+    cols: [function-1, function-2]
+    position: { x: 220, y: 20 }
+    size: { width: 200, height: 90 }
+    cells:
+      - [covered, gap]
+      - [derived, covered]
+tables:
+  - id: parameter-table
+    columns:
+      - { id: parameter, label: Parameter }
+      - { id: value, label: Value }
+      - { id: source, label: Source }
+    rows:
+      - id: row-one
+        cells:
+          parameter: mass
+          value: 12kg
+          source: test
+      - id: row-two
+        cells:
+          parameter: power
+          value: 80W
+          source: analysis
+    position: { x: 220, y: 140 }
+    size: { width: 360, height: 102 }
+evidencePanels:
+  - id: legend-panel
+    kind: legend
+    position: { x: 220, y: 280 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: solid, label: Solid, detail: Required trace }
+  - id: rule-panel
+    kind: rule
+    position: { x: 560, y: 280 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: one-hop, label: One-hop, detail: No skips }
+  - id: note-panel
+    kind: note
+    position: { x: 220, y: 380 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: warning, label: Warning, detail: Explain gaps }
+  - id: verification-panel
+    kind: verification
+    position: { x: 560, y: 380 }
+    size: { width: 320, height: 72 }
+    items:
+      - { id: test-case, label: Test case, detail: Pass }
+`;
+		const result = renderDiagramDsl(source, { format: "svg" });
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain('class="matrix-block"');
+		expect(result.content).toContain('class="table-block"');
+		expect(result.content).toContain('class="evidence-panel evidence-panel--legend"');
+		expect(result.content).toContain('evidence-panel--rule');
+		expect(result.content).toContain('evidence-panel--note');
+		expect(result.content).toContain('evidence-panel--verification');
+		expect(countOccurrences(result.content ?? "", 'class="matrix-cell"')).toBe(4);
+		expect(countOccurrences(result.content ?? "", 'class="matrix-cell-label"')).toBe(4);
+		expect(result.content).toContain('class="table-row table-row-even"');
+		expect(result.content).toContain('class="table-row table-row-odd"');
+		expect(result.content).toContain('class="evidence-panel-title-cell"');
+		expect(result.content).toContain('class="evidence-panel-items-cell"');
+		expect(result.content).toContain('data-column-count="3"');
+		expect(result.content).toContain('data-col="parameter" x="220"');
+		expect(result.content).toContain('data-col="value" x="340"');
+		expect(result.content).toContain('data-col="source" x="460"');
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",
@@ -645,6 +728,10 @@ function sourceFilesIn(directory: URL): string[] {
 	return readdirSync(directory)
 		.filter((fileName) => fileName.endsWith(".ts"))
 		.map((fileName) => join(directory.pathname, fileName));
+}
+
+function countOccurrences(value: string, token: string): number {
+	return value.split(token).length - 1;
 }
 
 function createCoordinatedDiagram(): CoordinatedDiagram {

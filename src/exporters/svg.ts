@@ -4,9 +4,13 @@ import type {
 	CoordinatedFrame,
 	CoordinatedGroup,
 	CoordinatedNode,
+	EvidenceCell,
+	EvidencePanel,
 	Label,
+	MatrixBlock,
 	NodeShape,
 	Swimlane,
+	TableBlock,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
@@ -18,6 +22,22 @@ const GROUP_FILL = "#f9fafb";
 const STROKE = "#374151";
 const EDGE_STROKE = "#111827";
 const FONT_FAMILY = "Arial, sans-serif";
+const EVIDENCE_FILL = "#f8fafc";
+const EVIDENCE_HEADER_FILL = "#e5e7eb";
+const EVIDENCE_PANEL_KIND_FILL = {
+	legend: "#ecfdf5",
+	rule: "#eff6ff",
+	note: "#fffbeb",
+	verification: "#fef2f2",
+} as const;
+
+type EvidenceBlockWithBox<T> = T & { box: Box };
+type CoordinatedMatrixBlock = EvidenceBlockWithBox<MatrixBlock>;
+type CoordinatedEvidencePanel = EvidenceBlockWithBox<EvidencePanel>;
+type CoordinatedTableBlock = TableBlock & {
+	box: Box;
+	columnXOffsets: number[];
+};
 
 export function exportSvg(
 	diagram: CoordinatedDiagram,
@@ -36,6 +56,15 @@ export function exportSvg(
 			renderSwimlane(swimlane, annotations),
 		),
 		...diagram.groups.map((group) => indent(renderGroup(group))),
+		...(diagram.matrices ?? []).flatMap((matrix) =>
+			indentLines(renderMatrixBlock(matrix as CoordinatedMatrixBlock)),
+		),
+		...(diagram.tables ?? []).flatMap((table) =>
+			indentLines(renderTableBlock(table as CoordinatedTableBlock)),
+		),
+		...(diagram.evidencePanels ?? []).flatMap((panel) =>
+			indentLines(renderEvidencePanel(panel as CoordinatedEvidencePanel)),
+		),
 		...diagram.edges.flatMap((edge) => {
 			const path = renderEdgePath(edge);
 			return path === undefined
@@ -60,6 +89,173 @@ export function exportSvg(
 
 function renderGroup(group: CoordinatedGroup): string {
 	return `<rect class="group" data-id="${escapeAttribute(group.id)}" x="${formatNumber(group.box.x)}" y="${formatNumber(group.box.y)}" width="${formatNumber(group.box.width)}" height="${formatNumber(group.box.height)}" fill="${GROUP_FILL}" stroke="${STROKE}" stroke-dasharray="6 4"/>`;
+}
+
+function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
+	const columnCount = Math.max(1, matrix.cols.length);
+	const rowCount = matrix.rows.length;
+	const cellWidth = matrix.box.width / columnCount;
+	const rowHeight = matrix.box.height / Math.max(1, rowCount + 1);
+	const lines = [
+		`<g class="matrix-block" data-id="${escapeAttribute(matrix.id)}" data-row-count="${rowCount}" data-column-count="${matrix.cols.length}">`,
+		`  <rect class="matrix-frame" x="${formatNumber(matrix.box.x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(matrix.box.width)}" height="${formatNumber(matrix.box.height)}" fill="${escapeAttribute(matrix.style?.fill ?? EVIDENCE_FILL)}" stroke="${escapeAttribute(matrix.style?.stroke ?? STROKE)}"/>`,
+	];
+
+	for (let columnIndex = 0; columnIndex < matrix.cols.length; columnIndex += 1) {
+		const column = matrix.cols[columnIndex];
+		if (column === undefined) {
+			continue;
+		}
+		const x = matrix.box.x + columnIndex * cellWidth;
+		lines.push(
+			`  <rect class="matrix-column-header" data-col="${escapeAttribute(column)}" x="${formatNumber(x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(cellWidth)}" height="${formatNumber(rowHeight)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
+			renderEvidenceText("matrix-column-label", column, {
+				x,
+				y: matrix.box.y,
+				width: cellWidth,
+				height: rowHeight,
+			}),
+		);
+	}
+
+	for (let rowIndex = 0; rowIndex < matrix.rows.length; rowIndex += 1) {
+		const row = matrix.rows[rowIndex];
+		const cells = matrix.cells[rowIndex] ?? [];
+		if (row === undefined) {
+			continue;
+		}
+		for (let columnIndex = 0; columnIndex < matrix.cols.length; columnIndex += 1) {
+			const column = matrix.cols[columnIndex];
+			if (column === undefined) {
+				continue;
+			}
+			const cell = cells[columnIndex] ?? { text: "" };
+			const box = {
+				x: matrix.box.x + columnIndex * cellWidth,
+				y: matrix.box.y + (rowIndex + 1) * rowHeight,
+				width: cellWidth,
+				height: rowHeight,
+			};
+			lines.push(
+				`  <rect class="matrix-cell" data-row="${escapeAttribute(row)}" data-col="${escapeAttribute(column)}" x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}" fill="${escapeAttribute(cell.style?.fill ?? "#ffffff")}" stroke="${escapeAttribute(cell.style?.stroke ?? STROKE)}"/>`,
+				renderEvidenceText("matrix-cell-label", cell.text, box),
+			);
+		}
+	}
+
+	lines.push("</g>");
+	return lines;
+}
+
+function renderTableBlock(table: CoordinatedTableBlock): string[] {
+	const columnCount = Math.max(1, table.columns.length);
+	const rowHeight = table.box.height / Math.max(1, table.rows.length + 1);
+	const lines = [
+		`<g class="table-block" data-id="${escapeAttribute(table.id)}" data-row-count="${table.rows.length}" data-column-count="${table.columns.length}">`,
+		`  <rect class="table-frame" x="${formatNumber(table.box.x)}" y="${formatNumber(table.box.y)}" width="${formatNumber(table.box.width)}" height="${formatNumber(table.box.height)}" fill="${escapeAttribute(table.style?.fill ?? EVIDENCE_FILL)}" stroke="${escapeAttribute(table.style?.stroke ?? STROKE)}"/>`,
+		`  <g class="table-header" data-column-count="${table.columns.length}">`,
+	];
+
+	for (let columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+		const column = table.columns[columnIndex];
+		if (column === undefined) {
+			continue;
+		}
+		const columnBox = tableCellBox(table, columnIndex, 0, rowHeight, columnCount);
+		lines.push(
+			`    <rect class="table-header-cell" data-col="${escapeAttribute(column.id)}" x="${formatNumber(columnBox.x)}" y="${formatNumber(columnBox.y)}" width="${formatNumber(columnBox.width)}" height="${formatNumber(columnBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
+			`    ${renderEvidenceText("table-header-label", column.label.text, columnBox)}`,
+		);
+	}
+	lines.push("  </g>");
+
+	for (let rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
+		const row = table.rows[rowIndex];
+		if (row === undefined) {
+			continue;
+		}
+		const rowBox = {
+			x: table.box.x,
+			y: table.box.y + (rowIndex + 1) * rowHeight,
+			width: table.box.width,
+			height: rowHeight,
+		};
+		const rowClass = rowIndex % 2 === 0 ? "table-row-even" : "table-row-odd";
+		lines.push(
+			`  <g class="table-row ${rowClass}" data-row="${escapeAttribute(row.id)}">`,
+			`    <rect class="${rowClass}" data-row="${escapeAttribute(row.id)}" x="${formatNumber(rowBox.x)}" y="${formatNumber(rowBox.y)}" width="${formatNumber(rowBox.width)}" height="${formatNumber(rowBox.height)}" fill="${rowIndex % 2 === 0 ? "#ffffff" : "#f3f4f6"}" stroke="none"/>`,
+		);
+		for (let columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+			const column = table.columns[columnIndex];
+			if (column === undefined) {
+				continue;
+			}
+			const cell = row.cells[column.id] ?? { text: "" };
+			const cellBox = tableCellBox(
+				table,
+				columnIndex,
+				rowIndex + 1,
+				rowHeight,
+				columnCount,
+			);
+			lines.push(
+				`    <rect class="table-cell" data-col="${escapeAttribute(column.id)}" x="${formatNumber(cellBox.x)}" y="${formatNumber(cellBox.y)}" width="${formatNumber(cellBox.width)}" height="${formatNumber(cellBox.height)}" fill="${escapeAttribute(cell.style?.fill ?? "transparent")}" stroke="${escapeAttribute(cell.style?.stroke ?? STROKE)}"/>`,
+				`    ${renderEvidenceText("table-cell-label", cell.text, cellBox)}`,
+			);
+		}
+		lines.push("  </g>");
+	}
+
+	lines.push("</g>");
+	return lines;
+}
+
+function renderEvidencePanel(panel: CoordinatedEvidencePanel): string[] {
+	const titleWidth = Math.min(panel.box.width * 0.36, 140);
+	const itemBox = {
+		x: panel.box.x + titleWidth,
+		y: panel.box.y,
+		width: panel.box.width - titleWidth,
+		height: panel.box.height,
+	};
+	const titleBox = {
+		x: panel.box.x,
+		y: panel.box.y,
+		width: titleWidth,
+		height: panel.box.height,
+	};
+	const itemHeight = panel.box.height / Math.max(1, panel.items.length);
+	const lines = [
+		`<g class="evidence-panel evidence-panel--${panel.kind}" data-id="${escapeAttribute(panel.id)}" data-kind="${escapeAttribute(panel.kind)}" data-item-count="${panel.items.length}">`,
+		`  <rect class="evidence-panel-frame" x="${formatNumber(panel.box.x)}" y="${formatNumber(panel.box.y)}" width="${formatNumber(panel.box.width)}" height="${formatNumber(panel.box.height)}" fill="${escapeAttribute(panel.style?.fill ?? EVIDENCE_PANEL_KIND_FILL[panel.kind])}" stroke="${escapeAttribute(panel.style?.stroke ?? STROKE)}"/>`,
+		`  <g class="evidence-panel-title-cell">`,
+		`    <rect class="evidence-panel-title-bg" x="${formatNumber(titleBox.x)}" y="${formatNumber(titleBox.y)}" width="${formatNumber(titleBox.width)}" height="${formatNumber(titleBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
+		`    ${renderEvidenceText("evidence-panel-title", `${panel.kind}: ${panel.id}`, titleBox)}`,
+		"  </g>",
+		`  <g class="evidence-panel-items-cell">`,
+		`    <rect class="evidence-panel-items-bg" x="${formatNumber(itemBox.x)}" y="${formatNumber(itemBox.y)}" width="${formatNumber(itemBox.width)}" height="${formatNumber(itemBox.height)}" fill="transparent" stroke="${STROKE}"/>`,
+	];
+
+	for (let index = 0; index < panel.items.length; index += 1) {
+		const item = panel.items[index];
+		if (item === undefined) {
+			continue;
+		}
+		const text = panelItemText(item.label.text, item.detail?.text);
+		const box = {
+			x: itemBox.x,
+			y: itemBox.y + index * itemHeight,
+			width: itemBox.width,
+			height: itemHeight,
+		};
+		lines.push(
+			`    <rect class="evidence-panel-item" data-item="${escapeAttribute(item.id ?? String(index))}" x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}" fill="${escapeAttribute(item.style?.fill ?? "transparent")}" stroke="${escapeAttribute(item.style?.stroke ?? "none")}"/>`,
+			`    ${renderEvidenceText("evidence-panel-item-label", text, box)}`,
+		);
+	}
+
+	lines.push("  </g>", "</g>");
+	return lines;
 }
 
 function renderNode(node: CoordinatedNode): string {
@@ -446,6 +642,34 @@ function renderRect(box: Box, attributes: string): string {
 	return `<rect ${attributes} x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}"/>`;
 }
 
+function tableCellBox(
+	table: CoordinatedTableBlock,
+	columnIndex: number,
+	rowIndex: number,
+	rowHeight: number,
+	columnCount: number,
+): Box {
+	const x =
+		table.columnXOffsets[columnIndex] ??
+		table.box.x + (table.box.width / columnCount) * columnIndex;
+	const nextX =
+		table.columnXOffsets[columnIndex + 1] ?? table.box.x + table.box.width;
+	return {
+		x,
+		y: table.box.y + rowIndex * rowHeight,
+		width: nextX - x,
+		height: rowHeight,
+	};
+}
+
+function renderEvidenceText(className: string, text: string, box: Box): string {
+	return `<text class="${className}" x="${formatNumber(box.x + box.width / 2)}" y="${formatNumber(box.y + box.height / 2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="10" fill="#111827">${escapeXml(text)}</text>`;
+}
+
+function panelItemText(label: string, detail: string | undefined): string {
+	return detail === undefined ? label : `${label}: ${detail}`;
+}
+
 function portLabelX(x: number, side: string): number {
 	if (side === "left") {
 		return x - 8;
@@ -631,4 +855,8 @@ function escapeAttribute(value: string): string {
 
 function indent(value: string): string {
 	return `  ${value}`;
+}
+
+function indentLines(values: readonly string[]): string[] {
+	return values.map(indent);
 }
