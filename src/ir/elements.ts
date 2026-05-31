@@ -76,6 +76,58 @@ export interface VisualStyle {
 	stroke?: string;
 }
 
+export interface EvidenceCell {
+	text: string;
+	style?: VisualStyle;
+}
+
+export interface MatrixBlock {
+	id: string;
+	rows: string[];
+	cols: string[];
+	cells: EvidenceCell[][];
+	position?: Point;
+	size?: Size;
+	style?: VisualStyle;
+}
+
+export interface TableColumn {
+	id: string;
+	label: Label;
+}
+
+export interface TableRow {
+	id: string;
+	cells: Record<string, EvidenceCell>;
+}
+
+export interface TableBlock {
+	id: string;
+	columns: TableColumn[];
+	rows: TableRow[];
+	position?: Point;
+	size?: Size;
+	style?: VisualStyle;
+}
+
+export type EvidencePanelKind = "legend" | "rule" | "note" | "verification";
+
+export interface EvidencePanelItem {
+	id?: string;
+	label: Label;
+	detail?: Label;
+	style?: VisualStyle;
+}
+
+export interface EvidencePanel {
+	id: string;
+	kind: EvidencePanelKind;
+	items: EvidencePanelItem[];
+	position?: Point;
+	size?: Size;
+	style?: VisualStyle;
+}
+
 export interface NodePort {
 	id: string;
 	label?: Label;

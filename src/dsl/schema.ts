@@ -49,6 +49,16 @@ const styleSchema = z.object({
 	stroke: z.string().optional(),
 });
 
+const blockCellSchema = z.union([
+	z.string(),
+	z.object({
+		text: z.string(),
+		fill: z.string().optional(),
+		stroke: z.string().optional(),
+		style: styleSchema.optional(),
+	}),
+]);
+
 const portSideSchema = z.enum(["top", "right", "bottom", "left"]);
 const portKindSchema = z.enum(["proxy", "flow"]);
 
@@ -138,6 +148,69 @@ const swimlaneSchema = z.object({
 	),
 });
 
+const matrixSchema = z.object({
+	id: z.string(),
+	rows: z.array(z.string()),
+	cols: z.array(z.string()),
+	cells: z.array(z.array(blockCellSchema)),
+	position: pointSchema.optional(),
+	size: z
+		.object({
+			width: nonNegativeNumberSchema,
+			height: nonNegativeNumberSchema,
+		})
+		.optional(),
+	style: styleSchema.optional(),
+});
+
+const tableColumnSchema = z.object({
+	id: z.string(),
+	label: labelSchema,
+});
+
+const tableRowSchema = z.object({
+	id: z.string(),
+	cells: z.record(z.string(), blockCellSchema),
+});
+
+const tableSchema = z.object({
+	id: z.string(),
+	columns: z.array(tableColumnSchema),
+	rows: z.array(tableRowSchema),
+	position: pointSchema.optional(),
+	size: z
+		.object({
+			width: nonNegativeNumberSchema,
+			height: nonNegativeNumberSchema,
+		})
+		.optional(),
+	style: styleSchema.optional(),
+});
+
+const panelItemSchema = z.union([
+	z.string(),
+	z.object({
+		id: z.string().optional(),
+		label: labelSchema,
+		detail: labelSchema.optional(),
+		style: styleSchema.optional(),
+	}),
+]);
+
+const evidencePanelSchema = z.object({
+	id: z.string(),
+	kind: z.enum(["legend", "rule", "note", "verification"]),
+	items: z.array(panelItemSchema),
+	position: pointSchema.optional(),
+	size: z
+		.object({
+			width: nonNegativeNumberSchema,
+			height: nonNegativeNumberSchema,
+		})
+		.optional(),
+	style: styleSchema.optional(),
+});
+
 const exactPositionConstraintSchema = z.object({
 	kind: z.literal("exact-position"),
 	target: z.string().optional(),
@@ -221,6 +294,9 @@ export const diagramDslSchema = z.object({
 	edges: z.array(edgeSchema).optional(),
 	groups: z.record(z.string(), groupSchema).optional(),
 	swimlanes: z.record(z.string(), swimlaneSchema).optional(),
+	matrices: z.array(matrixSchema).optional(),
+	tables: z.array(tableSchema).optional(),
+	evidencePanels: z.array(evidencePanelSchema).optional(),
 	constraints: z.array(constraintSchema).optional(),
 	frame: z
 		.object({
