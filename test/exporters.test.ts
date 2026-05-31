@@ -676,6 +676,77 @@ nodes:
 		}
 	});
 
+	it.each([
+		{
+			name: "01-method-chain.yaml",
+			expectedNodes: 15,
+			expectedLegendPanels: 2,
+			expectedNotePanels: 1,
+		},
+		{
+			name: "04-traceability-spine.yaml",
+			expectedNodes: 18,
+			expectedMatrices: 2,
+			expectedRulePanels: 1,
+		},
+		{
+			name: "05-structure-parameter-extraction.yaml",
+			expectedStructuralBlocks: 4,
+			expectedTables: 2,
+			expectedMatrices: 2,
+			expectedNotePanels: 1,
+		},
+	])("renders non-stub evidence-block SVG structure for $name", (fixture) => {
+		const result = renderDiagramDsl(readEvidenceFixture(fixture.name), {
+			sourcePath: evidenceFixturePath(fixture.name),
+			format: "svg",
+		});
+		const content = result.content ?? "";
+
+		expect(result.diagnostics).toEqual([]);
+		if (fixture.expectedNodes !== undefined) {
+			expect(result.diagram?.nodes).toHaveLength(fixture.expectedNodes);
+		}
+		if (fixture.expectedStructuralBlocks !== undefined) {
+			expect(
+				result.diagram?.nodes.filter((node) =>
+					node.id.startsWith("structure-block-"),
+				),
+			).toHaveLength(fixture.expectedStructuralBlocks);
+		}
+		if (fixture.expectedLegendPanels !== undefined) {
+			expect(svgGroupClassCount(content, "evidence-panel--legend")).toBe(
+				fixture.expectedLegendPanels,
+			);
+		}
+		if (fixture.expectedRulePanels !== undefined) {
+			expect(svgGroupClassCount(content, "evidence-panel--rule")).toBe(
+				fixture.expectedRulePanels,
+			);
+		}
+		if (fixture.expectedNotePanels !== undefined) {
+			expect(svgGroupClassCount(content, "evidence-panel--note")).toBe(
+				fixture.expectedNotePanels,
+			);
+		}
+		if (fixture.expectedMatrices !== undefined) {
+			expect(svgGroupClassCount(content, "matrix-block")).toBe(
+				fixture.expectedMatrices,
+			);
+		}
+		if (fixture.expectedTables !== undefined) {
+			expect(svgGroupClassCount(content, "table-block")).toBe(
+				fixture.expectedTables,
+			);
+			expect(svgClassCount(content, "table-row-even")).toBeGreaterThanOrEqual(
+				2,
+			);
+			expect(svgClassCount(content, "table-row-odd")).toBeGreaterThanOrEqual(2);
+		}
+		expectRenderedMatrixCellCounts(result);
+		expectRenderedTableColumnCounts(result);
+	});
+
 	it("blocks exporter geometry recomputation imports and calls", () => {
 		const forbiddenTerms = [
 			"solveDiagram",
@@ -776,6 +847,63 @@ function evidenceFixturePath(name: string): string {
 
 function countOccurrences(value: string, token: string): number {
 	return value.split(token).length - 1;
+}
+
+function svgGroupClassCount(value: string, className: string): number {
+	return [...value.matchAll(/<g class="([^"]+)"/g)].filter((match) =>
+		(match[1] ?? "").split(" ").includes(className),
+	).length;
+}
+
+function svgClassCount(value: string, className: string): number {
+	return [...value.matchAll(/class="([^"]+)"/g)].filter((match) =>
+		(match[1] ?? "").split(" ").includes(className),
+	).length;
+}
+
+function expectRenderedMatrixCellCounts(
+	result: ReturnType<typeof renderDiagramDsl>,
+): void {
+	const content = result.content ?? "";
+	for (const matrix of result.diagram?.matrices ?? []) {
+		const matrixSvg = svgGroupByDataId(content, matrix.id);
+		const declaredCellCount = matrix.rows.length * matrix.cols.length;
+
+		expect(matrixSvg).toContain('class="matrix-cell"');
+		expect(svgClassCount(matrixSvg, "matrix-cell")).toBe(declaredCellCount);
+		expect(svgClassCount(matrixSvg, "matrix-cell-label")).toBe(
+			declaredCellCount,
+		);
+		expect(matrixSvg).toMatch(
+			/<text class="matrix-cell-label"[^>]*>[^<]+<\/text>/,
+		);
+	}
+}
+
+function expectRenderedTableColumnCounts(
+	result: ReturnType<typeof renderDiagramDsl>,
+): void {
+	const content = result.content ?? "";
+	for (const table of result.diagram?.tables ?? []) {
+		const tableSvg = svgGroupByDataId(content, table.id);
+
+		expect(tableSvg).toContain(`data-column-count="${table.columns.length}"`);
+		expect(svgClassCount(tableSvg, "table-header-cell")).toBe(
+			table.columns.length,
+		);
+	}
+}
+
+function svgGroupByDataId(value: string, id: string): string {
+	const start = value.indexOf(`data-id="${id}"`);
+	if (start < 0) {
+		return "";
+	}
+	const groupStart = value.lastIndexOf("<g", start);
+	const nextGroupStart = value.indexOf("\n  <g ", start);
+	const groupEnd =
+		nextGroupStart < 0 ? value.indexOf("</svg>", start) : nextGroupStart;
+	return value.slice(groupStart, groupEnd);
 }
 
 function evidenceBlocksSource(): string {
