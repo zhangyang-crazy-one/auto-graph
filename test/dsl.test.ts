@@ -469,10 +469,11 @@ constraints:
 			sourcePath: evidenceFixturePath("01-method-chain.yaml"),
 		});
 		const normalized = normalizeDiagramDsl(parsed.value);
+		const nodes = valueWithNodes(parsed.value).nodes;
 
 		expect(parsed.diagnostics).toEqual([]);
 		expect(normalized.diagnostics).toEqual([]);
-		expect(Object.keys(parsed.value?.nodes ?? {})).toHaveLength(15);
+		expect(nodes === undefined ? [] : Object.keys(nodes)).toHaveLength(15);
 		expect(normalized.diagram?.nodes).toHaveLength(15);
 		expect(
 			normalized.diagram?.evidencePanels?.filter(
@@ -491,6 +492,7 @@ constraints:
 			{ sourcePath: evidenceFixturePath("04-traceability-spine.yaml") },
 		);
 		const normalized = normalizeDiagramDsl(parsed.value);
+		const nodes = valueWithNodes(parsed.value).nodes;
 		const rowPrefixes = [
 			"stakeholder-needs",
 			"requirements",
@@ -505,7 +507,7 @@ constraints:
 		expect(normalized.diagnostics).toEqual([]);
 		for (const row of rowPrefixes) {
 			for (const column of columnSuffixes) {
-				expect(parsed.value?.nodes).toHaveProperty(`${row}-${column}`);
+				expect(nodes).toHaveProperty(`${row}-${column}`);
 			}
 		}
 		expect(normalized.diagram?.nodes).toHaveLength(18);
@@ -607,6 +609,13 @@ function evidenceFixturePath(name: string): string {
 	return fileURLToPath(
 		new URL(`./fixtures/evidence-blocks/${name}`, import.meta.url),
 	);
+}
+
+function valueWithNodes(value: unknown): { nodes?: Record<string, unknown> } {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return {};
+	}
+	return value as { nodes?: Record<string, unknown> };
 }
 
 function expectStableEvidenceBlockIds(

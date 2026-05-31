@@ -65,6 +65,9 @@ export function normalizeDiagramDsl(
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
 	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
 	const primaryReadingDirection = dsl.layout?.primaryReadingDirection;
+	const matrices = normalizeMatrices(dsl);
+	const tables = normalizeTables(dsl);
+	const evidencePanels = normalizeEvidencePanels(dsl);
 	const diagram: NormalizedDiagram = {
 		id: options.id ?? dsl.id ?? "diagram",
 		...(dsl.title === undefined ? {} : { title: dsl.title }),
@@ -73,9 +76,9 @@ export function normalizeDiagramDsl(
 		edges: normalizeEdges(dsl),
 		groups: normalizeGroups(dsl, measurer),
 		swimlanes: normalizeSwimlanes(dsl),
-		matrices: normalizeMatrices(dsl),
-		tables: normalizeTables(dsl),
-		evidencePanels: normalizeEvidencePanels(dsl),
+		...(matrices === undefined ? {} : { matrices }),
+		...(tables === undefined ? {} : { tables }),
+		...(evidencePanels === undefined ? {} : { evidencePanels }),
 		constraints: normalizeConstraints(dsl),
 		diagnostics: [],
 		...(dsl.frame === undefined ? {} : { frame: normalizeFrame(dsl.frame) }),
@@ -504,7 +507,9 @@ function panelItem(
 					| string
 					| { text: string; maxWidth?: number | undefined }
 					| undefined;
-				style?: { fill?: string | undefined; stroke?: string | undefined };
+				style?:
+					| { fill?: string | undefined; stroke?: string | undefined }
+					| undefined;
 		  },
 ): EvidencePanelItem {
 	if (typeof value === "string") {
