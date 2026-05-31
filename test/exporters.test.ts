@@ -564,12 +564,18 @@ nodes:
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toContain('class="matrix-block"');
 		expect(result.content).toContain('class="table-block"');
-		expect(result.content).toContain('class="evidence-panel evidence-panel--legend"');
-		expect(result.content).toContain('evidence-panel--rule');
-		expect(result.content).toContain('evidence-panel--note');
-		expect(result.content).toContain('evidence-panel--verification');
-		expect(countOccurrences(result.content ?? "", 'class="matrix-cell"')).toBe(4);
-		expect(countOccurrences(result.content ?? "", 'class="matrix-cell-label"')).toBe(4);
+		expect(result.content).toContain(
+			'class="evidence-panel evidence-panel--legend"',
+		);
+		expect(result.content).toContain("evidence-panel--rule");
+		expect(result.content).toContain("evidence-panel--note");
+		expect(result.content).toContain("evidence-panel--verification");
+		expect(countOccurrences(result.content ?? "", 'class="matrix-cell"')).toBe(
+			4,
+		);
+		expect(
+			countOccurrences(result.content ?? "", 'class="matrix-cell-label"'),
+		).toBe(4);
 		expect(result.content).toContain('class="table-row table-row-even"');
 		expect(result.content).toContain('class="table-row table-row-odd"');
 		expect(result.content).toContain('class="evidence-panel-title-cell"');
@@ -601,24 +607,26 @@ nodes:
 				"evidence-panel-text:verification-panel",
 			]),
 		);
-		expect(scene.elements.find((element) => element.id === "matrix:coverage-matrix"))
-			.toMatchObject({
-				type: "rectangle",
-				x: 220,
-				y: 20,
-				width: 200,
-				height: 90,
-				groupIds: ["matrix:coverage-matrix"],
-			});
-		expect(scene.elements.find((element) => element.id === "table:parameter-table"))
-			.toMatchObject({
-				type: "rectangle",
-				x: 220,
-				y: 140,
-				width: 360,
-				height: 102,
-				groupIds: ["table:parameter-table"],
-			});
+		expect(
+			scene.elements.find((element) => element.id === "matrix:coverage-matrix"),
+		).toMatchObject({
+			type: "rectangle",
+			x: 220,
+			y: 20,
+			width: 200,
+			height: 90,
+			groupIds: ["matrix:coverage-matrix"],
+		});
+		expect(
+			scene.elements.find((element) => element.id === "table:parameter-table"),
+		).toMatchObject({
+			type: "rectangle",
+			x: 220,
+			y: 140,
+			width: 360,
+			height: 102,
+			groupIds: ["table:parameter-table"],
+		});
 		expect(
 			scene.elements.find(
 				(element) => element.id === "evidence-panel:verification-panel",
@@ -641,6 +649,31 @@ nodes:
 			containerId: "evidence-panel:verification-panel",
 			groupIds: ["evidence-panel:verification-panel"],
 		});
+	});
+
+	it.each([
+		"01-method-chain.yaml",
+		"04-traceability-spine.yaml",
+		"05-structure-parameter-extraction.yaml",
+	])("renders evidence-block fixture %s through the full SVG pipeline", (name) => {
+		const result = renderDiagramDsl(readEvidenceFixture(name), {
+			sourcePath: evidenceFixturePath(name),
+			format: "svg",
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.content).toContain("<svg");
+		expect(result.diagram).toBeDefined();
+		const expectedClasses = [
+			...(result.diagram?.matrices === undefined ? [] : ["matrix-block"]),
+			...(result.diagram?.tables === undefined ? [] : ["table-block"]),
+			...(result.diagram?.evidencePanels === undefined
+				? []
+				: ["evidence-panel"]),
+		];
+		for (const className of expectedClasses) {
+			expect(result.content).toContain(`class="${className}`);
+		}
 	});
 
 	it("blocks exporter geometry recomputation imports and calls", () => {
@@ -730,6 +763,15 @@ function sourceFilesIn(directory: URL): string[] {
 	return readdirSync(directory)
 		.filter((fileName) => fileName.endsWith(".ts"))
 		.map((fileName) => join(directory.pathname, fileName));
+}
+
+function readEvidenceFixture(name: string): string {
+	return readFileSync(evidenceFixturePath(name), "utf8");
+}
+
+function evidenceFixturePath(name: string): string {
+	return new URL(`./fixtures/evidence-blocks/${name}`, import.meta.url)
+		.pathname;
 }
 
 function countOccurrences(value: string, token: string): number {

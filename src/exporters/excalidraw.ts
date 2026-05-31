@@ -139,9 +139,7 @@ export function exportExcalidraw(
 	}
 
 	for (const matrix of diagram.matrices ?? []) {
-		elements.push(
-			...renderMatrixBlock(matrix as CoordinatedMatrixBlock),
-		);
+		elements.push(...renderMatrixBlock(matrix as CoordinatedMatrixBlock));
 	}
 
 	for (const table of diagram.tables ?? []) {
@@ -149,9 +147,7 @@ export function exportExcalidraw(
 	}
 
 	for (const panel of diagram.evidencePanels ?? []) {
-		elements.push(
-			...renderEvidencePanel(panel as CoordinatedEvidencePanel),
-		);
+		elements.push(...renderEvidencePanel(panel as CoordinatedEvidencePanel));
 	}
 
 	for (const edge of diagram.edges) {
@@ -193,18 +189,18 @@ function renderNode(
 	};
 }
 
-function renderMatrixBlock(matrix: CoordinatedMatrixBlock): ExcalidrawElement[] {
+function renderMatrixBlock(
+	matrix: CoordinatedMatrixBlock,
+): ExcalidrawElement[] {
 	const containerId = `matrix:${matrix.id}`;
 	const groupIds = [containerId];
-	const label = blockText(
-		[
-			matrix.id,
-			...matrix.cells.map((row, rowIndex) => {
-				const rowId = matrix.rows[rowIndex] ?? String(rowIndex);
-				return `${rowId}: ${row.map((cell) => cell.text).join(" | ")}`;
-			}),
-		],
-	);
+	const label = blockText([
+		matrix.id,
+		...matrix.cells.map((row, rowIndex) => {
+			const rowId = matrix.rows[rowIndex] ?? String(rowIndex);
+			return `${rowId}: ${row.map((cell) => cell.text).join(" | ")}`;
+		}),
+	]);
 	return [
 		{
 			...baseElement(containerId, "rectangle", matrix.box),
@@ -212,7 +208,13 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): ExcalidrawElement[] 
 			strokeColor: matrix.style?.stroke ?? "#374151",
 			groupIds,
 		},
-		renderTextBlock(`matrix-text:${matrix.id}`, label, matrix.box, containerId, groupIds),
+		renderTextBlock(
+			`matrix-text:${matrix.id}`,
+			label,
+			matrix.box,
+			containerId,
+			groupIds,
+		),
 	];
 }
 
@@ -234,7 +236,13 @@ function renderTableBlock(table: CoordinatedTableBlock): ExcalidrawElement[] {
 			strokeColor: table.style?.stroke ?? "#374151",
 			groupIds,
 		},
-		renderTextBlock(`table-text:${table.id}`, label, table.box, containerId, groupIds),
+		renderTextBlock(
+			`table-text:${table.id}`,
+			label,
+			table.box,
+			containerId,
+			groupIds,
+		),
 	];
 }
 

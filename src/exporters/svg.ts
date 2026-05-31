@@ -4,7 +4,6 @@ import type {
 	CoordinatedFrame,
 	CoordinatedGroup,
 	CoordinatedNode,
-	EvidenceCell,
 	EvidencePanel,
 	Label,
 	MatrixBlock,
@@ -101,7 +100,11 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 		`  <rect class="matrix-frame" x="${formatNumber(matrix.box.x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(matrix.box.width)}" height="${formatNumber(matrix.box.height)}" fill="${escapeAttribute(matrix.style?.fill ?? EVIDENCE_FILL)}" stroke="${escapeAttribute(matrix.style?.stroke ?? STROKE)}"/>`,
 	];
 
-	for (let columnIndex = 0; columnIndex < matrix.cols.length; columnIndex += 1) {
+	for (
+		let columnIndex = 0;
+		columnIndex < matrix.cols.length;
+		columnIndex += 1
+	) {
 		const column = matrix.cols[columnIndex];
 		if (column === undefined) {
 			continue;
@@ -124,7 +127,11 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 		if (row === undefined) {
 			continue;
 		}
-		for (let columnIndex = 0; columnIndex < matrix.cols.length; columnIndex += 1) {
+		for (
+			let columnIndex = 0;
+			columnIndex < matrix.cols.length;
+			columnIndex += 1
+		) {
 			const column = matrix.cols[columnIndex];
 			if (column === undefined) {
 				continue;
@@ -156,12 +163,22 @@ function renderTableBlock(table: CoordinatedTableBlock): string[] {
 		`  <g class="table-header" data-column-count="${table.columns.length}">`,
 	];
 
-	for (let columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+	for (
+		let columnIndex = 0;
+		columnIndex < table.columns.length;
+		columnIndex += 1
+	) {
 		const column = table.columns[columnIndex];
 		if (column === undefined) {
 			continue;
 		}
-		const columnBox = tableCellBox(table, columnIndex, 0, rowHeight, columnCount);
+		const columnBox = tableCellBox(
+			table,
+			columnIndex,
+			0,
+			rowHeight,
+			columnCount,
+		);
 		lines.push(
 			`    <rect class="table-header-cell" data-col="${escapeAttribute(column.id)}" x="${formatNumber(columnBox.x)}" y="${formatNumber(columnBox.y)}" width="${formatNumber(columnBox.width)}" height="${formatNumber(columnBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
 			`    ${renderEvidenceText("table-header-label", column.label.text, columnBox)}`,
@@ -185,7 +202,11 @@ function renderTableBlock(table: CoordinatedTableBlock): string[] {
 			`  <g class="table-row ${rowClass}" data-row="${escapeAttribute(row.id)}">`,
 			`    <rect class="${rowClass}" data-row="${escapeAttribute(row.id)}" x="${formatNumber(rowBox.x)}" y="${formatNumber(rowBox.y)}" width="${formatNumber(rowBox.width)}" height="${formatNumber(rowBox.height)}" fill="${rowIndex % 2 === 0 ? "#ffffff" : "#f3f4f6"}" stroke="none"/>`,
 		);
-		for (let columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+		for (
+			let columnIndex = 0;
+			columnIndex < table.columns.length;
+			columnIndex += 1
+		) {
 			const column = table.columns[columnIndex];
 			if (column === undefined) {
 				continue;
