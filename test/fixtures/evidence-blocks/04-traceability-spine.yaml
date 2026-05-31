@@ -1,0 +1,90 @@
+id: traceability-spine
+title: Traceability Spine Evidence Blocks
+layout:
+  direction: LR
+nodes:
+  stakeholder-needs-operational:
+    label: Stakeholder Needs - Operational
+    position: { x: 180, y: 80 }
+  stakeholder-needs-safety:
+    label: Stakeholder Needs - Safety
+    position: { x: 420, y: 80 }
+  stakeholder-needs-performance:
+    label: Stakeholder Needs - Performance
+    position: { x: 660, y: 80 }
+  requirements-operational:
+    label: Requirements - Operational
+    position: { x: 180, y: 170 }
+  requirements-safety:
+    label: Requirements - Safety
+    position: { x: 420, y: 170 }
+  requirements-performance:
+    label: Requirements - Performance
+    position: { x: 660, y: 170 }
+  functions-operational:
+    label: Functions - Operational
+    position: { x: 180, y: 260 }
+  functions-safety:
+    label: Functions - Safety
+    position: { x: 420, y: 260 }
+  functions-performance:
+    label: Functions - Performance
+    position: { x: 660, y: 260 }
+  interactions-operational:
+    label: Interactions - Operational
+    position: { x: 180, y: 350 }
+  interactions-safety:
+    label: Interactions - Safety
+    position: { x: 420, y: 350 }
+  interactions-performance:
+    label: Interactions - Performance
+    position: { x: 660, y: 350 }
+  states-operational:
+    label: States - Operational
+    position: { x: 180, y: 440 }
+  states-safety:
+    label: States - Safety
+    position: { x: 420, y: 440 }
+  states-performance:
+    label: States - Performance
+    position: { x: 660, y: 440 }
+  logical-architecture-operational:
+    label: Logical Architecture - Operational
+    position: { x: 180, y: 530 }
+  logical-architecture-safety:
+    label: Logical Architecture - Safety
+    position: { x: 420, y: 530 }
+  logical-architecture-performance:
+    label: Logical Architecture - Performance
+    position: { x: 660, y: 530 }
+matrices:
+  - id: traceability-matrix
+    rows: [sn-1, sn-2, req-1, req-2, fn-1, fn-2]
+    cols: [operational-model, safety-model, performance-model]
+    position: { x: 900, y: 90 }
+    cells:
+      - [covered, covered, gap]
+      - [covered, gap, covered]
+      - [derived, covered, covered]
+      - [gap, covered, covered]
+      - [covered, derived, covered]
+      - [covered, covered, derived]
+  - id: verification-matrix
+    rows: [vt-1, vt-2, vt-3, vt-4, vt-5, vt-6]
+    cols: [need, requirement, function]
+    position: { x: 900, y: 390 }
+    cells:
+      - [pass, pass, pass]
+      - [pass, watch, pass]
+      - [watch, pass, pass]
+      - [pass, pass, watch]
+      - [pass, pass, pass]
+      - [watch, watch, pass]
+evidencePanels:
+  - id: traceability-spine-rules
+    kind: rule
+    position: { x: 180, y: 660 }
+    items:
+      - { id: rule-one-hop, label: One-hop trace, detail: Every row traces to the next model layer }
+      - { id: rule-verification, label: Verification link, detail: Every requirement has at least one verification case }
+      - { id: rule-no-orphan, label: No orphan, detail: No function stands without a requirement source }

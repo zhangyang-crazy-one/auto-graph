@@ -1,0 +1,74 @@
+id: method-chain
+title: Method Chain Evidence Blocks
+layout:
+  direction: LR
+nodes:
+  need-problem-black-box:
+    label: Need - Problem Black Box
+    position: { x: 180, y: 80 }
+  need-problem-white-box:
+    label: Need - Problem White Box
+    position: { x: 420, y: 80 }
+  need-solution:
+    label: Need - Solution
+    position: { x: 660, y: 80 }
+  structure-problem-black-box:
+    label: Structure - Problem Black Box
+    position: { x: 180, y: 180 }
+  structure-problem-white-box:
+    label: Structure - Problem White Box
+    position: { x: 420, y: 180 }
+  structure-solution:
+    label: Structure - Solution
+    position: { x: 660, y: 180 }
+  view-problem-black-box:
+    label: View - Problem Black Box
+    position: { x: 180, y: 280 }
+  view-problem-white-box:
+    label: View - Problem White Box
+    position: { x: 420, y: 280 }
+  view-solution:
+    label: View - Solution
+    position: { x: 660, y: 280 }
+  action-problem-black-box:
+    label: Action - Problem Black Box
+    position: { x: 180, y: 380 }
+  action-problem-white-box:
+    label: Action - Problem White Box
+    position: { x: 420, y: 380 }
+  action-solution:
+    label: Action - Solution
+    position: { x: 660, y: 380 }
+  parameter-problem-black-box:
+    label: Parameter - Problem Black Box
+    position: { x: 180, y: 480 }
+  parameter-problem-white-box:
+    label: Parameter - Problem White Box
+    position: { x: 420, y: 480 }
+  parameter-solution:
+    label: Parameter - Solution
+    position: { x: 660, y: 480 }
+evidencePanels:
+  - id: left-classification-legend
+    kind: legend
+    position: { x: 20, y: 80 }
+    items:
+      - { id: need-row, label: Need, detail: Problem statement and acceptance }
+      - { id: structure-row, label: Structure, detail: Static model evidence }
+      - { id: view-row, label: View, detail: Cross-view explanation }
+      - { id: action-row, label: Action, detail: Behavior and operation }
+      - { id: parameter-row, label: Parameter, detail: Quantified design values }
+  - id: behavior-triad-note
+    kind: note
+    position: { x: 180, y: 610 }
+    items:
+      - { id: triad-activity, label: Activity, detail: Behavior process view }
+      - { id: triad-sequence, label: Sequence, detail: Message ordering view }
+      - { id: triad-state, label: State, detail: State-machine view }
+  - id: symbol-legend
+    kind: legend
+    position: { x: 780, y: 610 }
+    items:
+      - { id: solid-edge, label: Solid edge, detail: Required trace }
+      - { id: dashed-edge, label: Dashed edge, detail: Derived trace }
+      - { id: filled-cell, label: Filled cell, detail: Evidence present }
