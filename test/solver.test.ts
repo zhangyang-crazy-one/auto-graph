@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
-import type { NormalizedDiagram } from "../src/ir/index.js";
+import type { Box, NormalizedDiagram, TableBlock } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+
+type SolvedTableBlock = TableBlock & { box: Box; columnXOffsets: number[] };
 
 describe("solveDiagram", () => {
 	it("returns coordinated nodes, routed edges, groups, bounds, and diagnostics", () => {
@@ -137,12 +139,13 @@ describe("solveDiagram", () => {
 			],
 		});
 
-		expect(result.tables?.[0]?.columnXOffsets).toEqual([320, 440, 560]);
-		expect(mutated.tables?.[0]?.columnXOffsets).toEqual(
-			result.tables?.[0]?.columnXOffsets,
-		);
-		expect(JSON.stringify(mutated.tables?.[0]?.columnXOffsets)).toBe(
-			JSON.stringify(result.tables?.[0]?.columnXOffsets),
+		const resultTable = result.tables?.[0] as SolvedTableBlock | undefined;
+		const mutatedTable = mutated.tables?.[0] as SolvedTableBlock | undefined;
+
+		expect(resultTable?.columnXOffsets).toEqual([320, 440, 560]);
+		expect(mutatedTable?.columnXOffsets).toEqual(resultTable?.columnXOffsets);
+		expect(JSON.stringify(mutatedTable?.columnXOffsets)).toBe(
+			JSON.stringify(resultTable?.columnXOffsets),
 		);
 	});
 

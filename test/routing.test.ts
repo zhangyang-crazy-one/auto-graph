@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeShapeGeometry, intersectsAabb } from "../src/geometry/index.js";
 import type { Box, Point } from "../src/ir/index.js";
 import { routeEdge, simplifyRoute } from "../src/routing/index.js";
+import type { RouteEdgeInput } from "../src/routing/types.js";
 
 describe("routing", () => {
 	it("removes duplicate and collinear points while preserving semantic route order", () => {
@@ -136,6 +137,43 @@ describe("routing", () => {
 		expect(result.points.at(0)?.x).toBeCloseTo(80);
 		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+	});
+
+	it("routes around soft evidence obstacles when an expanded lane is available", () => {
+		const table = { x: 120, y: 20, width: 120, height: 120 };
+		const panel = { x: 120, y: 160, width: 120, height: 60 };
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 100),
+			obstacles: [table, panel],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.length).toBeGreaterThan(0);
+		expect(routeIntersectsObstacle(result.points, table)).toBe(false);
+		expect(routeIntersectsObstacle(result.points, panel)).toBe(false);
+	});
+
+	it("forbids crossing hard matrix obstacles when no clearance route exists", () => {
+		const matrix = { x: 70, y: -200, width: 160, height: 500 };
+		const input = {
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(240, 0),
+			hardObstacles: [matrix],
+		} satisfies RouteEdgeInput & { hardObstacles: readonly Box[] };
+		const result = routeEdge(input);
+
+		expect(result.points).toEqual([]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+				severity: "error",
+			}),
+		);
 	});
 });
 

@@ -31,6 +31,7 @@ import type {
 import { fitLabel } from "../labels/index.js";
 import { runDagreInitialLayout } from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
+import type { RouteEdgeInput } from "../routing/types.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 
 export interface SolveDiagramOptions {
@@ -177,11 +178,16 @@ export function solveDiagram(
 		...baseTextAnnotations.filter(isPreRouteTextObstacle),
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
 	];
-	const coordinatedEdges = coordinateEdges(
+const coordinatedEdges = coordinateEdges(
 		edges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox)],
+		[
+			...[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+			...coordinatedTables.map((table) => table.box),
+			...coordinatedEvidencePanels.map((panel) => panel.box),
+		],
+		coordinatedMatrices.map((matrix) => matrix.box),
 		routingTextObstacles,
 		diagram.direction,
 		options,
@@ -1466,6 +1472,7 @@ function coordinateEdges(
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
 	obstacles: readonly Box[],
+	hardObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
@@ -1501,7 +1508,7 @@ function coordinateEdges(
 			?.ports?.find((port) => port.id === edge.target.portId);
 		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
 
-		const route = routeEdge({
+		const routeInput = {
 			kind: options.routeKind ?? "orthogonal",
 			direction,
 			source: portGeometry(source, sourcePort),
@@ -1524,7 +1531,9 @@ function coordinateEdges(
 						)
 						.map((annotation) => annotation.box),
 				),
-		});
+			hardObstacles,
+		} satisfies RouteEdgeInput & { hardObstacles: readonly Box[] };
+		const route = routeEdge(routeInput);
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
 				...diagnostic,
