@@ -14,10 +14,13 @@ import type {
 	CoordinatedGroup,
 	CoordinatedNode,
 	CoordinatedPort,
+	EvidencePanel,
+	MatrixBlock,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
+	TableBlock,
 } from "../ir/elements.js";
 import type { Box, Insets, Point } from "../ir/geometry.js";
 import type {
@@ -131,6 +134,11 @@ export function solveDiagram(
 		constrained.boxes,
 		swimlaneContracts.layouts,
 	);
+	const coordinatedMatrices = coordinateEvidenceBlocks(diagram.matrices ?? []);
+	const coordinatedTables = coordinateTables(diagram.tables ?? []);
+	const coordinatedEvidencePanels = coordinateEvidenceBlocks(
+		diagram.evidencePanels ?? [],
+	);
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
 	);
@@ -150,6 +158,9 @@ export function solveDiagram(
 		...coordinatedSwimlanes.flatMap((swimlane) =>
 			swimlane.box === undefined ? [] : [swimlane.box],
 		),
+		...coordinatedMatrices.map((matrix) => matrix.box),
+		...coordinatedTables.map((table) => table.box),
+		...coordinatedEvidencePanels.map((panel) => panel.box),
 		...baseTextAnnotations.map((annotation) => annotation.box),
 	];
 	const contentBounds =
@@ -197,6 +208,11 @@ export function solveDiagram(
 		...(coordinatedSwimlanes.length === 0
 			? {}
 			: { swimlanes: coordinatedSwimlanes }),
+		...(coordinatedMatrices.length === 0 ? {} : { matrices: coordinatedMatrices }),
+		...(coordinatedTables.length === 0 ? {} : { tables: coordinatedTables }),
+		...(coordinatedEvidencePanels.length === 0
+			? {}
+			: { evidencePanels: coordinatedEvidencePanels }),
 		diagnostics,
 		bounds:
 			frame === undefined
@@ -1395,6 +1411,54 @@ function coordinateGroups(
 	}
 
 	return coordinated;
+}
+
+type EvidenceBlockWithBox<T> = T & { box: Box };
+type CoordinatedTableBlock = TableBlock & {
+	box: Box;
+	columnXOffsets: number[];
+};
+
+function coordinateEvidenceBlocks<T extends { position?: Point; size?: BoxSize }>(
+	blocks: readonly T[],
+): Array<EvidenceBlockWithBox<T>> {
+	return blocks.map((block) => ({
+		...block,
+		box: blockBox(block),
+	}));
+}
+
+function coordinateTables(tables: readonly TableBlock[]): CoordinatedTableBlock[] {
+	return tables.map((table) => {
+		const box = blockBox(table);
+		return {
+			...table,
+			box,
+			columnXOffsets: columnXOffsets(table, box),
+		};
+	});
+}
+
+function blockBox(block: { position?: Point; size?: BoxSize }): Box {
+	return {
+		x: block.position?.x ?? 0,
+		y: block.position?.y ?? 0,
+		width: block.size?.width ?? 0,
+		height: block.size?.height ?? 0,
+	};
+}
+
+function columnXOffsets(table: TableBlock, box: Box): number[] {
+	if (table.columns.length === 0) {
+		return [];
+	}
+	const columnWidth = box.width / table.columns.length;
+	return table.columns.map((_, index) => box.x + index * columnWidth);
+}
+
+interface BoxSize {
+	width: number;
+	height: number;
 }
 
 function coordinateEdges(

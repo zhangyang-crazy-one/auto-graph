@@ -24,6 +24,128 @@ describe("solveDiagram", () => {
 		}
 	});
 
+	it("coordinates evidence block boxes and includes them in diagram bounds", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			matrices: [
+				{
+					id: "verification-matrix",
+					rows: ["R1"],
+					cols: ["C1"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 520, y: 40 },
+					size: { width: 180, height: 96 },
+				},
+			],
+			tables: [
+				{
+					id: "parameter-table",
+					columns: [
+						{ id: "param", label: { text: "Parameter" } },
+						{ id: "value", label: { text: "Value" } },
+					],
+					rows: [
+						{
+							id: "mass",
+							cells: {
+								param: { text: "mass" },
+								value: { text: "12kg" },
+							},
+						},
+					],
+					position: { x: -220, y: 160 },
+					size: { width: 240, height: 88 },
+				},
+			],
+			evidencePanels: [
+				{
+					id: "legend",
+					kind: "legend",
+					items: [{ label: { text: "solid = verified" } }],
+					position: { x: 140, y: 360 },
+					size: { width: 220, height: 64 },
+				},
+			],
+		});
+
+		expect(result.matrices?.[0]).toMatchObject({
+			id: "verification-matrix",
+			box: { x: 520, y: 40, width: 180, height: 96 },
+		});
+		expect(result.tables?.[0]).toMatchObject({
+			id: "parameter-table",
+			box: { x: -220, y: 160, width: 240, height: 88 },
+		});
+		expect(result.evidencePanels?.[0]).toMatchObject({
+			id: "legend",
+			box: { x: 140, y: 360, width: 220, height: 64 },
+		});
+		expect(result.bounds.x).toBeLessThanOrEqual(-220);
+		expect(result.bounds.x + result.bounds.width).toBeGreaterThanOrEqual(700);
+		expect(result.bounds.y + result.bounds.height).toBeGreaterThanOrEqual(424);
+	});
+
+	it("keeps table column offsets stable when rows and cell text change", () => {
+		const baseTable = {
+			id: "parameters",
+			columns: [
+				{ id: "name", label: { text: "Name" } },
+				{ id: "value", label: { text: "Value" } },
+				{ id: "source", label: { text: "Source" } },
+			],
+			rows: [
+				{
+					id: "row-1",
+					cells: {
+						name: { text: "mass" },
+						value: { text: "12kg" },
+						source: { text: "test" },
+					},
+				},
+			],
+			position: { x: 320, y: 220 },
+			size: { width: 360, height: 96 },
+		};
+		const result = solveDiagram({
+			...sampleDiagram(),
+			tables: [baseTable],
+		});
+		const mutated = solveDiagram({
+			...sampleDiagram(),
+			tables: [
+				{
+					...baseTable,
+					rows: [
+						{
+							id: "row-1",
+							cells: {
+								name: { text: "mass with a much longer label" },
+								value: { text: "12kg plus tolerance and source note" },
+								source: { text: "verification document section 3.2" },
+							},
+						},
+						{
+							id: "row-2",
+							cells: {
+								name: { text: "power" },
+								value: { text: "80W" },
+								source: { text: "analysis" },
+							},
+						},
+					],
+				},
+			],
+		});
+
+		expect(result.tables?.[0]?.columnXOffsets).toEqual([320, 440, 560]);
+		expect(mutated.tables?.[0]?.columnXOffsets).toEqual(
+			result.tables?.[0]?.columnXOffsets,
+		);
+		expect(JSON.stringify(mutated.tables?.[0]?.columnXOffsets)).toBe(
+			JSON.stringify(result.tables?.[0]?.columnXOffsets),
+		);
+	});
+
 	it("keeps fixed position nodes while automatic nodes receive finite boxes", () => {
 		const result = solveDiagram(sampleDiagram());
 		const fixed = result.nodes.find((node) => node.id === "a");
