@@ -81,6 +81,10 @@ export interface EvidenceCell {
 	style?: VisualStyle;
 }
 
+export interface EvidenceTextLayout {
+	lines: string[];
+}
+
 export interface MatrixBlock {
 	id: string;
 	rows: string[];
@@ -93,6 +97,9 @@ export interface MatrixBlock {
 
 export interface CoordinatedMatrixBlock extends MatrixBlock {
 	box: Box;
+	columnLabelLayouts?: EvidenceTextLayout[];
+	rowLabelLayouts?: EvidenceTextLayout[];
+	cellLabelLayouts?: EvidenceTextLayout[][];
 }
 
 export interface TableColumn {
@@ -117,6 +124,8 @@ export interface TableBlock {
 export interface CoordinatedTableBlock extends TableBlock {
 	box: Box;
 	columnXOffsets: number[];
+	columnLabelLayouts?: EvidenceTextLayout[];
+	cellLabelLayouts?: EvidenceTextLayout[][];
 }
 
 export type EvidencePanelKind = "legend" | "rule" | "note" | "verification";
@@ -139,6 +148,8 @@ export interface EvidencePanel {
 
 export interface CoordinatedEvidencePanel extends EvidencePanel {
 	box: Box;
+	titleLayout?: EvidenceTextLayout;
+	itemLayouts?: EvidenceTextLayout[];
 }
 
 export interface NodePort {

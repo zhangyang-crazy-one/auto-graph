@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import type {
+	PreparedText,
+	TextLayout,
+	TextMeasurer,
+	TextStyleOptions,
+} from "../src/text/index.js";
 
 describe("solveDiagram", () => {
 	it("returns coordinated nodes, routed edges, groups, bounds, and diagnostics", () => {
@@ -278,7 +284,7 @@ describe("solveDiagram", () => {
 		const table = result.tables?.[0];
 		const panel = result.evidencePanels?.[0];
 
-		expect(matrix?.box).toMatchObject({ width: 120, height: 72 });
+		expect(matrix?.box).toMatchObject({ width: 216, height: 72 });
 		expect(table?.box).toMatchObject({ width: 128, height: 68 });
 		expect(panel?.box).toMatchObject({ width: 320, height: 28 });
 		expect(matrix?.box.x).toBeGreaterThan(0);
@@ -316,6 +322,73 @@ describe("solveDiagram", () => {
 
 		expect(orthogonal.edges[0]?.points.length).toBeGreaterThanOrEqual(3);
 		expect(straight.edges[0]?.points).toHaveLength(2);
+	});
+
+	it("includes routed edge detour points in diagram bounds", () => {
+		const result = solveDiagram({
+			id: "route-bounds",
+			direction: "LR",
+			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 260, y: 0 })],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			tables: [
+				{
+					id: "obstacle-table",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [{ id: "mass", cells: { parameter: { text: "mass" } } }],
+					position: { x: 120, y: 20 },
+					size: { width: 80, height: 24 },
+				},
+			],
+			diagnostics: [],
+		});
+		const minRouteY = Math.min(
+			...(result.edges[0]?.points.map((point) => point.y) ?? [0]),
+		);
+
+		expect(minRouteY).toBeLessThan(result.tables?.[0]?.box.y ?? 0);
+		expect(result.bounds.y).toBeLessThanOrEqual(minRouteY);
+	});
+
+	it("precomputes measured evidence text wrapping before SVG export", () => {
+		const result = solveDiagram(
+			{
+				id: "evidence-text-measurement",
+				direction: "LR",
+				nodes: [node("source", { x: 0, y: 0 })],
+				edges: [],
+				groups: [],
+				constraints: [],
+				tables: [
+					{
+						id: "wide-glyph-table",
+						columns: [{ id: "parameter", label: { text: "Parameter" } }],
+						rows: [
+							{
+								id: "wide",
+								cells: { parameter: { text: "WWWWWWWW" } },
+							},
+						],
+						position: { x: 160, y: 0 },
+						size: { width: 48, height: 68 },
+					},
+				],
+				diagnostics: [],
+			},
+			{ textMeasurer: new WideGlyphTextMeasurer() },
+		);
+
+		expect(result.tables?.[0]?.cellLabelLayouts?.[0]?.[0]?.lines).toEqual([
+			"WWWW",
+			"WWWW",
+		]);
 	});
 
 	it("returns a partial diagram plus error diagnostics for malformed input", () => {
@@ -1433,4 +1506,54 @@ function node(id: string, position?: { x: number; y: number }) {
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
 	};
+}
+
+class WideGlyphTextMeasurer implements TextMeasurer {
+	prepare(text: string, style: TextStyleOptions): PreparedText {
+		return {
+			text,
+			font: `${style.fontSize}px ${style.fontFamily}`,
+			style: { ...style },
+			backend: "deterministic",
+		};
+	}
+
+	layout(
+		prepared: PreparedText,
+		maxWidth: number,
+		lineHeight = prepared.style.lineHeight ?? prepared.style.fontSize * 1.2,
+	): TextLayout {
+		const charWidth = prepared.style.fontSize;
+		const maxChars = Math.max(1, Math.floor(maxWidth / charWidth));
+		const lines = Array.from(
+			{ length: Math.ceil(prepared.text.length / maxChars) },
+			(_, index) => {
+				const text = prepared.text.slice(
+					index * maxChars,
+					index * maxChars + maxChars,
+				);
+				return {
+					text,
+					width: this.naturalWidth(this.prepare(text, prepared.style)),
+					start: { segmentIndex: 0, graphemeIndex: index * maxChars },
+					end: {
+						segmentIndex: 0,
+						graphemeIndex: index * maxChars + text.length,
+					},
+				};
+			},
+		);
+		return {
+			width: Math.max(0, ...lines.map((line) => line.width)),
+			height: lines.length * lineHeight,
+			lineHeight,
+			lineCount: lines.length,
+			lines,
+			diagnostics: [],
+		};
+	}
+
+	naturalWidth(prepared: PreparedText): number {
+		return prepared.text.length * prepared.style.fontSize;
+	}
 }

@@ -23,6 +23,8 @@ const EDGE_STROKE = "#111827";
 const FONT_FAMILY = "Arial, sans-serif";
 const EVIDENCE_FILL = "#f8fafc";
 const EVIDENCE_HEADER_FILL = "#e5e7eb";
+const EVIDENCE_TEXT_FONT_SIZE = 10;
+const EVIDENCE_TEXT_LINE_HEIGHT = 12;
 const EVIDENCE_PANEL_KIND_FILL = {
 	legend: "#ecfdf5",
 	rule: "#eff6ff",
@@ -113,12 +115,16 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 		const x = matrix.box.x + rowHeaderWidth + columnIndex * cellWidth;
 		lines.push(
 			`  <rect class="matrix-column-header" data-col="${escapeAttribute(column)}" x="${formatNumber(x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(cellWidth)}" height="${formatNumber(rowHeight)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
-			renderEvidenceText("matrix-column-label", column, {
-				x,
-				y: matrix.box.y,
-				width: cellWidth,
-				height: rowHeight,
-			}),
+			renderEvidenceText(
+				"matrix-column-label",
+				matrix.columnLabelLayouts?.[columnIndex]?.lines ?? [column],
+				{
+					x,
+					y: matrix.box.y,
+					width: cellWidth,
+					height: rowHeight,
+				},
+			),
 		);
 	}
 
@@ -137,7 +143,11 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 			};
 			lines.push(
 				`  <rect class="matrix-row-header" data-row="${escapeAttribute(row)}" x="${formatNumber(rowHeaderBox.x)}" y="${formatNumber(rowHeaderBox.y)}" width="${formatNumber(rowHeaderBox.width)}" height="${formatNumber(rowHeaderBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
-				renderEvidenceText("matrix-row-label", row, rowHeaderBox),
+				renderEvidenceText(
+					"matrix-row-label",
+					matrix.rowLabelLayouts?.[rowIndex]?.lines ?? [row],
+					rowHeaderBox,
+				),
 			);
 		}
 		for (
@@ -158,7 +168,13 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 			};
 			lines.push(
 				`  <rect class="matrix-cell" data-row="${escapeAttribute(row)}" data-col="${escapeAttribute(column)}" x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}" fill="${escapeAttribute(cell.style?.fill ?? "#ffffff")}" stroke="${escapeAttribute(cell.style?.stroke ?? STROKE)}"/>`,
-				renderEvidenceText("matrix-cell-label", cell.text, box),
+				renderEvidenceText(
+					"matrix-cell-label",
+					matrix.cellLabelLayouts?.[rowIndex]?.[columnIndex]?.lines ?? [
+						cell.text,
+					],
+					box,
+				),
 			);
 		}
 	}
@@ -194,7 +210,7 @@ function renderTableBlock(table: CoordinatedTableBlock): string[] {
 		);
 		lines.push(
 			`    <rect class="table-header-cell" data-col="${escapeAttribute(column.id)}" x="${formatNumber(columnBox.x)}" y="${formatNumber(columnBox.y)}" width="${formatNumber(columnBox.width)}" height="${formatNumber(columnBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
-			`    ${renderEvidenceText("table-header-label", column.label.text, columnBox)}`,
+			`    ${renderEvidenceText("table-header-label", table.columnLabelLayouts?.[columnIndex]?.lines ?? [column.label.text], columnBox)}`,
 		);
 	}
 	lines.push("  </g>");
@@ -234,7 +250,7 @@ function renderTableBlock(table: CoordinatedTableBlock): string[] {
 			);
 			lines.push(
 				`    <rect class="table-cell" data-col="${escapeAttribute(column.id)}" x="${formatNumber(cellBox.x)}" y="${formatNumber(cellBox.y)}" width="${formatNumber(cellBox.width)}" height="${formatNumber(cellBox.height)}" fill="${escapeAttribute(cell.style?.fill ?? "transparent")}" stroke="${escapeAttribute(cell.style?.stroke ?? STROKE)}"/>`,
-				`    ${renderEvidenceText("table-cell-label", cell.text, cellBox)}`,
+				`    ${renderEvidenceText("table-cell-label", table.cellLabelLayouts?.[rowIndex]?.[columnIndex]?.lines ?? [cell.text], cellBox)}`,
 			);
 		}
 		lines.push("  </g>");
@@ -264,7 +280,7 @@ function renderEvidencePanel(panel: CoordinatedEvidencePanel): string[] {
 		`  <rect class="evidence-panel-frame" x="${formatNumber(panel.box.x)}" y="${formatNumber(panel.box.y)}" width="${formatNumber(panel.box.width)}" height="${formatNumber(panel.box.height)}" fill="${escapeAttribute(panel.style?.fill ?? EVIDENCE_PANEL_KIND_FILL[panel.kind])}" stroke="${escapeAttribute(panel.style?.stroke ?? STROKE)}"/>`,
 		`  <g class="evidence-panel-title-cell">`,
 		`    <rect class="evidence-panel-title-bg" x="${formatNumber(titleBox.x)}" y="${formatNumber(titleBox.y)}" width="${formatNumber(titleBox.width)}" height="${formatNumber(titleBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
-		`    ${renderEvidenceText("evidence-panel-title", `${panel.kind}: ${panel.id}`, titleBox)}`,
+		`    ${renderEvidenceText("evidence-panel-title", panel.titleLayout?.lines ?? [`${panel.kind}: ${panel.id}`], titleBox)}`,
 		"  </g>",
 		`  <g class="evidence-panel-items-cell">`,
 		`    <rect class="evidence-panel-items-bg" x="${formatNumber(itemBox.x)}" y="${formatNumber(itemBox.y)}" width="${formatNumber(itemBox.width)}" height="${formatNumber(itemBox.height)}" fill="transparent" stroke="${STROKE}"/>`,
@@ -284,7 +300,7 @@ function renderEvidencePanel(panel: CoordinatedEvidencePanel): string[] {
 		};
 		lines.push(
 			`    <rect class="evidence-panel-item" data-item="${escapeAttribute(item.id ?? String(index))}" x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}" fill="${escapeAttribute(item.style?.fill ?? "transparent")}" stroke="${escapeAttribute(item.style?.stroke ?? "none")}"/>`,
-			`    ${renderEvidenceText("evidence-panel-item-label", text, box)}`,
+			`    ${renderEvidenceText("evidence-panel-item-label", panel.itemLayouts?.[index]?.lines ?? [text], box)}`,
 		);
 	}
 
@@ -504,13 +520,13 @@ function tableCellBox(
 	};
 }
 
-function renderEvidenceText(className: string, text: string, box: Box): string {
-	const fontSize = 10;
-	const lineHeight = 12;
-	const lines = wrapEvidenceText(text, {
-		maxChars: Math.max(1, Math.floor((box.width - 8) / 6)),
-		maxLines: Math.max(1, Math.floor((box.height - 4) / lineHeight)),
-	});
+function renderEvidenceText(
+	className: string,
+	lines: readonly string[],
+	box: Box,
+): string {
+	const fontSize = EVIDENCE_TEXT_FONT_SIZE;
+	const lineHeight = EVIDENCE_TEXT_LINE_HEIGHT;
 	const x = box.x + box.width / 2;
 
 	if (lines.length <= 1) {
@@ -527,80 +543,6 @@ function renderEvidenceText(className: string, text: string, box: Box): string {
 		),
 		"</text>",
 	].join("\n");
-}
-
-function wrapEvidenceText(
-	text: string,
-	options: { maxChars: number; maxLines: number },
-): string[] {
-	const normalized = text.trim().replace(/\s+/g, " ");
-	if (normalized.length === 0) {
-		return [""];
-	}
-
-	const lines: string[] = [];
-	let current = "";
-	let overflow = false;
-	for (const word of normalized.split(" ")) {
-		const chunks = chunkEvidenceWord(word, options.maxChars);
-		for (const chunk of chunks) {
-			const candidate = current.length === 0 ? chunk : `${current} ${chunk}`;
-			if (candidate.length <= options.maxChars) {
-				current = candidate;
-				continue;
-			}
-			if (current.length > 0) {
-				lines.push(current);
-				current = chunk;
-			} else {
-				lines.push(chunk);
-				current = "";
-			}
-			if (lines.length >= options.maxLines) {
-				overflow = true;
-				break;
-			}
-		}
-		if (overflow) {
-			break;
-		}
-	}
-	if (!overflow && current.length > 0) {
-		lines.push(current);
-	}
-	if (lines.length > options.maxLines) {
-		overflow = true;
-		lines.length = options.maxLines;
-	}
-	if (overflow || lines.length === options.maxLines) {
-		const rendered = lines.join(" ");
-		if (rendered.length < normalized.length) {
-			lines[lines.length - 1] = ellipsizeEvidenceLine(
-				lines[lines.length - 1] ?? "",
-				options.maxChars,
-			);
-		}
-	}
-
-	return lines.length === 0 ? [""] : lines;
-}
-
-function chunkEvidenceWord(word: string, maxChars: number): string[] {
-	if (word.length <= maxChars) {
-		return [word];
-	}
-	const chunks: string[] = [];
-	for (let index = 0; index < word.length; index += maxChars) {
-		chunks.push(word.slice(index, index + maxChars));
-	}
-	return chunks;
-}
-
-function ellipsizeEvidenceLine(line: string, maxChars: number): string {
-	if (maxChars <= 3) {
-		return ".".repeat(maxChars);
-	}
-	return `${line.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
 function panelItemText(label: string, detail: string | undefined): string {
