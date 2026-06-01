@@ -34,3 +34,25 @@ export interface LabelLayout {
 	};
 	diagnostics: Diagnostic[];
 }
+
+export type TextSurfaceKind =
+	| "node-label"
+	| "group-label"
+	| "port-label"
+	| "edge-label"
+	| "compartment-row"
+	| "swimlane-label"
+	| "frame-title";
+
+export interface SolvedTextAnnotation {
+	text: string;
+	ownerId: string;
+	surfaceKind: TextSurfaceKind;
+	surfaceIndex?: number;
+	box: Box;
+	anchor: Box | { x: number; y: number };
+	paddings: Insets;
+	lines: LabelLayout["lines"];
+	fontSize: number;
+	textBackend?: LabelLayout["textBackend"];
+}

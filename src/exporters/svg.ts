@@ -12,6 +12,7 @@ import type {
 	Swimlane,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
+import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
 import type { ExportOptions } from "./types.js";
 
@@ -34,15 +35,16 @@ export function exportSvg(
 	options: ExportOptions = {},
 ): string {
 	const title = options.title ?? diagram.title;
-	const lines = [
+	const annotations = diagram.textAnnotations ?? [];
+	return `${[
 		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(diagram.bounds)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
 		`  <rect class="background" x="${formatNumber(diagram.bounds.x)}" y="${formatNumber(diagram.bounds.y)}" width="${formatNumber(diagram.bounds.width)}" height="${formatNumber(diagram.bounds.height)}" fill="#ffffff"/>`,
 		...(diagram.frame === undefined
 			? []
-			: [indent(renderFrame(diagram.frame))]),
+			: [indent(renderFrame(diagram.frame, annotations))]),
 		...(diagram.swimlanes ?? []).flatMap((swimlane) =>
-			renderSwimlane(swimlane),
+			renderSwimlane(swimlane, annotations),
 		),
 		...diagram.groups.map((group) => indent(renderGroup(group))),
 		...(diagram.matrices ?? []).flatMap((matrix) =>
@@ -56,27 +58,24 @@ export function exportSvg(
 		),
 		...diagram.edges.flatMap((edge) => {
 			const path = renderEdgePath(edge);
-			if (path === undefined) {
-				return [];
-			}
-			return [indent(path), indent(renderArrowhead(edge))];
+			return path === undefined
+				? []
+				: [indent(path), indent(renderArrowhead(edge))];
 		}),
 		...diagram.nodes.map((node) => indent(renderNode(node))),
-		...diagram.nodes.flatMap((node) => renderCompartments(node)),
-		...diagram.nodes.flatMap((node) => renderPorts(node)),
+		...diagram.nodes.flatMap((node) => renderCompartments(node, annotations)),
+		...diagram.nodes.flatMap((node) => renderPorts(node, annotations)),
 		...diagram.groups.flatMap((group) =>
-			renderLabel(group.label, group.box, group),
+			renderLabel(group.label, group.box, group, annotations, "group-label"),
 		),
 		...diagram.nodes.flatMap((node) =>
 			node.compartments === undefined
-				? renderLabel(node.label, node.box, node)
+				? renderLabel(node.label, node.box, node, annotations, "node-label")
 				: [],
 		),
-		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge)),
+		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
 		"</svg>",
-	];
-
-	return `${lines.join("\n")}\n`;
+	].join("\n")}\n`;
 }
 
 function renderGroup(group: CoordinatedGroup): string {
@@ -86,12 +85,21 @@ function renderGroup(group: CoordinatedGroup): string {
 function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 	const columnCount = Math.max(1, matrix.cols.length);
 	const rowCount = matrix.rows.length;
-	const cellWidth = matrix.box.width / columnCount;
+	const rowHeaderWidth =
+		rowCount > 0 ? Math.min(96, matrix.box.width * 0.28) : 0;
+	const dataWidth = Math.max(0, matrix.box.width - rowHeaderWidth);
+	const cellWidth = dataWidth / columnCount;
 	const rowHeight = matrix.box.height / Math.max(1, rowCount + 1);
 	const lines = [
 		`<g class="matrix-block" data-id="${escapeAttribute(matrix.id)}" data-row-count="${rowCount}" data-column-count="${matrix.cols.length}">`,
 		`  <rect class="matrix-frame" x="${formatNumber(matrix.box.x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(matrix.box.width)}" height="${formatNumber(matrix.box.height)}" fill="${escapeAttribute(matrix.style?.fill ?? EVIDENCE_FILL)}" stroke="${escapeAttribute(matrix.style?.stroke ?? STROKE)}"/>`,
 	];
+
+	if (rowHeaderWidth > 0) {
+		lines.push(
+			`  <rect class="matrix-corner-header" x="${formatNumber(matrix.box.x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(rowHeaderWidth)}" height="${formatNumber(rowHeight)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
+		);
+	}
 
 	for (
 		let columnIndex = 0;
@@ -102,7 +110,7 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 		if (column === undefined) {
 			continue;
 		}
-		const x = matrix.box.x + columnIndex * cellWidth;
+		const x = matrix.box.x + rowHeaderWidth + columnIndex * cellWidth;
 		lines.push(
 			`  <rect class="matrix-column-header" data-col="${escapeAttribute(column)}" x="${formatNumber(x)}" y="${formatNumber(matrix.box.y)}" width="${formatNumber(cellWidth)}" height="${formatNumber(rowHeight)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
 			renderEvidenceText("matrix-column-label", column, {
@@ -120,6 +128,18 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 		if (row === undefined) {
 			continue;
 		}
+		if (rowHeaderWidth > 0) {
+			const rowHeaderBox = {
+				x: matrix.box.x,
+				y: matrix.box.y + (rowIndex + 1) * rowHeight,
+				width: rowHeaderWidth,
+				height: rowHeight,
+			};
+			lines.push(
+				`  <rect class="matrix-row-header" data-row="${escapeAttribute(row)}" x="${formatNumber(rowHeaderBox.x)}" y="${formatNumber(rowHeaderBox.y)}" width="${formatNumber(rowHeaderBox.width)}" height="${formatNumber(rowHeaderBox.height)}" fill="${EVIDENCE_HEADER_FILL}" stroke="${STROKE}"/>`,
+				renderEvidenceText("matrix-row-label", row, rowHeaderBox),
+			);
+		}
 		for (
 			let columnIndex = 0;
 			columnIndex < matrix.cols.length;
@@ -131,7 +151,7 @@ function renderMatrixBlock(matrix: CoordinatedMatrixBlock): string[] {
 			}
 			const cell = cells[columnIndex] ?? { text: "" };
 			const box = {
-				x: matrix.box.x + columnIndex * cellWidth,
+				x: matrix.box.x + rowHeaderWidth + columnIndex * cellWidth,
 				y: matrix.box.y + (rowIndex + 1) * rowHeight,
 				width: cellWidth,
 				height: rowHeight,
@@ -292,19 +312,36 @@ function renderNode(node: CoordinatedNode): string {
 	}
 }
 
-function renderFrame(frame: CoordinatedFrame): string {
+function renderFrame(
+	frame: CoordinatedFrame,
+	annotations: readonly SolvedTextAnnotation[],
+): string {
 	const stroke = frame.style?.stroke ?? "#6b7280";
 	const fill = frame.style?.fill ?? "transparent";
 	return [
 		`<g class="sysml-frame" data-kind="${escapeAttribute(frame.kind)}">`,
 		`  <rect class="sysml-frame-border" x="${formatNumber(frame.box.x)}" y="${formatNumber(frame.box.y)}" width="${formatNumber(frame.box.width)}" height="${formatNumber(frame.box.height)}" fill="${escapeAttribute(fill)}" stroke="${escapeAttribute(stroke)}"/>`,
 		`  <path class="sysml-title-tab" d="M ${formatNumber(frame.titleBox.x)} ${formatNumber(frame.titleBox.y + frame.titleBox.height)} L ${formatNumber(frame.titleBox.x)} ${formatNumber(frame.titleBox.y)} L ${formatNumber(frame.titleBox.x + frame.titleBox.width - 16)} ${formatNumber(frame.titleBox.y)} L ${formatNumber(frame.titleBox.x + frame.titleBox.width)} ${formatNumber(frame.titleBox.y + frame.titleBox.height)} Z" fill="#f3f4f6" stroke="${escapeAttribute(stroke)}"/>`,
-		`  <text class="sysml-title-tab-label" x="${formatNumber(frame.titleBox.x + 8)}" y="${formatNumber(frame.titleBox.y + frame.titleBox.height / 2)}" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(frame.titleTab)}</text>`,
+		...(renderSolvedTextAnnotation(
+			findAnnotation(annotations, "frame-title", frame.kind),
+			`sysml-title-tab-label`,
+			{
+				indent: "  ",
+				mode: "center",
+				fallbackText: frame.titleTab,
+				fallbackFontSize: 12,
+			},
+		) ?? [
+			`  <text class="sysml-title-tab-label" x="${formatNumber(frame.titleBox.x + 8)}" y="${formatNumber(frame.titleBox.y + frame.titleBox.height / 2)}" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(frame.titleTab)}</text>`,
+		]),
 		"</g>",
 	].join("\n");
 }
 
-function renderSwimlane(swimlane: Swimlane): string[] {
+function renderSwimlane(
+	swimlane: Swimlane,
+	annotations: readonly SolvedTextAnnotation[],
+): string[] {
 	if (swimlane.box === undefined) {
 		return [];
 	}
@@ -330,40 +367,63 @@ function renderSwimlane(swimlane: Swimlane): string[] {
 			);
 		}
 		if (lane.label?.text !== undefined) {
-			const labelBox = lane.headerBox ?? lane.box;
-			lines.push(renderSwimlaneLabel(swimlane, lane.label.text, labelBox));
+			const annotation = findAnnotation(
+				annotations,
+				"swimlane-label",
+				`${swimlane.id}.${lane.id}`,
+			);
+			lines.push(
+				...(annotation === undefined
+					? [
+							renderSwimlaneLabel(
+								swimlane,
+								lane.label.text,
+								lane.headerBox ?? lane.box,
+							),
+						]
+					: (renderSolvedTextAnnotation(annotation, "swimlane-label", {
+							indent: "    ",
+							mode: "center",
+							rotate: swimlane.orientation === "horizontal",
+						}) ?? [])),
+			);
 		}
 	}
 	lines.push("  </g>");
 	return lines;
 }
 
-function renderSwimlaneLabel(
-	swimlane: Swimlane,
-	text: string,
-	labelBox: Box,
-): string {
-	const x = labelBox.x + labelBox.width / 2;
-	const y = labelBox.y + labelBox.height / 2;
-	const transform =
-		swimlane.orientation === "horizontal"
-			? ` transform="rotate(-90 ${formatNumber(x)} ${formatNumber(y)})"`
-			: "";
-	return `    <text class="swimlane-label" x="${formatNumber(x)}" y="${formatNumber(y)}" text-anchor="middle" dominant-baseline="middle"${transform} font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(text)}</text>`;
-}
-
-function renderPorts(node: CoordinatedNode): string[] {
+function renderPorts(
+	node: CoordinatedNode,
+	annotations: readonly SolvedTextAnnotation[],
+): string[] {
 	return (node.ports ?? []).flatMap((port) => [
 		`  <rect class="port" data-kind="${escapeAttribute(port.kind)}" data-port="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(port.box.x)}" y="${formatNumber(port.box.y)}" width="${formatNumber(port.box.width)}" height="${formatNumber(port.box.height)}" fill="${escapeAttribute(port.style?.fill ?? "#d9ead3")}" stroke="${escapeAttribute(port.style?.stroke ?? STROKE)}"/>`,
 		...(port.label?.text === undefined
 			? []
-			: [
-					`  <text class="port-label" data-for="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(portLabelX(port.anchor.x, port.side))}" y="${formatNumber(port.anchor.y - 8)}" text-anchor="${port.side === "left" ? "end" : "start"}" font-family="${FONT_FAMILY}" font-size="10" fill="#111827">${escapeXml(port.label.text)}</text>`,
-				]),
+			: (() => {
+					const annotation = findAnnotation(
+						annotations,
+						"port-label",
+						`${node.id}.${port.id}`,
+					);
+					return annotation === undefined
+						? [
+								`  <text class="port-label" data-for="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(portLabelX(port.anchor.x, port.side))}" y="${formatNumber(port.anchor.y - 8)}" text-anchor="${port.side === "left" ? "end" : "start"}" font-family="${FONT_FAMILY}" font-size="10" fill="#111827">${escapeXml(port.label.text)}</text>`,
+							]
+						: (renderSolvedTextAnnotation(annotation, "port-label", {
+								indent: "  ",
+								mode: "center",
+								textAnchor: port.side === "left" ? "end" : "start",
+							}) ?? []);
+				})()),
 	]);
 }
 
-function renderCompartments(node: CoordinatedNode): string[] {
+function renderCompartments(
+	node: CoordinatedNode,
+	annotations: readonly SolvedTextAnnotation[],
+): string[] {
 	const compartments = node.compartments;
 	if (compartments === undefined) {
 		return [];
@@ -385,7 +445,6 @@ function renderCompartments(node: CoordinatedNode): string[] {
 			text,
 		})),
 	];
-	const lineHeight = 16;
 	const lines = [
 		`  <g class="compartment" data-for="${escapeAttribute(node.id)}">`,
 	];
@@ -394,14 +453,31 @@ function renderCompartments(node: CoordinatedNode): string[] {
 		if (row === undefined) {
 			continue;
 		}
-		const y = node.box.y + 18 + index * lineHeight;
+		const y = node.box.y + 18 + index * 16;
 		if (index > 1) {
 			lines.push(
 				`    <line class="compartment-separator" x1="${formatNumber(node.box.x)}" y1="${formatNumber(y - 12)}" x2="${formatNumber(node.box.x + node.box.width)}" y2="${formatNumber(y - 12)}" stroke="${STROKE}"/>`,
 			);
 		}
+		const annotation = findAnnotation(
+			annotations,
+			"compartment-row",
+			node.id,
+			index,
+		);
 		lines.push(
-			`    <text class="compartment-${row.className}" x="${formatNumber(node.box.x + node.box.width / 2)}" y="${formatNumber(y)}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#111827">${escapeXml(row.text)}</text>`,
+			...(annotation === undefined
+				? [
+						`    <text class="compartment-${row.className}" x="${formatNumber(node.box.x + node.box.width / 2)}" y="${formatNumber(y)}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#111827">${escapeXml(row.text)}</text>`,
+					]
+				: (renderSolvedTextAnnotation(
+						annotation,
+						`compartment-${row.className}`,
+						{
+							indent: "    ",
+							mode: "center",
+						},
+					) ?? [])),
 		);
 	}
 	lines.push("  </g>");
@@ -429,32 +505,123 @@ function tableCellBox(
 }
 
 function renderEvidenceText(className: string, text: string, box: Box): string {
-	return `<text class="${className}" x="${formatNumber(box.x + box.width / 2)}" y="${formatNumber(box.y + box.height / 2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="10" fill="#111827">${escapeXml(text)}</text>`;
+	const fontSize = 10;
+	const lineHeight = 12;
+	const lines = wrapEvidenceText(text, {
+		maxChars: Math.max(1, Math.floor((box.width - 8) / 6)),
+		maxLines: Math.max(1, Math.floor((box.height - 4) / lineHeight)),
+	});
+	const x = box.x + box.width / 2;
+
+	if (lines.length <= 1) {
+		return `<text class="${className}" x="${formatNumber(x)}" y="${formatNumber(box.y + box.height / 2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="${formatNumber(fontSize)}" fill="#111827">${escapeXml(lines[0] ?? "")}</text>`;
+	}
+
+	const totalHeight = (lines.length - 1) * lineHeight;
+	const firstBaselineY = box.y + box.height / 2 - totalHeight / 2;
+	return [
+		`<text class="${className}" x="${formatNumber(x)}" y="${formatNumber(firstBaselineY)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="${formatNumber(fontSize)}" fill="#111827">`,
+		...lines.map(
+			(line, index) =>
+				`  <tspan x="${formatNumber(x)}" y="${formatNumber(firstBaselineY + index * lineHeight)}">${escapeXml(line)}</tspan>`,
+		),
+		"</text>",
+	].join("\n");
+}
+
+function wrapEvidenceText(
+	text: string,
+	options: { maxChars: number; maxLines: number },
+): string[] {
+	const normalized = text.trim().replace(/\s+/g, " ");
+	if (normalized.length === 0) {
+		return [""];
+	}
+
+	const lines: string[] = [];
+	let current = "";
+	let overflow = false;
+	for (const word of normalized.split(" ")) {
+		const chunks = chunkEvidenceWord(word, options.maxChars);
+		for (const chunk of chunks) {
+			const candidate = current.length === 0 ? chunk : `${current} ${chunk}`;
+			if (candidate.length <= options.maxChars) {
+				current = candidate;
+				continue;
+			}
+			if (current.length > 0) {
+				lines.push(current);
+				current = chunk;
+			} else {
+				lines.push(chunk);
+				current = "";
+			}
+			if (lines.length >= options.maxLines) {
+				overflow = true;
+				break;
+			}
+		}
+		if (overflow) {
+			break;
+		}
+	}
+	if (!overflow && current.length > 0) {
+		lines.push(current);
+	}
+	if (lines.length > options.maxLines) {
+		overflow = true;
+		lines.length = options.maxLines;
+	}
+	if (overflow || lines.length === options.maxLines) {
+		const rendered = lines.join(" ");
+		if (rendered.length < normalized.length) {
+			lines[lines.length - 1] = ellipsizeEvidenceLine(
+				lines[lines.length - 1] ?? "",
+				options.maxChars,
+			);
+		}
+	}
+
+	return lines.length === 0 ? [""] : lines;
+}
+
+function chunkEvidenceWord(word: string, maxChars: number): string[] {
+	if (word.length <= maxChars) {
+		return [word];
+	}
+	const chunks: string[] = [];
+	for (let index = 0; index < word.length; index += maxChars) {
+		chunks.push(word.slice(index, index + maxChars));
+	}
+	return chunks;
+}
+
+function ellipsizeEvidenceLine(line: string, maxChars: number): string {
+	if (maxChars <= 3) {
+		return ".".repeat(maxChars);
+	}
+	return `${line.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
 function panelItemText(label: string, detail: string | undefined): string {
 	return detail === undefined ? label : `${label}: ${detail}`;
 }
-
-function portLabelX(x: number, side: string): number {
-	if (side === "left") {
-		return x - 8;
-	}
-	if (side === "right") {
-		return x + 8;
-	}
-	return x + 8;
-}
-
-function renderRect(box: Box, attributes: string): string {
-	return `<rect ${attributes} x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}"/>`;
-}
-
 function renderLabel(
 	label: Label | undefined,
 	box: Box,
 	item: CoordinatedNode | CoordinatedGroup,
+	annotations: readonly SolvedTextAnnotation[],
+	surfaceKind: SolvedTextAnnotation["surfaceKind"],
 ): string[] {
+	const annotation = findAnnotation(annotations, surfaceKind, item.id);
+	if (annotation !== undefined) {
+		return (
+			renderSolvedTextAnnotation(annotation, "label", {
+				indent: "  ",
+				mode: "center",
+			}) ?? []
+		);
+	}
 	const labelLayout = item.labelLayout;
 	if (labelLayout?.lines !== undefined && labelLayout.lines.length > 0) {
 		const offset = { x: box.x, y: box.y };
@@ -467,11 +634,9 @@ function renderLabel(
 			"  </text>",
 		];
 	}
-
 	if (label?.text === undefined) {
 		return [];
 	}
-
 	return [
 		`  <text class="label" data-for="${escapeAttribute(item.id)}" x="${formatNumber(box.x + box.width / 2)}" y="${formatNumber(box.y + box.height / 2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="14" fill="#111827">${escapeXml(label.text)}</text>`,
 	];
@@ -481,21 +646,30 @@ function renderEdgePath(edge: CoordinatedEdge): string | undefined {
 	if (edge.points.length < 2) {
 		return undefined;
 	}
-
 	const dash = edge.style === "dashed" ? ' stroke-dasharray="6 4"' : "";
 	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${formatPath(pathPointsBeforeArrowhead(edge.points))}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
 }
 
-function renderEdgeLabel(edge: CoordinatedEdge): string[] {
+function renderEdgeLabel(
+	edge: CoordinatedEdge,
+	annotations: readonly SolvedTextAnnotation[],
+): string[] {
 	if (edge.label?.text === undefined || edge.points.length < 2) {
 		return [];
 	}
-
+	const annotation = findAnnotation(annotations, "edge-label", edge.id);
+	if (annotation !== undefined) {
+		return (
+			renderSolvedTextAnnotation(annotation, "edge-label", {
+				indent: "  ",
+				mode: "center",
+			}) ?? []
+		);
+	}
 	const placement = labelPlacementOnPolyline(edge.points);
 	if (placement === undefined) {
 		return [];
 	}
-
 	return [
 		`  <text class="edge-label" data-for="${escapeAttribute(edge.id)}" x="${formatNumber(placement.x)}" y="${formatNumber(placement.y)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(edge.label.text)}</text>`,
 	];
@@ -507,6 +681,133 @@ function renderArrowhead(edge: CoordinatedEdge): string {
 	return `<polygon class="edge-arrowhead" data-edge="${escapeAttribute(edge.id)}" points="${formatPoints([arrowhead.tip, arrowhead.left, arrowhead.right])}" fill="${fill}" stroke="${EDGE_STROKE}"/>`;
 }
 
+function renderSolvedTextAnnotation(
+	annotation: SolvedTextAnnotation | undefined,
+	className: string,
+	options: {
+		indent: string;
+		mode: "center" | "start";
+		textAnchor?: string;
+		rotate?: boolean;
+		fallbackText?: string;
+		fallbackFontSize?: number;
+	},
+): string[] | undefined {
+	if (annotation === undefined) {
+		return undefined;
+	}
+	const x =
+		options.mode === "center"
+			? annotation.box.x + annotation.box.width / 2
+			: annotation.box.x;
+	const y =
+		options.mode === "center"
+			? annotation.box.y + annotation.box.height / 2
+			: annotation.box.y + annotation.box.height;
+	const rotate = options.rotate
+		? ` transform="rotate(-90 ${formatNumber(x)} ${formatNumber(y)})"`
+		: "";
+	const attrs = [
+		`class="${className}"`,
+		`data-for="${escapeAttribute(annotation.ownerId)}"`,
+		`data-text-surface="${escapeAttribute(annotation.surfaceKind)}"`,
+		`data-owner-id="${escapeAttribute(annotation.ownerId)}"`,
+		`data-text-backend="${escapeAttribute(annotation.textBackend ?? "deterministic")}"`,
+		`font-family="${FONT_FAMILY}"`,
+		`font-size="${formatNumber(annotation.fontSize)}"`,
+		`fill="#111827"`,
+	];
+	if (options.mode === "center") {
+		attrs.push('text-anchor="middle"');
+	} else {
+		attrs.push(`text-anchor="${options.textAnchor ?? "start"}"`);
+	}
+	if (annotation.lines.length > 1) {
+		return [
+			`${options.indent}<text ${attrs.join(" ")}${rotate}>`,
+			...annotation.lines.map(
+				(line) =>
+					`${options.indent}  <tspan x="${formatNumber(textLineX(annotation, line, options))}" y="${formatNumber(annotation.box.y + line.baselineY)}">${escapeXml(line.text)}</tspan>`,
+			),
+			`${options.indent}</text>`,
+		];
+	}
+	const line = annotation.lines[0];
+	const text = line?.text ?? options.fallbackText ?? annotation.text;
+	const singleLineAttrs =
+		options.mode === "center"
+			? [...attrs, 'dominant-baseline="middle"']
+			: attrs;
+	return [
+		`${options.indent}<text ${singleLineAttrs.join(" ")} x="${formatNumber(x)}" y="${formatNumber(y)}"${rotate}>${escapeXml(text)}</text>`,
+	];
+}
+
+function textLineX(
+	annotation: SolvedTextAnnotation,
+	line: SolvedTextAnnotation["lines"][number],
+	options: {
+		mode: "center" | "start";
+		textAnchor?: string;
+	},
+): number {
+	if (options.mode === "center") {
+		return annotation.box.x + line.box.x + line.box.width / 2;
+	}
+	if ((options.textAnchor ?? "start") === "end") {
+		return annotation.box.x + line.box.x + line.box.width;
+	}
+	return annotation.box.x + line.box.x;
+}
+
+function findAnnotation(
+	annotations: readonly SolvedTextAnnotation[],
+	surfaceKind: SolvedTextAnnotation["surfaceKind"],
+	ownerId: string,
+	index?: number,
+): SolvedTextAnnotation | undefined {
+	return annotations.find((annotation) => {
+		if (annotation.surfaceKind !== surfaceKind) {
+			return false;
+		}
+		if (annotation.ownerId !== ownerId) {
+			return false;
+		}
+		if (index === undefined) {
+			return annotation.surfaceIndex === undefined;
+		}
+		return annotation.surfaceIndex === index;
+	});
+}
+
+function renderSwimlaneLabel(
+	swimlane: Swimlane,
+	text: string,
+	labelBox: Box,
+): string {
+	const x = labelBox.x + labelBox.width / 2;
+	const y = labelBox.y + labelBox.height / 2;
+	const transform =
+		swimlane.orientation === "horizontal"
+			? ` transform="rotate(-90 ${formatNumber(x)} ${formatNumber(y)})"`
+			: "";
+	return `    <text class="swimlane-label" x="${formatNumber(x)}" y="${formatNumber(y)}" text-anchor="middle" dominant-baseline="middle"${transform} font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(text)}</text>`;
+}
+
+function renderRect(box: Box, attributes: string): string {
+	return `<rect ${attributes} x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}"/>`;
+}
+
+function portLabelX(x: number, side: string): number {
+	if (side === "left") {
+		return x - 8;
+	}
+	if (side === "right") {
+		return x + 8;
+	}
+	return x + 8;
+}
+
 function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
 	const segments = nonZeroSegments(points);
 	const totalLength = segments.reduce(
@@ -516,7 +817,6 @@ function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
 	if (totalLength <= 0) {
 		return undefined;
 	}
-
 	let remaining = totalLength / 2;
 	for (const segment of segments) {
 		if (remaining <= segment.length) {
@@ -528,7 +828,6 @@ function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
 		}
 		remaining -= segment.length;
 	}
-
 	const last = segments.at(-1);
 	if (last === undefined) {
 		return undefined;
@@ -594,7 +893,6 @@ function shapePoints(
 	const midX = box.x + box.width / 2;
 	const midY = box.y + box.height / 2;
 	const skew = Math.min(box.width * 0.2, 24);
-
 	switch (shape) {
 		case "diamond":
 			return [
@@ -610,17 +908,15 @@ function shapePoints(
 				{ x: right - skew, y: bottom },
 				{ x: left, y: bottom },
 			];
-		case "hexagon": {
-			const inset = Math.min(box.width * 0.2, 24);
+		case "hexagon":
 			return [
-				{ x: left + inset, y: top },
-				{ x: right - inset, y: top },
+				{ x: left + skew, y: top },
+				{ x: right - skew, y: top },
 				{ x: right, y: midY },
-				{ x: right - inset, y: bottom },
-				{ x: left + inset, y: bottom },
+				{ x: right - skew, y: bottom },
+				{ x: left + skew, y: bottom },
 				{ x: left, y: midY },
 			];
-		}
 	}
 }
 
@@ -632,7 +928,6 @@ function formatCylinderPath(box: Box): string {
 	const top = box.y;
 	const bottom = box.y + box.height;
 	const midX = box.x + rx;
-
 	return [
 		`M ${formatNumber(left)} ${formatNumber(top + ry)}`,
 		`A ${formatNumber(rx)} ${formatNumber(ry)} 0 0 1 ${formatNumber(right)} ${formatNumber(top + ry)}`,
@@ -649,10 +944,10 @@ function formatCylinderPath(box: Box): string {
 
 function formatPath(points: readonly Point[]): string {
 	return points
-		.map((point, index) => {
-			const command = index === 0 ? "M" : "L";
-			return `${command} ${formatNumber(point.x)} ${formatNumber(point.y)}`;
-		})
+		.map(
+			(point, index) =>
+				`${index === 0 ? "M" : "L"} ${formatNumber(point.x)} ${formatNumber(point.y)}`,
+		)
 		.join(" ");
 }
 

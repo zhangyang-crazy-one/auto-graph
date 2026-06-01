@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../../src/dsl/index.js";
 import type { Box } from "../../src/ir/index.js";
+import { DeterministicTextMeasurer } from "../../src/text/index.js";
 
 const FIXTURE_DIR = new URL("../fixtures/evidence-blocks/", import.meta.url);
 const BASELINE_DIR = new URL("../fixtures/phase-07/", import.meta.url);
+const textMeasurer = new DeterministicTextMeasurer();
 
 describe("methodology-split benchmark", () => {
 	it.each([
@@ -153,6 +155,7 @@ function renderFixture(name: string): ReturnType<typeof renderDiagramDsl> {
 	return renderDiagramDsl(readFixture(name), {
 		sourcePath: fixturePath(name),
 		format: "svg",
+		textMeasurer,
 	});
 }
 

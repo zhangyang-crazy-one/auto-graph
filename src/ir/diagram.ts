@@ -21,6 +21,7 @@ import type {
 	TableBlock,
 } from "./elements.js";
 import type { Box, DiagramDirection, JsonObject } from "./geometry.js";
+import type { SolvedTextAnnotation } from "./label-layout.js";
 
 export type DiagramStage = "intent" | "normalized" | "coordinated";
 
@@ -73,6 +74,7 @@ export interface CoordinatedDiagram {
 	matrices?: CoordinatedMatrixBlock[];
 	tables?: CoordinatedTableBlock[];
 	evidencePanels?: CoordinatedEvidencePanel[];
+	textAnnotations?: SolvedTextAnnotation[];
 	diagnostics: Diagnostic[];
 	bounds: Box;
 	frame?: CoordinatedFrame;

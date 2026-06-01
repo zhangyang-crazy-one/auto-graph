@@ -137,6 +137,39 @@ describe("routing", () => {
 		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
 	});
+
+	it("uses hard obstacles when generating expanded orthogonal lanes", () => {
+		const hardObstacle = { x: 120, y: 20, width: 120, height: 120 };
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 100),
+			hardObstacles: [hardObstacle],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)?.x).toBeCloseTo(80);
+		expect(result.points.at(-1)?.x).toBeCloseTo(300);
+		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+	});
+
+	it("rejects straight routes that cross hard evidence obstacles", () => {
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 0),
+			hardObstacles: [{ x: 120, y: 10, width: 80, height: 20 }],
+		});
+
+		expect(result.points).toEqual([]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
 });
 
 function shape(x: number, y: number) {

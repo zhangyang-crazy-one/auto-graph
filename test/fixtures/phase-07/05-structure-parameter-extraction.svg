@@ -3,89 +3,107 @@
   <rect class="background" x="0" y="0" width="1140" height="746" fill="#ffffff"/>
   <g class="matrix-block" data-id="structure-parameter-extraction-matrix" data-row-count="4" data-column-count="4">
     <rect class="matrix-frame" x="120" y="420" width="480" height="180" fill="#f8fafc" stroke="#374151"/>
-    <rect class="matrix-column-header" data-col="luminance" x="120" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="180" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">luminance</text>
-    <rect class="matrix-column-header" data-col="cycle-time" x="240" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="300" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycle-time</text>
-    <rect class="matrix-column-header" data-col="cooling-power" x="360" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="420" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cooling-power</text>
-    <rect class="matrix-column-header" data-col="heating-power" x="480" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="540" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">heating-power</text>
-    <rect class="matrix-cell" data-row="hmi" data-col="luminance" x="120" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="180" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
-    <rect class="matrix-cell" data-row="hmi" data-col="cycle-time" x="240" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="300" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="hmi" data-col="cooling-power" x="360" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="420" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="hmi" data-col="heating-power" x="480" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="540" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="processing" data-col="luminance" x="120" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="180" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="processing" data-col="cycle-time" x="240" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="300" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
-    <rect class="matrix-cell" data-row="processing" data-col="cooling-power" x="360" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="420" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="processing" data-col="heating-power" x="480" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="540" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cooling" data-col="luminance" x="120" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="180" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cooling" data-col="cycle-time" x="240" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="300" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cooling" data-col="cooling-power" x="360" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="420" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
-    <rect class="matrix-cell" data-row="cooling" data-col="heating-power" x="480" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="540" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="heating" data-col="luminance" x="120" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="180" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="heating" data-col="cycle-time" x="240" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="300" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="heating" data-col="cooling-power" x="360" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="420" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="heating" data-col="heating-power" x="480" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="540" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
+    <rect class="matrix-corner-header" x="120" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+    <rect class="matrix-column-header" data-col="luminance" x="216" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="264" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">luminance</text>
+    <rect class="matrix-column-header" data-col="cycle-time" x="312" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="360" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycle-time</text>
+    <rect class="matrix-column-header" data-col="cooling-power" x="408" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="456" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cooling-power</text>
+    <rect class="matrix-column-header" data-col="heating-power" x="504" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="552" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">heating-power</text>
+    <rect class="matrix-row-header" data-row="hmi" x="120" y="456" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="168" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">hmi</text>
+    <rect class="matrix-cell" data-row="hmi" data-col="luminance" x="216" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="264" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
+    <rect class="matrix-cell" data-row="hmi" data-col="cycle-time" x="312" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="360" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="hmi" data-col="cooling-power" x="408" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="456" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="hmi" data-col="heating-power" x="504" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="552" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-row-header" data-row="processing" x="120" y="492" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="168" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">processing</text>
+    <rect class="matrix-cell" data-row="processing" data-col="luminance" x="216" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="264" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="processing" data-col="cycle-time" x="312" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="360" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
+    <rect class="matrix-cell" data-row="processing" data-col="cooling-power" x="408" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="456" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="processing" data-col="heating-power" x="504" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="552" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-row-header" data-row="cooling" x="120" y="528" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="168" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cooling</text>
+    <rect class="matrix-cell" data-row="cooling" data-col="luminance" x="216" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="264" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="cooling" data-col="cycle-time" x="312" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="360" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="cooling" data-col="cooling-power" x="408" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="456" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
+    <rect class="matrix-cell" data-row="cooling" data-col="heating-power" x="504" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="552" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-row-header" data-row="heating" x="120" y="564" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="168" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">heating</text>
+    <rect class="matrix-cell" data-row="heating" data-col="luminance" x="216" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="264" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="heating" data-col="cycle-time" x="312" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="360" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="heating" data-col="cooling-power" x="408" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="456" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="heating" data-col="heating-power" x="504" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="552" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">extract</text>
   </g>
   <g class="matrix-block" data-id="parameter-moe-requirement-binding-matrix" data-row-count="4" data-column-count="4">
     <rect class="matrix-frame" x="660" y="420" width="480" height="180" fill="#f8fafc" stroke="#374151"/>
-    <rect class="matrix-column-header" data-col="moe-visibility" x="660" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="720" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">moe-visibility</text>
-    <rect class="matrix-column-header" data-col="moe-latency" x="780" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="840" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">moe-latency</text>
-    <rect class="matrix-column-header" data-col="req-thermal" x="900" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="960" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">req-thermal</text>
-    <rect class="matrix-column-header" data-col="req-energy" x="1020" y="420" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1080" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">req-energy</text>
-    <rect class="matrix-cell" data-row="luminance" data-col="moe-visibility" x="660" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="720" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
-    <rect class="matrix-cell" data-row="luminance" data-col="moe-latency" x="780" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="840" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="luminance" data-col="req-thermal" x="900" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="960" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="luminance" data-col="req-energy" x="1020" y="456" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1080" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cycle-time" data-col="moe-visibility" x="660" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="720" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cycle-time" data-col="moe-latency" x="780" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="840" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
-    <rect class="matrix-cell" data-row="cycle-time" data-col="req-thermal" x="900" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="960" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cycle-time" data-col="req-energy" x="1020" y="492" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1080" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cooling-power" data-col="moe-visibility" x="660" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="720" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cooling-power" data-col="moe-latency" x="780" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="840" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="cooling-power" data-col="req-thermal" x="900" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="960" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
-    <rect class="matrix-cell" data-row="cooling-power" data-col="req-energy" x="1020" y="528" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1080" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
-    <rect class="matrix-cell" data-row="heating-power" data-col="moe-visibility" x="660" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="720" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="heating-power" data-col="moe-latency" x="780" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="840" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
-    <rect class="matrix-cell" data-row="heating-power" data-col="req-thermal" x="900" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="960" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
-    <rect class="matrix-cell" data-row="heating-power" data-col="req-energy" x="1020" y="564" width="120" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1080" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
+    <rect class="matrix-corner-header" x="660" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+    <rect class="matrix-column-header" data-col="moe-visibility" x="756" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="804" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">moe-visibility</text>
+    <rect class="matrix-column-header" data-col="moe-latency" x="852" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="900" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">moe-latency</text>
+    <rect class="matrix-column-header" data-col="req-thermal" x="948" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="996" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">req-thermal</text>
+    <rect class="matrix-column-header" data-col="req-energy" x="1044" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1092" y="438" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">req-energy</text>
+    <rect class="matrix-row-header" data-row="luminance" x="660" y="456" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="708" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">luminance</text>
+    <rect class="matrix-cell" data-row="luminance" data-col="moe-visibility" x="756" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="804" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
+    <rect class="matrix-cell" data-row="luminance" data-col="moe-latency" x="852" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="900" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="luminance" data-col="req-thermal" x="948" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="996" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="luminance" data-col="req-energy" x="1044" y="456" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1092" y="474" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-row-header" data-row="cycle-time" x="660" y="492" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="708" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycle-time</text>
+    <rect class="matrix-cell" data-row="cycle-time" data-col="moe-visibility" x="756" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="804" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="cycle-time" data-col="moe-latency" x="852" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="900" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
+    <rect class="matrix-cell" data-row="cycle-time" data-col="req-thermal" x="948" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="996" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="cycle-time" data-col="req-energy" x="1044" y="492" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1092" y="510" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-row-header" data-row="cooling-power" x="660" y="528" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="708" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cooling-power</text>
+    <rect class="matrix-cell" data-row="cooling-power" data-col="moe-visibility" x="756" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="804" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="cooling-power" data-col="moe-latency" x="852" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="900" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="cooling-power" data-col="req-thermal" x="948" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="996" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
+    <rect class="matrix-cell" data-row="cooling-power" data-col="req-energy" x="1044" y="528" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1092" y="546" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
+    <rect class="matrix-row-header" data-row="heating-power" x="660" y="564" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-row-label" x="708" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">heating-power</text>
+    <rect class="matrix-cell" data-row="heating-power" data-col="moe-visibility" x="756" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="804" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="heating-power" data-col="moe-latency" x="852" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="900" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827"></text>
+    <rect class="matrix-cell" data-row="heating-power" data-col="req-thermal" x="948" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="996" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
+    <rect class="matrix-cell" data-row="heating-power" data-col="req-energy" x="1044" y="564" width="96" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1092" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
   </g>
   <g class="table-block" data-id="block-value-properties-table" data-row-count="4" data-column-count="4">
     <rect class="table-frame" x="0" y="0" width="512" height="170" fill="#f8fafc" stroke="#374151"/>
@@ -161,7 +179,10 @@
       <rect class="table-cell" data-col="parameter" x="128" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
       <text class="table-cell-label" x="192" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">max_temperature_c</text>
       <rect class="table-cell" data-col="expression" x="256" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">coolingPower &gt; heatingPower</text>
+      <text class="table-cell-label" x="320" y="45" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="320" y="45">coolingPower &gt;</tspan>
+  <tspan x="320" y="57">heatingPower</tspan>
+</text>
     </g>
     <g class="table-row table-row-odd" data-row="latency-limit">
       <rect class="table-row-odd" data-row="latency-limit" x="0" y="68" width="384" height="34" fill="#f3f4f6" stroke="none"/>
@@ -177,30 +198,35 @@
     <rect class="evidence-panel-frame" x="120" y="690" width="320" height="56" fill="#fffbeb" stroke="#374151"/>
     <g class="evidence-panel-title-cell">
       <rect class="evidence-panel-title-bg" x="120" y="690" width="115.2" height="56" fill="#e5e7eb" stroke="#374151"/>
-      <text class="evidence-panel-title" x="177.6" y="718" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">note: parameter-prohibition-note</text>
+      <text class="evidence-panel-title" x="177.6" y="706" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="177.6" y="706">note:</tspan>
+  <tspan x="177.6" y="718">parameter-prohibi</tspan>
+  <tspan x="177.6" y="730">tion-note</tspan>
+</text>
     </g>
     <g class="evidence-panel-items-cell">
       <rect class="evidence-panel-items-bg" x="235.2" y="690" width="204.8" height="56" fill="transparent" stroke="#374151"/>
       <rect class="evidence-panel-item" data-item="no-untyped-params" x="235.2" y="690" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="337.6" y="704" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">No untyped params: Every extracted parameter keeps type and unit</text>
+      <text class="evidence-panel-item-label" x="337.6" y="698" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="337.6" y="698">No untyped params: Every</tspan>
+  <tspan x="337.6" y="710">extracted parameter keeps typ...</tspan>
+</text>
       <rect class="evidence-panel-item" data-item="no-orphan-params" x="235.2" y="718" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="337.6" y="732" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">No orphan params: Every parameter binds to MoE or requirement evidence</text>
+      <text class="evidence-panel-item-label" x="337.6" y="726" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="337.6" y="726">No orphan params: Every</tspan>
+  <tspan x="337.6" y="738">parameter binds to MoE or...</tspan>
+</text>
     </g>
   </g>
-  <rect class="node node-rectangle" data-id="structure-block-cooling" fill="#f8fafc" stroke="#374151" x="600" y="80" width="131.27" height="42"/>
-  <rect class="node node-rectangle" data-id="structure-block-heating" fill="#f8fafc" stroke="#374151" x="840" y="80" width="133.41" height="42"/>
-  <rect class="node node-rectangle" data-id="structure-block-hmi" fill="#f8fafc" stroke="#374151" x="120" y="80" width="104.61" height="42"/>
-  <rect class="node node-rectangle" data-id="structure-block-processing" fill="#f8fafc" stroke="#374151" x="360" y="80" width="154.09" height="42"/>
-  <text class="label" data-for="structure-block-cooling" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="616" y="106.4">Cooling Block</tspan>
-  </text>
-  <text class="label" data-for="structure-block-heating" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="856" y="106.4">Heating Block</tspan>
-  </text>
-  <text class="label" data-for="structure-block-hmi" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="136" y="106.4">HMI Block</tspan>
-  </text>
-  <text class="label" data-for="structure-block-processing" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="376" y="106.4">Processing Block</tspan>
+  <rect class="node node-rectangle" data-id="structure-block-cooling" fill="#f8fafc" stroke="#374151" x="600" y="80" width="141.2" height="42"/>
+  <rect class="node node-rectangle" data-id="structure-block-heating" fill="#f8fafc" stroke="#374151" x="840" y="80" width="141.2" height="42"/>
+  <rect class="node node-rectangle" data-id="structure-block-hmi" fill="#f8fafc" stroke="#374151" x="120" y="80" width="107.6" height="42"/>
+  <rect class="node node-rectangle" data-id="structure-block-processing" fill="#f8fafc" stroke="#374151" x="360" y="80" width="158" height="60"/>
+  <text class="label" data-for="structure-block-cooling" data-text-surface="node-label" data-owner-id="structure-block-cooling" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="670.6" y="101">Cooling Block</text>
+  <text class="label" data-for="structure-block-heating" data-text-surface="node-label" data-owner-id="structure-block-heating" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="910.6" y="101">Heating Block</text>
+  <text class="label" data-for="structure-block-hmi" data-text-surface="node-label" data-owner-id="structure-block-hmi" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="173.8" y="101">HMI Block</text>
+  <text class="label" data-for="structure-block-processing" data-text-surface="node-label" data-owner-id="structure-block-processing" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="439" y="106.4">Processing Bloc</tspan>
+    <tspan x="380.2" y="124.4">k</tspan>
   </text>
 </svg>

@@ -71,7 +71,7 @@ describe("agh CLI contract", () => {
 		expect(io.stderr()).toBe("");
 	});
 
-	it("runCli uses the default Pretext text measurer without exposing backend in SVG", async () => {
+	it("runCli uses the default Pretext text measurer and exports backend metadata in SVG", async () => {
 		const originalOffscreenCanvas = globalThis.OffscreenCanvas;
 		globalThis.OffscreenCanvas =
 			undefined as unknown as typeof globalThis.OffscreenCanvas;
@@ -86,7 +86,7 @@ describe("agh CLI contract", () => {
 			expect(io.stdout()).toContain("<svg");
 			expect(io.stderr()).toBe("");
 			expect(prepareSpy).toHaveBeenCalled();
-			expect(io.stdout()).not.toContain("pretext");
+			expect(io.stdout()).toContain('data-text-backend="pretext"');
 		} finally {
 			prepareSpy.mockRestore();
 			globalThis.OffscreenCanvas = originalOffscreenCanvas;

@@ -30,16 +30,33 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	);
 
 	if ((input.kind ?? "orthogonal") === "straight") {
-		return { points: simplifyRoute([source, target]), diagnostics };
+		const points = simplifyRoute([source, target]);
+		if (routeIntersectsObstacles(points, hardObstacles)) {
+			diagnostics.push({
+				severity: "error",
+				code: "routing.evidence.crossing_forbidden",
+				message: "Straight route crosses hard evidence block obstacles.",
+			});
+			return { points: [], diagnostics };
+		}
+		if (routeIntersectsObstacles(points, softObstacles)) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.obstacle.unavoidable",
+				message: "Straight route crosses soft obstacles.",
+			});
+		}
+		return { points, diagnostics };
 	}
 
+	const routeLaneObstacles = [...softObstacles, ...hardObstacles];
 	const candidates = orthogonalCandidates(source, target, input.direction);
 	candidates.push(
 		...expandedObstacleCandidates(
 			source,
 			target,
 			input.direction,
-			softObstacles,
+			routeLaneObstacles,
 		),
 	);
 	for (const candidate of candidates) {

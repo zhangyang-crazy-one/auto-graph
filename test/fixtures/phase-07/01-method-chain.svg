@@ -5,12 +5,19 @@
     <rect class="evidence-panel-frame" x="20" y="80" width="320" height="140" fill="#ecfdf5" stroke="#374151"/>
     <g class="evidence-panel-title-cell">
       <rect class="evidence-panel-title-bg" x="20" y="80" width="115.2" height="140" fill="#e5e7eb" stroke="#374151"/>
-      <text class="evidence-panel-title" x="77.6" y="150" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">legend: left-classification-legend</text>
+      <text class="evidence-panel-title" x="77.6" y="138" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="77.6" y="138">legend:</tspan>
+  <tspan x="77.6" y="150">left-classificati</tspan>
+  <tspan x="77.6" y="162">on-legend</tspan>
+</text>
     </g>
     <g class="evidence-panel-items-cell">
       <rect class="evidence-panel-items-bg" x="135.2" y="80" width="204.8" height="140" fill="transparent" stroke="#374151"/>
       <rect class="evidence-panel-item" data-item="need-row" x="135.2" y="80" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="94" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Need: Problem statement and acceptance</text>
+      <text class="evidence-panel-item-label" x="237.6" y="88" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="237.6" y="88">Need: Problem statement and</tspan>
+  <tspan x="237.6" y="100">acceptance</tspan>
+</text>
       <rect class="evidence-panel-item" data-item="structure-row" x="135.2" y="108" width="204.8" height="28" fill="transparent" stroke="none"/>
       <text class="evidence-panel-item-label" x="237.6" y="122" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Structure: Static model evidence</text>
       <rect class="evidence-panel-item" data-item="view-row" x="135.2" y="136" width="204.8" height="28" fill="transparent" stroke="none"/>
@@ -18,14 +25,21 @@
       <rect class="evidence-panel-item" data-item="action-row" x="135.2" y="164" width="204.8" height="28" fill="transparent" stroke="none"/>
       <text class="evidence-panel-item-label" x="237.6" y="178" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Action: Behavior and operation</text>
       <rect class="evidence-panel-item" data-item="parameter-row" x="135.2" y="192" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="206" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Parameter: Quantified design values</text>
+      <text class="evidence-panel-item-label" x="237.6" y="200" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="237.6" y="200">Parameter: Quantified design</tspan>
+  <tspan x="237.6" y="212">values</tspan>
+</text>
     </g>
   </g>
   <g class="evidence-panel evidence-panel--note" data-id="behavior-triad-note" data-kind="note" data-item-count="3">
     <rect class="evidence-panel-frame" x="180" y="610" width="320" height="84" fill="#fffbeb" stroke="#374151"/>
     <g class="evidence-panel-title-cell">
       <rect class="evidence-panel-title-bg" x="180" y="610" width="115.2" height="84" fill="#e5e7eb" stroke="#374151"/>
-      <text class="evidence-panel-title" x="237.6" y="652" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">note: behavior-triad-note</text>
+      <text class="evidence-panel-title" x="237.6" y="640" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="237.6" y="640">note:</tspan>
+  <tspan x="237.6" y="652">behavior-triad-no</tspan>
+  <tspan x="237.6" y="664">te</tspan>
+</text>
     </g>
     <g class="evidence-panel-items-cell">
       <rect class="evidence-panel-items-bg" x="295.2" y="610" width="204.8" height="84" fill="transparent" stroke="#374151"/>
@@ -41,7 +55,10 @@
     <rect class="evidence-panel-frame" x="780" y="610" width="320" height="84" fill="#ecfdf5" stroke="#374151"/>
     <g class="evidence-panel-title-cell">
       <rect class="evidence-panel-title-bg" x="780" y="610" width="115.2" height="84" fill="#e5e7eb" stroke="#374151"/>
-      <text class="evidence-panel-title" x="837.6" y="652" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">legend: symbol-legend</text>
+      <text class="evidence-panel-title" x="837.6" y="646" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="837.6" y="646">legend:</tspan>
+  <tspan x="837.6" y="658">symbol-legend</tspan>
+</text>
     </g>
     <g class="evidence-panel-items-cell">
       <rect class="evidence-panel-items-bg" x="895.2" y="610" width="204.8" height="84" fill="transparent" stroke="#374151"/>
@@ -53,80 +70,73 @@
       <text class="evidence-panel-item-label" x="997.6" y="680" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Filled cell: Evidence present</text>
     </g>
   </g>
-  <rect class="node node-rectangle" data-id="action-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="380" width="151.37" height="60"/>
-  <rect class="node node-rectangle" data-id="action-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="380" width="151.37" height="60"/>
-  <rect class="node node-rectangle" data-id="action-solution" fill="#f8fafc" stroke="#374151" x="660" y="380" width="152.99" height="42"/>
-  <rect class="node node-rectangle" data-id="need-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="80" width="142.93" height="60"/>
-  <rect class="node node-rectangle" data-id="need-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="80" width="142.93" height="60"/>
-  <rect class="node node-rectangle" data-id="need-solution" fill="#f8fafc" stroke="#374151" x="660" y="80" width="144.55" height="42"/>
-  <rect class="node node-rectangle" data-id="parameter-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="480" width="134.35" height="78"/>
-  <rect class="node node-rectangle" data-id="parameter-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="480" width="136.16" height="78"/>
-  <rect class="node node-rectangle" data-id="parameter-solution" fill="#f8fafc" stroke="#374151" x="660" y="480" width="117.16" height="60"/>
-  <rect class="node node-rectangle" data-id="structure-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="180" width="134.35" height="78"/>
-  <rect class="node node-rectangle" data-id="structure-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="180" width="136.16" height="78"/>
-  <rect class="node node-rectangle" data-id="structure-solution" fill="#f8fafc" stroke="#374151" x="660" y="180" width="110.24" height="60"/>
-  <rect class="node node-rectangle" data-id="view-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="280" width="137.6" height="60"/>
-  <rect class="node node-rectangle" data-id="view-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="280" width="137.6" height="60"/>
-  <rect class="node node-rectangle" data-id="view-solution" fill="#f8fafc" stroke="#374151" x="660" y="280" width="139.22" height="42"/>
-  <text class="label" data-for="action-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="196" y="406.4">Action - Problem </tspan>
-    <tspan x="196" y="424.4">Black Box</tspan>
+  <rect class="node node-rectangle" data-id="action-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="380" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="action-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="380" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="action-solution" fill="#f8fafc" stroke="#374151" x="660" y="380" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="need-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="80" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="need-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="80" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="need-solution" fill="#f8fafc" stroke="#374151" x="660" y="80" width="158" height="42"/>
+  <rect class="node node-rectangle" data-id="parameter-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="480" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="parameter-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="480" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="parameter-solution" fill="#f8fafc" stroke="#374151" x="660" y="480" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="structure-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="180" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="structure-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="180" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="structure-solution" fill="#f8fafc" stroke="#374151" x="660" y="180" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="view-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="280" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="view-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="280" width="158" height="60"/>
+  <rect class="node node-rectangle" data-id="view-solution" fill="#f8fafc" stroke="#374151" x="660" y="280" width="158" height="42"/>
+  <text class="label" data-for="action-problem-black-box" data-text-surface="node-label" data-owner-id="action-problem-black-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="259" y="406.4">Action - Proble</tspan>
+    <tspan x="242.2" y="424.4">m Black Box</tspan>
   </text>
-  <text class="label" data-for="action-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="436" y="406.4">Action - Problem </tspan>
-    <tspan x="436" y="424.4">White Box</tspan>
+  <text class="label" data-for="action-problem-white-box" data-text-surface="node-label" data-owner-id="action-problem-white-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="499" y="406.4">Action - Proble</tspan>
+    <tspan x="482.2" y="424.4">m White Box</tspan>
   </text>
-  <text class="label" data-for="action-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="676" y="406.4">Action - Solution</tspan>
+  <text class="label" data-for="action-solution" data-text-surface="node-label" data-owner-id="action-solution" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="739" y="406.4">Action - Soluti</tspan>
+    <tspan x="684.4" y="424.4">on</tspan>
   </text>
-  <text class="label" data-for="need-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="196" y="106.4">Need - Problem </tspan>
-    <tspan x="196" y="124.4">Black Box</tspan>
+  <text class="label" data-for="need-problem-black-box" data-text-surface="node-label" data-owner-id="need-problem-black-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="259" y="106.4">Need - Problem </tspan>
+    <tspan x="233.8" y="124.4">Black Box</tspan>
   </text>
-  <text class="label" data-for="need-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="436" y="106.4">Need - Problem </tspan>
-    <tspan x="436" y="124.4">White Box</tspan>
+  <text class="label" data-for="need-problem-white-box" data-text-surface="node-label" data-owner-id="need-problem-white-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="499" y="106.4">Need - Problem </tspan>
+    <tspan x="473.8" y="124.4">White Box</tspan>
   </text>
-  <text class="label" data-for="need-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="676" y="106.4">Need - Solution</tspan>
+  <text class="label" data-for="need-solution" data-text-surface="node-label" data-owner-id="need-solution" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="739" y="101">Need - Solution</text>
+  <text class="label" data-for="parameter-problem-black-box" data-text-surface="node-label" data-owner-id="parameter-problem-black-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="259" y="506.4">Parameter - Pro</tspan>
+    <tspan x="254.8" y="524.4">blem Black Box</tspan>
   </text>
-  <text class="label" data-for="parameter-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="196" y="506.4">Parameter - </tspan>
-    <tspan x="196" y="524.4">Problem Black </tspan>
-    <tspan x="196" y="542.4">Box</tspan>
+  <text class="label" data-for="parameter-problem-white-box" data-text-surface="node-label" data-owner-id="parameter-problem-white-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="499" y="506.4">Parameter - Pro</tspan>
+    <tspan x="494.8" y="524.4">blem White Box</tspan>
   </text>
-  <text class="label" data-for="parameter-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="436" y="506.4">Parameter - </tspan>
-    <tspan x="436" y="524.4">Problem White </tspan>
-    <tspan x="436" y="542.4">Box</tspan>
+  <text class="label" data-for="parameter-solution" data-text-surface="node-label" data-owner-id="parameter-solution" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="739" y="506.4">Parameter - Sol</tspan>
+    <tspan x="697" y="524.4">ution</tspan>
   </text>
-  <text class="label" data-for="parameter-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="676" y="506.4">Parameter - </tspan>
-    <tspan x="676" y="524.4">Solution</tspan>
+  <text class="label" data-for="structure-problem-black-box" data-text-surface="node-label" data-owner-id="structure-problem-black-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="259" y="206.4">Structure - Pro</tspan>
+    <tspan x="254.8" y="224.4">blem Black Box</tspan>
   </text>
-  <text class="label" data-for="structure-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="196" y="206.4">Structure - </tspan>
-    <tspan x="196" y="224.4">Problem Black </tspan>
-    <tspan x="196" y="242.4">Box</tspan>
+  <text class="label" data-for="structure-problem-white-box" data-text-surface="node-label" data-owner-id="structure-problem-white-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="499" y="206.4">Structure - Pro</tspan>
+    <tspan x="494.8" y="224.4">blem White Box</tspan>
   </text>
-  <text class="label" data-for="structure-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="436" y="206.4">Structure - </tspan>
-    <tspan x="436" y="224.4">Problem White </tspan>
-    <tspan x="436" y="242.4">Box</tspan>
+  <text class="label" data-for="structure-solution" data-text-surface="node-label" data-owner-id="structure-solution" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="739" y="206.4">Structure - Sol</tspan>
+    <tspan x="697" y="224.4">ution</tspan>
   </text>
-  <text class="label" data-for="structure-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="676" y="206.4">Structure - </tspan>
-    <tspan x="676" y="224.4">Solution</tspan>
+  <text class="label" data-for="view-problem-black-box" data-text-surface="node-label" data-owner-id="view-problem-black-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="259" y="306.4">View - Problem </tspan>
+    <tspan x="233.8" y="324.4">Black Box</tspan>
   </text>
-  <text class="label" data-for="view-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="196" y="306.4">View - Problem </tspan>
-    <tspan x="196" y="324.4">Black Box</tspan>
+  <text class="label" data-for="view-problem-white-box" data-text-surface="node-label" data-owner-id="view-problem-white-box" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">
+    <tspan x="499" y="306.4">View - Problem </tspan>
+    <tspan x="473.8" y="324.4">White Box</tspan>
   </text>
-  <text class="label" data-for="view-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="436" y="306.4">View - Problem </tspan>
-    <tspan x="436" y="324.4">White Box</tspan>
-  </text>
-  <text class="label" data-for="view-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
-    <tspan x="676" y="306.4">View - Solution</tspan>
-  </text>
+  <text class="label" data-for="view-solution" data-text-surface="node-label" data-owner-id="view-solution" data-text-backend="deterministic" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="739" y="301">View - Solution</text>
 </svg>

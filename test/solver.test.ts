@@ -358,6 +358,331 @@ describe("solveDiagram", () => {
 		expect(result.swimlanes?.[0]?.lanes).toEqual([]);
 	});
 
+	it("emits indexed solved text annotations for compartment rows", () => {
+		const result = solveDiagram({
+			id: "compartment-annotations",
+			direction: "LR",
+			nodes: [
+				{
+					...node("block", { x: 0, y: 0 }),
+					compartments: {
+						stereotype: "«block»",
+						name: "Block",
+						properties: ["alpha", "beta"],
+					},
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const compartmentRows = result.textAnnotations?.filter(
+			(annotation) => annotation.surfaceKind === "compartment-row",
+		);
+
+		expect(compartmentRows).toHaveLength(4);
+		expect(
+			compartmentRows?.map((annotation) => annotation.surfaceIndex),
+		).toEqual([0, 1, 2, 3]);
+		expect(
+			result.textAnnotations?.some(
+				(annotation) => annotation.surfaceKind === "node-label",
+			),
+		).toBe(false);
+		for (const row of compartmentRows ?? []) {
+			expect(row.box.x + row.box.width / 2).toBeCloseTo(
+				(row.anchor.x ?? 0) +
+					("width" in row.anchor ? row.anchor.width / 2 : 0),
+			);
+		}
+	});
+
+	it("includes solved text boxes in bounds and suppresses intentional internal label collisions", () => {
+		const result = solveDiagram({
+			id: "text-bounds",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "out",
+							side: "left",
+							kind: "proxy",
+							label: { text: "very long external command port" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const portLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "port-label",
+		);
+
+		expect(portLabel).toBeDefined();
+		expect(result.bounds.x).toBeLessThanOrEqual(portLabel?.box.x ?? 0);
+		expect(
+			result.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.detail?.textSurfaceKind === "node-label" &&
+					diagnostic.detail?.conflictingObjectKind === "port-label",
+			),
+		).toBe(false);
+	});
+
+	it("anchors solved port label annotations to the external label box", () => {
+		const result = solveDiagram({
+			id: "port-label-anchor",
+			direction: "LR",
+			nodes: [
+				{
+					...node("source", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "left",
+							side: "left",
+							kind: "proxy",
+							label: { text: "external" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const source = result.nodes.find((item) => item.id === "source");
+		const port = source?.ports?.find((item) => item.id === "left");
+		const portLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "port-label",
+		);
+
+		expect(port).toBeDefined();
+		expect(portLabel).toBeDefined();
+		expect(portLabel?.anchor.x).toBeLessThan(port?.box.x ?? 0);
+		expect(portLabel?.box.x).toBeLessThan(port?.box.x ?? 0);
+		expect(portLabel?.box.x).toBeLessThan(source?.box.x ?? 0);
+	});
+
+	it("centers solved edge label annotation boxes on the routed label placement", () => {
+		const result = solveDiagram({
+			id: "edge-label-anchor",
+			direction: "LR",
+			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 200, y: 0 })],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+					label: { text: "realizes" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const edgeLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+
+		expect(edgeLabel).toBeDefined();
+		expect(edgeLabel?.box.width).toBeGreaterThan(0);
+		expect(edgeLabel?.box.height).toBeGreaterThan(0);
+		expect(edgeLabel?.box.x).toBeCloseTo(
+			(edgeLabel?.anchor.x ?? 0) - (edgeLabel?.box.width ?? 0) / 2,
+		);
+		expect(edgeLabel?.box.y).toBeCloseTo(
+			(edgeLabel?.anchor.y ?? 0) - (edgeLabel?.box.height ?? 0) / 2,
+		);
+	});
+
+	it("reports unresolved overlap between externally placed solved text boxes", () => {
+		const result = solveDiagram({
+			id: "text-overlap",
+			direction: "LR",
+			nodes: [
+				{
+					...node("left", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "out",
+							side: "right",
+							kind: "proxy",
+							label: { text: "shared interface" },
+						},
+					],
+				},
+				{
+					...node("right", { x: 115, y: 0 }),
+					ports: [
+						{
+							id: "in",
+							side: "left",
+							kind: "proxy",
+							label: { text: "shared interface" },
+						},
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					textSurfaceKind: "port-label",
+					conflictingObjectKind: "port-label",
+				}),
+			}),
+		);
+	});
+
+	it("routes around externally placed port-label text obstacles", () => {
+		const result = solveDiagram({
+			id: "port-label-route-clearance",
+			direction: "TB",
+			nodes: [
+				{
+					...node("label_owner", { x: 0, y: 0 }),
+					ports: [
+						{
+							id: "labeled",
+							side: "right",
+							kind: "proxy",
+							label: { text: "blocking route label" },
+						},
+					],
+				},
+				node("source", { x: 80, y: -100 }),
+				node("target", { x: 80, y: 80 }),
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+		const portLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "port-label",
+		);
+		const route = result.edges.find((edge) => edge.id === "source-target");
+
+		expect(portLabel).toBeDefined();
+		expect(route).toBeDefined();
+		expect(route?.points.some((point) => point.x !== 120)).toBe(true);
+		expect(
+			result.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.code === "routing.text-clearance.unresolved" &&
+					diagnostic.detail?.textSurfaceKind === "port-label",
+			),
+		).toBe(false);
+	});
+
+	it("reports edge-label clearance conflicts after route placement", () => {
+		const result = solveDiagram({
+			id: "edge-label-clearance",
+			direction: "LR",
+			nodes: [
+				node("source_a", { x: 0, y: 0 }),
+				node("target_a", { x: 240, y: 0 }),
+				node("source_b", { x: 120, y: -120 }),
+				node("target_b", { x: 120, y: 120 }),
+			],
+			edges: [
+				{
+					id: "labeled",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+					label: { text: "route label" },
+				},
+				{
+					id: "crossing",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "crossing",
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+	});
+
+	it("does not report straight-route text clearance when only segment AABB overlaps", () => {
+		const result = solveDiagram(
+			{
+				id: "straight-route-text-clearance-aabb",
+				direction: "LR",
+				nodes: [
+					node("source", { x: 0, y: 0 }),
+					node("target", { x: 240, y: 160 }),
+					{
+						...node("label_owner", { x: 120, y: 110 }),
+						ports: [
+							{
+								id: "label",
+								side: "top",
+								kind: "proxy",
+								label: { text: "near but not crossed" },
+							},
+						],
+					},
+				],
+				edges: [
+					{
+						id: "source-target",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				routeKind: "straight",
+			},
+		);
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "port-label",
+					conflictingObjectId: "label_owner.label",
+				}),
+			}),
+		);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
@@ -869,6 +1194,52 @@ describe("solveDiagram", () => {
 		expect(observe.box.y + observe.box.height).toBeLessThanOrEqual(
 			firstLane.contentBox.y + firstLane.contentBox.height,
 		);
+	});
+
+	it("centers horizontal swimlane labels in headers and measures them against header height", () => {
+		const result = solveDiagram({
+			id: "horizontal-swimlane-label-annotation",
+			direction: "TB",
+			nodes: [node("observe", { x: 100, y: 120 })],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "horizontal",
+					lanes: [
+						{
+							id: "observe_lane",
+							label: { text: "Long Horizontal Lane Label" },
+							children: ["observe"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		const lane = result.swimlanes?.[0]?.lanes[0];
+		const label = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "swimlane-label",
+		);
+
+		if (lane?.headerBox === undefined || label === undefined) {
+			throw new Error(
+				"Expected horizontal swimlane header and label annotation",
+			);
+		}
+		expect(label.box.x + label.box.width / 2).toBeCloseTo(
+			lane.headerBox.x + lane.headerBox.width / 2,
+		);
+		expect(label.box.y + label.box.height / 2).toBeCloseTo(
+			lane.headerBox.y + lane.headerBox.height / 2,
+		);
+		expect(label.box.width).toBeLessThanOrEqual(lane.headerBox.height);
+		expect(label.lines.length).toBeGreaterThan(1);
 	});
 });
 
