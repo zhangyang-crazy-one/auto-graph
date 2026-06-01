@@ -249,19 +249,38 @@ const panelItemSchema = z.union([
 	}),
 ]);
 
-const evidencePanelSchema = z.object({
-	id: z.string(),
-	kind: z.enum(["legend", "rule", "note", "verification"]),
-	items: z.array(panelItemSchema),
-	position: pointSchema.optional(),
-	size: z
-		.object({
-			width: nonNegativeNumberSchema,
-			height: nonNegativeNumberSchema,
-		})
-		.optional(),
-	style: styleSchema.optional(),
-});
+const evidencePanelSchema = z
+	.object({
+		id: z.string(),
+		kind: z.enum(["legend", "rule", "note", "verification"]),
+		items: z.array(panelItemSchema),
+		position: pointSchema.optional(),
+		size: z
+			.object({
+				width: nonNegativeNumberSchema,
+				height: nonNegativeNumberSchema,
+			})
+			.optional(),
+		style: styleSchema.optional(),
+	})
+	.superRefine((panel, context) => {
+		const firstIndexByItemId = new Map<string, number>();
+		panel.items.forEach((item, index) => {
+			if (typeof item === "string" || item.id === undefined) {
+				return;
+			}
+			const firstIndex = firstIndexByItemId.get(item.id);
+			if (firstIndex === undefined) {
+				firstIndexByItemId.set(item.id, index);
+				return;
+			}
+			context.addIssue({
+				code: "custom",
+				message: `Duplicate evidence panel item id "${item.id}".`,
+				path: ["items", index, "id"],
+			});
+		});
+	});
 
 const exactPositionConstraintSchema = z.object({
 	kind: z.literal("exact-position"),

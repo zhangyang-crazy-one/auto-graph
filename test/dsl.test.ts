@@ -395,6 +395,7 @@ evidencePanels:
 			rows: ["need-1", "need-2"],
 			cols: ["function-1", "function-2"],
 			position: { x: 420, y: 40 },
+			size: { width: 336, height: 108 },
 			cells: [
 				[{ text: "covered" }, { text: "gap", style: { fill: "#fff3cd" } }],
 				[{ text: "" }, { text: "covered" }],
@@ -597,6 +598,30 @@ tables:
 			expect.objectContaining({
 				message: 'Duplicate row "mass".',
 				path: ["tables", 0, "rows", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects duplicate evidence panel item ids", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+evidencePanels:
+  - id: legend
+    kind: legend
+    items:
+      - Freeform string item
+      - id: repeated
+        label: First
+      - id: repeated
+        label: Second
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate evidence panel item id "repeated".',
+				path: ["evidencePanels", 0, "items", 2, "id"],
 			}),
 		);
 	});

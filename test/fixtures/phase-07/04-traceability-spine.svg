@@ -1,127 +1,121 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="180 80 1080 664">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="180 80 1176 664">
   <title>Traceability Spine Evidence Blocks</title>
-  <rect class="background" x="180" y="80" width="1080" height="664" fill="#ffffff"/>
+  <rect class="background" x="180" y="80" width="1176" height="664" fill="#ffffff"/>
   <g class="matrix-block" data-id="traceability-matrix" data-row-count="6" data-column-count="3">
-    <rect class="matrix-frame" x="900" y="90" width="360" height="252" fill="#f8fafc" stroke="#374151"/>
+    <rect class="matrix-frame" x="900" y="90" width="456" height="252" fill="#f8fafc" stroke="#374151"/>
     <rect class="matrix-corner-header" x="900" y="90" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
-    <rect class="matrix-column-header" data-col="operational-model" x="996" y="90" width="88" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1040" y="102" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
-  <tspan x="1040" y="102">operational-m</tspan>
-  <tspan x="1040" y="114">odel</tspan>
-</text>
-    <rect class="matrix-column-header" data-col="safety-model" x="1084" y="90" width="88" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1128" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">safety-model</text>
-    <rect class="matrix-column-header" data-col="performance-model" x="1172" y="90" width="88" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1216" y="102" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
-  <tspan x="1216" y="102">performance-m</tspan>
-  <tspan x="1216" y="114">odel</tspan>
-</text>
+    <rect class="matrix-column-header" data-col="operational-model" x="996" y="90" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1056" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">operational-model</text>
+    <rect class="matrix-column-header" data-col="safety-model" x="1116" y="90" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1176" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">safety-model</text>
+    <rect class="matrix-column-header" data-col="performance-model" x="1236" y="90" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1296" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">performance-model</text>
     <rect class="matrix-row-header" data-row="sn-1" x="900" y="126" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">sn-1</text>
-    <rect class="matrix-cell" data-row="sn-1" data-col="operational-model" x="996" y="126" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="sn-1" data-col="safety-model" x="1084" y="126" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="sn-1" data-col="performance-model" x="1172" y="126" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
+    <rect class="matrix-cell" data-row="sn-1" data-col="operational-model" x="996" y="126" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-1" data-col="safety-model" x="1116" y="126" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-1" data-col="performance-model" x="1236" y="126" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
     <rect class="matrix-row-header" data-row="sn-2" x="900" y="162" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">sn-2</text>
-    <rect class="matrix-cell" data-row="sn-2" data-col="operational-model" x="996" y="162" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="sn-2" data-col="safety-model" x="1084" y="162" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
-    <rect class="matrix-cell" data-row="sn-2" data-col="performance-model" x="1172" y="162" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-2" data-col="operational-model" x="996" y="162" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-2" data-col="safety-model" x="1116" y="162" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
+    <rect class="matrix-cell" data-row="sn-2" data-col="performance-model" x="1236" y="162" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
     <rect class="matrix-row-header" data-row="req-1" x="900" y="198" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">req-1</text>
-    <rect class="matrix-cell" data-row="req-1" data-col="operational-model" x="996" y="198" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
-    <rect class="matrix-cell" data-row="req-1" data-col="safety-model" x="1084" y="198" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="req-1" data-col="performance-model" x="1172" y="198" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-1" data-col="operational-model" x="996" y="198" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
+    <rect class="matrix-cell" data-row="req-1" data-col="safety-model" x="1116" y="198" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-1" data-col="performance-model" x="1236" y="198" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
     <rect class="matrix-row-header" data-row="req-2" x="900" y="234" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">req-2</text>
-    <rect class="matrix-cell" data-row="req-2" data-col="operational-model" x="996" y="234" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
-    <rect class="matrix-cell" data-row="req-2" data-col="safety-model" x="1084" y="234" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="req-2" data-col="performance-model" x="1172" y="234" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-2" data-col="operational-model" x="996" y="234" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
+    <rect class="matrix-cell" data-row="req-2" data-col="safety-model" x="1116" y="234" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-2" data-col="performance-model" x="1236" y="234" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
     <rect class="matrix-row-header" data-row="fn-1" x="900" y="270" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">fn-1</text>
-    <rect class="matrix-cell" data-row="fn-1" data-col="operational-model" x="996" y="270" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="fn-1" data-col="safety-model" x="1084" y="270" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
-    <rect class="matrix-cell" data-row="fn-1" data-col="performance-model" x="1172" y="270" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-1" data-col="operational-model" x="996" y="270" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-1" data-col="safety-model" x="1116" y="270" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
+    <rect class="matrix-cell" data-row="fn-1" data-col="performance-model" x="1236" y="270" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
     <rect class="matrix-row-header" data-row="fn-2" x="900" y="306" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">fn-2</text>
-    <rect class="matrix-cell" data-row="fn-2" data-col="operational-model" x="996" y="306" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="fn-2" data-col="safety-model" x="1084" y="306" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
-    <rect class="matrix-cell" data-row="fn-2" data-col="performance-model" x="1172" y="306" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
+    <rect class="matrix-cell" data-row="fn-2" data-col="operational-model" x="996" y="306" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-2" data-col="safety-model" x="1116" y="306" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-2" data-col="performance-model" x="1236" y="306" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
   </g>
   <g class="matrix-block" data-id="verification-matrix" data-row-count="6" data-column-count="3">
-    <rect class="matrix-frame" x="900" y="390" width="360" height="252" fill="#f8fafc" stroke="#374151"/>
+    <rect class="matrix-frame" x="900" y="390" width="456" height="252" fill="#f8fafc" stroke="#374151"/>
     <rect class="matrix-corner-header" x="900" y="390" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
-    <rect class="matrix-column-header" data-col="need" x="996" y="390" width="88" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1040" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">need</text>
-    <rect class="matrix-column-header" data-col="requirement" x="1084" y="390" width="88" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1128" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">requirement</text>
-    <rect class="matrix-column-header" data-col="function" x="1172" y="390" width="88" height="36" fill="#e5e7eb" stroke="#374151"/>
-  <text class="matrix-column-label" x="1216" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">function</text>
+    <rect class="matrix-column-header" data-col="need" x="996" y="390" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1056" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">need</text>
+    <rect class="matrix-column-header" data-col="requirement" x="1116" y="390" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1176" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">requirement</text>
+    <rect class="matrix-column-header" data-col="function" x="1236" y="390" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1296" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">function</text>
     <rect class="matrix-row-header" data-row="vt-1" x="900" y="426" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">vt-1</text>
-    <rect class="matrix-cell" data-row="vt-1" data-col="need" x="996" y="426" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-1" data-col="requirement" x="1084" y="426" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-1" data-col="function" x="1172" y="426" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-1" data-col="need" x="996" y="426" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-1" data-col="requirement" x="1116" y="426" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-1" data-col="function" x="1236" y="426" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
     <rect class="matrix-row-header" data-row="vt-2" x="900" y="462" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">vt-2</text>
-    <rect class="matrix-cell" data-row="vt-2" data-col="need" x="996" y="462" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-2" data-col="requirement" x="1084" y="462" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
-    <rect class="matrix-cell" data-row="vt-2" data-col="function" x="1172" y="462" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-2" data-col="need" x="996" y="462" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-2" data-col="requirement" x="1116" y="462" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-2" data-col="function" x="1236" y="462" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
     <rect class="matrix-row-header" data-row="vt-3" x="900" y="498" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">vt-3</text>
-    <rect class="matrix-cell" data-row="vt-3" data-col="need" x="996" y="498" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
-    <rect class="matrix-cell" data-row="vt-3" data-col="requirement" x="1084" y="498" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-3" data-col="function" x="1172" y="498" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-3" data-col="need" x="996" y="498" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-3" data-col="requirement" x="1116" y="498" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-3" data-col="function" x="1236" y="498" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
     <rect class="matrix-row-header" data-row="vt-4" x="900" y="534" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">vt-4</text>
-    <rect class="matrix-cell" data-row="vt-4" data-col="need" x="996" y="534" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-4" data-col="requirement" x="1084" y="534" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-4" data-col="function" x="1172" y="534" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-4" data-col="need" x="996" y="534" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-4" data-col="requirement" x="1116" y="534" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-4" data-col="function" x="1236" y="534" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
     <rect class="matrix-row-header" data-row="vt-5" x="900" y="570" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">vt-5</text>
-    <rect class="matrix-cell" data-row="vt-5" data-col="need" x="996" y="570" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-5" data-col="requirement" x="1084" y="570" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
-    <rect class="matrix-cell" data-row="vt-5" data-col="function" x="1172" y="570" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-5" data-col="need" x="996" y="570" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-5" data-col="requirement" x="1116" y="570" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-5" data-col="function" x="1236" y="570" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
     <rect class="matrix-row-header" data-row="vt-6" x="900" y="606" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
   <text class="matrix-row-label" x="948" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">vt-6</text>
-    <rect class="matrix-cell" data-row="vt-6" data-col="need" x="996" y="606" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1040" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
-    <rect class="matrix-cell" data-row="vt-6" data-col="requirement" x="1084" y="606" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1128" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
-    <rect class="matrix-cell" data-row="vt-6" data-col="function" x="1172" y="606" width="88" height="36" fill="#ffffff" stroke="#374151"/>
-  <text class="matrix-cell-label" x="1216" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-6" data-col="need" x="996" y="606" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1056" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-6" data-col="requirement" x="1116" y="606" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1176" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-6" data-col="function" x="1236" y="606" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1296" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
   </g>
   <g class="evidence-panel evidence-panel--rule" data-id="traceability-spine-rules" data-kind="rule" data-item-count="3">
     <rect class="evidence-panel-frame" x="180" y="660" width="320" height="84" fill="#eff6ff" stroke="#374151"/>

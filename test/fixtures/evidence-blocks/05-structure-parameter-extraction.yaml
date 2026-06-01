@@ -80,7 +80,7 @@ matrices:
   - id: parameter-moe-requirement-binding-matrix
     rows: [luminance, cycle-time, cooling-power, heating-power]
     cols: [moe-visibility, moe-latency, req-thermal, req-energy]
-    position: { x: 660, y: 420 }
+    position: { x: 720, y: 420 }
     cells:
       - [bind, "", "", ""]
       - ["", bind, "", ""]

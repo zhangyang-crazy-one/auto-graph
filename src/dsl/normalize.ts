@@ -406,12 +406,22 @@ function normalizeMatrices(dsl: DiagramDsl): MatrixBlock[] | undefined {
 			? {}
 			: { position: point(matrix.position) }),
 		size: matrix.size ?? {
-			width: Math.max(1, matrix.cols.length) * DEFAULT_MATRIX_CELL_SIZE.width,
+			width:
+				defaultMatrixRowHeaderWidth(matrix) +
+				Math.max(1, matrix.cols.length) * DEFAULT_MATRIX_CELL_SIZE.width,
 			height:
 				Math.max(1, matrix.rows.length + 1) * DEFAULT_MATRIX_CELL_SIZE.height,
 		},
 		...(matrix.style === undefined ? {} : { style: style(matrix.style) }),
 	}));
+}
+
+function defaultMatrixRowHeaderWidth(matrix: {
+	rows: readonly string[];
+}): number {
+	return matrix.rows.length === 0
+		? 0
+		: Math.min(96, DEFAULT_MATRIX_CELL_SIZE.width);
 }
 
 function normalizeTables(dsl: DiagramDsl): TableBlock[] | undefined {
