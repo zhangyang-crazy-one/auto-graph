@@ -423,11 +423,13 @@ function normalizeTables(dsl: DiagramDsl): TableBlock[] | undefined {
 		id: table.id,
 		columns: table.columns.map(tableColumn),
 		rows: table.rows.map(tableRow),
-		...(table.position === undefined ? {} : { position: point(table.position) }),
+		...(table.position === undefined
+			? {}
+			: { position: point(table.position) }),
 		size: table.size ?? {
-			width:
-				Math.max(1, table.columns.length) * DEFAULT_TABLE_CELL_SIZE.width,
-			height: Math.max(1, table.rows.length + 1) * DEFAULT_TABLE_CELL_SIZE.height,
+			width: Math.max(1, table.columns.length) * DEFAULT_TABLE_CELL_SIZE.width,
+			height:
+				Math.max(1, table.rows.length + 1) * DEFAULT_TABLE_CELL_SIZE.height,
 		},
 		...(table.style === undefined ? {} : { style: style(table.style) }),
 	}));
@@ -442,7 +444,9 @@ function normalizeEvidencePanels(dsl: DiagramDsl): EvidencePanel[] | undefined {
 		id: panel.id,
 		kind: panel.kind,
 		items: panel.items.map(panelItem),
-		...(panel.position === undefined ? {} : { position: point(panel.position) }),
+		...(panel.position === undefined
+			? {}
+			: { position: point(panel.position) }),
 		size: panel.size ?? {
 			width: 320,
 			height: Math.max(1, panel.items.length) * DEFAULT_PANEL_ITEM_HEIGHT,
@@ -529,7 +533,9 @@ type CellObject = {
 	text: string;
 	fill?: string | undefined;
 	stroke?: string | undefined;
-	style?: { fill?: string | undefined; stroke?: string | undefined } | undefined;
+	style?:
+		| { fill?: string | undefined; stroke?: string | undefined }
+		| undefined;
 };
 
 function normalizeGroups(

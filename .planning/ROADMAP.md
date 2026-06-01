@@ -132,6 +132,19 @@ Plans:
 
 All v1 requirements in `.planning/REQUIREMENTS.md` are mapped to exactly one phase.
 
+### Phase 7: Add evidence blocks for matrices, tables, and panels
+
+**Goal:** Make evidence blocks first-class diagram surfaces for methodology-split style pages.
+**Requirements**: V2-INT-01
+**Depends on:** Phase 6
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 07-01-PLAN.md — Add evidence block DSL and IR contracts.
+- [x] 07-02-PLAN.md — Coordinate evidence blocks and keep routes off them.
+- [x] 07-03-PLAN.md — Render SVG and Excalidraw evidence blocks and fixtures.
+- [x] 07-04-PLAN.md — Lock methodology-split benchmark evidence.
+
 ---
 *Roadmap created: 2026-05-24*
 *Last updated: 2026-05-24 after initialization*

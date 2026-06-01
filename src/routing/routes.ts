@@ -56,7 +56,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		diagnostics.push({
 			severity: "warning",
 			code: "routing.obstacle.unavoidable",
-			message: "No bounded orthogonal route candidate avoided all soft obstacles.",
+			message:
+				"No bounded orthogonal route candidate avoided all soft obstacles.",
 		});
 
 		return {

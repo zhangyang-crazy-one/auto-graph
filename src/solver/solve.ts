@@ -14,8 +14,6 @@ import type {
 	CoordinatedGroup,
 	CoordinatedNode,
 	CoordinatedPort,
-	EvidencePanel,
-	MatrixBlock,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
@@ -178,7 +176,7 @@ export function solveDiagram(
 		...baseTextAnnotations.filter(isPreRouteTextObstacle),
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
 	];
-const coordinatedEdges = coordinateEdges(
+	const coordinatedEdges = coordinateEdges(
 		edges,
 		nodeGeometryById,
 		coordinatedNodes,
@@ -214,7 +212,9 @@ const coordinatedEdges = coordinateEdges(
 		...(coordinatedSwimlanes.length === 0
 			? {}
 			: { swimlanes: coordinatedSwimlanes }),
-		...(coordinatedMatrices.length === 0 ? {} : { matrices: coordinatedMatrices }),
+		...(coordinatedMatrices.length === 0
+			? {}
+			: { matrices: coordinatedMatrices }),
 		...(coordinatedTables.length === 0 ? {} : { tables: coordinatedTables }),
 		...(coordinatedEvidencePanels.length === 0
 			? {}
@@ -1425,16 +1425,18 @@ type CoordinatedTableBlock = TableBlock & {
 	columnXOffsets: number[];
 };
 
-function coordinateEvidenceBlocks<T extends { position?: Point; size?: BoxSize }>(
-	blocks: readonly T[],
-): Array<EvidenceBlockWithBox<T>> {
+function coordinateEvidenceBlocks<
+	T extends { position?: Point; size?: BoxSize },
+>(blocks: readonly T[]): Array<EvidenceBlockWithBox<T>> {
 	return blocks.map((block) => ({
 		...block,
 		box: blockBox(block),
 	}));
 }
 
-function coordinateTables(tables: readonly TableBlock[]): CoordinatedTableBlock[] {
+function coordinateTables(
+	tables: readonly TableBlock[],
+): CoordinatedTableBlock[] {
 	return tables.map((table) => {
 		const box = blockBox(table);
 		return {

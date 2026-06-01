@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-last_updated: "2026-05-26T08:05:00.000Z"
+last_updated: "2026-06-01T08:34:00.000Z"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 23
-  completed_plans: 23
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 27
+  completed_plans: 27
   percent: 100
 ---
 
@@ -19,7 +19,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-26)
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
-**Current focus:** v1.0 Milestone Completed
+**Current focus:** Phase 07 complete — evidence blocks for matrices, tables, and panels
 
 ## Current Status
 
@@ -50,6 +50,9 @@ Phase 6: Verification And Release Readiness
 - Deterministic output and golden fixtures are release-critical.
 
 ## Recent Execution
+
+- 2026-06-01: Completed Phase 07 (`07-01` through `07-04`) for PR-B methodology-split evidence blocks. Added first-class matrices, tables, evidence panels, solver/routing obstacles, SVG/Excalidraw rendering, benchmark tests, baseline SVGs, and truth-table evidence.
+- 2026-05-31: Planned Phase 07 (`07-01` through `07-03`) for methodology-split evidence blocks, splitting the PR-B slice into DSL/IR, solver/routing, and exporter/fixture plans.
 
 - 2026-05-25: Completed Plan 05-06 (`05-06-SUMMARY.md`) and Phase 05. Task commit: `7fb5cca`; full `rtk npm run verify` passed.
 - 2026-05-25: Completed Plan 05-05 (`05-05-SUMMARY.md`). Task commit: `9e86c10`.

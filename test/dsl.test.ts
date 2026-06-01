@@ -465,9 +465,12 @@ constraints:
 	});
 
 	it("locks method-chain fixture evidence block counts", () => {
-		const parsed = parseDiagramDsl(readEvidenceFixture("01-method-chain.yaml"), {
-			sourcePath: evidenceFixturePath("01-method-chain.yaml"),
-		});
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("01-method-chain.yaml"),
+			{
+				sourcePath: evidenceFixturePath("01-method-chain.yaml"),
+			},
+		);
 		const normalized = normalizeDiagramDsl(parsed.value);
 		const nodes = valueWithNodes(parsed.value).nodes;
 
@@ -481,7 +484,9 @@ constraints:
 			),
 		).toHaveLength(2);
 		expect(
-			normalized.diagram?.evidencePanels?.filter((panel) => panel.kind === "note"),
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "note",
+			),
 		).toHaveLength(1);
 		expectStableEvidenceBlockIds(normalized);
 	});
@@ -513,7 +518,9 @@ constraints:
 		expect(normalized.diagram?.nodes).toHaveLength(18);
 		expect(normalized.diagram?.matrices).toHaveLength(2);
 		expect(
-			normalized.diagram?.evidencePanels?.filter((panel) => panel.kind === "rule"),
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "rule",
+			),
 		).toHaveLength(1);
 		expectStableEvidenceBlockIds(normalized);
 	});
@@ -538,7 +545,9 @@ constraints:
 		expect(normalized.diagram?.tables).toHaveLength(2);
 		expect(normalized.diagram?.matrices).toHaveLength(2);
 		expect(
-			normalized.diagram?.evidencePanels?.filter((panel) => panel.kind === "note"),
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "note",
+			),
 		).toHaveLength(1);
 		expectStableEvidenceBlockIds(normalized);
 	});
@@ -618,9 +627,7 @@ function valueWithNodes(value: unknown): { nodes?: Record<string, unknown> } {
 	return value as { nodes?: Record<string, unknown> };
 }
 
-function expectStableEvidenceBlockIds(
-	result: NormalizeDiagramDslResult,
-): void {
+function expectStableEvidenceBlockIds(result: NormalizeDiagramDslResult): void {
 	const ids = [
 		...(result.diagram?.matrices?.map((matrix) => matrix.id) ?? []),
 		...(result.diagram?.tables?.map((table) => table.id) ?? []),
