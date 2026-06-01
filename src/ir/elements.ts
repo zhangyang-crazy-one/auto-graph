@@ -76,6 +76,82 @@ export interface VisualStyle {
 	stroke?: string;
 }
 
+export interface EvidenceCell {
+	text: string;
+	style?: VisualStyle;
+}
+
+export interface EvidenceTextLayout {
+	lines: string[];
+}
+
+export interface MatrixBlock {
+	id: string;
+	rows: string[];
+	cols: string[];
+	cells: EvidenceCell[][];
+	position?: Point;
+	size?: Size;
+	style?: VisualStyle;
+}
+
+export interface CoordinatedMatrixBlock extends MatrixBlock {
+	box: Box;
+	columnLabelLayouts?: EvidenceTextLayout[];
+	rowLabelLayouts?: EvidenceTextLayout[];
+	cellLabelLayouts?: EvidenceTextLayout[][];
+}
+
+export interface TableColumn {
+	id: string;
+	label: Label;
+}
+
+export interface TableRow {
+	id: string;
+	cells: Record<string, EvidenceCell>;
+}
+
+export interface TableBlock {
+	id: string;
+	columns: TableColumn[];
+	rows: TableRow[];
+	position?: Point;
+	size?: Size;
+	style?: VisualStyle;
+}
+
+export interface CoordinatedTableBlock extends TableBlock {
+	box: Box;
+	columnXOffsets: number[];
+	columnLabelLayouts?: EvidenceTextLayout[];
+	cellLabelLayouts?: EvidenceTextLayout[][];
+}
+
+export type EvidencePanelKind = "legend" | "rule" | "note" | "verification";
+
+export interface EvidencePanelItem {
+	id?: string;
+	label: Label;
+	detail?: Label;
+	style?: VisualStyle;
+}
+
+export interface EvidencePanel {
+	id: string;
+	kind: EvidencePanelKind;
+	items: EvidencePanelItem[];
+	position?: Point;
+	size?: Size;
+	style?: VisualStyle;
+}
+
+export interface CoordinatedEvidencePanel extends EvidencePanel {
+	box: Box;
+	titleLayout?: EvidenceTextLayout;
+	itemLayouts?: EvidenceTextLayout[];
+}
+
 export interface NodePort {
 	id: string;
 	label?: Label;

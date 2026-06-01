@@ -2,17 +2,23 @@ import type { Constraint } from "./constraints.js";
 import type { Diagnostic } from "./diagnostics.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedFrame,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
+	CoordinatedTableBlock,
 	DiagramFrame,
+	EvidencePanel,
 	IntentEdge,
 	IntentGroup,
 	IntentNode,
+	MatrixBlock,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
+	TableBlock,
 } from "./elements.js";
 import type { Box, DiagramDirection, JsonObject } from "./geometry.js";
 import type { SolvedTextAnnotation } from "./label-layout.js";
@@ -30,6 +36,9 @@ export interface IntentDiagram {
 	edges?: IntentEdge[];
 	groups?: IntentGroup[];
 	swimlanes?: Swimlane[];
+	matrices?: MatrixBlock[];
+	tables?: TableBlock[];
+	evidencePanels?: EvidencePanel[];
 	constraints?: Constraint[];
 	frame?: DiagramFrame;
 	metadata?: DiagramMetadata;
@@ -44,6 +53,9 @@ export interface NormalizedDiagram {
 	edges: NormalizedEdge[];
 	groups: NormalizedGroup[];
 	swimlanes?: Swimlane[];
+	matrices?: MatrixBlock[];
+	tables?: TableBlock[];
+	evidencePanels?: EvidencePanel[];
 	constraints: Constraint[];
 	diagnostics: Diagnostic[];
 	frame?: DiagramFrame;
@@ -59,6 +71,9 @@ export interface CoordinatedDiagram {
 	edges: CoordinatedEdge[];
 	groups: CoordinatedGroup[];
 	swimlanes?: Swimlane[];
+	matrices?: CoordinatedMatrixBlock[];
+	tables?: CoordinatedTableBlock[];
+	evidencePanels?: CoordinatedEvidencePanel[];
 	textAnnotations?: SolvedTextAnnotation[];
 	diagnostics: Diagnostic[];
 	bounds: Box;

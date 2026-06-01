@@ -137,6 +137,75 @@ describe("routing", () => {
 		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
 	});
+
+	it("uses hard obstacles when generating expanded orthogonal lanes", () => {
+		const hardObstacle = { x: 120, y: 20, width: 120, height: 120 };
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 100),
+			hardObstacles: [hardObstacle],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)?.x).toBeCloseTo(80);
+		expect(result.points.at(-1)?.x).toBeCloseTo(300);
+		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+	});
+
+	it("rejects straight routes that cross hard evidence obstacles", () => {
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 0),
+			hardObstacles: [{ x: 120, y: 10, width: 80, height: 20 }],
+		});
+
+		expect(result.points).toEqual([
+			{ x: 80, y: 20 },
+			{ x: 300, y: 20 },
+		]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
+
+	it("does not reject diagonal straight routes by segment bounding-box overlap alone", () => {
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 200),
+			hardObstacles: [{ x: 160, y: 120, width: 20, height: 20 }],
+		});
+
+		expect(result.points).toEqual([
+			{ x: 80, y: 20 },
+			{ x: 300, y: 220 },
+		]);
+		expect(result.diagnostics).toEqual([]);
+	});
+
+	it("keeps fallback geometry when hard evidence obstacles block all orthogonal candidates", () => {
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 100),
+			hardObstacles: [{ x: 60, y: -80, width: 260, height: 260 }],
+		});
+
+		expect(result.points.length).toBeGreaterThanOrEqual(2);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
 });
 
 function shape(x: number, y: number) {

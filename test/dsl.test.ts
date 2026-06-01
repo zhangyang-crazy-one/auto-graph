@@ -349,6 +349,306 @@ output:
 		expect(result.diagram?.edges[0]?.target.portId).toBeUndefined();
 	});
 
+	it("parses and normalizes first-class evidence blocks", () => {
+		const parsed = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: traceability-matrix
+    rows: [need-1, need-2]
+    cols: [function-1, function-2]
+    position: { x: 420, y: 40 }
+    cells:
+      - ["covered", { text: "gap", fill: "#fff3cd" }]
+      - ["", "covered"]
+tables:
+  - id: value-properties
+    columns:
+      - { id: property, label: Property }
+      - { id: type, label: Type }
+    rows:
+      - id: mass-row
+        cells:
+          property: mass_kg
+          type: Real
+evidencePanels:
+  - id: symbol-legend
+    kind: legend
+    items:
+      - id: satisfied
+        label: Satisfied
+        detail: Trace exists
+`);
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(parsed.value).toMatchObject({
+			matrices: [{ id: "traceability-matrix" }],
+			tables: [{ id: "value-properties" }],
+			evidencePanels: [{ id: "symbol-legend", kind: "legend" }],
+		});
+
+		const result = normalizeDiagramDsl(parsed.value);
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.diagram?.matrices?.[0]).toMatchObject({
+			id: "traceability-matrix",
+			rows: ["need-1", "need-2"],
+			cols: ["function-1", "function-2"],
+			position: { x: 420, y: 40 },
+			size: { width: 336, height: 108 },
+			cells: [
+				[{ text: "covered" }, { text: "gap", style: { fill: "#fff3cd" } }],
+				[{ text: "" }, { text: "covered" }],
+			],
+		});
+		expect(result.diagram?.tables?.[0]).toMatchObject({
+			id: "value-properties",
+			columns: [
+				{ id: "property", label: { text: "Property" } },
+				{ id: "type", label: { text: "Type" } },
+			],
+			rows: [
+				{
+					id: "mass-row",
+					cells: {
+						property: { text: "mass_kg" },
+						type: { text: "Real" },
+					},
+				},
+			],
+		});
+		expect(result.diagram?.evidencePanels?.[0]).toMatchObject({
+			id: "symbol-legend",
+			kind: "legend",
+			items: [
+				{
+					id: "satisfied",
+					label: { text: "Satisfied" },
+					detail: { text: "Trace exists" },
+				},
+			],
+		});
+	});
+
+	it("rejects duplicate evidence block ids inside each collection", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: duplicate-table
+    columns: [{ id: name, label: Name }]
+    rows: []
+  - id: duplicate-table
+    columns: [{ id: name, label: Name }]
+    rows: []
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate evidence block id in tables "duplicate-table".',
+				path: ["tables", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects duplicate evidence block ids across collections", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: duplicate-evidence
+    rows: [need]
+    cols: [function]
+    cells:
+      - [covered]
+tables:
+  - id: duplicate-evidence
+    columns: [{ id: name, label: Name }]
+    rows: []
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message:
+					'Duplicate evidence block id "duplicate-evidence" across matrices and tables.',
+				path: ["tables", 0, "id"],
+			}),
+		);
+	});
+
+	it("rejects matrix cell dimensions that do not match declared rows and columns", () => {
+		const missingRow = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: sparse-matrix
+    rows: [need-1, need-2]
+    cols: [function-1]
+    cells:
+      - [covered]
+`);
+		const shortRow = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: short-matrix
+    rows: [need-1]
+    cols: [function-1, function-2]
+    cells:
+      - [covered]
+`);
+
+		expect(missingRow.value).toBeUndefined();
+		expect(missingRow.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: "Matrix cells must contain exactly 2 row(s).",
+				path: ["matrices", 0, "cells"],
+			}),
+		);
+		expect(shortRow.value).toBeUndefined();
+		expect(shortRow.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: "Matrix cell row must contain exactly 2 column(s).",
+				path: ["matrices", 0, "cells", 0],
+			}),
+		);
+	});
+
+	it("rejects duplicate matrix row and column ids", () => {
+		const duplicateRows = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: duplicate-row-matrix
+    rows: [need, need]
+    cols: [function]
+    cells:
+      - [covered]
+      - [gap]
+`);
+		const duplicateCols = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: duplicate-column-matrix
+    rows: [need]
+    cols: [function, function]
+    cells:
+      - [covered, gap]
+`);
+
+		expect(duplicateRows.value).toBeUndefined();
+		expect(duplicateRows.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate matrix row "need".',
+				path: ["matrices", 0, "rows", 1],
+			}),
+		);
+		expect(duplicateCols.value).toBeUndefined();
+		expect(duplicateCols.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate matrix column "function".',
+				path: ["matrices", 0, "cols", 1],
+			}),
+		);
+	});
+
+	it("rejects duplicate table column ids", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: parameters
+    columns:
+      - { id: parameter, label: Parameter }
+      - { id: parameter, label: Duplicate Parameter }
+    rows: []
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate column "parameter".',
+				path: ["tables", 0, "columns", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects duplicate table row ids", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: parameters
+    columns:
+      - { id: parameter, label: Parameter }
+    rows:
+      - id: mass
+        cells:
+          parameter: mass_kg
+      - id: mass
+        cells:
+          parameter: duplicate_mass
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate row "mass".',
+				path: ["tables", 0, "rows", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects duplicate evidence panel item ids", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+evidencePanels:
+  - id: legend
+    kind: legend
+    items:
+      - Freeform string item
+      - id: repeated
+        label: First
+      - id: repeated
+        label: Second
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate evidence panel item id "repeated".',
+				path: ["evidencePanels", 0, "items", 2, "id"],
+			}),
+		);
+	});
+
+	it("rejects table row cells that reference undeclared columns", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: parameters
+    columns:
+      - { id: parameter, label: Parameter }
+    rows:
+      - id: row-one
+        cells:
+          parmeter: mass
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Table row cell references undeclared column "parmeter".',
+				path: ["tables", 0, "rows", 0, "cells", "parmeter"],
+			}),
+		);
+	});
+
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
 		expect(resolveOutputFormat().format).toBe("svg");
 		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(
@@ -382,6 +682,94 @@ constraints:
 		expect(excalidraw.diagnostics).toEqual([]);
 		expect(excalidraw.format).toBe("excalidraw");
 		expect(JSON.parse(excalidraw.content ?? "{}").type).toBe("excalidraw");
+	});
+
+	it("locks method-chain fixture evidence block counts", () => {
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("01-method-chain.yaml"),
+			{
+				sourcePath: evidenceFixturePath("01-method-chain.yaml"),
+			},
+		);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const nodes = valueWithNodes(parsed.value).nodes;
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		expect(nodes === undefined ? [] : Object.keys(nodes)).toHaveLength(15);
+		expect(normalized.diagram?.nodes).toHaveLength(15);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "legend",
+			),
+		).toHaveLength(2);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "note",
+			),
+		).toHaveLength(1);
+		expectStableEvidenceBlockIds(normalized);
+	});
+
+	it("locks traceability-spine fixture matrix and row/column evidence counts", () => {
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("04-traceability-spine.yaml"),
+			{ sourcePath: evidenceFixturePath("04-traceability-spine.yaml") },
+		);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const nodes = valueWithNodes(parsed.value).nodes;
+		const rowPrefixes = [
+			"stakeholder-needs",
+			"requirements",
+			"functions",
+			"interactions",
+			"states",
+			"logical-architecture",
+		];
+		const columnSuffixes = ["operational", "safety", "performance"];
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		for (const row of rowPrefixes) {
+			for (const column of columnSuffixes) {
+				expect(nodes).toHaveProperty(`${row}-${column}`);
+			}
+		}
+		expect(normalized.diagram?.nodes).toHaveLength(18);
+		expect(normalized.diagram?.matrices).toHaveLength(2);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "rule",
+			),
+		).toHaveLength(1);
+		expectStableEvidenceBlockIds(normalized);
+	});
+
+	it("locks structure-parameter-extraction fixture table and matrix evidence counts", () => {
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("05-structure-parameter-extraction.yaml"),
+			{
+				sourcePath: evidenceFixturePath(
+					"05-structure-parameter-extraction.yaml",
+				),
+			},
+		);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const structuralBlocks = normalized.diagram?.nodes.filter((node) =>
+			node.id.startsWith("structure-block-"),
+		);
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		expect(structuralBlocks?.length).toBeGreaterThanOrEqual(4);
+		expect(normalized.diagram?.tables).toHaveLength(2);
+		expect(normalized.diagram?.matrices).toHaveLength(2);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "note",
+			),
+		).toHaveLength(1);
+		expectStableEvidenceBlockIds(normalized);
 	});
 
 	it.each([
@@ -440,4 +828,34 @@ function readFixture(name: string): string {
 
 function fixturePath(name: string): string {
 	return fileURLToPath(new URL(`./fixtures/phase-05/${name}`, import.meta.url));
+}
+
+function readEvidenceFixture(name: string): string {
+	return readFileSync(evidenceFixturePath(name), "utf8");
+}
+
+function evidenceFixturePath(name: string): string {
+	return fileURLToPath(
+		new URL(`./fixtures/evidence-blocks/${name}`, import.meta.url),
+	);
+}
+
+function valueWithNodes(value: unknown): { nodes?: Record<string, unknown> } {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return {};
+	}
+	return value as { nodes?: Record<string, unknown> };
+}
+
+function expectStableEvidenceBlockIds(result: NormalizeDiagramDslResult): void {
+	const ids = [
+		...(result.diagram?.matrices?.map((matrix) => matrix.id) ?? []),
+		...(result.diagram?.tables?.map((table) => table.id) ?? []),
+		...(result.diagram?.evidencePanels?.map((panel) => panel.id) ?? []),
+	];
+
+	expect(ids.length).toBeGreaterThan(0);
+	for (const id of ids) {
+		expect(id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+	}
 }

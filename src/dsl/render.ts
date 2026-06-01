@@ -84,6 +84,9 @@ export function renderDiagramDsl(
 				? "straight"
 				: "orthogonal",
 		...solvePortShiftingOption(normalized.diagram.metadata?.portShifting),
+		...(options.textMeasurer === undefined
+			? {}
+			: { textMeasurer: options.textMeasurer }),
 	});
 	const solveDiagnostics = solved.diagnostics.map(toSolveDiagnostic);
 	if (hasErrorDiagnostics(solveDiagnostics)) {

@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import type {
+	PreparedText,
+	TextLayout,
+	TextMeasurer,
+	TextStyleOptions,
+} from "../src/text/index.js";
 
 describe("solveDiagram", () => {
 	it("returns coordinated nodes, routed edges, groups, bounds, and diagnostics", () => {
@@ -22,6 +28,271 @@ describe("solveDiagram", () => {
 		for (const edge of result.edges) {
 			expect(edge.points.length).toBeGreaterThanOrEqual(2);
 		}
+	});
+
+	it("coordinates evidence block boxes and includes them in diagram bounds", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			matrices: [
+				{
+					id: "verification-matrix",
+					rows: ["R1"],
+					cols: ["C1"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 520, y: 40 },
+					size: { width: 180, height: 96 },
+				},
+			],
+			tables: [
+				{
+					id: "parameter-table",
+					columns: [
+						{ id: "param", label: { text: "Parameter" } },
+						{ id: "value", label: { text: "Value" } },
+					],
+					rows: [
+						{
+							id: "mass",
+							cells: {
+								param: { text: "mass" },
+								value: { text: "12kg" },
+							},
+						},
+					],
+					position: { x: -220, y: 160 },
+					size: { width: 240, height: 88 },
+				},
+			],
+			evidencePanels: [
+				{
+					id: "legend",
+					kind: "legend",
+					items: [{ label: { text: "solid = verified" } }],
+					position: { x: 140, y: 360 },
+					size: { width: 220, height: 64 },
+				},
+			],
+		});
+
+		expect(result.matrices?.[0]).toMatchObject({
+			id: "verification-matrix",
+			box: { x: 520, y: 40, width: 180, height: 96 },
+		});
+		expect(result.tables?.[0]).toMatchObject({
+			id: "parameter-table",
+			box: { x: -220, y: 160, width: 240, height: 88 },
+		});
+		expect(result.evidencePanels?.[0]).toMatchObject({
+			id: "legend",
+			box: { x: 140, y: 360, width: 220, height: 64 },
+		});
+		expect(result.bounds.x).toBeLessThanOrEqual(-220);
+		expect(result.bounds.x + result.bounds.width).toBeGreaterThanOrEqual(700);
+		expect(result.bounds.y + result.bounds.height).toBeGreaterThanOrEqual(424);
+	});
+
+	it("reports explicit evidence block overlaps with content and other evidence blocks", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [node("a", { x: 0, y: 0 }), node("b", { x: 300, y: 0 })],
+			edges: [],
+			groups: [],
+			constraints: [],
+			matrices: [
+				{
+					id: "overlapping-matrix",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 20, y: 20 },
+					size: { width: 120, height: 72 },
+				},
+			],
+			tables: [
+				{
+					id: "overlapping-table",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [
+						{
+							id: "mass",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+					],
+					position: { x: 40, y: 40 },
+					size: { width: 128, height: 68 },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "constraints.overlap.unresolved",
+					detail: expect.objectContaining({
+						evidenceBlockId: "overlapping-matrix",
+						conflictingObjectId: "a",
+					}),
+				}),
+				expect.objectContaining({
+					code: "constraints.overlap.unresolved",
+					detail: expect.objectContaining({
+						evidenceBlockId: "overlapping-matrix",
+						conflictingObjectId: "overlapping-table",
+					}),
+				}),
+			]),
+		);
+	});
+
+	it("reports explicit evidence block overlaps with earlier auto-placed evidence blocks", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [node("a", { x: 0, y: 0 })],
+			edges: [],
+			groups: [],
+			constraints: [],
+			matrices: [
+				{
+					id: "auto-matrix",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+					size: { width: 120, height: 72 },
+				},
+			],
+			tables: [
+				{
+					id: "explicit-table",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [
+						{
+							id: "mass",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+					],
+					position: { x: 120, y: 0 },
+					size: { width: 128, height: 68 },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					evidenceBlockId: "explicit-table",
+					conflictingObjectId: "auto-matrix",
+				}),
+			}),
+		);
+	});
+
+	it("keeps table column offsets stable when rows and cell text change", () => {
+		const baseTable = {
+			id: "parameters",
+			columns: [
+				{ id: "name", label: { text: "Name" } },
+				{ id: "value", label: { text: "Value" } },
+				{ id: "source", label: { text: "Source" } },
+			],
+			rows: [
+				{
+					id: "row-1",
+					cells: {
+						name: { text: "mass" },
+						value: { text: "12kg" },
+						source: { text: "test" },
+					},
+				},
+			],
+			position: { x: 320, y: 220 },
+			size: { width: 360, height: 96 },
+		};
+		const result = solveDiagram({
+			...sampleDiagram(),
+			tables: [baseTable],
+		});
+		const mutated = solveDiagram({
+			...sampleDiagram(),
+			tables: [
+				{
+					...baseTable,
+					rows: [
+						{
+							id: "row-1",
+							cells: {
+								name: { text: "mass with a much longer label" },
+								value: { text: "12kg plus tolerance and source note" },
+								source: { text: "verification document section 3.2" },
+							},
+						},
+						{
+							id: "row-2",
+							cells: {
+								name: { text: "power" },
+								value: { text: "80W" },
+								source: { text: "analysis" },
+							},
+						},
+					],
+				},
+			],
+		});
+
+		expect(result.tables?.[0]?.columnXOffsets).toEqual([320, 440, 560]);
+		expect(mutated.tables?.[0]?.columnXOffsets).toEqual(
+			result.tables?.[0]?.columnXOffsets,
+		);
+		expect(JSON.stringify(mutated.tables?.[0]?.columnXOffsets)).toBe(
+			JSON.stringify(result.tables?.[0]?.columnXOffsets),
+		);
+	});
+
+	it("defaults public evidence block sizes and places positionless blocks outside content", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			matrices: [
+				{
+					id: "matrix-without-position",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+				},
+			],
+			tables: [
+				{
+					id: "table-without-position",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [
+						{
+							id: "mass",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+					],
+				},
+			],
+			evidencePanels: [
+				{
+					id: "panel-without-position",
+					kind: "note",
+					items: [{ label: { text: "Check" } }],
+				},
+			],
+		});
+
+		const matrix = result.matrices?.[0];
+		const table = result.tables?.[0];
+		const panel = result.evidencePanels?.[0];
+
+		expect(matrix?.box).toMatchObject({ width: 216, height: 72 });
+		expect(table?.box).toMatchObject({ width: 128, height: 68 });
+		expect(panel?.box).toMatchObject({ width: 320, height: 28 });
+		expect(matrix?.box.x).toBeGreaterThan(0);
+		expect(table?.box.x).toBe(matrix?.box.x);
+		expect(panel?.box.x).toBe(matrix?.box.x);
+		expect(table?.box.y).toBeGreaterThan(matrix?.box.y ?? 0);
+		expect(panel?.box.y).toBeGreaterThan(table?.box.y ?? 0);
+		expect(new Set([matrix?.box.y, table?.box.y, panel?.box.y]).size).toBe(3);
 	});
 
 	it("keeps fixed position nodes while automatic nodes receive finite boxes", () => {
@@ -51,6 +322,73 @@ describe("solveDiagram", () => {
 
 		expect(orthogonal.edges[0]?.points.length).toBeGreaterThanOrEqual(3);
 		expect(straight.edges[0]?.points).toHaveLength(2);
+	});
+
+	it("includes routed edge detour points in diagram bounds", () => {
+		const result = solveDiagram({
+			id: "route-bounds",
+			direction: "LR",
+			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 260, y: 0 })],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			tables: [
+				{
+					id: "obstacle-table",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [{ id: "mass", cells: { parameter: { text: "mass" } } }],
+					position: { x: 120, y: 20 },
+					size: { width: 80, height: 24 },
+				},
+			],
+			diagnostics: [],
+		});
+		const minRouteY = Math.min(
+			...(result.edges[0]?.points.map((point) => point.y) ?? [0]),
+		);
+
+		expect(minRouteY).toBeLessThan(result.tables?.[0]?.box.y ?? 0);
+		expect(result.bounds.y).toBeLessThanOrEqual(minRouteY);
+	});
+
+	it("precomputes measured evidence text wrapping before SVG export", () => {
+		const result = solveDiagram(
+			{
+				id: "evidence-text-measurement",
+				direction: "LR",
+				nodes: [node("source", { x: 0, y: 0 })],
+				edges: [],
+				groups: [],
+				constraints: [],
+				tables: [
+					{
+						id: "wide-glyph-table",
+						columns: [{ id: "parameter", label: { text: "Parameter" } }],
+						rows: [
+							{
+								id: "wide",
+								cells: { parameter: { text: "WWWWWWWW" } },
+							},
+						],
+						position: { x: 160, y: 0 },
+						size: { width: 48, height: 68 },
+					},
+				],
+				diagnostics: [],
+			},
+			{ textMeasurer: new WideGlyphTextMeasurer() },
+		);
+
+		expect(result.tables?.[0]?.cellLabelLayouts?.[0]?.[0]?.lines).toEqual([
+			"WWWW",
+			"WWWW",
+		]);
 	});
 
 	it("returns a partial diagram plus error diagnostics for malformed input", () => {
@@ -508,6 +846,54 @@ describe("solveDiagram", () => {
 					edgeId: "crossing",
 					textSurfaceKind: "edge-label",
 					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+	});
+
+	it("does not report straight-route text clearance when only segment AABB overlaps", () => {
+		const result = solveDiagram(
+			{
+				id: "straight-route-text-clearance-aabb",
+				direction: "LR",
+				nodes: [
+					node("source", { x: 0, y: 0 }),
+					node("target", { x: 240, y: 160 }),
+					{
+						...node("label_owner", { x: 120, y: 110 }),
+						ports: [
+							{
+								id: "label",
+								side: "top",
+								kind: "proxy",
+								label: { text: "near but not crossed" },
+							},
+						],
+					},
+				],
+				edges: [
+					{
+						id: "source-target",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				routeKind: "straight",
+			},
+		);
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "port-label",
+					conflictingObjectId: "label_owner.label",
 				}),
 			}),
 		);
@@ -1120,4 +1506,54 @@ function node(id: string, position?: { x: number; y: number }) {
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
 	};
+}
+
+class WideGlyphTextMeasurer implements TextMeasurer {
+	prepare(text: string, style: TextStyleOptions): PreparedText {
+		return {
+			text,
+			font: `${style.fontSize}px ${style.fontFamily}`,
+			style: { ...style },
+			backend: "deterministic",
+		};
+	}
+
+	layout(
+		prepared: PreparedText,
+		maxWidth: number,
+		lineHeight = prepared.style.lineHeight ?? prepared.style.fontSize * 1.2,
+	): TextLayout {
+		const charWidth = prepared.style.fontSize;
+		const maxChars = Math.max(1, Math.floor(maxWidth / charWidth));
+		const lines = Array.from(
+			{ length: Math.ceil(prepared.text.length / maxChars) },
+			(_, index) => {
+				const text = prepared.text.slice(
+					index * maxChars,
+					index * maxChars + maxChars,
+				);
+				return {
+					text,
+					width: this.naturalWidth(this.prepare(text, prepared.style)),
+					start: { segmentIndex: 0, graphemeIndex: index * maxChars },
+					end: {
+						segmentIndex: 0,
+						graphemeIndex: index * maxChars + text.length,
+					},
+				};
+			},
+		);
+		return {
+			width: Math.max(0, ...lines.map((line) => line.width)),
+			height: lines.length * lineHeight,
+			lineHeight,
+			lineCount: lines.length,
+			lines,
+			diagnostics: [],
+		};
+	}
+
+	naturalWidth(prepared: PreparedText): number {
+		return prepared.text.length * prepared.style.fontSize;
+	}
 }

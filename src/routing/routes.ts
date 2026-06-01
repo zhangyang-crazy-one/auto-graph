@@ -11,6 +11,8 @@ import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
+	const softObstacles = input.obstacles ?? [];
+	const hardObstacles = input.hardObstacles ?? [];
 	const defaultAnchors = defaultAnchorsForGeometry(
 		input.source.box,
 		input.target.box,
@@ -28,22 +30,73 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	);
 
 	if ((input.kind ?? "orthogonal") === "straight") {
-		return { points: simplifyRoute([source, target]), diagnostics };
+		const points = simplifyRoute([source, target]);
+		if (routeCrossesBoxes(points, hardObstacles)) {
+			diagnostics.push({
+				severity: "error",
+				code: "routing.evidence.crossing_forbidden",
+				message: "Straight route crosses hard evidence block obstacles.",
+			});
+			return { points, diagnostics };
+		}
+		if (routeCrossesBoxes(points, softObstacles)) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.obstacle.unavoidable",
+				message: "Straight route crosses soft obstacles.",
+			});
+		}
+		return { points, diagnostics };
 	}
 
+	const routeLaneObstacles = [...softObstacles, ...hardObstacles];
 	const candidates = orthogonalCandidates(source, target, input.direction);
 	candidates.push(
 		...expandedObstacleCandidates(
 			source,
 			target,
 			input.direction,
-			input.obstacles ?? [],
+			routeLaneObstacles,
 		),
 	);
 	for (const candidate of candidates) {
-		if (!routeIntersectsObstacles(candidate, input.obstacles ?? [])) {
+		if (
+			!routeIntersectsObstacles(candidate, softObstacles) &&
+			!routeIntersectsObstacles(candidate, hardObstacles)
+		) {
 			return { points: simplifyRoute(candidate), diagnostics };
 		}
+	}
+
+	const hardClearCandidate = candidates.find(
+		(candidate) => !routeIntersectsObstacles(candidate, hardObstacles),
+	);
+	if (hardClearCandidate !== undefined) {
+		diagnostics.push({
+			severity: "warning",
+			code: "routing.obstacle.unavoidable",
+			message:
+				"No bounded orthogonal route candidate avoided all soft obstacles.",
+		});
+
+		return {
+			points: simplifyRoute(hardClearCandidate),
+			diagnostics,
+		};
+	}
+
+	if (hardObstacles.length > 0) {
+		diagnostics.push({
+			severity: "error",
+			code: "routing.evidence.crossing_forbidden",
+			message:
+				"No bounded orthogonal route candidate avoided hard evidence block obstacles.",
+		});
+
+		return {
+			points: simplifyRoute(candidates[0] ?? [source, target]),
+			diagnostics,
+		};
 	}
 
 	diagnostics.push({
@@ -259,6 +312,97 @@ function routeIntersectsObstacles(
 	}
 
 	return false;
+}
+
+function routeCrossesBoxes(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): boolean {
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const a = points[index];
+		const b = points[index + 1];
+		if (a === undefined || b === undefined) {
+			continue;
+		}
+		for (const obstacle of obstacles) {
+			validateBox(obstacle);
+			if (segmentIntersectsBox(a, b, obstacle)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+function segmentIntersectsBox(start: Point, end: Point, box: Box): boolean {
+	const left = box.x;
+	const right = box.x + box.width;
+	const top = box.y;
+	const bottom = box.y + box.height;
+	if (pointInsideBox(start, box) || pointInsideBox(end, box)) {
+		return true;
+	}
+	if (start.x === end.x) {
+		return (
+			start.x > left &&
+			start.x < right &&
+			rangesOverlap(start.y, end.y, top, bottom)
+		);
+	}
+	if (start.y === end.y) {
+		return (
+			start.y > top &&
+			start.y < bottom &&
+			rangesOverlap(start.x, end.x, left, right)
+		);
+	}
+	return (
+		segmentIntersectsBoxEdge(start, end, left, top, right, top) ||
+		segmentIntersectsBoxEdge(start, end, right, top, right, bottom) ||
+		segmentIntersectsBoxEdge(start, end, right, bottom, left, bottom) ||
+		segmentIntersectsBoxEdge(start, end, left, bottom, left, top)
+	);
+}
+
+function pointInsideBox(point: Point, box: Box): boolean {
+	return (
+		point.x > box.x &&
+		point.x < box.x + box.width &&
+		point.y > box.y &&
+		point.y < box.y + box.height
+	);
+}
+
+function rangesOverlap(
+	a: number,
+	b: number,
+	min: number,
+	max: number,
+): boolean {
+	const low = Math.min(a, b);
+	const high = Math.max(a, b);
+	return high > min && low < max;
+}
+
+function segmentIntersectsBoxEdge(
+	start: Point,
+	end: Point,
+	x1: number,
+	y1: number,
+	x2: number,
+	y2: number,
+): boolean {
+	const denominator =
+		(end.x - start.x) * (y2 - y1) - (end.y - start.y) * (x2 - x1);
+	if (denominator === 0) {
+		return false;
+	}
+	const t =
+		((x1 - start.x) * (y2 - y1) - (y1 - start.y) * (x2 - x1)) / denominator;
+	const u =
+		((x1 - start.x) * (end.y - start.y) - (y1 - start.y) * (end.x - start.x)) /
+		denominator;
+	return t > 0 && t < 1 && u > 0 && u < 1;
 }
 
 function segmentBox(a: Point, b: Point): Box {

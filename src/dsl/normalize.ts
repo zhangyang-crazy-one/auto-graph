@@ -1,13 +1,20 @@
 import type { Constraint } from "../ir/constraints.js";
 import type { NormalizedDiagram } from "../ir/diagram.js";
 import type {
+	EvidenceCell,
+	EvidencePanel,
+	EvidencePanelItem,
 	Label,
+	MatrixBlock,
 	NodeCompartments,
 	NodePort,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
+	TableBlock,
+	TableColumn,
+	TableRow,
 	VisualStyle,
 } from "../ir/elements.js";
 import type { Insets, Point, Size } from "../ir/geometry.js";
@@ -32,6 +39,9 @@ const DEFAULT_GROUP_PADDING: Insets = {
 };
 const DEFAULT_LABEL_MAX_WIDTH = 160;
 const DEFAULT_FONT = { fontFamily: "Arial", fontSize: 14, lineHeight: 18 };
+const DEFAULT_MATRIX_CELL_SIZE: Size = { width: 120, height: 36 };
+const DEFAULT_TABLE_CELL_SIZE: Size = { width: 128, height: 34 };
+const DEFAULT_PANEL_ITEM_HEIGHT = 28;
 
 export interface NormalizeDiagramDslOptions {
 	id?: string;
@@ -55,6 +65,9 @@ export function normalizeDiagramDsl(
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
 	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
 	const primaryReadingDirection = dsl.layout?.primaryReadingDirection;
+	const matrices = normalizeMatrices(dsl);
+	const tables = normalizeTables(dsl);
+	const evidencePanels = normalizeEvidencePanels(dsl);
 	const diagram: NormalizedDiagram = {
 		id: options.id ?? dsl.id ?? "diagram",
 		...(dsl.title === undefined ? {} : { title: dsl.title }),
@@ -63,6 +76,9 @@ export function normalizeDiagramDsl(
 		edges: normalizeEdges(dsl),
 		groups: normalizeGroups(dsl, measurer),
 		swimlanes: normalizeSwimlanes(dsl),
+		...(matrices === undefined ? {} : { matrices }),
+		...(tables === undefined ? {} : { tables }),
+		...(evidencePanels === undefined ? {} : { evidencePanels }),
 		constraints: normalizeConstraints(dsl),
 		diagnostics: [],
 		...(dsl.frame === undefined ? {} : { frame: normalizeFrame(dsl.frame) }),
@@ -375,6 +391,162 @@ function normalizeSwimlanes(dsl: DiagramDsl): Swimlane[] {
 		};
 	});
 }
+
+function normalizeMatrices(dsl: DiagramDsl): MatrixBlock[] | undefined {
+	if (dsl.matrices === undefined) {
+		return undefined;
+	}
+
+	return dsl.matrices.map((matrix) => ({
+		id: matrix.id,
+		rows: [...matrix.rows],
+		cols: [...matrix.cols],
+		cells: matrix.cells.map((row) => row.map(cell)),
+		...(matrix.position === undefined
+			? {}
+			: { position: point(matrix.position) }),
+		size: matrix.size ?? {
+			width:
+				defaultMatrixRowHeaderWidth(matrix) +
+				Math.max(1, matrix.cols.length) * DEFAULT_MATRIX_CELL_SIZE.width,
+			height:
+				Math.max(1, matrix.rows.length + 1) * DEFAULT_MATRIX_CELL_SIZE.height,
+		},
+		...(matrix.style === undefined ? {} : { style: style(matrix.style) }),
+	}));
+}
+
+function defaultMatrixRowHeaderWidth(matrix: {
+	rows: readonly string[];
+}): number {
+	return matrix.rows.length === 0
+		? 0
+		: Math.min(96, DEFAULT_MATRIX_CELL_SIZE.width);
+}
+
+function normalizeTables(dsl: DiagramDsl): TableBlock[] | undefined {
+	if (dsl.tables === undefined) {
+		return undefined;
+	}
+
+	return dsl.tables.map((table) => ({
+		id: table.id,
+		columns: table.columns.map(tableColumn),
+		rows: table.rows.map(tableRow),
+		...(table.position === undefined
+			? {}
+			: { position: point(table.position) }),
+		size: table.size ?? {
+			width: Math.max(1, table.columns.length) * DEFAULT_TABLE_CELL_SIZE.width,
+			height:
+				Math.max(1, table.rows.length + 1) * DEFAULT_TABLE_CELL_SIZE.height,
+		},
+		...(table.style === undefined ? {} : { style: style(table.style) }),
+	}));
+}
+
+function normalizeEvidencePanels(dsl: DiagramDsl): EvidencePanel[] | undefined {
+	if (dsl.evidencePanels === undefined) {
+		return undefined;
+	}
+
+	return dsl.evidencePanels.map((panel) => ({
+		id: panel.id,
+		kind: panel.kind,
+		items: panel.items.map(panelItem),
+		...(panel.position === undefined
+			? {}
+			: { position: point(panel.position) }),
+		size: panel.size ?? {
+			width: 320,
+			height: Math.max(1, panel.items.length) * DEFAULT_PANEL_ITEM_HEIGHT,
+		},
+		...(panel.style === undefined ? {} : { style: style(panel.style) }),
+	}));
+}
+
+function cell(value: string | CellObject): EvidenceCell {
+	if (typeof value === "string") {
+		return { text: value };
+	}
+
+	return {
+		text: value.text,
+		...(value.style === undefined &&
+		value.fill === undefined &&
+		value.stroke === undefined
+			? {}
+			: {
+					style: style({
+						...value.style,
+						...(value.fill === undefined ? {} : { fill: value.fill }),
+						...(value.stroke === undefined ? {} : { stroke: value.stroke }),
+					}),
+				}),
+	};
+}
+
+function tableColumn(value: {
+	id: string;
+	label: string | { text: string; maxWidth?: number | undefined };
+}): TableColumn {
+	return {
+		id: value.id,
+		label: toLabel(value.label) ?? { text: value.id },
+	};
+}
+
+function tableRow(value: {
+	id: string;
+	cells: Record<string, string | CellObject>;
+}): TableRow {
+	return {
+		id: value.id,
+		cells: Object.fromEntries(
+			Object.keys(value.cells).map((columnId) => [
+				columnId,
+				cell(value.cells[columnId] ?? ""),
+			]),
+		),
+	};
+}
+
+function panelItem(
+	value:
+		| string
+		| {
+				id?: string | undefined;
+				label: string | { text: string; maxWidth?: number | undefined };
+				detail?:
+					| string
+					| { text: string; maxWidth?: number | undefined }
+					| undefined;
+				style?:
+					| { fill?: string | undefined; stroke?: string | undefined }
+					| undefined;
+		  },
+): EvidencePanelItem {
+	if (typeof value === "string") {
+		return { label: { text: value } };
+	}
+
+	const detail = toLabel(value.detail);
+	return {
+		...(value.id === undefined ? {} : { id: value.id }),
+		label: toLabel(value.label) ?? { text: "" },
+		...(detail === undefined ? {} : { detail }),
+		...(value.style === undefined ? {} : { style: style(value.style) }),
+	};
+}
+
+type CellObject = {
+	text: string;
+	fill?: string | undefined;
+	stroke?: string | undefined;
+	style?:
+		| { fill?: string | undefined; stroke?: string | undefined }
+		| undefined;
+};
 
 function normalizeGroups(
 	dsl: DiagramDsl,

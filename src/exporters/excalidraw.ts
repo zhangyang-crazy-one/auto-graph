@@ -1,8 +1,11 @@
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
+	CoordinatedTableBlock,
 	EdgeArrowhead,
 	Label,
 	NodeShape,
@@ -127,6 +130,18 @@ export function exportExcalidraw(
 		}
 	}
 
+	for (const matrix of diagram.matrices ?? []) {
+		elements.push(...renderMatrixBlock(matrix as CoordinatedMatrixBlock));
+	}
+
+	for (const table of diagram.tables ?? []) {
+		elements.push(...renderTableBlock(table as CoordinatedTableBlock));
+	}
+
+	for (const panel of diagram.evidencePanels ?? []) {
+		elements.push(...renderEvidencePanel(panel as CoordinatedEvidencePanel));
+	}
+
 	for (const edge of diagram.edges) {
 		elements.push(renderArrow(edge));
 	}
@@ -164,6 +179,96 @@ function renderNode(
 		...baseElement(`node:${node.id}`, mapShape(node.shape), node.box),
 		groupIds,
 	};
+}
+
+function renderMatrixBlock(
+	matrix: CoordinatedMatrixBlock,
+): ExcalidrawElement[] {
+	const containerId = `matrix:${matrix.id}`;
+	const groupIds = [containerId];
+	const label = blockText([
+		matrix.id,
+		`row | ${matrix.cols.join(" | ")}`,
+		...matrix.rows.map((rowId, rowIndex) => {
+			const row = matrix.cells[rowIndex] ?? [];
+			return `${rowId}: ${matrix.cols
+				.map((_, columnIndex) => row[columnIndex]?.text ?? "")
+				.join(" | ")}`;
+		}),
+	]);
+	return [
+		{
+			...baseElement(containerId, "rectangle", matrix.box),
+			backgroundColor: matrix.style?.fill ?? "#f8fafc",
+			strokeColor: matrix.style?.stroke ?? "#374151",
+			groupIds,
+		},
+		renderTextBlock(
+			`matrix-text:${matrix.id}`,
+			label,
+			matrix.box,
+			containerId,
+			groupIds,
+		),
+	];
+}
+
+function renderTableBlock(table: CoordinatedTableBlock): ExcalidrawElement[] {
+	const containerId = `table:${table.id}`;
+	const groupIds = [containerId];
+	const label = blockText([
+		table.columns.map((column) => column.label.text).join(" | "),
+		...table.rows.map((row) =>
+			table.columns
+				.map((column) => row.cells[column.id]?.text ?? "")
+				.join(" | "),
+		),
+	]);
+	return [
+		{
+			...baseElement(containerId, "rectangle", table.box),
+			backgroundColor: table.style?.fill ?? "#f8fafc",
+			strokeColor: table.style?.stroke ?? "#374151",
+			groupIds,
+		},
+		renderTextBlock(
+			`table-text:${table.id}`,
+			label,
+			table.box,
+			containerId,
+			groupIds,
+		),
+	];
+}
+
+function renderEvidencePanel(
+	panel: CoordinatedEvidencePanel,
+): ExcalidrawElement[] {
+	const containerId = `evidence-panel:${panel.id}`;
+	const groupIds = [containerId];
+	const label = blockText([
+		`${panel.kind}: ${panel.id}`,
+		...panel.items.map((item) =>
+			item.detail?.text === undefined
+				? item.label.text
+				: `${item.label.text}: ${item.detail.text}`,
+		),
+	]);
+	return [
+		{
+			...baseElement(containerId, "rectangle", panel.box),
+			backgroundColor: panel.style?.fill ?? panelKindFill(panel.kind),
+			strokeColor: panel.style?.stroke ?? "#374151",
+			groupIds,
+		},
+		renderTextBlock(
+			`evidence-panel-text:${panel.id}`,
+			label,
+			panel.box,
+			containerId,
+			groupIds,
+		),
+	];
 }
 
 function renderArrow(edge: CoordinatedEdge): ExcalidrawArrowElement {
@@ -227,6 +332,41 @@ function renderText(
 		baseline: fontSize,
 		containerId,
 		originalText: label.text,
+		lineHeight: 1.25,
+		boundElements: null,
+		link: null,
+		locked: false,
+		seed: seedFor(id),
+		versionNonce: seedFor(`${id}:nonce`),
+	};
+}
+
+function renderTextBlock(
+	id: string,
+	text: string,
+	box: Box,
+	containerId: string,
+	groupIds: string[],
+): ExcalidrawTextElement {
+	const fontSize = 12;
+	return {
+		...baseElement(id, "text", {
+			x: box.x + 8,
+			y: box.y + 8,
+			width: Math.max(0, box.width - 16),
+			height: Math.max(fontSize, box.height - 16),
+		}),
+		backgroundColor: "transparent",
+		strokeColor: "#111827",
+		groupIds,
+		text,
+		fontSize,
+		fontFamily: 1,
+		textAlign: "left",
+		verticalAlign: "top",
+		baseline: fontSize,
+		containerId,
+		originalText: text,
 		lineHeight: 1.25,
 		boundElements: null,
 		link: null,
@@ -330,6 +470,23 @@ function groupGroupIds(groupId: string): string[] {
 
 function groupElementIdFor(groupId: string): string {
 	return `group:${groupId}`;
+}
+
+function blockText(lines: readonly string[]): string {
+	return lines.filter((line) => line.length > 0).join("\n");
+}
+
+function panelKindFill(kind: CoordinatedEvidencePanel["kind"]): string {
+	switch (kind) {
+		case "legend":
+			return "#ecfdf5";
+		case "rule":
+			return "#eff6ff";
+		case "note":
+			return "#fffbeb";
+		case "verification":
+			return "#fef2f2";
+	}
 }
 
 function pointsBox(points: readonly Point[]): Box {

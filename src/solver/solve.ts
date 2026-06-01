@@ -10,16 +10,23 @@ import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedFrame,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
 	CoordinatedPort,
+	CoordinatedTableBlock,
+	EvidencePanel,
+	EvidenceTextLayout,
+	MatrixBlock,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
+	TableBlock,
 } from "../ir/elements.js";
-import type { Box, Insets, Point } from "../ir/geometry.js";
+import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type {
 	LabelLayout,
 	SolvedTextAnnotation,
@@ -29,18 +36,31 @@ import { fitLabel } from "../labels/index.js";
 import { runDagreInitialLayout } from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
+import type { TextMeasurer } from "../text/types.js";
 
 export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	overlapSpacing?: number;
 	portShifting?: PortShiftingOptions;
+	textMeasurer?: TextMeasurer;
 }
 
 export interface PortShiftingOptions {
 	enabled?: boolean;
 	spacing?: number;
 }
+
+const DEFAULT_MATRIX_CELL_SIZE: Size = { width: 120, height: 36 };
+const DEFAULT_TABLE_CELL_SIZE: Size = { width: 128, height: 34 };
+const DEFAULT_PANEL_WIDTH = 320;
+const DEFAULT_PANEL_ITEM_HEIGHT = 28;
+const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
+const EVIDENCE_TEXT_FONT = {
+	fontFamily: "Arial, sans-serif",
+	fontSize: 10,
+	lineHeight: 12,
+} as const;
 
 interface SwimlaneContractLayout {
 	box: Box;
@@ -131,6 +151,11 @@ export function solveDiagram(
 		constrained.boxes,
 		swimlaneContracts.layouts,
 	);
+	const coordinatedMatrices = coordinateMatrices(diagram.matrices ?? []);
+	const coordinatedTables = coordinateTables(diagram.tables ?? []);
+	const coordinatedEvidencePanels = coordinateEvidencePanels(
+		diagram.evidencePanels ?? [],
+	);
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
 	);
@@ -138,8 +163,11 @@ export function solveDiagram(
 		nodes: coordinatedNodes,
 		groups: coordinatedGroups,
 		swimlanes: coordinatedSwimlanes,
+		...(options.textMeasurer === undefined
+			? {}
+			: { textMeasurer: options.textMeasurer }),
 	});
-	const allBoxes = [
+	const layoutBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
 			(node.ports ?? []).flatMap((port) =>
@@ -152,6 +180,74 @@ export function solveDiagram(
 		),
 		...baseTextAnnotations.map((annotation) => annotation.box),
 	];
+	const initialContentBounds =
+		layoutBoxes.length === 0
+			? { x: 0, y: 0, width: 0, height: 0 }
+			: unionBoxes(layoutBoxes);
+	placeEvidenceBlocks(
+		[
+			...coordinatedMatrices,
+			...coordinatedTables,
+			...coordinatedEvidencePanels,
+		],
+		initialContentBounds,
+	);
+	refreshTableColumnXOffsets(coordinatedTables);
+	measureEvidenceTextBlocks(
+		coordinatedMatrices,
+		coordinatedTables,
+		coordinatedEvidencePanels,
+		options.textMeasurer,
+	);
+	const evidenceBoxes = [
+		...coordinatedMatrices.map((matrix) => matrix.box),
+		...coordinatedTables.map((table) => table.box),
+		...coordinatedEvidencePanels.map((panel) => panel.box),
+	];
+	diagnostics.push(
+		...reportEvidenceBlockOverlaps(
+			[
+				...coordinatedMatrices.map((matrix) => ({
+					id: matrix.id,
+					kind: "matrix",
+					...(matrix.position === undefined
+						? {}
+						: { position: matrix.position }),
+					box: matrix.box,
+				})),
+				...coordinatedTables.map((table) => ({
+					id: table.id,
+					kind: "table",
+					...(table.position === undefined ? {} : { position: table.position }),
+					box: table.box,
+				})),
+				...coordinatedEvidencePanels.map((panel) => ({
+					id: panel.id,
+					kind: "evidence-panel",
+					...(panel.position === undefined ? {} : { position: panel.position }),
+					box: panel.box,
+				})),
+			],
+			[
+				...coordinatedNodes.map((node) => ({
+					id: node.id,
+					kind: "node",
+					box: node.box,
+				})),
+				...coordinatedGroups.map((group) => ({
+					id: group.id,
+					kind: "group",
+					box: group.box,
+				})),
+				...coordinatedSwimlanes.flatMap((swimlane) =>
+					swimlane.box === undefined
+						? []
+						: [{ id: swimlane.id, kind: "swimlane", box: swimlane.box }],
+				),
+			],
+		),
+	);
+	const allBoxes = [...layoutBoxes, ...evidenceBoxes];
 	const contentBounds =
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
@@ -161,7 +257,9 @@ export function solveDiagram(
 			? undefined
 			: coordinateFrame(diagram.frame, contentBounds);
 	const frameTextAnnotation =
-		frame === undefined ? [] : [coordinateFrameTextAnnotation(frame)];
+		frame === undefined
+			? []
+			: [coordinateFrameTextAnnotation(frame, options.textMeasurer)];
 	const routingTextObstacles = [
 		...baseTextAnnotations.filter(isPreRouteTextObstacle),
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
@@ -170,13 +268,21 @@ export function solveDiagram(
 		edges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox)],
+		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+		[
+			...coordinatedTables.map((table) => table.box),
+			...coordinatedEvidencePanels.map((panel) => panel.box),
+		],
 		routingTextObstacles,
+		coordinatedMatrices.map((matrix) => matrix.box),
 		diagram.direction,
 		options,
 		diagnostics,
 	);
-	const edgeTextAnnotations = coordinateEdgeTextAnnotations(coordinatedEdges);
+	const edgeTextAnnotations = coordinateEdgeTextAnnotations(
+		coordinatedEdges,
+		options.textMeasurer,
+	);
 	const textAnnotations = [
 		...baseTextAnnotations,
 		...frameTextAnnotation,
@@ -186,6 +292,12 @@ export function solveDiagram(
 	diagnostics.push(
 		...reportRouteTextClearance(coordinatedEdges, textAnnotations),
 	);
+	const edgePointBounds = edgeBounds(coordinatedEdges);
+	const boundsBase = [
+		contentBounds,
+		...edgePointBounds,
+		...edgeTextAnnotations.map((annotation) => annotation.box),
+	];
 
 	return {
 		id: diagram.id,
@@ -197,19 +309,18 @@ export function solveDiagram(
 		...(coordinatedSwimlanes.length === 0
 			? {}
 			: { swimlanes: coordinatedSwimlanes }),
+		...(coordinatedMatrices.length === 0
+			? {}
+			: { matrices: coordinatedMatrices }),
+		...(coordinatedTables.length === 0 ? {} : { tables: coordinatedTables }),
+		...(coordinatedEvidencePanels.length === 0
+			? {}
+			: { evidencePanels: coordinatedEvidencePanels }),
 		diagnostics,
 		bounds:
 			frame === undefined
-				? unionBoxes([
-						contentBounds,
-						...edgeTextAnnotations.map((annotation) => annotation.box),
-					])
-				: unionBoxes([
-						contentBounds,
-						frame.box,
-						frame.titleBox,
-						...edgeTextAnnotations.map((annotation) => annotation.box),
-					]),
+				? unionBoxes(boundsBase)
+				: unionBoxes([...boundsBase, frame.box, frame.titleBox]),
 		...(frame === undefined ? {} : { frame }),
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
@@ -1397,12 +1508,479 @@ function coordinateGroups(
 	return coordinated;
 }
 
+function coordinateMatrices(
+	matrices: readonly MatrixBlock[],
+): CoordinatedMatrixBlock[] {
+	return matrices.map((block) => ({
+		...block,
+		box: blockBox(block, {
+			width:
+				defaultMatrixRowHeaderWidth(block) +
+				Math.max(1, block.cols.length) * DEFAULT_MATRIX_CELL_SIZE.width,
+			height:
+				Math.max(1, block.rows.length + 1) * DEFAULT_MATRIX_CELL_SIZE.height,
+		}),
+	}));
+}
+
+function defaultMatrixRowHeaderWidth(block: MatrixBlock): number {
+	return block.rows.length === 0
+		? 0
+		: Math.min(96, DEFAULT_MATRIX_CELL_SIZE.width);
+}
+
+function coordinateTables(
+	tables: readonly TableBlock[],
+): CoordinatedTableBlock[] {
+	return tables.map((table) => {
+		const box = blockBox(table, {
+			width: Math.max(1, table.columns.length) * DEFAULT_TABLE_CELL_SIZE.width,
+			height:
+				Math.max(1, table.rows.length + 1) * DEFAULT_TABLE_CELL_SIZE.height,
+		});
+		return {
+			...table,
+			box,
+			columnXOffsets: columnXOffsets(table, box),
+		};
+	});
+}
+
+function coordinateEvidencePanels(
+	panels: readonly EvidencePanel[],
+): CoordinatedEvidencePanel[] {
+	return panels.map((block) => ({
+		...block,
+		box: blockBox(block, {
+			width: DEFAULT_PANEL_WIDTH,
+			height: Math.max(1, block.items.length) * DEFAULT_PANEL_ITEM_HEIGHT,
+		}),
+	}));
+}
+
+function edgeBounds(edges: readonly CoordinatedEdge[]): Box[] {
+	return edges.flatMap((edge) => {
+		if (edge.points.length === 0) {
+			return [];
+		}
+		const minX = Math.min(...edge.points.map((point) => point.x));
+		const minY = Math.min(...edge.points.map((point) => point.y));
+		const maxX = Math.max(...edge.points.map((point) => point.x));
+		const maxY = Math.max(...edge.points.map((point) => point.y));
+		return [
+			{
+				x: minX,
+				y: minY,
+				width: maxX - minX,
+				height: maxY - minY,
+			},
+		];
+	});
+}
+
+function blockBox(
+	block: { position?: Point; size?: Size },
+	defaultSize: Size,
+): Box {
+	return {
+		x: block.position?.x ?? 0,
+		y: block.position?.y ?? 0,
+		width: block.size?.width ?? defaultSize.width,
+		height: block.size?.height ?? defaultSize.height,
+	};
+}
+
+function placeEvidenceBlocks(
+	blocks: Array<{ position?: Point; box: Box }>,
+	contentBounds: Box,
+): void {
+	let nextY = contentBounds.y;
+	const x = contentBounds.x + contentBounds.width + DEFAULT_EVIDENCE_BLOCK_GAP;
+	for (const block of blocks) {
+		if (block.position !== undefined) {
+			continue;
+		}
+		block.box.x = x;
+		block.box.y = nextY;
+		nextY += block.box.height + DEFAULT_EVIDENCE_BLOCK_GAP;
+	}
+}
+
+function columnXOffsets(table: TableBlock, box: Box): number[] {
+	if (table.columns.length === 0) {
+		return [];
+	}
+	const columnWidth = box.width / table.columns.length;
+	return table.columns.map((_, index) => box.x + index * columnWidth);
+}
+
+function tableCellBox(
+	table: CoordinatedTableBlock,
+	columnIndex: number,
+	rowIndex: number,
+	rowHeight: number,
+	columnCount: number,
+): Box {
+	const x =
+		table.columnXOffsets[columnIndex] ??
+		table.box.x + (table.box.width / columnCount) * columnIndex;
+	const nextX =
+		table.columnXOffsets[columnIndex + 1] ?? table.box.x + table.box.width;
+	return {
+		x,
+		y: table.box.y + rowIndex * rowHeight,
+		width: nextX - x,
+		height: rowHeight,
+	};
+}
+
+function refreshTableColumnXOffsets(tables: CoordinatedTableBlock[]): void {
+	for (const table of tables) {
+		table.columnXOffsets = columnXOffsets(table, table.box);
+	}
+}
+
+function measureEvidenceTextBlocks(
+	matrices: CoordinatedMatrixBlock[],
+	tables: CoordinatedTableBlock[],
+	panels: CoordinatedEvidencePanel[],
+	textMeasurer?: TextMeasurer,
+): void {
+	const measurer = textMeasurer ?? createDefaultTextMeasurer();
+	for (const matrix of matrices) {
+		const geometry = matrixGeometry(matrix);
+		matrix.columnLabelLayouts = matrix.cols.map((column) =>
+			measureEvidenceTextLayout(column, geometry.columnHeaderBox, measurer),
+		);
+		matrix.rowLabelLayouts = matrix.rows.map((row, index) =>
+			measureEvidenceTextLayout(row, geometry.rowHeaderBox(index), measurer),
+		);
+		matrix.cellLabelLayouts = matrix.rows.map((_, rowIndex) =>
+			matrix.cols.map((_, columnIndex) => {
+				const cell = matrix.cells[rowIndex]?.[columnIndex] ?? { text: "" };
+				return measureEvidenceTextLayout(
+					cell.text,
+					geometry.cellBox(rowIndex, columnIndex),
+					measurer,
+				);
+			}),
+		);
+	}
+	for (const table of tables) {
+		const rowHeight = table.box.height / Math.max(1, table.rows.length + 1);
+		const columnCount = Math.max(1, table.columns.length);
+		table.columnLabelLayouts = table.columns.map((column, columnIndex) =>
+			measureEvidenceTextLayout(
+				column.label.text,
+				tableCellBox(table, columnIndex, 0, rowHeight, columnCount),
+				measurer,
+			),
+		);
+		table.cellLabelLayouts = table.rows.map((row, rowIndex) =>
+			table.columns.map((column, columnIndex) => {
+				const cell = row.cells[column.id] ?? { text: "" };
+				return measureEvidenceTextLayout(
+					cell.text,
+					tableCellBox(
+						table,
+						columnIndex,
+						rowIndex + 1,
+						rowHeight,
+						columnCount,
+					),
+					measurer,
+				);
+			}),
+		);
+	}
+	for (const panel of panels) {
+		const geometry = panelGeometry(panel);
+		panel.titleLayout = measureEvidenceTextLayout(
+			`${panel.kind}: ${panel.id}`,
+			geometry.titleBox,
+			measurer,
+		);
+		panel.itemLayouts = panel.items.map((item, index) =>
+			measureEvidenceTextLayout(
+				panelItemText(item.label.text, item.detail?.text),
+				geometry.itemRowBox(index),
+				measurer,
+			),
+		);
+	}
+}
+
+function measureEvidenceTextLayout(
+	text: string,
+	box: Box,
+	textMeasurer: TextMeasurer,
+): EvidenceTextLayout {
+	const lineHeight = EVIDENCE_TEXT_FONT.lineHeight;
+	return {
+		lines: wrapEvidenceText(text, {
+			maxWidth: Math.max(0, box.width - 8),
+			maxLines: Math.max(1, Math.floor((box.height - 4) / lineHeight)),
+			textMeasurer,
+		}),
+	};
+}
+
+function wrapEvidenceText(
+	text: string,
+	options: { maxWidth: number; maxLines: number; textMeasurer: TextMeasurer },
+): string[] {
+	const normalized = text.trim().replace(/\s+/g, " ");
+	if (normalized.length === 0) {
+		return [""];
+	}
+
+	const lines: string[] = [];
+	let current = "";
+	let overflow = false;
+	for (const word of normalized.split(" ")) {
+		const chunks = chunkEvidenceWord(
+			word,
+			options.maxWidth,
+			options.textMeasurer,
+		);
+		for (const chunk of chunks) {
+			const candidate = current.length === 0 ? chunk : `${current} ${chunk}`;
+			if (
+				measureEvidenceText(candidate, options.textMeasurer) <= options.maxWidth
+			) {
+				current = candidate;
+				continue;
+			}
+			if (current.length > 0) {
+				lines.push(current);
+				current = chunk;
+			} else {
+				lines.push(chunk);
+				current = "";
+			}
+			if (lines.length >= options.maxLines) {
+				overflow = true;
+				break;
+			}
+		}
+		if (overflow) {
+			break;
+		}
+	}
+	if (!overflow && current.length > 0) {
+		lines.push(current);
+	}
+	if (lines.length > options.maxLines) {
+		overflow = true;
+		lines.length = options.maxLines;
+	}
+	if (overflow || lines.length === options.maxLines) {
+		const rendered = lines.join(" ");
+		if (rendered.length < normalized.length) {
+			lines[lines.length - 1] = ellipsizeMeasuredEvidenceLine(
+				lines[lines.length - 1] ?? "",
+				options.maxWidth,
+				options.textMeasurer,
+			);
+		}
+	}
+
+	return lines.length === 0 ? [""] : lines;
+}
+
+function chunkEvidenceWord(
+	word: string,
+	maxWidth: number,
+	textMeasurer: TextMeasurer,
+): string[] {
+	if (measureEvidenceText(word, textMeasurer) <= maxWidth) {
+		return [word];
+	}
+	const chunks: string[] = [];
+	let current = "";
+	for (const char of Array.from(word)) {
+		const candidate = `${current}${char}`;
+		if (
+			current.length > 0 &&
+			measureEvidenceText(candidate, textMeasurer) > maxWidth
+		) {
+			chunks.push(current);
+			current = char;
+			continue;
+		}
+		current = candidate;
+	}
+	if (current.length > 0) {
+		chunks.push(current);
+	}
+	return chunks.length === 0 ? [word] : chunks;
+}
+
+function ellipsizeMeasuredEvidenceLine(
+	line: string,
+	maxWidth: number,
+	textMeasurer: TextMeasurer,
+): string {
+	const ellipsis = "...";
+	if (measureEvidenceText(ellipsis, textMeasurer) > maxWidth) {
+		return "";
+	}
+	let candidate = line.trimEnd();
+	while (
+		candidate.length > 0 &&
+		measureEvidenceText(`${candidate}${ellipsis}`, textMeasurer) > maxWidth
+	) {
+		candidate = Array.from(candidate).slice(0, -1).join("").trimEnd();
+	}
+	return `${candidate}${ellipsis}`;
+}
+
+function measureEvidenceText(text: string, textMeasurer: TextMeasurer): number {
+	return textMeasurer.naturalWidth(
+		textMeasurer.prepare(text, EVIDENCE_TEXT_FONT),
+	);
+}
+
+function matrixGeometry(matrix: CoordinatedMatrixBlock): {
+	rowHeaderWidth: number;
+	cellWidth: number;
+	rowHeight: number;
+	columnHeaderBox: Box;
+	rowHeaderBox: (rowIndex: number) => Box;
+	cellBox: (rowIndex: number, columnIndex: number) => Box;
+} {
+	const columnCount = Math.max(1, matrix.cols.length);
+	const rowCount = matrix.rows.length;
+	const rowHeaderWidth =
+		rowCount > 0 ? Math.min(96, matrix.box.width * 0.28) : 0;
+	const dataWidth = Math.max(0, matrix.box.width - rowHeaderWidth);
+	const cellWidth = dataWidth / columnCount;
+	const rowHeight = matrix.box.height / Math.max(1, rowCount + 1);
+	return {
+		rowHeaderWidth,
+		cellWidth,
+		rowHeight,
+		columnHeaderBox: {
+			x: matrix.box.x + rowHeaderWidth,
+			y: matrix.box.y,
+			width: cellWidth,
+			height: rowHeight,
+		},
+		rowHeaderBox: (rowIndex) => ({
+			x: matrix.box.x,
+			y: matrix.box.y + (rowIndex + 1) * rowHeight,
+			width: rowHeaderWidth,
+			height: rowHeight,
+		}),
+		cellBox: (rowIndex, columnIndex) => ({
+			x: matrix.box.x + rowHeaderWidth + columnIndex * cellWidth,
+			y: matrix.box.y + (rowIndex + 1) * rowHeight,
+			width: cellWidth,
+			height: rowHeight,
+		}),
+	};
+}
+
+function panelGeometry(panel: CoordinatedEvidencePanel): {
+	titleBox: Box;
+	itemRowBox: (index: number) => Box;
+} {
+	const titleWidth = Math.min(panel.box.width * 0.36, 140);
+	const itemBox = {
+		x: panel.box.x + titleWidth,
+		y: panel.box.y,
+		width: panel.box.width - titleWidth,
+		height: panel.box.height,
+	};
+	const itemHeight = panel.box.height / Math.max(1, panel.items.length);
+	return {
+		titleBox: {
+			x: panel.box.x,
+			y: panel.box.y,
+			width: titleWidth,
+			height: panel.box.height,
+		},
+		itemRowBox: (index) => ({
+			x: itemBox.x,
+			y: itemBox.y + index * itemHeight,
+			width: itemBox.width,
+			height: itemHeight,
+		}),
+	};
+}
+
+function panelItemText(label: string, detail: string | undefined): string {
+	return detail === undefined ? label : `${label}: ${detail}`;
+}
+
+function reportEvidenceBlockOverlaps(
+	evidenceBlocks: Array<{
+		id: string;
+		kind: string;
+		position?: Point;
+		box: Box;
+	}>,
+	contentBlocks: Array<{ id: string; kind: string; box: Box }>,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	for (let index = 0; index < evidenceBlocks.length; index += 1) {
+		const block = evidenceBlocks[index];
+		if (block === undefined || block.position === undefined) {
+			continue;
+		}
+		for (const content of contentBlocks) {
+			if (intersectsAabb(block.box, content.box)) {
+				diagnostics.push(evidenceOverlapDiagnostic(block, content));
+			}
+		}
+		for (
+			let otherIndex = 0;
+			otherIndex < evidenceBlocks.length;
+			otherIndex += 1
+		) {
+			if (otherIndex === index) {
+				continue;
+			}
+			const other = evidenceBlocks[otherIndex];
+			if (
+				other === undefined ||
+				(other.position !== undefined && otherIndex < index) ||
+				!intersectsAabb(block.box, other.box)
+			) {
+				continue;
+			}
+			diagnostics.push(evidenceOverlapDiagnostic(block, other));
+		}
+	}
+	return diagnostics;
+}
+
+function evidenceOverlapDiagnostic(
+	block: { id: string; kind: string },
+	conflict: { id: string; kind: string },
+): Diagnostic {
+	return {
+		severity: "warning",
+		code: "constraints.overlap.unresolved",
+		message: `Evidence block ${block.id} overlaps ${conflict.kind} ${conflict.id}.`,
+		path: ["evidence", block.id],
+		detail: {
+			evidenceBlockId: block.id,
+			evidenceBlockKind: block.kind,
+			conflictingObjectId: conflict.id,
+			conflictingObjectKind: conflict.kind,
+		},
+	};
+}
+
 function coordinateEdges(
 	edges: readonly NormalizedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
 	obstacles: readonly Box[],
+	softObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
+	hardObstacles: readonly Box[],
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
@@ -1436,6 +2014,9 @@ function coordinateEdges(
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
 		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
+		const routeTextObstacles = textObstacles
+			.filter((annotation) => !connectedTextOwners.has(annotation.ownerId))
+			.map((annotation) => annotation.box);
 
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
@@ -1448,18 +2029,15 @@ function coordinateEdges(
 			...(edge.target.anchor === undefined
 				? {}
 				: { targetAnchor: edge.target.anchor }),
-			obstacles: obstacles
-				.filter(
+			obstacles: [
+				...obstacles.filter(
 					(obstacle) =>
 						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
-				)
-				.concat(
-					textObstacles
-						.filter(
-							(annotation) => !connectedTextOwners.has(annotation.ownerId),
-						)
-						.map((annotation) => annotation.box),
 				),
+				...softObstacles,
+				...routeTextObstacles,
+			],
+			hardObstacles,
 		});
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
@@ -1493,8 +2071,9 @@ function coordinateBaseTextAnnotations(input: {
 	nodes: readonly CoordinatedNode[];
 	groups: readonly CoordinatedGroup[];
 	swimlanes: readonly Swimlane[];
+	textMeasurer?: TextMeasurer;
 }): SolvedTextAnnotation[] {
-	const measurer = createDefaultTextMeasurer();
+	const measurer = input.textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];
 
 	for (const node of input.nodes) {
@@ -1638,8 +2217,9 @@ function coordinateBaseTextAnnotations(input: {
 
 function coordinateEdgeTextAnnotations(
 	edges: readonly CoordinatedEdge[],
+	textMeasurer?: TextMeasurer,
 ): SolvedTextAnnotation[] {
-	const measurer = createDefaultTextMeasurer();
+	const measurer = textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];
 
 	for (const edge of edges) {
@@ -1671,6 +2251,7 @@ function coordinateEdgeTextAnnotations(
 
 function coordinateFrameTextAnnotation(
 	frame: CoordinatedFrame,
+	textMeasurer?: TextMeasurer,
 ): SolvedTextAnnotation {
 	const layout = fitLabel(
 		frame.titleTab,
@@ -1680,7 +2261,7 @@ function coordinateFrameTextAnnotation(
 			minSize: { width: 0, height: 0 },
 			maxWidth: frame.titleBox.width,
 		},
-		createDefaultTextMeasurer(),
+		textMeasurer ?? createDefaultTextMeasurer(),
 	);
 	return buildAnchorCenteredTextAnnotation({
 		ownerId: frame.kind,
@@ -1910,22 +2491,82 @@ function routeIntersectsTextBox(points: readonly Point[], box: Box): boolean {
 		if (start === undefined || end === undefined) {
 			continue;
 		}
-		if (intersectsAabb(segmentBox(start, end), box)) {
+		if (segmentIntersectsBox(start, end, box)) {
 			return true;
 		}
 	}
 	return false;
 }
 
-function segmentBox(start: Point, end: Point): Box {
-	const minX = Math.min(start.x, end.x);
-	const minY = Math.min(start.y, end.y);
-	return {
-		x: minX,
-		y: minY,
-		width: Math.max(1, Math.abs(start.x - end.x)),
-		height: Math.max(1, Math.abs(start.y - end.y)),
-	};
+function segmentIntersectsBox(start: Point, end: Point, box: Box): boolean {
+	const left = box.x;
+	const right = box.x + box.width;
+	const top = box.y;
+	const bottom = box.y + box.height;
+	if (pointInsideBox(start, box) || pointInsideBox(end, box)) {
+		return true;
+	}
+	if (start.x === end.x) {
+		return (
+			start.x > left &&
+			start.x < right &&
+			rangesOverlap(start.y, end.y, top, bottom)
+		);
+	}
+	if (start.y === end.y) {
+		return (
+			start.y > top &&
+			start.y < bottom &&
+			rangesOverlap(start.x, end.x, left, right)
+		);
+	}
+	return (
+		segmentIntersectsBoxEdge(start, end, left, top, right, top) ||
+		segmentIntersectsBoxEdge(start, end, right, top, right, bottom) ||
+		segmentIntersectsBoxEdge(start, end, right, bottom, left, bottom) ||
+		segmentIntersectsBoxEdge(start, end, left, bottom, left, top)
+	);
+}
+
+function pointInsideBox(point: Point, box: Box): boolean {
+	return (
+		point.x > box.x &&
+		point.x < box.x + box.width &&
+		point.y > box.y &&
+		point.y < box.y + box.height
+	);
+}
+
+function rangesOverlap(
+	a: number,
+	b: number,
+	min: number,
+	max: number,
+): boolean {
+	const low = Math.min(a, b);
+	const high = Math.max(a, b);
+	return high > min && low < max;
+}
+
+function segmentIntersectsBoxEdge(
+	start: Point,
+	end: Point,
+	x1: number,
+	y1: number,
+	x2: number,
+	y2: number,
+): boolean {
+	const denominator =
+		(end.x - start.x) * (y2 - y1) - (end.y - start.y) * (x2 - x1);
+	if (denominator === 0) {
+		return false;
+	}
+	const t =
+		((x1 - start.x) * (y2 - y1) - (y1 - start.y) * (x2 - x1)) / denominator;
+	const u =
+		((x1 - start.x) * (end.y - start.y) - (y1 - start.y) * (end.x - start.x)) /
+		denominator;
+	return t > 0 && t < 1 && u > 0 && u < 1;
 }
 
 function compactDetail(
