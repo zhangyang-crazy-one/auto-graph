@@ -146,6 +146,53 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("defaults public evidence block sizes and places positionless blocks outside content", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			matrices: [
+				{
+					id: "matrix-without-position",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+				},
+			],
+			tables: [
+				{
+					id: "table-without-position",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [
+						{
+							id: "mass",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+					],
+				},
+			],
+			evidencePanels: [
+				{
+					id: "panel-without-position",
+					kind: "note",
+					items: [{ label: { text: "Check" } }],
+				},
+			],
+		});
+
+		const matrix = result.matrices?.[0];
+		const table = result.tables?.[0];
+		const panel = result.evidencePanels?.[0];
+
+		expect(matrix?.box).toMatchObject({ width: 120, height: 72 });
+		expect(table?.box).toMatchObject({ width: 128, height: 68 });
+		expect(panel?.box).toMatchObject({ width: 320, height: 28 });
+		expect(matrix?.box.x).toBeGreaterThan(0);
+		expect(table?.box.x).toBe(matrix?.box.x);
+		expect(panel?.box.x).toBe(matrix?.box.x);
+		expect(table?.box.y).toBeGreaterThan(matrix?.box.y ?? 0);
+		expect(panel?.box.y).toBeGreaterThan(table?.box.y ?? 0);
+		expect(new Set([matrix?.box.y, table?.box.y, panel?.box.y]).size).toBe(3);
+	});
+
 	it("keeps fixed position nodes while automatic nodes receive finite boxes", () => {
 		const result = solveDiagram(sampleDiagram());
 		const fixed = result.nodes.find((node) => node.id === "a");

@@ -173,19 +173,34 @@ const tableRowSchema = z.object({
 	cells: z.record(z.string(), blockCellSchema),
 });
 
-const tableSchema = z.object({
-	id: z.string(),
-	columns: z.array(tableColumnSchema),
-	rows: z.array(tableRowSchema),
-	position: pointSchema.optional(),
-	size: z
-		.object({
-			width: nonNegativeNumberSchema,
-			height: nonNegativeNumberSchema,
-		})
-		.optional(),
-	style: styleSchema.optional(),
-});
+const tableSchema = z
+	.object({
+		id: z.string(),
+		columns: z.array(tableColumnSchema),
+		rows: z.array(tableRowSchema),
+		position: pointSchema.optional(),
+		size: z
+			.object({
+				width: nonNegativeNumberSchema,
+				height: nonNegativeNumberSchema,
+			})
+			.optional(),
+		style: styleSchema.optional(),
+	})
+	.superRefine((table, context) => {
+		const columnIds = new Set(table.columns.map((column) => column.id));
+		table.rows.forEach((row, rowIndex) => {
+			for (const columnId of Object.keys(row.cells)) {
+				if (!columnIds.has(columnId)) {
+					context.addIssue({
+						code: "custom",
+						message: `Table row cell references undeclared column "${columnId}".`,
+						path: ["rows", rowIndex, "cells", columnId],
+					});
+				}
+			}
+		});
+	});
 
 const panelItemSchema = z.union([
 	z.string(),
@@ -269,50 +284,60 @@ const constraintSchema = z.union([
 	containmentConstraintSchema,
 ]);
 
-export const diagramDslSchema = z.object({
-	id: z.string().optional(),
-	title: z.string().optional(),
-	direction: directionSchema.optional(),
-	layout: z
-		.object({
-			direction: directionSchema.optional(),
-			primaryReadingDirection: primaryReadingDirectionSchema.optional(),
-		})
-		.optional(),
-	routing: z
-		.object({
-			kind: routeKindSchema.optional(),
-			portShifting: z
-				.object({
-					enabled: z.boolean().optional(),
-					spacing: finiteNumberSchema.optional(),
-				})
-				.optional(),
-		})
-		.optional(),
-	nodes: z.record(z.string(), nodeSchema),
-	edges: z.array(edgeSchema).optional(),
-	groups: z.record(z.string(), groupSchema).optional(),
-	swimlanes: z.record(z.string(), swimlaneSchema).optional(),
-	matrices: z.array(matrixSchema).optional(),
-	tables: z.array(tableSchema).optional(),
-	evidencePanels: z.array(evidencePanelSchema).optional(),
-	constraints: z.array(constraintSchema).optional(),
-	frame: z
-		.object({
-			kind: z.string(),
-			context: z.string().optional(),
-			name: z.string().optional(),
-			titleTab: z.string(),
-			style: styleSchema.optional(),
-		})
-		.optional(),
-	output: z
-		.object({
-			format: outputFormatSchema.optional(),
-		})
-		.optional(),
-});
+export const diagramDslSchema = z
+	.object({
+		id: z.string().optional(),
+		title: z.string().optional(),
+		direction: directionSchema.optional(),
+		layout: z
+			.object({
+				direction: directionSchema.optional(),
+				primaryReadingDirection: primaryReadingDirectionSchema.optional(),
+			})
+			.optional(),
+		routing: z
+			.object({
+				kind: routeKindSchema.optional(),
+				portShifting: z
+					.object({
+						enabled: z.boolean().optional(),
+						spacing: finiteNumberSchema.optional(),
+					})
+					.optional(),
+			})
+			.optional(),
+		nodes: z.record(z.string(), nodeSchema),
+		edges: z.array(edgeSchema).optional(),
+		groups: z.record(z.string(), groupSchema).optional(),
+		swimlanes: z.record(z.string(), swimlaneSchema).optional(),
+		matrices: z.array(matrixSchema).optional(),
+		tables: z.array(tableSchema).optional(),
+		evidencePanels: z.array(evidencePanelSchema).optional(),
+		constraints: z.array(constraintSchema).optional(),
+		frame: z
+			.object({
+				kind: z.string(),
+				context: z.string().optional(),
+				name: z.string().optional(),
+				titleTab: z.string(),
+				style: styleSchema.optional(),
+			})
+			.optional(),
+		output: z
+			.object({
+				format: outputFormatSchema.optional(),
+			})
+			.optional(),
+	})
+	.superRefine((diagram, context) => {
+		checkDuplicateEvidenceBlockIds("matrices", diagram.matrices, context);
+		checkDuplicateEvidenceBlockIds("tables", diagram.tables, context);
+		checkDuplicateEvidenceBlockIds(
+			"evidencePanels",
+			diagram.evidencePanels,
+			context,
+		);
+	});
 
 export type DiagramDsl = z.infer<typeof diagramDslSchema>;
 
@@ -339,4 +364,24 @@ function toDiagnosticPath(path: PropertyKey[]): Array<string | number> {
 	return path.flatMap((segment) =>
 		typeof segment === "string" || typeof segment === "number" ? [segment] : [],
 	);
+}
+
+function checkDuplicateEvidenceBlockIds(
+	collection: "matrices" | "tables" | "evidencePanels",
+	blocks: readonly { id: string }[] | undefined,
+	context: z.RefinementCtx,
+): void {
+	const firstIndexById = new Map<string, number>();
+	blocks?.forEach((block, index) => {
+		const firstIndex = firstIndexById.get(block.id);
+		if (firstIndex === undefined) {
+			firstIndexById.set(block.id, index);
+			return;
+		}
+		context.addIssue({
+			code: "custom",
+			message: `Duplicate evidence block id "${block.id}" in ${collection}.`,
+			path: [collection, index, "id"],
+		});
+	});
 }

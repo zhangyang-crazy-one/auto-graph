@@ -188,9 +188,12 @@ function renderMatrixBlock(
 	const groupIds = [containerId];
 	const label = blockText([
 		matrix.id,
-		...matrix.cells.map((row, rowIndex) => {
-			const rowId = matrix.rows[rowIndex] ?? String(rowIndex);
-			return `${rowId}: ${row.map((cell) => cell.text).join(" | ")}`;
+		`row | ${matrix.cols.join(" | ")}`,
+		...matrix.rows.map((rowId, rowIndex) => {
+			const row = matrix.cells[rowIndex] ?? [];
+			return `${rowId}: ${matrix.cols
+				.map((_, columnIndex) => row[columnIndex]?.text ?? "")
+				.join(" | ")}`;
 		}),
 	]);
 	return [

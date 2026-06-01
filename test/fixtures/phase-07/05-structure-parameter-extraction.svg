@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 1140 746">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="120 80 1397.2 666">
   <title>Structure Parameter Extraction Evidence Blocks</title>
-  <rect class="background" x="0" y="0" width="1140" height="746" fill="#ffffff"/>
+  <rect class="background" x="120" y="80" width="1397.2" height="666" fill="#ffffff"/>
   <g class="matrix-block" data-id="structure-parameter-extraction-matrix" data-row-count="4" data-column-count="4">
     <rect class="matrix-frame" x="120" y="420" width="480" height="180" fill="#f8fafc" stroke="#374151"/>
     <rect class="matrix-corner-header" x="120" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>
@@ -106,92 +106,92 @@
   <text class="matrix-cell-label" x="1092" y="582" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">bind</text>
   </g>
   <g class="table-block" data-id="block-value-properties-table" data-row-count="4" data-column-count="4">
-    <rect class="table-frame" x="0" y="0" width="512" height="170" fill="#f8fafc" stroke="#374151"/>
+    <rect class="table-frame" x="1005.2" y="80" width="512" height="170" fill="#f8fafc" stroke="#374151"/>
     <g class="table-header" data-column-count="4">
-      <rect class="table-header-cell" data-col="block" x="0" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="64" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Block</text>
-      <rect class="table-header-cell" data-col="property" x="128" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="192" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Value Property</text>
-      <rect class="table-header-cell" data-col="type" x="256" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="320" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Type</text>
-      <rect class="table-header-cell" data-col="unit" x="384" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="448" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Unit</text>
+      <rect class="table-header-cell" data-col="block" x="1005.2" y="80" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1069.2" y="97" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Block</text>
+      <rect class="table-header-cell" data-col="property" x="1133.2" y="80" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1197.2" y="97" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Value Property</text>
+      <rect class="table-header-cell" data-col="type" x="1261.2" y="80" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1325.2" y="97" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Type</text>
+      <rect class="table-header-cell" data-col="unit" x="1389.2" y="80" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1453.2" y="97" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Unit</text>
     </g>
     <g class="table-row table-row-even" data-row="hmi-luminance">
-      <rect class="table-row-even" data-row="hmi-luminance" x="0" y="34" width="512" height="34" fill="#ffffff" stroke="none"/>
-      <rect class="table-cell" data-col="block" x="0" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="64" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">HMI</text>
-      <rect class="table-cell" data-col="property" x="128" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="192" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">luminance</text>
-      <rect class="table-cell" data-col="type" x="256" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
-      <rect class="table-cell" data-col="unit" x="384" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="448" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cd_m2</text>
+      <rect class="table-row-even" data-row="hmi-luminance" x="1005.2" y="114" width="512" height="34" fill="#ffffff" stroke="none"/>
+      <rect class="table-cell" data-col="block" x="1005.2" y="114" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1069.2" y="131" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">HMI</text>
+      <rect class="table-cell" data-col="property" x="1133.2" y="114" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1197.2" y="131" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">luminance</text>
+      <rect class="table-cell" data-col="type" x="1261.2" y="114" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1325.2" y="131" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
+      <rect class="table-cell" data-col="unit" x="1389.2" y="114" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1453.2" y="131" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cd_m2</text>
     </g>
     <g class="table-row table-row-odd" data-row="processing-cycle-time">
-      <rect class="table-row-odd" data-row="processing-cycle-time" x="0" y="68" width="512" height="34" fill="#f3f4f6" stroke="none"/>
-      <rect class="table-cell" data-col="block" x="0" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="64" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Processing</text>
-      <rect class="table-cell" data-col="property" x="128" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="192" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycleTime</text>
-      <rect class="table-cell" data-col="type" x="256" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
-      <rect class="table-cell" data-col="unit" x="384" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="448" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">ms</text>
+      <rect class="table-row-odd" data-row="processing-cycle-time" x="1005.2" y="148" width="512" height="34" fill="#f3f4f6" stroke="none"/>
+      <rect class="table-cell" data-col="block" x="1005.2" y="148" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1069.2" y="165" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Processing</text>
+      <rect class="table-cell" data-col="property" x="1133.2" y="148" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1197.2" y="165" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycleTime</text>
+      <rect class="table-cell" data-col="type" x="1261.2" y="148" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1325.2" y="165" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
+      <rect class="table-cell" data-col="unit" x="1389.2" y="148" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1453.2" y="165" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">ms</text>
     </g>
     <g class="table-row table-row-even" data-row="cooling-power">
-      <rect class="table-row-even" data-row="cooling-power" x="0" y="102" width="512" height="34" fill="#ffffff" stroke="none"/>
-      <rect class="table-cell" data-col="block" x="0" y="102" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="64" y="119" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Cooling</text>
-      <rect class="table-cell" data-col="property" x="128" y="102" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="192" y="119" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">coolingPower</text>
-      <rect class="table-cell" data-col="type" x="256" y="102" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="119" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
-      <rect class="table-cell" data-col="unit" x="384" y="102" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="448" y="119" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">W</text>
+      <rect class="table-row-even" data-row="cooling-power" x="1005.2" y="182" width="512" height="34" fill="#ffffff" stroke="none"/>
+      <rect class="table-cell" data-col="block" x="1005.2" y="182" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1069.2" y="199" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Cooling</text>
+      <rect class="table-cell" data-col="property" x="1133.2" y="182" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1197.2" y="199" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">coolingPower</text>
+      <rect class="table-cell" data-col="type" x="1261.2" y="182" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1325.2" y="199" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
+      <rect class="table-cell" data-col="unit" x="1389.2" y="182" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1453.2" y="199" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">W</text>
     </g>
     <g class="table-row table-row-odd" data-row="heating-power">
-      <rect class="table-row-odd" data-row="heating-power" x="0" y="136" width="512" height="34" fill="#f3f4f6" stroke="none"/>
-      <rect class="table-cell" data-col="block" x="0" y="136" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="64" y="153" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Heating</text>
-      <rect class="table-cell" data-col="property" x="128" y="136" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="192" y="153" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">heatingPower</text>
-      <rect class="table-cell" data-col="type" x="256" y="136" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="153" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
-      <rect class="table-cell" data-col="unit" x="384" y="136" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="448" y="153" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">W</text>
+      <rect class="table-row-odd" data-row="heating-power" x="1005.2" y="216" width="512" height="34" fill="#f3f4f6" stroke="none"/>
+      <rect class="table-cell" data-col="block" x="1005.2" y="216" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1069.2" y="233" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Heating</text>
+      <rect class="table-cell" data-col="property" x="1133.2" y="216" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1197.2" y="233" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">heatingPower</text>
+      <rect class="table-cell" data-col="type" x="1261.2" y="216" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1325.2" y="233" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Real</text>
+      <rect class="table-cell" data-col="unit" x="1389.2" y="216" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1453.2" y="233" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">W</text>
     </g>
   </g>
   <g class="table-block" data-id="constraint-params-table" data-row-count="2" data-column-count="3">
-    <rect class="table-frame" x="0" y="0" width="384" height="102" fill="#f8fafc" stroke="#374151"/>
+    <rect class="table-frame" x="1005.2" y="274" width="384" height="102" fill="#f8fafc" stroke="#374151"/>
     <g class="table-header" data-column-count="3">
-      <rect class="table-header-cell" data-col="constraint" x="0" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="64" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Constraint</text>
-      <rect class="table-header-cell" data-col="parameter" x="128" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="192" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Parameter</text>
-      <rect class="table-header-cell" data-col="expression" x="256" y="0" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
-      <text class="table-header-label" x="320" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Expression</text>
+      <rect class="table-header-cell" data-col="constraint" x="1005.2" y="274" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1069.2" y="291" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Constraint</text>
+      <rect class="table-header-cell" data-col="parameter" x="1133.2" y="274" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1197.2" y="291" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Parameter</text>
+      <rect class="table-header-cell" data-col="expression" x="1261.2" y="274" width="128" height="34" fill="#e5e7eb" stroke="#374151"/>
+      <text class="table-header-label" x="1325.2" y="291" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Expression</text>
     </g>
     <g class="table-row table-row-even" data-row="thermal-limit">
-      <rect class="table-row-even" data-row="thermal-limit" x="0" y="34" width="384" height="34" fill="#ffffff" stroke="none"/>
-      <rect class="table-cell" data-col="constraint" x="0" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="64" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Thermal limit</text>
-      <rect class="table-cell" data-col="parameter" x="128" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="192" y="51" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">max_temperature_c</text>
-      <rect class="table-cell" data-col="expression" x="256" y="34" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="45" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
-  <tspan x="320" y="45">coolingPower &gt;</tspan>
-  <tspan x="320" y="57">heatingPower</tspan>
+      <rect class="table-row-even" data-row="thermal-limit" x="1005.2" y="308" width="384" height="34" fill="#ffffff" stroke="none"/>
+      <rect class="table-cell" data-col="constraint" x="1005.2" y="308" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1069.2" y="325" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Thermal limit</text>
+      <rect class="table-cell" data-col="parameter" x="1133.2" y="308" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1197.2" y="325" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">max_temperature_c</text>
+      <rect class="table-cell" data-col="expression" x="1261.2" y="308" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1325.2" y="319" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="1325.2" y="319">coolingPower &gt;</tspan>
+  <tspan x="1325.2" y="331">heatingPower</tspan>
 </text>
     </g>
     <g class="table-row table-row-odd" data-row="latency-limit">
-      <rect class="table-row-odd" data-row="latency-limit" x="0" y="68" width="384" height="34" fill="#f3f4f6" stroke="none"/>
-      <rect class="table-cell" data-col="constraint" x="0" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="64" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Latency limit</text>
-      <rect class="table-cell" data-col="parameter" x="128" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="192" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">max_cycle_time_ms</text>
-      <rect class="table-cell" data-col="expression" x="256" y="68" width="128" height="34" fill="transparent" stroke="#374151"/>
-      <text class="table-cell-label" x="320" y="85" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycleTime &lt; 50</text>
+      <rect class="table-row-odd" data-row="latency-limit" x="1005.2" y="342" width="384" height="34" fill="#f3f4f6" stroke="none"/>
+      <rect class="table-cell" data-col="constraint" x="1005.2" y="342" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1069.2" y="359" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Latency limit</text>
+      <rect class="table-cell" data-col="parameter" x="1133.2" y="342" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1197.2" y="359" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">max_cycle_time_ms</text>
+      <rect class="table-cell" data-col="expression" x="1261.2" y="342" width="128" height="34" fill="transparent" stroke="#374151"/>
+      <text class="table-cell-label" x="1325.2" y="359" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">cycleTime &lt; 50</text>
     </g>
   </g>
   <g class="evidence-panel evidence-panel--note" data-id="parameter-prohibition-note" data-kind="note" data-item-count="2">

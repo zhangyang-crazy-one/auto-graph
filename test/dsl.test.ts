@@ -429,6 +429,51 @@ evidencePanels:
 		});
 	});
 
+	it("rejects duplicate evidence block ids inside each collection", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: duplicate-table
+    columns: [{ id: name, label: Name }]
+    rows: []
+  - id: duplicate-table
+    columns: [{ id: name, label: Name }]
+    rows: []
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate evidence block id "duplicate-table" in tables.',
+				path: ["tables", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects table row cells that reference undeclared columns", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: parameters
+    columns:
+      - { id: parameter, label: Parameter }
+    rows:
+      - id: row-one
+        cells:
+          parmeter: mass
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Table row cell references undeclared column "parmeter".',
+				path: ["tables", 0, "rows", 0, "cells", "parmeter"],
+			}),
+		);
+	});
+
 	it("resolveOutputFormat defaults to svg and lets CLI format override DSL", () => {
 		expect(resolveOutputFormat().format).toBe("svg");
 		expect(resolveOutputFormat(undefined, "excalidraw").format).toBe(

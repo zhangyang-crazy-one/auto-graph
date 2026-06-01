@@ -10,18 +10,22 @@ import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedFrame,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
 	CoordinatedPort,
 	CoordinatedTableBlock,
+	EvidencePanel,
+	MatrixBlock,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
 	TableBlock,
 } from "../ir/elements.js";
-import type { Box, Insets, Point } from "../ir/geometry.js";
+import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type {
 	LabelLayout,
 	SolvedTextAnnotation,
@@ -45,6 +49,12 @@ export interface PortShiftingOptions {
 	enabled?: boolean;
 	spacing?: number;
 }
+
+const DEFAULT_MATRIX_CELL_SIZE: Size = { width: 120, height: 36 };
+const DEFAULT_TABLE_CELL_SIZE: Size = { width: 128, height: 34 };
+const DEFAULT_PANEL_WIDTH = 320;
+const DEFAULT_PANEL_ITEM_HEIGHT = 28;
+const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
 
 interface SwimlaneContractLayout {
 	box: Box;
@@ -135,9 +145,9 @@ export function solveDiagram(
 		constrained.boxes,
 		swimlaneContracts.layouts,
 	);
-	const coordinatedMatrices = coordinateEvidenceBlocks(diagram.matrices ?? []);
+	const coordinatedMatrices = coordinateMatrices(diagram.matrices ?? []);
 	const coordinatedTables = coordinateTables(diagram.tables ?? []);
-	const coordinatedEvidencePanels = coordinateEvidenceBlocks(
+	const coordinatedEvidencePanels = coordinateEvidencePanels(
 		diagram.evidencePanels ?? [],
 	);
 	const groupBoxes = new Map(
@@ -151,7 +161,7 @@ export function solveDiagram(
 			? {}
 			: { textMeasurer: options.textMeasurer }),
 	});
-	const allBoxes = [
+	const layoutBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
 			(node.ports ?? []).flatMap((port) =>
@@ -162,11 +172,27 @@ export function solveDiagram(
 		...coordinatedSwimlanes.flatMap((swimlane) =>
 			swimlane.box === undefined ? [] : [swimlane.box],
 		),
+		...baseTextAnnotations.map((annotation) => annotation.box),
+	];
+	const initialContentBounds =
+		layoutBoxes.length === 0
+			? { x: 0, y: 0, width: 0, height: 0 }
+			: unionBoxes(layoutBoxes);
+	placeEvidenceBlocks(
+		[
+			...coordinatedMatrices,
+			...coordinatedTables,
+			...coordinatedEvidencePanels,
+		],
+		initialContentBounds,
+	);
+	refreshTableColumnXOffsets(coordinatedTables);
+	const evidenceBoxes = [
 		...coordinatedMatrices.map((matrix) => matrix.box),
 		...coordinatedTables.map((table) => table.box),
 		...coordinatedEvidencePanels.map((panel) => panel.box),
-		...baseTextAnnotations.map((annotation) => annotation.box),
 	];
+	const allBoxes = [...layoutBoxes, ...evidenceBoxes];
 	const contentBounds =
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
@@ -191,8 +217,8 @@ export function solveDiagram(
 		[
 			...coordinatedTables.map((table) => table.box),
 			...coordinatedEvidencePanels.map((panel) => panel.box),
-			...routingTextObstacles.map((annotation) => annotation.box),
 		],
+		routingTextObstacles,
 		coordinatedMatrices.map((matrix) => matrix.box),
 		diagram.direction,
 		options,
@@ -1429,14 +1455,16 @@ function coordinateGroups(
 	return coordinated;
 }
 
-type EvidenceBlockWithBox<T> = T & { box: Box };
-
-function coordinateEvidenceBlocks<
-	T extends { position?: Point; size?: BoxSize },
->(blocks: readonly T[]): Array<EvidenceBlockWithBox<T>> {
-	return blocks.map((block) => ({
+function coordinateMatrices(
+	matrices: readonly MatrixBlock[],
+): CoordinatedMatrixBlock[] {
+	return matrices.map((block) => ({
 		...block,
-		box: blockBox(block),
+		box: blockBox(block, {
+			width: Math.max(1, block.cols.length) * DEFAULT_MATRIX_CELL_SIZE.width,
+			height:
+				Math.max(1, block.rows.length + 1) * DEFAULT_MATRIX_CELL_SIZE.height,
+		}),
 	}));
 }
 
@@ -1444,7 +1472,11 @@ function coordinateTables(
 	tables: readonly TableBlock[],
 ): CoordinatedTableBlock[] {
 	return tables.map((table) => {
-		const box = blockBox(table);
+		const box = blockBox(table, {
+			width: Math.max(1, table.columns.length) * DEFAULT_TABLE_CELL_SIZE.width,
+			height:
+				Math.max(1, table.rows.length + 1) * DEFAULT_TABLE_CELL_SIZE.height,
+		});
 		return {
 			...table,
 			box,
@@ -1453,13 +1485,44 @@ function coordinateTables(
 	});
 }
 
-function blockBox(block: { position?: Point; size?: BoxSize }): Box {
+function coordinateEvidencePanels(
+	panels: readonly EvidencePanel[],
+): CoordinatedEvidencePanel[] {
+	return panels.map((block) => ({
+		...block,
+		box: blockBox(block, {
+			width: DEFAULT_PANEL_WIDTH,
+			height: Math.max(1, block.items.length) * DEFAULT_PANEL_ITEM_HEIGHT,
+		}),
+	}));
+}
+
+function blockBox(
+	block: { position?: Point; size?: Size },
+	defaultSize: Size,
+): Box {
 	return {
 		x: block.position?.x ?? 0,
 		y: block.position?.y ?? 0,
-		width: block.size?.width ?? 0,
-		height: block.size?.height ?? 0,
+		width: block.size?.width ?? defaultSize.width,
+		height: block.size?.height ?? defaultSize.height,
 	};
+}
+
+function placeEvidenceBlocks(
+	blocks: Array<{ position?: Point; box: Box }>,
+	contentBounds: Box,
+): void {
+	let nextY = contentBounds.y;
+	const x = contentBounds.x + contentBounds.width + DEFAULT_EVIDENCE_BLOCK_GAP;
+	for (const block of blocks) {
+		if (block.position !== undefined) {
+			continue;
+		}
+		block.box.x = x;
+		block.box.y = nextY;
+		nextY += block.box.height + DEFAULT_EVIDENCE_BLOCK_GAP;
+	}
 }
 
 function columnXOffsets(table: TableBlock, box: Box): number[] {
@@ -1470,9 +1533,10 @@ function columnXOffsets(table: TableBlock, box: Box): number[] {
 	return table.columns.map((_, index) => box.x + index * columnWidth);
 }
 
-interface BoxSize {
-	width: number;
-	height: number;
+function refreshTableColumnXOffsets(tables: CoordinatedTableBlock[]): void {
+	for (const table of tables) {
+		table.columnXOffsets = columnXOffsets(table, table.box);
+	}
 }
 
 function coordinateEdges(
@@ -1481,6 +1545,7 @@ function coordinateEdges(
 	coordinatedNodes: readonly CoordinatedNode[],
 	obstacles: readonly Box[],
 	softObstacles: readonly Box[],
+	textObstacles: readonly SolvedTextAnnotation[],
 	hardObstacles: readonly Box[],
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
@@ -1514,6 +1579,10 @@ function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
+		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
+		const routeTextObstacles = textObstacles
+			.filter((annotation) => !connectedTextOwners.has(annotation.ownerId))
+			.map((annotation) => annotation.box);
 
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
@@ -1532,6 +1601,7 @@ function coordinateEdges(
 						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
 				),
 				...softObstacles,
+				...routeTextObstacles,
 			],
 			hardObstacles,
 		});

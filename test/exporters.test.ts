@@ -654,6 +654,40 @@ nodes:
 		});
 	});
 
+	it("preserves matrix columns and empty declared cells in Excalidraw text", () => {
+		const result = renderDiagramDsl(
+			`
+title: Matrix Excalidraw Columns
+layout: { direction: LR }
+nodes:
+  anchor:
+    label: Anchor
+    position: { x: 0, y: 0 }
+matrices:
+  - id: sparse-matrix
+    rows: [need-1]
+    cols: [function-1, function-2]
+    position: { x: 220, y: 20 }
+    cells:
+      - [covered]
+`,
+			{ format: "excalidraw" },
+		);
+
+		expect(result.diagnostics).toEqual([]);
+		const scene = JSON.parse(result.content ?? "{}") as {
+			elements: Array<Record<string, unknown>>;
+		};
+		const matrixText = scene.elements.find(
+			(element) => element.id === "matrix-text:sparse-matrix",
+		);
+
+		expect(matrixText).toMatchObject({
+			type: "text",
+			text: "sparse-matrix\nrow | function-1 | function-2\nneed-1: covered | ",
+		});
+	});
+
 	it("wraps long evidence text instead of emitting one overflowing text node", () => {
 		const result = renderDiagramDsl(
 			`
