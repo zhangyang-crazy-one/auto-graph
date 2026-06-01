@@ -669,7 +669,7 @@ matrices:
     cols: [function-1, function-2]
     position: { x: 220, y: 20 }
     cells:
-      - [covered]
+      - [covered, ""]
 `,
 			{ format: "excalidraw" },
 		);

@@ -85,6 +85,59 @@ describe("solveDiagram", () => {
 		expect(result.bounds.y + result.bounds.height).toBeGreaterThanOrEqual(424);
 	});
 
+	it("reports explicit evidence block overlaps with content and other evidence blocks", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [node("a", { x: 0, y: 0 }), node("b", { x: 300, y: 0 })],
+			edges: [],
+			groups: [],
+			constraints: [],
+			matrices: [
+				{
+					id: "overlapping-matrix",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 20, y: 20 },
+					size: { width: 120, height: 72 },
+				},
+			],
+			tables: [
+				{
+					id: "overlapping-table",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [
+						{
+							id: "mass",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+					],
+					position: { x: 40, y: 40 },
+					size: { width: 128, height: 68 },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "constraints.overlap.unresolved",
+					detail: expect.objectContaining({
+						evidenceBlockId: "overlapping-matrix",
+						conflictingObjectId: "a",
+					}),
+				}),
+				expect.objectContaining({
+					code: "constraints.overlap.unresolved",
+					detail: expect.objectContaining({
+						evidenceBlockId: "overlapping-matrix",
+						conflictingObjectId: "overlapping-table",
+					}),
+				}),
+			]),
+		);
+	});
+
 	it("keeps table column offsets stable when rows and cell text change", () => {
 		const baseTable = {
 			id: "parameters",

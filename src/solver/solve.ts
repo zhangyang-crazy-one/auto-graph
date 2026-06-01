@@ -192,6 +192,49 @@ export function solveDiagram(
 		...coordinatedTables.map((table) => table.box),
 		...coordinatedEvidencePanels.map((panel) => panel.box),
 	];
+	diagnostics.push(
+		...reportEvidenceBlockOverlaps(
+			[
+				...coordinatedMatrices.map((matrix) => ({
+					id: matrix.id,
+					kind: "matrix",
+					...(matrix.position === undefined
+						? {}
+						: { position: matrix.position }),
+					box: matrix.box,
+				})),
+				...coordinatedTables.map((table) => ({
+					id: table.id,
+					kind: "table",
+					...(table.position === undefined ? {} : { position: table.position }),
+					box: table.box,
+				})),
+				...coordinatedEvidencePanels.map((panel) => ({
+					id: panel.id,
+					kind: "evidence-panel",
+					...(panel.position === undefined ? {} : { position: panel.position }),
+					box: panel.box,
+				})),
+			],
+			[
+				...coordinatedNodes.map((node) => ({
+					id: node.id,
+					kind: "node",
+					box: node.box,
+				})),
+				...coordinatedGroups.map((group) => ({
+					id: group.id,
+					kind: "group",
+					box: group.box,
+				})),
+				...coordinatedSwimlanes.flatMap((swimlane) =>
+					swimlane.box === undefined
+						? []
+						: [{ id: swimlane.id, kind: "swimlane", box: swimlane.box }],
+				),
+			],
+		),
+	);
 	const allBoxes = [...layoutBoxes, ...evidenceBoxes];
 	const contentBounds =
 		allBoxes.length === 0
@@ -1537,6 +1580,59 @@ function refreshTableColumnXOffsets(tables: CoordinatedTableBlock[]): void {
 	for (const table of tables) {
 		table.columnXOffsets = columnXOffsets(table, table.box);
 	}
+}
+
+function reportEvidenceBlockOverlaps(
+	evidenceBlocks: Array<{
+		id: string;
+		kind: string;
+		position?: Point;
+		box: Box;
+	}>,
+	contentBlocks: Array<{ id: string; kind: string; box: Box }>,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	for (let index = 0; index < evidenceBlocks.length; index += 1) {
+		const block = evidenceBlocks[index];
+		if (block === undefined || block.position === undefined) {
+			continue;
+		}
+		for (const content of contentBlocks) {
+			if (intersectsAabb(block.box, content.box)) {
+				diagnostics.push(evidenceOverlapDiagnostic(block, content));
+			}
+		}
+		for (
+			let otherIndex = index + 1;
+			otherIndex < evidenceBlocks.length;
+			otherIndex += 1
+		) {
+			const other = evidenceBlocks[otherIndex];
+			if (other === undefined || !intersectsAabb(block.box, other.box)) {
+				continue;
+			}
+			diagnostics.push(evidenceOverlapDiagnostic(block, other));
+		}
+	}
+	return diagnostics;
+}
+
+function evidenceOverlapDiagnostic(
+	block: { id: string; kind: string },
+	conflict: { id: string; kind: string },
+): Diagnostic {
+	return {
+		severity: "warning",
+		code: "constraints.overlap.unresolved",
+		message: `Evidence block ${block.id} overlaps ${conflict.kind} ${conflict.id}.`,
+		path: ["evidence", block.id],
+		detail: {
+			evidenceBlockId: block.id,
+			evidenceBlockKind: block.kind,
+			conflictingObjectId: conflict.id,
+			conflictingObjectKind: conflict.kind,
+		},
+	};
 }
 
 function coordinateEdges(

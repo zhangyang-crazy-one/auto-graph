@@ -1,33 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="20 80 1080 614">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="-180 80 1280 614">
   <title>Method Chain Evidence Blocks</title>
-  <rect class="background" x="20" y="80" width="1080" height="614" fill="#ffffff"/>
+  <rect class="background" x="-180" y="80" width="1280" height="614" fill="#ffffff"/>
   <g class="evidence-panel evidence-panel--legend" data-id="left-classification-legend" data-kind="legend" data-item-count="5">
-    <rect class="evidence-panel-frame" x="20" y="80" width="320" height="140" fill="#ecfdf5" stroke="#374151"/>
+    <rect class="evidence-panel-frame" x="-180" y="80" width="320" height="140" fill="#ecfdf5" stroke="#374151"/>
     <g class="evidence-panel-title-cell">
-      <rect class="evidence-panel-title-bg" x="20" y="80" width="115.2" height="140" fill="#e5e7eb" stroke="#374151"/>
-      <text class="evidence-panel-title" x="77.6" y="138" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
-  <tspan x="77.6" y="138">legend:</tspan>
-  <tspan x="77.6" y="150">left-classificati</tspan>
-  <tspan x="77.6" y="162">on-legend</tspan>
+      <rect class="evidence-panel-title-bg" x="-180" y="80" width="115.2" height="140" fill="#e5e7eb" stroke="#374151"/>
+      <text class="evidence-panel-title" x="-122.4" y="138" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="-122.4" y="138">legend:</tspan>
+  <tspan x="-122.4" y="150">left-classificati</tspan>
+  <tspan x="-122.4" y="162">on-legend</tspan>
 </text>
     </g>
     <g class="evidence-panel-items-cell">
-      <rect class="evidence-panel-items-bg" x="135.2" y="80" width="204.8" height="140" fill="transparent" stroke="#374151"/>
-      <rect class="evidence-panel-item" data-item="need-row" x="135.2" y="80" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="88" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
-  <tspan x="237.6" y="88">Need: Problem statement and</tspan>
-  <tspan x="237.6" y="100">acceptance</tspan>
+      <rect class="evidence-panel-items-bg" x="-64.8" y="80" width="204.8" height="140" fill="transparent" stroke="#374151"/>
+      <rect class="evidence-panel-item" data-item="need-row" x="-64.8" y="80" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="37.6" y="88" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="37.6" y="88">Need: Problem statement and</tspan>
+  <tspan x="37.6" y="100">acceptance</tspan>
 </text>
-      <rect class="evidence-panel-item" data-item="structure-row" x="135.2" y="108" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="122" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Structure: Static model evidence</text>
-      <rect class="evidence-panel-item" data-item="view-row" x="135.2" y="136" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="150" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">View: Cross-view explanation</text>
-      <rect class="evidence-panel-item" data-item="action-row" x="135.2" y="164" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="178" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Action: Behavior and operation</text>
-      <rect class="evidence-panel-item" data-item="parameter-row" x="135.2" y="192" width="204.8" height="28" fill="transparent" stroke="none"/>
-      <text class="evidence-panel-item-label" x="237.6" y="200" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
-  <tspan x="237.6" y="200">Parameter: Quantified design</tspan>
-  <tspan x="237.6" y="212">values</tspan>
+      <rect class="evidence-panel-item" data-item="structure-row" x="-64.8" y="108" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="37.6" y="122" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Structure: Static model evidence</text>
+      <rect class="evidence-panel-item" data-item="view-row" x="-64.8" y="136" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="37.6" y="150" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">View: Cross-view explanation</text>
+      <rect class="evidence-panel-item" data-item="action-row" x="-64.8" y="164" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="37.6" y="178" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Action: Behavior and operation</text>
+      <rect class="evidence-panel-item" data-item="parameter-row" x="-64.8" y="192" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="37.6" y="200" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">
+  <tspan x="37.6" y="200">Parameter: Quantified design</tspan>
+  <tspan x="37.6" y="212">values</tspan>
 </text>
     </g>
   </g>

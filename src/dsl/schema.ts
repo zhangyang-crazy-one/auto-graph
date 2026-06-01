@@ -148,20 +148,39 @@ const swimlaneSchema = z.object({
 	),
 });
 
-const matrixSchema = z.object({
-	id: z.string(),
-	rows: z.array(z.string()),
-	cols: z.array(z.string()),
-	cells: z.array(z.array(blockCellSchema)),
-	position: pointSchema.optional(),
-	size: z
-		.object({
-			width: nonNegativeNumberSchema,
-			height: nonNegativeNumberSchema,
-		})
-		.optional(),
-	style: styleSchema.optional(),
-});
+const matrixSchema = z
+	.object({
+		id: z.string(),
+		rows: z.array(z.string()),
+		cols: z.array(z.string()),
+		cells: z.array(z.array(blockCellSchema)),
+		position: pointSchema.optional(),
+		size: z
+			.object({
+				width: nonNegativeNumberSchema,
+				height: nonNegativeNumberSchema,
+			})
+			.optional(),
+		style: styleSchema.optional(),
+	})
+	.superRefine((matrix, context) => {
+		if (matrix.cells.length !== matrix.rows.length) {
+			context.addIssue({
+				code: "custom",
+				message: `Matrix cells must contain exactly ${matrix.rows.length} row(s).`,
+				path: ["cells"],
+			});
+		}
+		matrix.cells.forEach((row, rowIndex) => {
+			if (row.length !== matrix.cols.length) {
+				context.addIssue({
+					code: "custom",
+					message: `Matrix cell row must contain exactly ${matrix.cols.length} column(s).`,
+					path: ["cells", rowIndex],
+				});
+			}
+		});
+	});
 
 const tableColumnSchema = z.object({
 	id: z.string(),
@@ -188,6 +207,11 @@ const tableSchema = z
 		style: styleSchema.optional(),
 	})
 	.superRefine((table, context) => {
+		checkDuplicateIds("column", table.columns, context, (index) => [
+			"columns",
+			index,
+			"id",
+		]);
 		const columnIds = new Set(table.columns.map((column) => column.id));
 		table.rows.forEach((row, rowIndex) => {
 			for (const columnId of Object.keys(row.cells)) {
@@ -337,6 +361,7 @@ export const diagramDslSchema = z
 			diagram.evidencePanels,
 			context,
 		);
+		checkDuplicateEvidenceBlockIdsAcrossTypes(diagram, context);
 	});
 
 export type DiagramDsl = z.infer<typeof diagramDslSchema>;
@@ -371,17 +396,60 @@ function checkDuplicateEvidenceBlockIds(
 	blocks: readonly { id: string }[] | undefined,
 	context: z.RefinementCtx,
 ): void {
+	checkDuplicateIds(
+		`evidence block id in ${collection}`,
+		blocks ?? [],
+		context,
+		(index) => [collection, index, "id"],
+	);
+}
+
+function checkDuplicateIds(
+	label: string,
+	items: readonly { id: string }[],
+	context: z.RefinementCtx,
+	pathForIndex: (index: number) => Array<string | number>,
+): void {
 	const firstIndexById = new Map<string, number>();
-	blocks?.forEach((block, index) => {
-		const firstIndex = firstIndexById.get(block.id);
+	items.forEach((item, index) => {
+		const firstIndex = firstIndexById.get(item.id);
 		if (firstIndex === undefined) {
-			firstIndexById.set(block.id, index);
+			firstIndexById.set(item.id, index);
 			return;
 		}
 		context.addIssue({
 			code: "custom",
-			message: `Duplicate evidence block id "${block.id}" in ${collection}.`,
-			path: [collection, index, "id"],
+			message: `Duplicate ${label} "${item.id}".`,
+			path: pathForIndex(index),
 		});
 	});
+}
+
+function checkDuplicateEvidenceBlockIdsAcrossTypes(
+	diagram: {
+		matrices?: readonly { id: string }[] | undefined;
+		tables?: readonly { id: string }[] | undefined;
+		evidencePanels?: readonly { id: string }[] | undefined;
+	},
+	context: z.RefinementCtx,
+): void {
+	const firstById = new Map<
+		string,
+		{ collection: "matrices" | "tables" | "evidencePanels"; index: number }
+	>();
+	for (const collection of ["matrices", "tables", "evidencePanels"] as const) {
+		const blocks = diagram[collection] ?? [];
+		blocks.forEach((block, index) => {
+			const first = firstById.get(block.id);
+			if (first === undefined) {
+				firstById.set(block.id, { collection, index });
+				return;
+			}
+			context.addIssue({
+				code: "custom",
+				message: `Duplicate evidence block id "${block.id}" across ${first.collection} and ${collection}.`,
+				path: [collection, index, "id"],
+			});
+		});
+	}
 }

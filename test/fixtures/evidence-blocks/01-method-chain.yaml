@@ -51,7 +51,7 @@ nodes:
 evidencePanels:
   - id: left-classification-legend
     kind: legend
-    position: { x: 20, y: 80 }
+    position: { x: -180, y: 80 }
     items:
       - { id: need-row, label: Need, detail: Problem statement and acceptance }
       - { id: structure-row, label: Structure, detail: Static model evidence }

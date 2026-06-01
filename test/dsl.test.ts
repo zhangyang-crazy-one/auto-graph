@@ -445,8 +445,93 @@ tables:
 		expect(result.value).toBeUndefined();
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
-				message: 'Duplicate evidence block id "duplicate-table" in tables.',
+				message: 'Duplicate evidence block id in tables "duplicate-table".',
 				path: ["tables", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects duplicate evidence block ids across collections", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: duplicate-evidence
+    rows: [need]
+    cols: [function]
+    cells:
+      - [covered]
+tables:
+  - id: duplicate-evidence
+    columns: [{ id: name, label: Name }]
+    rows: []
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message:
+					'Duplicate evidence block id "duplicate-evidence" across matrices and tables.',
+				path: ["tables", 0, "id"],
+			}),
+		);
+	});
+
+	it("rejects matrix cell dimensions that do not match declared rows and columns", () => {
+		const missingRow = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: sparse-matrix
+    rows: [need-1, need-2]
+    cols: [function-1]
+    cells:
+      - [covered]
+`);
+		const shortRow = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: short-matrix
+    rows: [need-1]
+    cols: [function-1, function-2]
+    cells:
+      - [covered]
+`);
+
+		expect(missingRow.value).toBeUndefined();
+		expect(missingRow.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: "Matrix cells must contain exactly 2 row(s).",
+				path: ["matrices", 0, "cells"],
+			}),
+		);
+		expect(shortRow.value).toBeUndefined();
+		expect(shortRow.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: "Matrix cell row must contain exactly 2 column(s).",
+				path: ["matrices", 0, "cells", 0],
+			}),
+		);
+	});
+
+	it("rejects duplicate table column ids", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: parameters
+    columns:
+      - { id: parameter, label: Parameter }
+      - { id: parameter, label: Duplicate Parameter }
+    rows: []
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate column "parameter".',
+				path: ["tables", 0, "columns", 1, "id"],
 			}),
 		);
 	});
