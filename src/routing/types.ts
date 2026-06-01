@@ -17,6 +17,7 @@ export interface RouteEdgeInput {
 	sourceAnchor?: AnchorName;
 	targetAnchor?: AnchorName;
 	obstacles?: readonly Box[];
+	hardObstacles?: readonly Box[];
 }
 
 export interface RouteEdgeResult {

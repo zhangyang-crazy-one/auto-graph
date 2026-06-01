@@ -1,0 +1,95 @@
+id: structure-parameter-extraction
+title: Structure Parameter Extraction Evidence Blocks
+layout:
+  direction: TB
+nodes:
+  structure-block-hmi:
+    label: HMI Block
+    shape: rectangle
+    position: { x: 120, y: 80 }
+  structure-block-processing:
+    label: Processing Block
+    shape: rectangle
+    position: { x: 360, y: 80 }
+  structure-block-cooling:
+    label: Cooling Block
+    shape: rectangle
+    position: { x: 600, y: 80 }
+  structure-block-heating:
+    label: Heating Block
+    shape: rectangle
+    position: { x: 840, y: 80 }
+tables:
+  - id: block-value-properties-table
+    columns:
+      - { id: block, label: Block }
+      - { id: property, label: Value Property }
+      - { id: type, label: Type }
+      - { id: unit, label: Unit }
+    rows:
+      - id: hmi-luminance
+        cells:
+          block: HMI
+          property: luminance
+          type: Real
+          unit: cd_m2
+      - id: processing-cycle-time
+        cells:
+          block: Processing
+          property: cycleTime
+          type: Real
+          unit: ms
+      - id: cooling-power
+        cells:
+          block: Cooling
+          property: coolingPower
+          type: Real
+          unit: W
+      - id: heating-power
+        cells:
+          block: Heating
+          property: heatingPower
+          type: Real
+          unit: W
+  - id: constraint-params-table
+    columns:
+      - { id: constraint, label: Constraint }
+      - { id: parameter, label: Parameter }
+      - { id: expression, label: Expression }
+    rows:
+      - id: thermal-limit
+        cells:
+          constraint: Thermal limit
+          parameter: max_temperature_c
+          expression: coolingPower > heatingPower
+      - id: latency-limit
+        cells:
+          constraint: Latency limit
+          parameter: max_cycle_time_ms
+          expression: cycleTime < 50
+matrices:
+  - id: structure-parameter-extraction-matrix
+    rows: [hmi, processing, cooling, heating]
+    cols: [luminance, cycle-time, cooling-power, heating-power]
+    position: { x: 120, y: 420 }
+    cells:
+      - [extract, "", "", ""]
+      - ["", extract, "", ""]
+      - ["", "", extract, ""]
+      - ["", "", "", extract]
+  - id: parameter-moe-requirement-binding-matrix
+    rows: [luminance, cycle-time, cooling-power, heating-power]
+    cols: [moe-visibility, moe-latency, req-thermal, req-energy]
+    position: { x: 660, y: 420 }
+    cells:
+      - [bind, "", "", ""]
+      - ["", bind, "", ""]
+      - ["", "", bind, bind]
+      - ["", "", bind, bind]
+evidencePanels:
+  - id: parameter-prohibition-note
+    kind: note
+    position: { x: 120, y: 690 }
+    items:
+      - { id: no-untyped-params, label: No untyped params, detail: Every extracted parameter keeps type and unit }
+      - { id: no-orphan-params, label: No orphan params, detail: Every parameter binds to MoE or requirement evidence }

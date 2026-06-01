@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="20 80 1080 614">
+  <title>Method Chain Evidence Blocks</title>
+  <rect class="background" x="20" y="80" width="1080" height="614" fill="#ffffff"/>
+  <g class="evidence-panel evidence-panel--legend" data-id="left-classification-legend" data-kind="legend" data-item-count="5">
+    <rect class="evidence-panel-frame" x="20" y="80" width="320" height="140" fill="#ecfdf5" stroke="#374151"/>
+    <g class="evidence-panel-title-cell">
+      <rect class="evidence-panel-title-bg" x="20" y="80" width="115.2" height="140" fill="#e5e7eb" stroke="#374151"/>
+      <text class="evidence-panel-title" x="77.6" y="150" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">legend: left-classification-legend</text>
+    </g>
+    <g class="evidence-panel-items-cell">
+      <rect class="evidence-panel-items-bg" x="135.2" y="80" width="204.8" height="140" fill="transparent" stroke="#374151"/>
+      <rect class="evidence-panel-item" data-item="need-row" x="135.2" y="80" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="237.6" y="94" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Need: Problem statement and acceptance</text>
+      <rect class="evidence-panel-item" data-item="structure-row" x="135.2" y="108" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="237.6" y="122" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Structure: Static model evidence</text>
+      <rect class="evidence-panel-item" data-item="view-row" x="135.2" y="136" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="237.6" y="150" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">View: Cross-view explanation</text>
+      <rect class="evidence-panel-item" data-item="action-row" x="135.2" y="164" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="237.6" y="178" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Action: Behavior and operation</text>
+      <rect class="evidence-panel-item" data-item="parameter-row" x="135.2" y="192" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="237.6" y="206" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Parameter: Quantified design values</text>
+    </g>
+  </g>
+  <g class="evidence-panel evidence-panel--note" data-id="behavior-triad-note" data-kind="note" data-item-count="3">
+    <rect class="evidence-panel-frame" x="180" y="610" width="320" height="84" fill="#fffbeb" stroke="#374151"/>
+    <g class="evidence-panel-title-cell">
+      <rect class="evidence-panel-title-bg" x="180" y="610" width="115.2" height="84" fill="#e5e7eb" stroke="#374151"/>
+      <text class="evidence-panel-title" x="237.6" y="652" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">note: behavior-triad-note</text>
+    </g>
+    <g class="evidence-panel-items-cell">
+      <rect class="evidence-panel-items-bg" x="295.2" y="610" width="204.8" height="84" fill="transparent" stroke="#374151"/>
+      <rect class="evidence-panel-item" data-item="triad-activity" x="295.2" y="610" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="397.6" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Activity: Behavior process view</text>
+      <rect class="evidence-panel-item" data-item="triad-sequence" x="295.2" y="638" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="397.6" y="652" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Sequence: Message ordering view</text>
+      <rect class="evidence-panel-item" data-item="triad-state" x="295.2" y="666" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="397.6" y="680" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">State: State-machine view</text>
+    </g>
+  </g>
+  <g class="evidence-panel evidence-panel--legend" data-id="symbol-legend" data-kind="legend" data-item-count="3">
+    <rect class="evidence-panel-frame" x="780" y="610" width="320" height="84" fill="#ecfdf5" stroke="#374151"/>
+    <g class="evidence-panel-title-cell">
+      <rect class="evidence-panel-title-bg" x="780" y="610" width="115.2" height="84" fill="#e5e7eb" stroke="#374151"/>
+      <text class="evidence-panel-title" x="837.6" y="652" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">legend: symbol-legend</text>
+    </g>
+    <g class="evidence-panel-items-cell">
+      <rect class="evidence-panel-items-bg" x="895.2" y="610" width="204.8" height="84" fill="transparent" stroke="#374151"/>
+      <rect class="evidence-panel-item" data-item="solid-edge" x="895.2" y="610" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="997.6" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Solid edge: Required trace</text>
+      <rect class="evidence-panel-item" data-item="dashed-edge" x="895.2" y="638" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="997.6" y="652" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Dashed edge: Derived trace</text>
+      <rect class="evidence-panel-item" data-item="filled-cell" x="895.2" y="666" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="997.6" y="680" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Filled cell: Evidence present</text>
+    </g>
+  </g>
+  <rect class="node node-rectangle" data-id="action-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="380" width="151.37" height="60"/>
+  <rect class="node node-rectangle" data-id="action-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="380" width="151.37" height="60"/>
+  <rect class="node node-rectangle" data-id="action-solution" fill="#f8fafc" stroke="#374151" x="660" y="380" width="152.99" height="42"/>
+  <rect class="node node-rectangle" data-id="need-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="80" width="142.93" height="60"/>
+  <rect class="node node-rectangle" data-id="need-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="80" width="142.93" height="60"/>
+  <rect class="node node-rectangle" data-id="need-solution" fill="#f8fafc" stroke="#374151" x="660" y="80" width="144.55" height="42"/>
+  <rect class="node node-rectangle" data-id="parameter-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="480" width="134.35" height="78"/>
+  <rect class="node node-rectangle" data-id="parameter-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="480" width="136.16" height="78"/>
+  <rect class="node node-rectangle" data-id="parameter-solution" fill="#f8fafc" stroke="#374151" x="660" y="480" width="117.16" height="60"/>
+  <rect class="node node-rectangle" data-id="structure-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="180" width="134.35" height="78"/>
+  <rect class="node node-rectangle" data-id="structure-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="180" width="136.16" height="78"/>
+  <rect class="node node-rectangle" data-id="structure-solution" fill="#f8fafc" stroke="#374151" x="660" y="180" width="110.24" height="60"/>
+  <rect class="node node-rectangle" data-id="view-problem-black-box" fill="#f8fafc" stroke="#374151" x="180" y="280" width="137.6" height="60"/>
+  <rect class="node node-rectangle" data-id="view-problem-white-box" fill="#f8fafc" stroke="#374151" x="420" y="280" width="137.6" height="60"/>
+  <rect class="node node-rectangle" data-id="view-solution" fill="#f8fafc" stroke="#374151" x="660" y="280" width="139.22" height="42"/>
+  <text class="label" data-for="action-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="406.4">Action - Problem </tspan>
+    <tspan x="196" y="424.4">Black Box</tspan>
+  </text>
+  <text class="label" data-for="action-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="406.4">Action - Problem </tspan>
+    <tspan x="436" y="424.4">White Box</tspan>
+  </text>
+  <text class="label" data-for="action-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="406.4">Action - Solution</tspan>
+  </text>
+  <text class="label" data-for="need-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="106.4">Need - Problem </tspan>
+    <tspan x="196" y="124.4">Black Box</tspan>
+  </text>
+  <text class="label" data-for="need-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="106.4">Need - Problem </tspan>
+    <tspan x="436" y="124.4">White Box</tspan>
+  </text>
+  <text class="label" data-for="need-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="106.4">Need - Solution</tspan>
+  </text>
+  <text class="label" data-for="parameter-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="506.4">Parameter - </tspan>
+    <tspan x="196" y="524.4">Problem Black </tspan>
+    <tspan x="196" y="542.4">Box</tspan>
+  </text>
+  <text class="label" data-for="parameter-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="506.4">Parameter - </tspan>
+    <tspan x="436" y="524.4">Problem White </tspan>
+    <tspan x="436" y="542.4">Box</tspan>
+  </text>
+  <text class="label" data-for="parameter-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="506.4">Parameter - </tspan>
+    <tspan x="676" y="524.4">Solution</tspan>
+  </text>
+  <text class="label" data-for="structure-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="206.4">Structure - </tspan>
+    <tspan x="196" y="224.4">Problem Black </tspan>
+    <tspan x="196" y="242.4">Box</tspan>
+  </text>
+  <text class="label" data-for="structure-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="206.4">Structure - </tspan>
+    <tspan x="436" y="224.4">Problem White </tspan>
+    <tspan x="436" y="242.4">Box</tspan>
+  </text>
+  <text class="label" data-for="structure-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="206.4">Structure - </tspan>
+    <tspan x="676" y="224.4">Solution</tspan>
+  </text>
+  <text class="label" data-for="view-problem-black-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="306.4">View - Problem </tspan>
+    <tspan x="196" y="324.4">Black Box</tspan>
+  </text>
+  <text class="label" data-for="view-problem-white-box" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="306.4">View - Problem </tspan>
+    <tspan x="436" y="324.4">White Box</tspan>
+  </text>
+  <text class="label" data-for="view-solution" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="306.4">View - Solution</tspan>
+  </text>
+</svg>

@@ -464,6 +464,94 @@ constraints:
 		expect(JSON.parse(excalidraw.content ?? "{}").type).toBe("excalidraw");
 	});
 
+	it("locks method-chain fixture evidence block counts", () => {
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("01-method-chain.yaml"),
+			{
+				sourcePath: evidenceFixturePath("01-method-chain.yaml"),
+			},
+		);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const nodes = valueWithNodes(parsed.value).nodes;
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		expect(nodes === undefined ? [] : Object.keys(nodes)).toHaveLength(15);
+		expect(normalized.diagram?.nodes).toHaveLength(15);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "legend",
+			),
+		).toHaveLength(2);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "note",
+			),
+		).toHaveLength(1);
+		expectStableEvidenceBlockIds(normalized);
+	});
+
+	it("locks traceability-spine fixture matrix and row/column evidence counts", () => {
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("04-traceability-spine.yaml"),
+			{ sourcePath: evidenceFixturePath("04-traceability-spine.yaml") },
+		);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const nodes = valueWithNodes(parsed.value).nodes;
+		const rowPrefixes = [
+			"stakeholder-needs",
+			"requirements",
+			"functions",
+			"interactions",
+			"states",
+			"logical-architecture",
+		];
+		const columnSuffixes = ["operational", "safety", "performance"];
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		for (const row of rowPrefixes) {
+			for (const column of columnSuffixes) {
+				expect(nodes).toHaveProperty(`${row}-${column}`);
+			}
+		}
+		expect(normalized.diagram?.nodes).toHaveLength(18);
+		expect(normalized.diagram?.matrices).toHaveLength(2);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "rule",
+			),
+		).toHaveLength(1);
+		expectStableEvidenceBlockIds(normalized);
+	});
+
+	it("locks structure-parameter-extraction fixture table and matrix evidence counts", () => {
+		const parsed = parseDiagramDsl(
+			readEvidenceFixture("05-structure-parameter-extraction.yaml"),
+			{
+				sourcePath: evidenceFixturePath(
+					"05-structure-parameter-extraction.yaml",
+				),
+			},
+		);
+		const normalized = normalizeDiagramDsl(parsed.value);
+		const structuralBlocks = normalized.diagram?.nodes.filter((node) =>
+			node.id.startsWith("structure-block-"),
+		);
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		expect(structuralBlocks?.length).toBeGreaterThanOrEqual(4);
+		expect(normalized.diagram?.tables).toHaveLength(2);
+		expect(normalized.diagram?.matrices).toHaveLength(2);
+		expect(
+			normalized.diagram?.evidencePanels?.filter(
+				(panel) => panel.kind === "note",
+			),
+		).toHaveLength(1);
+		expectStableEvidenceBlockIds(normalized);
+	});
+
 	it.each([
 		"architecture",
 		"flowchart",
@@ -520,4 +608,34 @@ function readFixture(name: string): string {
 
 function fixturePath(name: string): string {
 	return fileURLToPath(new URL(`./fixtures/phase-05/${name}`, import.meta.url));
+}
+
+function readEvidenceFixture(name: string): string {
+	return readFileSync(evidenceFixturePath(name), "utf8");
+}
+
+function evidenceFixturePath(name: string): string {
+	return fileURLToPath(
+		new URL(`./fixtures/evidence-blocks/${name}`, import.meta.url),
+	);
+}
+
+function valueWithNodes(value: unknown): { nodes?: Record<string, unknown> } {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return {};
+	}
+	return value as { nodes?: Record<string, unknown> };
+}
+
+function expectStableEvidenceBlockIds(result: NormalizeDiagramDslResult): void {
+	const ids = [
+		...(result.diagram?.matrices?.map((matrix) => matrix.id) ?? []),
+		...(result.diagram?.tables?.map((table) => table.id) ?? []),
+		...(result.diagram?.evidencePanels?.map((panel) => panel.id) ?? []),
+	];
+
+	expect(ids.length).toBeGreaterThan(0);
+	for (const id of ids) {
+		expect(id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+	}
 }

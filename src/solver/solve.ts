@@ -14,8 +14,7 @@ import type {
 	CoordinatedGroup,
 	CoordinatedNode,
 	CoordinatedPort,
-	EvidencePanel,
-	MatrixBlock,
+	CoordinatedTableBlock,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
@@ -135,15 +134,6 @@ export function solveDiagram(
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
 	);
-	const coordinatedEdges = coordinateEdges(
-		edges,
-		nodeGeometryById,
-		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
-		diagram.direction,
-		options,
-		diagnostics,
-	);
 	const allBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
@@ -167,6 +157,20 @@ export function solveDiagram(
 		diagram.frame === undefined
 			? undefined
 			: coordinateFrame(diagram.frame, contentBounds);
+	const coordinatedEdges = coordinateEdges(
+		edges,
+		nodeGeometryById,
+		coordinatedNodes,
+		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+		[
+			...coordinatedTables.map((table) => table.box),
+			...coordinatedEvidencePanels.map((panel) => panel.box),
+		],
+		coordinatedMatrices.map((matrix) => matrix.box),
+		diagram.direction,
+		options,
+		diagnostics,
+	);
 
 	return {
 		id: diagram.id,
@@ -178,7 +182,9 @@ export function solveDiagram(
 		...(coordinatedSwimlanes.length === 0
 			? {}
 			: { swimlanes: coordinatedSwimlanes }),
-		...(coordinatedMatrices.length === 0 ? {} : { matrices: coordinatedMatrices }),
+		...(coordinatedMatrices.length === 0
+			? {}
+			: { matrices: coordinatedMatrices }),
 		...(coordinatedTables.length === 0 ? {} : { tables: coordinatedTables }),
 		...(coordinatedEvidencePanels.length === 0
 			? {}
@@ -1375,21 +1381,19 @@ function coordinateGroups(
 }
 
 type EvidenceBlockWithBox<T> = T & { box: Box };
-type CoordinatedTableBlock = TableBlock & {
-	box: Box;
-	columnXOffsets: number[];
-};
 
-function coordinateEvidenceBlocks<T extends { position?: Point; size?: BoxSize }>(
-	blocks: readonly T[],
-): Array<EvidenceBlockWithBox<T>> {
+function coordinateEvidenceBlocks<
+	T extends { position?: Point; size?: BoxSize },
+>(blocks: readonly T[]): Array<EvidenceBlockWithBox<T>> {
 	return blocks.map((block) => ({
 		...block,
 		box: blockBox(block),
 	}));
 }
 
-function coordinateTables(tables: readonly TableBlock[]): CoordinatedTableBlock[] {
+function coordinateTables(
+	tables: readonly TableBlock[],
+): CoordinatedTableBlock[] {
 	return tables.map((table) => {
 		const box = blockBox(table);
 		return {
@@ -1427,6 +1431,8 @@ function coordinateEdges(
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
 	obstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
@@ -1471,10 +1477,14 @@ function coordinateEdges(
 			...(edge.target.anchor === undefined
 				? {}
 				: { targetAnchor: edge.target.anchor }),
-			obstacles: obstacles.filter(
-				(obstacle) =>
-					obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
-			),
+			obstacles: [
+				...obstacles.filter(
+					(obstacle) =>
+						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
+				),
+				...softObstacles,
+			],
+			hardObstacles,
 		});
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({

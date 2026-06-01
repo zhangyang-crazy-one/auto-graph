@@ -1,15 +1,15 @@
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedFrame,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
-	EvidencePanel,
+	CoordinatedTableBlock,
 	Label,
-	MatrixBlock,
 	NodeShape,
 	Swimlane,
-	TableBlock,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import { computeArrowhead } from "./arrow.js";
@@ -28,14 +28,6 @@ const EVIDENCE_PANEL_KIND_FILL = {
 	note: "#fffbeb",
 	verification: "#fef2f2",
 } as const;
-
-type EvidenceBlockWithBox<T> = T & { box: Box };
-type CoordinatedMatrixBlock = EvidenceBlockWithBox<MatrixBlock>;
-type CoordinatedEvidencePanel = EvidenceBlockWithBox<EvidencePanel>;
-type CoordinatedTableBlock = TableBlock & {
-	box: Box;
-	columnXOffsets: number[];
-};
 
 export function exportSvg(
 	diagram: CoordinatedDiagram,

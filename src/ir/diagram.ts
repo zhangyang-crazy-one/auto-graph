@@ -2,9 +2,12 @@ import type { Constraint } from "./constraints.js";
 import type { Diagnostic } from "./diagnostics.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedFrame,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
+	CoordinatedTableBlock,
 	DiagramFrame,
 	EvidencePanel,
 	IntentEdge,
@@ -67,9 +70,9 @@ export interface CoordinatedDiagram {
 	edges: CoordinatedEdge[];
 	groups: CoordinatedGroup[];
 	swimlanes?: Swimlane[];
-	matrices?: MatrixBlock[];
-	tables?: TableBlock[];
-	evidencePanels?: EvidencePanel[];
+	matrices?: CoordinatedMatrixBlock[];
+	tables?: CoordinatedTableBlock[];
+	evidencePanels?: CoordinatedEvidencePanel[];
 	diagnostics: Diagnostic[];
 	bounds: Box;
 	frame?: CoordinatedFrame;

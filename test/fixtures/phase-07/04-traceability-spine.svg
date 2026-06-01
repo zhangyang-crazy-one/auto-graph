@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="180 80 1080 664">
+  <title>Traceability Spine Evidence Blocks</title>
+  <rect class="background" x="180" y="80" width="1080" height="664" fill="#ffffff"/>
+  <g class="matrix-block" data-id="traceability-matrix" data-row-count="6" data-column-count="3">
+    <rect class="matrix-frame" x="900" y="90" width="360" height="252" fill="#f8fafc" stroke="#374151"/>
+    <rect class="matrix-column-header" data-col="operational-model" x="900" y="90" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="960" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">operational-model</text>
+    <rect class="matrix-column-header" data-col="safety-model" x="1020" y="90" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1080" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">safety-model</text>
+    <rect class="matrix-column-header" data-col="performance-model" x="1140" y="90" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1200" y="108" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">performance-model</text>
+    <rect class="matrix-cell" data-row="sn-1" data-col="operational-model" x="900" y="126" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-1" data-col="safety-model" x="1020" y="126" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-1" data-col="performance-model" x="1140" y="126" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="144" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
+    <rect class="matrix-cell" data-row="sn-2" data-col="operational-model" x="900" y="162" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="sn-2" data-col="safety-model" x="1020" y="162" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
+    <rect class="matrix-cell" data-row="sn-2" data-col="performance-model" x="1140" y="162" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="180" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-1" data-col="operational-model" x="900" y="198" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
+    <rect class="matrix-cell" data-row="req-1" data-col="safety-model" x="1020" y="198" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-1" data-col="performance-model" x="1140" y="198" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="216" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-2" data-col="operational-model" x="900" y="234" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">gap</text>
+    <rect class="matrix-cell" data-row="req-2" data-col="safety-model" x="1020" y="234" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="req-2" data-col="performance-model" x="1140" y="234" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="252" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-1" data-col="operational-model" x="900" y="270" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-1" data-col="safety-model" x="1020" y="270" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
+    <rect class="matrix-cell" data-row="fn-1" data-col="performance-model" x="1140" y="270" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="288" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-2" data-col="operational-model" x="900" y="306" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-2" data-col="safety-model" x="1020" y="306" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">covered</text>
+    <rect class="matrix-cell" data-row="fn-2" data-col="performance-model" x="1140" y="306" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="324" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">derived</text>
+  </g>
+  <g class="matrix-block" data-id="verification-matrix" data-row-count="6" data-column-count="3">
+    <rect class="matrix-frame" x="900" y="390" width="360" height="252" fill="#f8fafc" stroke="#374151"/>
+    <rect class="matrix-column-header" data-col="need" x="900" y="390" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="960" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">need</text>
+    <rect class="matrix-column-header" data-col="requirement" x="1020" y="390" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1080" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">requirement</text>
+    <rect class="matrix-column-header" data-col="function" x="1140" y="390" width="120" height="36" fill="#e5e7eb" stroke="#374151"/>
+  <text class="matrix-column-label" x="1200" y="408" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">function</text>
+    <rect class="matrix-cell" data-row="vt-1" data-col="need" x="900" y="426" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-1" data-col="requirement" x="1020" y="426" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-1" data-col="function" x="1140" y="426" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="444" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-2" data-col="need" x="900" y="462" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-2" data-col="requirement" x="1020" y="462" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-2" data-col="function" x="1140" y="462" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="480" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-3" data-col="need" x="900" y="498" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-3" data-col="requirement" x="1020" y="498" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-3" data-col="function" x="1140" y="498" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="516" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-4" data-col="need" x="900" y="534" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-4" data-col="requirement" x="1020" y="534" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-4" data-col="function" x="1140" y="534" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="552" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-5" data-col="need" x="900" y="570" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-5" data-col="requirement" x="1020" y="570" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-5" data-col="function" x="1140" y="570" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="588" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+    <rect class="matrix-cell" data-row="vt-6" data-col="need" x="900" y="606" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="960" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-6" data-col="requirement" x="1020" y="606" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1080" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">watch</text>
+    <rect class="matrix-cell" data-row="vt-6" data-col="function" x="1140" y="606" width="120" height="36" fill="#ffffff" stroke="#374151"/>
+  <text class="matrix-cell-label" x="1200" y="624" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">pass</text>
+  </g>
+  <g class="evidence-panel evidence-panel--rule" data-id="traceability-spine-rules" data-kind="rule" data-item-count="3">
+    <rect class="evidence-panel-frame" x="180" y="660" width="320" height="84" fill="#eff6ff" stroke="#374151"/>
+    <g class="evidence-panel-title-cell">
+      <rect class="evidence-panel-title-bg" x="180" y="660" width="115.2" height="84" fill="#e5e7eb" stroke="#374151"/>
+      <text class="evidence-panel-title" x="237.6" y="702" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">rule: traceability-spine-rules</text>
+    </g>
+    <g class="evidence-panel-items-cell">
+      <rect class="evidence-panel-items-bg" x="295.2" y="660" width="204.8" height="84" fill="transparent" stroke="#374151"/>
+      <rect class="evidence-panel-item" data-item="rule-one-hop" x="295.2" y="660" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="397.6" y="674" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">One-hop trace: Every row traces to the next model layer</text>
+      <rect class="evidence-panel-item" data-item="rule-verification" x="295.2" y="688" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="397.6" y="702" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">Verification link: Every requirement has at least one verification case</text>
+      <rect class="evidence-panel-item" data-item="rule-no-orphan" x="295.2" y="716" width="204.8" height="28" fill="transparent" stroke="none"/>
+      <text class="evidence-panel-item-label" x="397.6" y="730" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="10" fill="#111827">No orphan: No function stands without a requirement source</text>
+    </g>
+  </g>
+  <rect class="node node-rectangle" data-id="functions-operational" fill="#f8fafc" stroke="#374151" x="180" y="260" width="120.77" height="60"/>
+  <rect class="node node-rectangle" data-id="functions-performance" fill="#f8fafc" stroke="#374151" x="660" y="260" width="125.17" height="60"/>
+  <rect class="node node-rectangle" data-id="functions-safety" fill="#f8fafc" stroke="#374151" x="420" y="260" width="113.78" height="60"/>
+  <rect class="node node-rectangle" data-id="interactions-operational" fill="#f8fafc" stroke="#374151" x="180" y="350" width="129" height="60"/>
+  <rect class="node node-rectangle" data-id="interactions-performance" fill="#f8fafc" stroke="#374151" x="660" y="350" width="129" height="60"/>
+  <rect class="node node-rectangle" data-id="interactions-safety" fill="#f8fafc" stroke="#374151" x="420" y="350" width="129" height="60"/>
+  <rect class="node node-rectangle" data-id="logical-architecture-operational" fill="#f8fafc" stroke="#374151" x="180" y="530" width="130.95" height="78"/>
+  <rect class="node node-rectangle" data-id="logical-architecture-performance" fill="#f8fafc" stroke="#374151" x="660" y="530" width="130.95" height="78"/>
+  <rect class="node node-rectangle" data-id="logical-architecture-safety" fill="#f8fafc" stroke="#374151" x="420" y="530" width="130.95" height="78"/>
+  <rect class="node node-rectangle" data-id="requirements-operational" fill="#f8fafc" stroke="#374151" x="180" y="170" width="141.19" height="60"/>
+  <rect class="node node-rectangle" data-id="requirements-performance" fill="#f8fafc" stroke="#374151" x="660" y="170" width="141.19" height="60"/>
+  <rect class="node node-rectangle" data-id="requirements-safety" fill="#f8fafc" stroke="#374151" x="420" y="170" width="141.19" height="60"/>
+  <rect class="node node-rectangle" data-id="stakeholder-needs-operational" fill="#f8fafc" stroke="#374151" x="180" y="80" width="120.77" height="78"/>
+  <rect class="node node-rectangle" data-id="stakeholder-needs-performance" fill="#f8fafc" stroke="#374151" x="660" y="80" width="125.17" height="78"/>
+  <rect class="node node-rectangle" data-id="stakeholder-needs-safety" fill="#f8fafc" stroke="#374151" x="420" y="80" width="136.79" height="60"/>
+  <rect class="node node-rectangle" data-id="states-operational" fill="#f8fafc" stroke="#374151" x="180" y="440" width="120.77" height="60"/>
+  <rect class="node node-rectangle" data-id="states-performance" fill="#f8fafc" stroke="#374151" x="660" y="440" width="125.17" height="60"/>
+  <rect class="node node-rectangle" data-id="states-safety" fill="#f8fafc" stroke="#374151" x="420" y="440" width="137.3" height="42"/>
+  <text class="label" data-for="functions-operational" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="286.4">Functions - </tspan>
+    <tspan x="196" y="304.4">Operational</tspan>
+  </text>
+  <text class="label" data-for="functions-performance" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="286.4">Functions - </tspan>
+    <tspan x="676" y="304.4">Performance</tspan>
+  </text>
+  <text class="label" data-for="functions-safety" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="286.4">Functions - </tspan>
+    <tspan x="436" y="304.4">Safety</tspan>
+  </text>
+  <text class="label" data-for="interactions-operational" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="376.4">Interactions - </tspan>
+    <tspan x="196" y="394.4">Operational</tspan>
+  </text>
+  <text class="label" data-for="interactions-performance" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="376.4">Interactions - </tspan>
+    <tspan x="676" y="394.4">Performance</tspan>
+  </text>
+  <text class="label" data-for="interactions-safety" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="376.4">Interactions - </tspan>
+    <tspan x="436" y="394.4">Safety</tspan>
+  </text>
+  <text class="label" data-for="logical-architecture-operational" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="556.4">Logical </tspan>
+    <tspan x="196" y="574.4">Architecture - </tspan>
+    <tspan x="196" y="592.4">Operational</tspan>
+  </text>
+  <text class="label" data-for="logical-architecture-performance" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="556.4">Logical </tspan>
+    <tspan x="676" y="574.4">Architecture - </tspan>
+    <tspan x="676" y="592.4">Performance</tspan>
+  </text>
+  <text class="label" data-for="logical-architecture-safety" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="556.4">Logical </tspan>
+    <tspan x="436" y="574.4">Architecture - </tspan>
+    <tspan x="436" y="592.4">Safety</tspan>
+  </text>
+  <text class="label" data-for="requirements-operational" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="196.4">Requirements - </tspan>
+    <tspan x="196" y="214.4">Operational</tspan>
+  </text>
+  <text class="label" data-for="requirements-performance" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="196.4">Requirements - </tspan>
+    <tspan x="676" y="214.4">Performance</tspan>
+  </text>
+  <text class="label" data-for="requirements-safety" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="196.4">Requirements - </tspan>
+    <tspan x="436" y="214.4">Safety</tspan>
+  </text>
+  <text class="label" data-for="stakeholder-needs-operational" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="106.4">Stakeholder </tspan>
+    <tspan x="196" y="124.4">Needs - </tspan>
+    <tspan x="196" y="142.4">Operational</tspan>
+  </text>
+  <text class="label" data-for="stakeholder-needs-performance" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="106.4">Stakeholder </tspan>
+    <tspan x="676" y="124.4">Needs - </tspan>
+    <tspan x="676" y="142.4">Performance</tspan>
+  </text>
+  <text class="label" data-for="stakeholder-needs-safety" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="106.4">Stakeholder </tspan>
+    <tspan x="436" y="124.4">Needs - Safety</tspan>
+  </text>
+  <text class="label" data-for="states-operational" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="196" y="466.4">States - </tspan>
+    <tspan x="196" y="484.4">Operational</tspan>
+  </text>
+  <text class="label" data-for="states-performance" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="676" y="466.4">States - </tspan>
+    <tspan x="676" y="484.4">Performance</tspan>
+  </text>
+  <text class="label" data-for="states-safety" font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <tspan x="436" y="466.4">States - Safety</tspan>
+  </text>
+</svg>

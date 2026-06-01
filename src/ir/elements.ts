@@ -91,6 +91,10 @@ export interface MatrixBlock {
 	style?: VisualStyle;
 }
 
+export interface CoordinatedMatrixBlock extends MatrixBlock {
+	box: Box;
+}
+
 export interface TableColumn {
 	id: string;
 	label: Label;
@@ -110,6 +114,11 @@ export interface TableBlock {
 	style?: VisualStyle;
 }
 
+export interface CoordinatedTableBlock extends TableBlock {
+	box: Box;
+	columnXOffsets: number[];
+}
+
 export type EvidencePanelKind = "legend" | "rule" | "note" | "verification";
 
 export interface EvidencePanelItem {
@@ -126,6 +135,10 @@ export interface EvidencePanel {
 	position?: Point;
 	size?: Size;
 	style?: VisualStyle;
+}
+
+export interface CoordinatedEvidencePanel extends EvidencePanel {
+	box: Box;
 }
 
 export interface NodePort {

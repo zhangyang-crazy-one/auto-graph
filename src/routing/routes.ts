@@ -11,6 +11,8 @@ import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
+	const softObstacles = input.obstacles ?? [];
+	const hardObstacles = input.hardObstacles ?? [];
 	const defaultAnchors = defaultAnchorsForGeometry(
 		input.source.box,
 		input.target.box,
@@ -37,13 +39,47 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			source,
 			target,
 			input.direction,
-			input.obstacles ?? [],
+			softObstacles,
 		),
 	);
 	for (const candidate of candidates) {
-		if (!routeIntersectsObstacles(candidate, input.obstacles ?? [])) {
+		if (
+			!routeIntersectsObstacles(candidate, softObstacles) &&
+			!routeIntersectsObstacles(candidate, hardObstacles)
+		) {
 			return { points: simplifyRoute(candidate), diagnostics };
 		}
+	}
+
+	const hardClearCandidate = candidates.find(
+		(candidate) => !routeIntersectsObstacles(candidate, hardObstacles),
+	);
+	if (hardClearCandidate !== undefined) {
+		diagnostics.push({
+			severity: "warning",
+			code: "routing.obstacle.unavoidable",
+			message:
+				"No bounded orthogonal route candidate avoided all soft obstacles.",
+		});
+
+		return {
+			points: simplifyRoute(hardClearCandidate),
+			diagnostics,
+		};
+	}
+
+	if (hardObstacles.length > 0) {
+		diagnostics.push({
+			severity: "error",
+			code: "routing.evidence.crossing_forbidden",
+			message:
+				"No bounded orthogonal route candidate avoided hard evidence block obstacles.",
+		});
+
+		return {
+			points: [],
+			diagnostics,
+		};
 	}
 
 	diagnostics.push({

@@ -1,14 +1,14 @@
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
+	CoordinatedEvidencePanel,
 	CoordinatedGroup,
+	CoordinatedMatrixBlock,
 	CoordinatedNode,
+	CoordinatedTableBlock,
 	EdgeArrowhead,
-	EvidencePanel,
 	Label,
-	MatrixBlock,
 	NodeShape,
-	TableBlock,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { ExportOptions } from "./types.js";
@@ -93,14 +93,6 @@ interface ExcalidrawArrowElement extends ExcalidrawElementBase<"arrow"> {
 	startArrowhead: null;
 	endArrowhead: "arrow" | "triangle" | "triangle_outline";
 }
-
-type EvidenceBlockWithBox<T> = T & { box: Box };
-type CoordinatedMatrixBlock = EvidenceBlockWithBox<MatrixBlock>;
-type CoordinatedEvidencePanel = EvidenceBlockWithBox<EvidencePanel>;
-type CoordinatedTableBlock = TableBlock & {
-	box: Box;
-	columnXOffsets: number[];
-};
 
 export function exportExcalidraw(
 	diagram: CoordinatedDiagram,
@@ -481,7 +473,7 @@ function blockText(lines: readonly string[]): string {
 	return lines.filter((line) => line.length > 0).join("\n");
 }
 
-function panelKindFill(kind: EvidencePanel["kind"]): string {
+function panelKindFill(kind: CoordinatedEvidencePanel["kind"]): string {
 	switch (kind) {
 		case "legend":
 			return "#ecfdf5";
