@@ -138,6 +138,49 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("reports explicit evidence block overlaps with earlier auto-placed evidence blocks", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [node("a", { x: 0, y: 0 })],
+			edges: [],
+			groups: [],
+			constraints: [],
+			matrices: [
+				{
+					id: "auto-matrix",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+					size: { width: 120, height: 72 },
+				},
+			],
+			tables: [
+				{
+					id: "explicit-table",
+					columns: [{ id: "parameter", label: { text: "Parameter" } }],
+					rows: [
+						{
+							id: "mass",
+							cells: { parameter: { text: "mass_kg" } },
+						},
+					],
+					position: { x: 120, y: 0 },
+					size: { width: 128, height: 68 },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					evidenceBlockId: "explicit-table",
+					conflictingObjectId: "auto-matrix",
+				}),
+			}),
+		);
+	});
+
 	it("keeps table column offsets stable when rows and cell text change", () => {
 		const baseTable = {
 			id: "parameters",

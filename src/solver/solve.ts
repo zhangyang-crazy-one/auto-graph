@@ -1603,12 +1603,19 @@ function reportEvidenceBlockOverlaps(
 			}
 		}
 		for (
-			let otherIndex = index + 1;
+			let otherIndex = 0;
 			otherIndex < evidenceBlocks.length;
 			otherIndex += 1
 		) {
+			if (otherIndex === index) {
+				continue;
+			}
 			const other = evidenceBlocks[otherIndex];
-			if (other === undefined || !intersectsAabb(block.box, other.box)) {
+			if (
+				other === undefined ||
+				(other.position !== undefined && otherIndex < index) ||
+				!intersectsAabb(block.box, other.box)
+			) {
 				continue;
 			}
 			diagnostics.push(evidenceOverlapDiagnostic(block, other));

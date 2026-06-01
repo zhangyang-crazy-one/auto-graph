@@ -515,6 +515,45 @@ matrices:
 		);
 	});
 
+	it("rejects duplicate matrix row and column ids", () => {
+		const duplicateRows = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: duplicate-row-matrix
+    rows: [need, need]
+    cols: [function]
+    cells:
+      - [covered]
+      - [gap]
+`);
+		const duplicateCols = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+matrices:
+  - id: duplicate-column-matrix
+    rows: [need]
+    cols: [function, function]
+    cells:
+      - [covered, gap]
+`);
+
+		expect(duplicateRows.value).toBeUndefined();
+		expect(duplicateRows.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate matrix row "need".',
+				path: ["matrices", 0, "rows", 1],
+			}),
+		);
+		expect(duplicateCols.value).toBeUndefined();
+		expect(duplicateCols.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate matrix column "function".',
+				path: ["matrices", 0, "cols", 1],
+			}),
+		);
+	});
+
 	it("rejects duplicate table column ids", () => {
 		const result = parseDiagramDsl(`
 nodes:
@@ -532,6 +571,32 @@ tables:
 			expect.objectContaining({
 				message: 'Duplicate column "parameter".',
 				path: ["tables", 0, "columns", 1, "id"],
+			}),
+		);
+	});
+
+	it("rejects duplicate table row ids", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+tables:
+  - id: parameters
+    columns:
+      - { id: parameter, label: Parameter }
+    rows:
+      - id: mass
+        cells:
+          parameter: mass_kg
+      - id: mass
+        cells:
+          parameter: duplicate_mass
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				message: 'Duplicate row "mass".',
+				path: ["tables", 0, "rows", 1, "id"],
 			}),
 		);
 	});

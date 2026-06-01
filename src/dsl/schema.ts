@@ -164,6 +164,14 @@ const matrixSchema = z
 		style: styleSchema.optional(),
 	})
 	.superRefine((matrix, context) => {
+		checkDuplicateValues("matrix row", matrix.rows, context, (index) => [
+			"rows",
+			index,
+		]);
+		checkDuplicateValues("matrix column", matrix.cols, context, (index) => [
+			"cols",
+			index,
+		]);
 		if (matrix.cells.length !== matrix.rows.length) {
 			context.addIssue({
 				code: "custom",
@@ -209,6 +217,11 @@ const tableSchema = z
 	.superRefine((table, context) => {
 		checkDuplicateIds("column", table.columns, context, (index) => [
 			"columns",
+			index,
+			"id",
+		]);
+		checkDuplicateIds("row", table.rows, context, (index) => [
+			"rows",
 			index,
 			"id",
 		]);
@@ -420,6 +433,27 @@ function checkDuplicateIds(
 		context.addIssue({
 			code: "custom",
 			message: `Duplicate ${label} "${item.id}".`,
+			path: pathForIndex(index),
+		});
+	});
+}
+
+function checkDuplicateValues(
+	label: string,
+	values: readonly string[],
+	context: z.RefinementCtx,
+	pathForIndex: (index: number) => Array<string | number>,
+): void {
+	const firstIndexByValue = new Map<string, number>();
+	values.forEach((value, index) => {
+		const firstIndex = firstIndexByValue.get(value);
+		if (firstIndex === undefined) {
+			firstIndexByValue.set(value, index);
+			return;
+		}
+		context.addIssue({
+			code: "custom",
+			message: `Duplicate ${label} "${value}".`,
 			path: pathForIndex(index),
 		});
 	});
