@@ -45,3 +45,15 @@ Addressed Codex review feedback on PR #14:
 Review-fix verification:
 
 - `npm run verify` passed: 17 test files, 233 tests.
+
+Second Codex review fix:
+
+- Single-endpoint explicit anchors now keep the omitted endpoint automatic, so
+  a pinned source can still try alternate target anchors.
+- Automatic endpoint-interior validation now rejects terminal segment crossings
+  through source/target node interiors instead of skipping those segments.
+- Added routing regressions for both Codex review examples.
+
+Second review-fix verification:
+
+- `npm run verify` passed: 17 test files, 235 tests.

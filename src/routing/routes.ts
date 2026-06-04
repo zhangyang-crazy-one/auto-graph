@@ -148,12 +148,21 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 }
 
 function endpointObstaclesForAutoAnchors(input: RouteEdgeInput): Box[] {
-	if (input.sourceAnchor !== undefined || input.targetAnchor !== undefined) {
-		return [];
+	const boxes: Box[] = [];
+	if (input.sourceAnchor === undefined && hasDistinctAnchors(input.source)) {
+		boxes.push(insetBox(input.source.box, 1));
 	}
-	return [insetBox(input.source.box, 1), insetBox(input.target.box, 1)].filter(
-		(box) => box.width > 0 && box.height > 0,
+	if (input.targetAnchor === undefined && hasDistinctAnchors(input.target)) {
+		boxes.push(insetBox(input.target.box, 1));
+	}
+	return boxes.filter((box) => box.width > 0 && box.height > 0);
+}
+
+function hasDistinctAnchors(geometry: RouteEdgeInput["source"]): boolean {
+	const points = new Set(
+		geometry.anchors.map((anchor) => `${anchor.point.x},${anchor.point.y}`),
 	);
+	return points.size > 1;
 }
 
 function insetBox(box: Box, margin: number): Box {
@@ -187,24 +196,21 @@ function routeAnchorPairs(
 	input: RouteEdgeInput,
 	defaultAnchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
 ): Array<{ sourceAnchor: AnchorName; targetAnchor: AnchorName }> {
-	if (input.sourceAnchor !== undefined || input.targetAnchor !== undefined) {
-		return [
-			{
-				sourceAnchor: input.sourceAnchor ?? defaultAnchors.sourceAnchor,
-				targetAnchor: input.targetAnchor ?? defaultAnchors.targetAnchor,
-			},
-		];
-	}
-
-	const pairs = [
-		defaultAnchors,
-		...rankedSideAnchors(input.source, input.target.center).flatMap(
-			(sourceAnchor) =>
-				rankedSideAnchors(input.target, input.source.center).map(
-					(targetAnchor) => ({ sourceAnchor, targetAnchor }),
-				),
-		),
-	];
+	const sourceAnchors = routeAnchorCandidates(
+		input.sourceAnchor,
+		defaultAnchors.sourceAnchor,
+		input.source,
+		input.target.center,
+	);
+	const targetAnchors = routeAnchorCandidates(
+		input.targetAnchor,
+		defaultAnchors.targetAnchor,
+		input.target,
+		input.source.center,
+	);
+	const pairs = sourceAnchors.flatMap((sourceAnchor) =>
+		targetAnchors.map((targetAnchor) => ({ sourceAnchor, targetAnchor })),
+	);
 	const seen = new Set<string>();
 	return pairs.filter((pair) => {
 		const key = `${pair.sourceAnchor}->${pair.targetAnchor}`;
@@ -214,6 +220,21 @@ function routeAnchorPairs(
 		seen.add(key);
 		return true;
 	});
+}
+
+function routeAnchorCandidates(
+	explicitAnchor: AnchorName | undefined,
+	defaultAnchor: AnchorName,
+	geometry: RouteEdgeInput["source"],
+	toward: Point,
+): AnchorName[] {
+	if (explicitAnchor !== undefined) {
+		return [explicitAnchor];
+	}
+	const ranked = rankedSideAnchors(geometry, toward);
+	return [defaultAnchor, ...ranked].filter(
+		(anchor, index, anchors) => anchors.indexOf(anchor) === index,
+	);
 }
 
 function rankedSideAnchors(
@@ -508,7 +529,7 @@ function routeIntersectsEndpointInteriors(
 	points: readonly Point[],
 	endpointInteriors: readonly Box[],
 ): boolean {
-	for (let index = 1; index < points.length - 2; index += 1) {
+	for (let index = 0; index < points.length - 1; index += 1) {
 		const a = points[index];
 		const b = points[index + 1];
 		if (a === undefined || b === undefined) {
