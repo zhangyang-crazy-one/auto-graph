@@ -243,6 +243,31 @@ output:
 		}
 	});
 
+	it("solves the issue #13 medium-density microservice fixture without node overlap warnings", () => {
+		const source = readFileSync(
+			new URL(
+				"./fixtures/issue-13/microservice.auto-graph.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		const result = renderDiagramDsl(source, {
+			sourcePath: "test/fixtures/issue-13/microservice.auto-graph.yaml",
+		});
+
+		expect(result.content).toContain("<svg");
+		const diagnosticCodes = result.diagnostics.map(
+			(diagnostic) => diagnostic.code,
+		);
+		for (const code of [
+			"constraints.overlap.unresolved",
+			"routing.obstacle.unavoidable",
+			"routing.text-clearance.unresolved",
+		]) {
+			expect(diagnosticCodes).not.toContain(code);
+		}
+	});
+
 	it("preserves author-declared contract swimlane lane order", () => {
 		const result = normalizeDiagramDsl({
 			nodes: {

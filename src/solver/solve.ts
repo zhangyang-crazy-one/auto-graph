@@ -56,6 +56,7 @@ const DEFAULT_TABLE_CELL_SIZE: Size = { width: 128, height: 34 };
 const DEFAULT_PANEL_WIDTH = 320;
 const DEFAULT_PANEL_ITEM_HEIGHT = 28;
 const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
+const EDGE_LABEL_CLEARANCE = 8;
 const EVIDENCE_TEXT_FONT = {
 	fontFamily: "Arial, sans-serif",
 	fontSize: 10,
@@ -2241,7 +2242,7 @@ function coordinateEdgeTextAnnotations(
 				ownerId: edge.id,
 				surfaceKind: "edge-label",
 				layout,
-				center: edgeLabelAnchor(edge.points),
+				center: edgeLabelAnchor(edge, layout, edges),
 			}),
 		);
 	}
@@ -2622,15 +2623,77 @@ function fallbackLabelLayout(text: string): LabelLayout {
 	};
 }
 
-function edgeLabelAnchor(points: readonly Point[]): Point {
-	const placement = labelPlacementOnPolyline(points);
-	return {
-		x: placement?.x ?? 0,
-		y: placement?.y ?? 0,
-	};
+function edgeLabelAnchor(
+	edge: CoordinatedEdge,
+	layout: LabelLayout,
+	edges: readonly CoordinatedEdge[],
+): Point {
+	const placement = labelPlacementOnPolyline(edge.points);
+	if (placement === undefined) {
+		return { x: 0, y: 0 };
+	}
+
+	for (const candidate of edgeLabelAnchorCandidates(edge.points, placement)) {
+		const labelBox = {
+			x: candidate.x - layout.box.width / 2,
+			y: candidate.y - layout.box.height / 2,
+			width: layout.box.width,
+			height: layout.box.height,
+		};
+		if (routeIntersectsTextBox(edge.points, labelBox)) {
+			continue;
+		}
+		const crossesOtherRoute = edges.some(
+			(other) =>
+				other.id !== edge.id && routeIntersectsTextBox(other.points, labelBox),
+		);
+		if (!crossesOtherRoute) {
+			return candidate;
+		}
+	}
+
+	return placement;
+}
+
+function edgeLabelAnchorCandidates(
+	points: readonly Point[],
+	placement: Point,
+): Point[] {
+	const segment = labelSegmentOnPolyline(points);
+	if (segment === undefined) {
+		return [placement];
+	}
+
+	if (segment.start.y === segment.end.y) {
+		return [
+			placement,
+			{ x: placement.x, y: placement.y - EDGE_LABEL_CLEARANCE },
+			{ x: placement.x, y: placement.y + EDGE_LABEL_CLEARANCE },
+			{ x: placement.x, y: placement.y - EDGE_LABEL_CLEARANCE * 2 },
+			{ x: placement.x, y: placement.y + EDGE_LABEL_CLEARANCE * 2 },
+		];
+	}
+
+	if (segment.start.x === segment.end.x) {
+		return [
+			placement,
+			{ x: placement.x + EDGE_LABEL_CLEARANCE, y: placement.y },
+			{ x: placement.x - EDGE_LABEL_CLEARANCE, y: placement.y },
+			{ x: placement.x + EDGE_LABEL_CLEARANCE * 2, y: placement.y },
+			{ x: placement.x - EDGE_LABEL_CLEARANCE * 2, y: placement.y },
+		];
+	}
+
+	return [placement];
 }
 
 function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
+	return labelSegmentOnPolyline(points)?.placement;
+}
+
+function labelSegmentOnPolyline(
+	points: readonly Point[],
+): { start: Point; end: Point; placement: Point } | undefined {
 	const segments = nonZeroSegments(points);
 	const totalLength = segments.reduce(
 		(sum, segment) => sum + segment.length,
@@ -2647,7 +2710,11 @@ function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
 			const x = segment.start.x + (segment.end.x - segment.start.x) * ratio;
 			const y = segment.start.y + (segment.end.y - segment.start.y) * ratio;
 			const offset = labelOffset(segment);
-			return { x: x + offset.x, y: y + offset.y };
+			return {
+				start: segment.start,
+				end: segment.end,
+				placement: { x: x + offset.x, y: y + offset.y },
+			};
 		}
 		remaining -= segment.length;
 	}
@@ -2657,7 +2724,11 @@ function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
 		return undefined;
 	}
 	const offset = labelOffset(last);
-	return { x: last.end.x + offset.x, y: last.end.y + offset.y };
+	return {
+		start: last.start,
+		end: last.end,
+		placement: { x: last.end.x + offset.x, y: last.end.y + offset.y },
+	};
 }
 
 function nonZeroSegments(points: readonly Point[]): Array<{

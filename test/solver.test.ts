@@ -717,6 +717,14 @@ describe("solveDiagram", () => {
 		expect(edgeLabel?.box.y).toBeCloseTo(
 			(edgeLabel?.anchor.y ?? 0) - (edgeLabel?.box.height ?? 0) / 2,
 		);
+		expect(
+			result.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.code === "routing.text-clearance.unresolved" &&
+					diagnostic.detail?.edgeId === "source-target" &&
+					diagnostic.detail?.conflictingObjectId === "source-target",
+			),
+		).toBe(false);
 	});
 
 	it("reports unresolved overlap between externally placed solved text boxes", () => {

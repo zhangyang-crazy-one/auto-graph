@@ -87,6 +87,64 @@ describe("routing", () => {
 		expect(result.points.at(-1)).toEqual({ x: 20, y: 200 });
 	});
 
+	it("does not use automatic anchors that route back through endpoints", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(240, 0),
+			obstacles: [
+				{ x: 90, y: 5, width: 30, height: 30 },
+				{ x: 130, y: -60, width: 30, height: 160 },
+			],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)?.x).toBeGreaterThanOrEqual(40);
+		expect(result.points.at(-1)?.x).toBeLessThanOrEqual(280);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(0, 0).box, 2)),
+		).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(240, 0).box, 2)),
+		).toBe(false);
+	});
+
+	it("rejects automatic routes whose terminal segment crosses an endpoint interior", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(-100, -100),
+			target: shape(150, -100),
+			obstacles: [{ x: 80, y: -200, width: 80, height: 500 }],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(150, -100).box, 2)),
+		).toBe(false);
+	});
+
+	it("keeps omitted endpoint anchors automatic when the other endpoint is pinned", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 0),
+			sourceAnchor: "right",
+			obstacles: [{ x: 120, y: -80, width: 80, height: 160 }],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).not.toEqual({ x: 200, y: 20 });
+		expect(
+			routeIntersectsObstacle(result.points, {
+				x: 120,
+				y: -80,
+				width: 80,
+				height: 160,
+			}),
+		).toBe(false);
+	});
+
 	it("rejects blocked candidates and chooses a later deterministic obstacle-free route", () => {
 		const result = routeEdge({
 			kind: "orthogonal",
@@ -97,26 +155,49 @@ describe("routing", () => {
 		});
 
 		expect(result.diagnostics).toEqual([]);
-		expect(result.points).toEqual([
-			{ x: 80, y: 20 },
-			{ x: 200, y: 20 },
-			{ x: 200, y: 120 },
-		]);
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 200, y: 120 });
+		expect(
+			routeIntersectsObstacle(result.points, {
+				x: 120,
+				y: 35,
+				width: 40,
+				height: 20,
+			}),
+		).toBe(false);
 	});
 
-	it("returns a bounded fallback diagnostic when obstacles are unavoidable", () => {
+	it("routes around formerly unavoidable soft obstacles with outer doglegs", () => {
+		const obstacles = [
+			{ x: 70, y: 10, width: 30, height: 30 },
+			{ x: 100, y: 35, width: 80, height: 20 },
+			{ x: 75, y: 60, width: 20, height: 80 },
+			{ x: 100, y: 95, width: 80, height: 20 },
+		];
 		const result = routeEdge({
 			direction: "LR",
 			source: shape(0, 0),
 			target: shape(200, 100),
-			obstacles: [
-				{ x: 70, y: 10, width: 30, height: 30 },
-				{ x: 100, y: 35, width: 80, height: 20 },
-				{ x: 75, y: 60, width: 20, height: 80 },
-				{ x: 100, y: 95, width: 80, height: 20 },
-			],
+			obstacles,
 		});
 
+		expect(result.diagnostics).toEqual([]);
+		for (const obstacle of obstacles) {
+			expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+		}
+	});
+
+	it("returns a bounded fallback diagnostic when explicit anchors keep soft obstacles unavoidable", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 100),
+			sourceAnchor: "right",
+			targetAnchor: "left",
+			obstacles: [{ x: -40, y: -60, width: 360, height: 240 }],
+		});
+
+		expect(result.points.length).toBeGreaterThanOrEqual(2);
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
 		);
@@ -242,5 +323,14 @@ function segmentBox(a: Point, b: Point): Box {
 		y: minY,
 		width: Math.max(1, Math.abs(a.x - b.x)),
 		height: Math.max(1, Math.abs(a.y - b.y)),
+	};
+}
+
+function insetBox(box: Box, margin: number): Box {
+	return {
+		x: box.x + margin,
+		y: box.y + margin,
+		width: box.width - margin * 2,
+		height: box.height - margin * 2,
 	};
 }

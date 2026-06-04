@@ -126,6 +126,29 @@ describe("layout constraints", () => {
 		expect(result.boxes.get("free")?.x).toBe(60);
 	});
 
+	it("deterministically repairs unlocked overlaps on the secondary axis", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			overlapSpacing: 12,
+			boxes: boxMap([
+				["a", { x: 0, y: 0, width: 50, height: 30 }],
+				["b", { x: 20, y: 10, width: 50, height: 30 }],
+				["c", { x: 120, y: 0, width: 50, height: 30 }],
+			]),
+			nodes: [node("a"), node("b"), node("c")],
+			groups: [],
+			constraints: [],
+		});
+
+		expect(result.boxes.get("a")).toMatchObject({ x: 0, y: 0 });
+		expect(result.boxes.get("b")).toMatchObject({ x: 20, y: 42 });
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+			}),
+		);
+	});
+
 	it("reports invalid and conflicting positions plus unresolved overlaps", () => {
 		const result = applyLayoutConstraints({
 			direction: "TB",

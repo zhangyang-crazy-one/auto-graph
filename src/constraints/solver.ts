@@ -331,35 +331,44 @@ function repairOverlaps(
 ): void {
 	const spacing = input.overlapSpacing ?? 40;
 	const axis = input.direction === "LR" || input.direction === "RL" ? "x" : "y";
+	const secondaryAxis = axis === "x" ? "y" : "x";
 	const ids = [...boxes.keys()].sort();
 
-	for (const firstId of ids) {
-		for (const secondId of ids) {
-			if (firstId >= secondId) {
-				continue;
-			}
+	for (let pass = 0; pass < 2; pass += 1) {
+		for (const firstId of ids) {
+			for (const secondId of ids) {
+				if (firstId >= secondId) {
+					continue;
+				}
 
-			const first = boxes.get(firstId);
-			const second = boxes.get(secondId);
-			if (
-				first === undefined ||
-				second === undefined ||
-				!intersectsAabb(first, second)
-			) {
-				continue;
-			}
+				const first = boxes.get(firstId);
+				const second = boxes.get(secondId);
+				if (
+					first === undefined ||
+					second === undefined ||
+					!intersectsAabb(first, second)
+				) {
+					continue;
+				}
 
-			const firstLocked = locks.has(firstId);
-			const secondLocked = locks.has(secondId);
-			if (firstLocked === secondLocked) {
-				continue;
-			}
+				const firstLocked = locks.has(firstId);
+				const secondLocked = locks.has(secondId);
+				if (firstLocked && secondLocked) {
+					continue;
+				}
 
-			const movingId = firstLocked ? secondId : firstId;
-			const moving = firstLocked ? second : first;
-			const fixed = firstLocked ? first : second;
-			const moved = movePastOverlap(moving, fixed, axis, spacing);
-			boxes.set(movingId, moved);
+				const movingId = firstLocked
+					? secondId
+					: secondLocked
+						? firstId
+						: secondId;
+				const moving = movingId === firstId ? first : second;
+				const fixed = movingId === firstId ? second : first;
+				const repairAxis =
+					firstLocked === secondLocked && pass === 0 ? secondaryAxis : axis;
+				const moved = movePastOverlap(moving, fixed, repairAxis, spacing);
+				boxes.set(movingId, moved);
+			}
 		}
 	}
 

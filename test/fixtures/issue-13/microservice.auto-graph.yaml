@@ -1,0 +1,34 @@
+title: Microservice Architecture
+layout: { direction: LR }
+nodes:
+  client:  { label: Mobile / Web Client, shape: rounded-rectangle }
+  gateway: { label: API Gateway,         shape: hexagon }
+  auth:    { label: Auth Service,        shape: rectangle }
+  user:    { label: User Service,        shape: rectangle }
+  order:   { label: Order Service,       shape: rectangle }
+  pay:     { label: Payment Service,     shape: rectangle }
+  db_user: { label: Users DB,            shape: cylinder }
+  db_order: { label: Orders DB,          shape: cylinder }
+  db_pay:  { label: Payments DB,         shape: cylinder }
+  queue:   { label: Event Queue,         shape: parallelogram }
+edges:
+  - client -> gateway: HTTPS
+  - gateway -> auth: verify
+  - gateway -> user
+  - gateway -> order
+  - gateway -> pay
+  - user -> db_user
+  - order -> db_order
+  - pay -> db_pay
+  - order -> queue: emit
+  - pay -> queue: emit
+groups:
+  data:     { label: Data Layer,    nodes: [db_user, db_order, db_pay, queue] }
+  services: { label: Microservices, nodes: [auth, user, order, pay] }
+constraints:
+  - { kind: relative-position, source: gateway, reference: client,  relation: right-of, offset: { x: 140, y: 0 } }
+  - { kind: relative-position, source: auth,    reference: gateway, relation: below,    offset: { x: 0, y: 80 } }
+  - { kind: relative-position, source: user,    reference: auth,    relation: right-of, offset: { x: 120, y: 0 } }
+  - { kind: relative-position, source: order,   reference: user,    relation: right-of, offset: { x: 120, y: 0 } }
+  - { kind: relative-position, source: pay,     reference: order,   relation: right-of, offset: { x: 120, y: 0 } }
+output: { format: svg }
