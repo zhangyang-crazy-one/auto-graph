@@ -104,19 +104,37 @@ describe("routing", () => {
 		]);
 	});
 
-	it("returns a bounded fallback diagnostic when obstacles are unavoidable", () => {
+	it("routes around formerly unavoidable soft obstacles with outer doglegs", () => {
+		const obstacles = [
+			{ x: 70, y: 10, width: 30, height: 30 },
+			{ x: 100, y: 35, width: 80, height: 20 },
+			{ x: 75, y: 60, width: 20, height: 80 },
+			{ x: 100, y: 95, width: 80, height: 20 },
+		];
 		const result = routeEdge({
 			direction: "LR",
 			source: shape(0, 0),
 			target: shape(200, 100),
-			obstacles: [
-				{ x: 70, y: 10, width: 30, height: 30 },
-				{ x: 100, y: 35, width: 80, height: 20 },
-				{ x: 75, y: 60, width: 20, height: 80 },
-				{ x: 100, y: 95, width: 80, height: 20 },
-			],
+			obstacles,
 		});
 
+		expect(result.diagnostics).toEqual([]);
+		for (const obstacle of obstacles) {
+			expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+		}
+	});
+
+	it("returns a bounded fallback diagnostic when explicit anchors keep soft obstacles unavoidable", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 100),
+			sourceAnchor: "right",
+			targetAnchor: "left",
+			obstacles: [{ x: -40, y: -60, width: 360, height: 240 }],
+		});
+
+		expect(result.points.length).toBeGreaterThanOrEqual(2);
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
 		);

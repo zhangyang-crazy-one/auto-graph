@@ -18,18 +18,18 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		input.target.box,
 		input.direction,
 	);
-	const source = getEdgePort(
-		input.source,
-		input.target.center,
-		input.sourceAnchor ?? defaultAnchors.sourceAnchor,
-	);
-	const target = getEdgePort(
-		input.target,
-		input.source.center,
-		input.targetAnchor ?? defaultAnchors.targetAnchor,
-	);
 
 	if ((input.kind ?? "orthogonal") === "straight") {
+		const source = getEdgePort(
+			input.source,
+			input.target.center,
+			input.sourceAnchor ?? defaultAnchors.sourceAnchor,
+		);
+		const target = getEdgePort(
+			input.target,
+			input.source.center,
+			input.targetAnchor ?? defaultAnchors.targetAnchor,
+		);
 		const points = simplifyRoute([source, target]);
 		if (routeCrossesBoxes(points, hardObstacles)) {
 			diagnostics.push({
@@ -50,15 +50,26 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	}
 
 	const routeLaneObstacles = [...softObstacles, ...hardObstacles];
-	const candidates = orthogonalCandidates(source, target, input.direction);
-	candidates.push(
-		...expandedObstacleCandidates(
-			source,
-			target,
-			input.direction,
-			routeLaneObstacles,
-		),
-	);
+	const anchorPairs = routeAnchorPairs(input, defaultAnchors);
+	const candidates = anchorPairs.flatMap(({ sourceAnchor, targetAnchor }) => {
+		const source = getEdgePort(input.source, input.target.center, sourceAnchor);
+		const target = getEdgePort(input.target, input.source.center, targetAnchor);
+		return [
+			...orthogonalCandidates(source, target, input.direction),
+			...expandedObstacleCandidates(
+				source,
+				target,
+				input.direction,
+				routeLaneObstacles,
+			),
+			...outerDoglegCandidates(
+				source,
+				target,
+				input.direction,
+				routeLaneObstacles,
+			),
+		];
+	});
 	for (const candidate of candidates) {
 		if (
 			!routeIntersectsObstacles(candidate, softObstacles) &&
@@ -94,7 +105,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		});
 
 		return {
-			points: simplifyRoute(candidates[0] ?? [source, target]),
+			points: simplifyRoute(
+				candidates[0] ?? fallbackRoute(input, defaultAnchors),
+			),
 			diagnostics,
 		};
 	}
@@ -106,9 +119,82 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	});
 
 	return {
-		points: simplifyRoute(candidates[0] ?? [source, target]),
+		points: simplifyRoute(
+			candidates[0] ?? fallbackRoute(input, defaultAnchors),
+		),
 		diagnostics,
 	};
+}
+
+function fallbackRoute(
+	input: RouteEdgeInput,
+	defaultAnchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+): Point[] {
+	return [
+		getEdgePort(
+			input.source,
+			input.target.center,
+			input.sourceAnchor ?? defaultAnchors.sourceAnchor,
+		),
+		getEdgePort(
+			input.target,
+			input.source.center,
+			input.targetAnchor ?? defaultAnchors.targetAnchor,
+		),
+	];
+}
+
+function routeAnchorPairs(
+	input: RouteEdgeInput,
+	defaultAnchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+): Array<{ sourceAnchor: AnchorName; targetAnchor: AnchorName }> {
+	if (input.sourceAnchor !== undefined || input.targetAnchor !== undefined) {
+		return [
+			{
+				sourceAnchor: input.sourceAnchor ?? defaultAnchors.sourceAnchor,
+				targetAnchor: input.targetAnchor ?? defaultAnchors.targetAnchor,
+			},
+		];
+	}
+
+	const pairs = [
+		defaultAnchors,
+		...rankedSideAnchors(input.source, input.target.center).flatMap(
+			(sourceAnchor) =>
+				rankedSideAnchors(input.target, input.source.center).map(
+					(targetAnchor) => ({ sourceAnchor, targetAnchor }),
+				),
+		),
+	];
+	const seen = new Set<string>();
+	return pairs.filter((pair) => {
+		const key = `${pair.sourceAnchor}->${pair.targetAnchor}`;
+		if (seen.has(key)) {
+			return false;
+		}
+		seen.add(key);
+		return true;
+	});
+}
+
+function rankedSideAnchors(
+	geometry: RouteEdgeInput["source"],
+	toward: Point,
+): AnchorName[] {
+	const anchors: AnchorName[] = ["top", "right", "bottom", "left"];
+	return anchors.sort((left, right) => {
+		const leftPoint = getEdgePort(geometry, toward, left);
+		const rightPoint = getEdgePort(geometry, toward, right);
+		const distance =
+			squaredDistance(leftPoint, toward) - squaredDistance(rightPoint, toward);
+		return distance === 0 ? left.localeCompare(right) : distance;
+	});
+}
+
+function squaredDistance(a: Point, b: Point): number {
+	const dx = a.x - b.x;
+	const dy = a.y - b.y;
+	return dx * dx + dy * dy;
 }
 
 export function simplifyRoute(points: readonly Point[]): Point[] {
@@ -277,6 +363,58 @@ function expandedObstacleCandidates(
 	}
 
 	return candidates;
+}
+
+function outerDoglegCandidates(
+	source: Point,
+	target: Point,
+	direction: RouteEdgeInput["direction"],
+	obstacles: readonly Box[],
+): Point[][] {
+	if (obstacles.length === 0) {
+		return [];
+	}
+
+	const margin = 24;
+	const minX = Math.min(...obstacles.map((obstacle) => obstacle.x)) - margin;
+	const maxX =
+		Math.max(...obstacles.map((obstacle) => obstacle.x + obstacle.width)) +
+		margin;
+	const minY = Math.min(...obstacles.map((obstacle) => obstacle.y)) - margin;
+	const maxY =
+		Math.max(...obstacles.map((obstacle) => obstacle.y + obstacle.height)) +
+		margin;
+
+	if (direction === "TB" || direction === "BT") {
+		const exit = exitDelta(source, target, "y");
+		return sortedUniqueLanes([minX, maxX], (source.x + target.x) / 2).map(
+			(laneX) => [
+				source,
+				{ x: source.x, y: source.y + exit },
+				{ x: laneX, y: source.y + exit },
+				{ x: laneX, y: target.y - exit },
+				{ x: target.x, y: target.y - exit },
+				target,
+			],
+		);
+	}
+
+	const exit = exitDelta(source, target, "x");
+	return sortedUniqueLanes([minY, maxY], (source.y + target.y) / 2).map(
+		(laneY) => [
+			source,
+			{ x: source.x + exit, y: source.y },
+			{ x: source.x + exit, y: laneY },
+			{ x: target.x - exit, y: laneY },
+			{ x: target.x - exit, y: target.y },
+			target,
+		],
+	);
+}
+
+function exitDelta(source: Point, target: Point, axis: "x" | "y"): number {
+	const delta = axis === "x" ? target.x - source.x : target.y - source.y;
+	return (delta >= 0 ? 1 : -1) * 24;
 }
 
 function sortedUniqueLanes(
