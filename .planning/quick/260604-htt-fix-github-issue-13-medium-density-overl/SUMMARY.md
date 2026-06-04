@@ -29,3 +29,19 @@ Implemented a solver-scope fix for GitHub issue #13.
   - `biome ci .`
 - CLI probe passed without diagnostics:
   - `node dist/cli/index.js --input test/fixtures/issue-13/microservice.auto-graph.yaml --format svg --json --output /tmp/issue13.svg`
+
+## Review Fixes
+
+Addressed Codex review feedback on PR #14:
+
+- Edge label candidate selection now preserves the original `labelOffset`
+  placement first and rejects candidates that intersect the owning edge.
+- Automatic routing candidates now reject middle segments that cross endpoint
+  interiors, preventing back-side auto anchors or doglegs from routing through
+  source/target nodes while preserving explicit anchor behavior.
+- The issue #13 regression test now checks each forbidden diagnostic
+  individually instead of relying on `arrayContaining` against the full set.
+
+Review-fix verification:
+
+- `npm run verify` passed: 17 test files, 233 tests.

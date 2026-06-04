@@ -51,36 +51,57 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 	const routeLaneObstacles = [...softObstacles, ...hardObstacles];
 	const anchorPairs = routeAnchorPairs(input, defaultAnchors);
-	const candidates = anchorPairs.flatMap(({ sourceAnchor, targetAnchor }) => {
-		const source = getEdgePort(input.source, input.target.center, sourceAnchor);
-		const target = getEdgePort(input.target, input.source.center, targetAnchor);
-		return [
-			...orthogonalCandidates(source, target, input.direction),
-			...expandedObstacleCandidates(
-				source,
-				target,
-				input.direction,
-				routeLaneObstacles,
-			),
-			...outerDoglegCandidates(
-				source,
-				target,
-				input.direction,
-				routeLaneObstacles,
-			),
-		];
-	});
-	for (const candidate of candidates) {
+	const candidateRoutes = anchorPairs.flatMap(
+		({ sourceAnchor, targetAnchor }) => {
+			const source = getEdgePort(
+				input.source,
+				input.target.center,
+				sourceAnchor,
+			);
+			const target = getEdgePort(
+				input.target,
+				input.source.center,
+				targetAnchor,
+			);
+			const routes = [
+				...orthogonalCandidates(source, target, input.direction),
+				...expandedObstacleCandidates(
+					source,
+					target,
+					input.direction,
+					routeLaneObstacles,
+				),
+				...outerDoglegCandidates(
+					source,
+					target,
+					input.direction,
+					routeLaneObstacles,
+				),
+			];
+			const endpointObstacles = endpointObstaclesForAutoAnchors(input);
+			return routes.map((points) => ({ points, endpointObstacles }));
+		},
+	);
+	for (const candidate of candidateRoutes) {
 		if (
-			!routeIntersectsObstacles(candidate, softObstacles) &&
-			!routeIntersectsObstacles(candidate, hardObstacles)
+			!routeIntersectsObstacles(candidate.points, softObstacles) &&
+			!routeIntersectsObstacles(candidate.points, hardObstacles) &&
+			!routeIntersectsEndpointInteriors(
+				candidate.points,
+				candidate.endpointObstacles,
+			)
 		) {
-			return { points: simplifyRoute(candidate), diagnostics };
+			return { points: simplifyRoute(candidate.points), diagnostics };
 		}
 	}
 
-	const hardClearCandidate = candidates.find(
-		(candidate) => !routeIntersectsObstacles(candidate, hardObstacles),
+	const hardClearCandidate = candidateRoutes.find(
+		(candidate) =>
+			!routeIntersectsObstacles(candidate.points, hardObstacles) &&
+			!routeIntersectsEndpointInteriors(
+				candidate.points,
+				candidate.endpointObstacles,
+			),
 	);
 	if (hardClearCandidate !== undefined) {
 		diagnostics.push({
@@ -91,7 +112,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		});
 
 		return {
-			points: simplifyRoute(hardClearCandidate),
+			points: simplifyRoute(hardClearCandidate.points),
 			diagnostics,
 		};
 	}
@@ -106,7 +127,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 		return {
 			points: simplifyRoute(
-				candidates[0] ?? fallbackRoute(input, defaultAnchors),
+				candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
 			),
 			diagnostics,
 		};
@@ -120,9 +141,27 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 	return {
 		points: simplifyRoute(
-			candidates[0] ?? fallbackRoute(input, defaultAnchors),
+			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
 		),
 		diagnostics,
+	};
+}
+
+function endpointObstaclesForAutoAnchors(input: RouteEdgeInput): Box[] {
+	if (input.sourceAnchor !== undefined || input.targetAnchor !== undefined) {
+		return [];
+	}
+	return [insetBox(input.source.box, 1), insetBox(input.target.box, 1)].filter(
+		(box) => box.width > 0 && box.height > 0,
+	);
+}
+
+function insetBox(box: Box, margin: number): Box {
+	return {
+		x: box.x + margin,
+		y: box.y + margin,
+		width: box.width - margin * 2,
+		height: box.height - margin * 2,
 	};
 }
 
@@ -181,7 +220,7 @@ function rankedSideAnchors(
 	geometry: RouteEdgeInput["source"],
 	toward: Point,
 ): AnchorName[] {
-	const anchors: AnchorName[] = ["top", "right", "bottom", "left"];
+	const anchors = outwardSideAnchors(geometry.box, toward);
 	return anchors.sort((left, right) => {
 		const leftPoint = getEdgePort(geometry, toward, left);
 		const rightPoint = getEdgePort(geometry, toward, right);
@@ -189,6 +228,19 @@ function rankedSideAnchors(
 			squaredDistance(leftPoint, toward) - squaredDistance(rightPoint, toward);
 		return distance === 0 ? left.localeCompare(right) : distance;
 	});
+}
+
+function outwardSideAnchors(box: Box, toward: Point): AnchorName[] {
+	const center = {
+		x: box.x + box.width / 2,
+		y: box.y + box.height / 2,
+	};
+	const dx = toward.x - center.x;
+	const dy = toward.y - center.y;
+	if (Math.abs(dx) >= Math.abs(dy)) {
+		return dx >= 0 ? ["right", "top", "bottom"] : ["left", "top", "bottom"];
+	}
+	return dy >= 0 ? ["bottom", "left", "right"] : ["top", "left", "right"];
 }
 
 function squaredDistance(a: Point, b: Point): number {
@@ -444,6 +496,29 @@ function routeIntersectsObstacles(
 		for (const obstacle of obstacles) {
 			validateBox(obstacle);
 			if (intersectsAabb(segment, obstacle)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+function routeIntersectsEndpointInteriors(
+	points: readonly Point[],
+	endpointInteriors: readonly Box[],
+): boolean {
+	for (let index = 1; index < points.length - 2; index += 1) {
+		const a = points[index];
+		const b = points[index + 1];
+		if (a === undefined || b === undefined) {
+			continue;
+		}
+
+		const segment = segmentBox(a, b);
+		for (const endpointInterior of endpointInteriors) {
+			validateBox(endpointInterior);
+			if (intersectsAabb(segment, endpointInterior)) {
 				return true;
 			}
 		}

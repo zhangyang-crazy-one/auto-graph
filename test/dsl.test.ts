@@ -256,13 +256,16 @@ output:
 		});
 
 		expect(result.content).toContain("<svg");
-		expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toEqual(
-			expect.arrayContaining([
-				"constraints.overlap.unresolved",
-				"routing.obstacle.unavoidable",
-				"routing.text-clearance.unresolved",
-			]),
+		const diagnosticCodes = result.diagnostics.map(
+			(diagnostic) => diagnostic.code,
 		);
+		for (const code of [
+			"constraints.overlap.unresolved",
+			"routing.obstacle.unavoidable",
+			"routing.text-clearance.unresolved",
+		]) {
+			expect(diagnosticCodes).not.toContain(code);
+		}
 	});
 
 	it("preserves author-declared contract swimlane lane order", () => {

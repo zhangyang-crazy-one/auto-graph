@@ -2640,6 +2640,9 @@ function edgeLabelAnchor(
 			width: layout.box.width,
 			height: layout.box.height,
 		};
+		if (routeIntersectsTextBox(edge.points, labelBox)) {
+			continue;
+		}
 		const crossesOtherRoute = edges.some(
 			(other) =>
 				other.id !== edge.id && routeIntersectsTextBox(other.points, labelBox),
@@ -2663,21 +2666,21 @@ function edgeLabelAnchorCandidates(
 
 	if (segment.start.y === segment.end.y) {
 		return [
+			placement,
 			{ x: placement.x, y: placement.y - EDGE_LABEL_CLEARANCE },
 			{ x: placement.x, y: placement.y + EDGE_LABEL_CLEARANCE },
 			{ x: placement.x, y: placement.y - EDGE_LABEL_CLEARANCE * 2 },
 			{ x: placement.x, y: placement.y + EDGE_LABEL_CLEARANCE * 2 },
-			placement,
 		];
 	}
 
 	if (segment.start.x === segment.end.x) {
 		return [
+			placement,
 			{ x: placement.x + EDGE_LABEL_CLEARANCE, y: placement.y },
 			{ x: placement.x - EDGE_LABEL_CLEARANCE, y: placement.y },
 			{ x: placement.x + EDGE_LABEL_CLEARANCE * 2, y: placement.y },
 			{ x: placement.x - EDGE_LABEL_CLEARANCE * 2, y: placement.y },
-			placement,
 		];
 	}
 

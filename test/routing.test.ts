@@ -87,6 +87,28 @@ describe("routing", () => {
 		expect(result.points.at(-1)).toEqual({ x: 20, y: 200 });
 	});
 
+	it("does not use automatic anchors that route back through endpoints", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(240, 0),
+			obstacles: [
+				{ x: 90, y: 5, width: 30, height: 30 },
+				{ x: 130, y: -60, width: 30, height: 160 },
+			],
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)?.x).toBeGreaterThanOrEqual(40);
+		expect(result.points.at(-1)?.x).toBeLessThanOrEqual(280);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(0, 0).box, 2)),
+		).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(240, 0).box, 2)),
+		).toBe(false);
+	});
+
 	it("rejects blocked candidates and chooses a later deterministic obstacle-free route", () => {
 		const result = routeEdge({
 			kind: "orthogonal",
@@ -260,5 +282,14 @@ function segmentBox(a: Point, b: Point): Box {
 		y: minY,
 		width: Math.max(1, Math.abs(a.x - b.x)),
 		height: Math.max(1, Math.abs(a.y - b.y)),
+	};
+}
+
+function insetBox(box: Box, margin: number): Box {
+	return {
+		x: box.x + margin,
+		y: box.y + margin,
+		width: box.width - margin * 2,
+		height: box.height - margin * 2,
 	};
 }
