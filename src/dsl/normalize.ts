@@ -349,6 +349,14 @@ function normalizeFrame(frame: NonNullable<DiagramDsl["frame"]>) {
 		...(frame.context === undefined ? {} : { context: frame.context }),
 		...(frame.name === undefined ? {} : { name: frame.name }),
 		titleTab: frame.titleTab,
+		...(frame.headerHeight === undefined
+			? {}
+			: { headerHeight: frame.headerHeight }),
+		...(frame.padding === undefined ? {} : { padding: frame.padding }),
+		...(frame.labelPosition === undefined
+			? {}
+			: { labelPosition: frame.labelPosition }),
+		...(frame.direction === undefined ? {} : { direction: frame.direction }),
 		...(frame.style === undefined ? {} : { style: style(frame.style) }),
 	};
 }
@@ -566,6 +574,15 @@ function normalizeGroups(
 				nodeIds: [...(group?.nodes ?? [])],
 				groupIds: [...(group?.groups ?? [])],
 				padding: group?.padding ?? { ...DEFAULT_GROUP_PADDING },
+				...(group?.headerHeight === undefined
+					? {}
+					: { headerHeight: group.headerHeight }),
+				...(group?.labelPosition === undefined
+					? {}
+					: { labelPosition: group.labelPosition }),
+				...(group?.direction === undefined
+					? {}
+					: { direction: group.direction }),
 				...(labelLayout === undefined ? {} : { labelLayout }),
 			};
 		});

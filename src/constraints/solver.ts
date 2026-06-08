@@ -24,11 +24,13 @@ export function applyLayoutConstraints(
 
 	applyFixedPositionLocks(input.nodes, boxes, locks, diagnostics);
 	applyExactPositions(input.constraints, boxes, locks, diagnostics, nodeById);
-	applyContainment(input.constraints, boxes, locks, diagnostics);
+	applyContainment(input.constraints, boxes, locks, diagnostics, false);
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
 	applyDistribute(input.constraints, boxes, locks, diagnostics);
 	repairOverlaps(input, boxes, locks, diagnostics);
+	applyContainment(input.constraints, boxes, locks, diagnostics, true);
+	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
 
 	return { boxes, locks, diagnostics };
 }
@@ -153,6 +155,7 @@ function applyContainment(
 	boxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLock>,
 	diagnostics: Diagnostic[],
+	reportOverflow: boolean,
 ): void {
 	for (const constraint of constraints) {
 		if (constraint.kind !== "containment") {
@@ -179,21 +182,23 @@ function applyContainment(
 			}
 
 			if (locks.has(childId)) {
-				diagnostics.push({
-					severity: "warning",
-					code: "constraints.locked-target-not-moved",
-					message: `Locked child ${childId} was not moved into containment.`,
-					path: ["constraints", constraint.id ?? constraint.containerId],
-					detail: { nodeId: childId },
-				});
-				if (!isInside(child, content)) {
+				if (!reportOverflow) {
 					diagnostics.push({
-						severity: "error",
-						code: "constraints.containment.impossible",
-						message: `Locked child ${childId} cannot fit inside ${constraint.containerId}.`,
+						severity: "warning",
+						code: "constraints.locked-target-not-moved",
+						message: `Locked child ${childId} was not moved into containment.`,
 						path: ["constraints", constraint.id ?? constraint.containerId],
-						detail: { nodeId: childId, containerId: constraint.containerId },
+						detail: { nodeId: childId },
 					});
+					if (!isInside(child, content)) {
+						diagnostics.push({
+							severity: "error",
+							code: "constraints.containment.impossible",
+							message: `Locked child ${childId} cannot fit inside ${constraint.containerId}.`,
+							path: ["constraints", constraint.id ?? constraint.containerId],
+							detail: { nodeId: childId, containerId: constraint.containerId },
+						});
+					}
 				}
 				continue;
 			}
@@ -210,6 +215,15 @@ function applyContainment(
 			}
 
 			boxes.set(childId, next);
+			if (reportOverflow) {
+				diagnostics.push({
+					severity: "warning",
+					code: "containment_overflow",
+					message: `Child ${childId} was clamped back inside ${constraint.containerId} after constraint solving.`,
+					path: ["constraints", constraint.id ?? constraint.containerId],
+					detail: { nodeId: childId, containerId: constraint.containerId },
+				});
+			}
 		}
 	}
 }
@@ -332,12 +346,16 @@ function repairOverlaps(
 	const spacing = input.overlapSpacing ?? 40;
 	const axis = input.direction === "LR" || input.direction === "RL" ? "x" : "y";
 	const secondaryAxis = axis === "x" ? "y" : "x";
+	const ignoredPairs = containmentOverlapKeys(input.constraints);
 	const ids = [...boxes.keys()].sort();
 
 	for (let pass = 0; pass < 2; pass += 1) {
 		for (const firstId of ids) {
 			for (const secondId of ids) {
 				if (firstId >= secondId) {
+					continue;
+				}
+				if (ignoredPairs.has(overlapKey(firstId, secondId))) {
 					continue;
 				}
 
@@ -372,9 +390,37 @@ function repairOverlaps(
 		}
 	}
 
+	reportOverlaps(boxes, diagnostics, ignoredPairs);
+}
+
+function reportOverlaps(
+	boxes: ReadonlyMap<string, Box>,
+	diagnostics: Diagnostic[],
+	ignoredPairs: ReadonlySet<string> = new Set(),
+): void {
+	const ids = [...boxes.keys()].sort();
+	const reported = new Set(
+		diagnostics
+			.filter(
+				(diagnostic) => diagnostic.code === "constraints.overlap.unresolved",
+			)
+			.map((diagnostic) => {
+				const firstId = diagnostic.detail?.firstId;
+				const secondId = diagnostic.detail?.secondId;
+				return typeof firstId === "string" && typeof secondId === "string"
+					? overlapKey(firstId, secondId)
+					: undefined;
+			})
+			.filter((key): key is string => key !== undefined),
+	);
+
 	for (const firstId of ids) {
 		for (const secondId of ids) {
 			if (firstId >= secondId) {
+				continue;
+			}
+			const key = overlapKey(firstId, secondId);
+			if (reported.has(key) || ignoredPairs.has(key)) {
 				continue;
 			}
 
@@ -392,9 +438,31 @@ function repairOverlaps(
 					path: ["boxes"],
 					detail: { firstId, secondId },
 				});
+				reported.add(key);
 			}
 		}
 	}
+}
+
+function overlapKey(firstId: string, secondId: string): string {
+	return firstId < secondId
+		? `${firstId}\0${secondId}`
+		: `${secondId}\0${firstId}`;
+}
+
+function containmentOverlapKeys(
+	constraints: readonly Constraint[],
+): Set<string> {
+	const keys = new Set<string>();
+	for (const constraint of constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		for (const childId of constraint.childIds) {
+			keys.add(overlapKey(constraint.containerId, childId));
+		}
+	}
+	return keys;
 }
 
 function setUnlockedBox(

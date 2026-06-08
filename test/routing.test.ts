@@ -236,23 +236,70 @@ describe("routing", () => {
 	});
 
 	it("rejects straight routes that cross hard evidence obstacles", () => {
+		const hardObstacle = { x: 120, y: 10, width: 80, height: 20 };
 		const result = routeEdge({
 			kind: "straight",
 			direction: "LR",
 			source: shape(0, 0),
 			target: shape(300, 0),
-			hardObstacles: [{ x: 120, y: 10, width: 80, height: 20 }],
+			hardObstacles: [hardObstacle],
 		});
 
-		expect(result.points).toEqual([
-			{ x: 80, y: 20 },
-			{ x: 300, y: 20 },
-		]);
+		expect(result.points.length).toBeGreaterThanOrEqual(3);
+		expect(
+			new Set(result.points.map((point) => `${point.x},${point.y}`)).size,
+		).toBe(result.points.length);
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 300, y: 20 });
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
-				code: "routing.evidence.crossing_forbidden",
+				code: "route_obstacle_fallback",
 			}),
 		);
+		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+	});
+
+	it("downgrades fallback diagnostics when straight routes cross only soft obstacles", () => {
+		const softObstacle = { x: 120, y: 10, width: 80, height: 20 };
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 0),
+			obstacles: [softObstacle],
+		});
+
+		expect(result.points.length).toBeGreaterThanOrEqual(3);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "route_obstacle_fallback",
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "route_obstacle_fallback",
+			}),
+		);
+		expect(routeIntersectsObstacle(result.points, softObstacle)).toBe(false);
+	});
+
+	it("chooses fallback detours outside wide obstacle extents", () => {
+		const hardObstacle = { x: 120, y: -80, width: 80, height: 220 };
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 0),
+			hardObstacles: [hardObstacle],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "route_obstacle_fallback" }),
+		);
+		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+		expect(result.points.some((point) => point.y < hardObstacle.y)).toBe(true);
 	});
 
 	it("does not reject diagonal straight routes by segment bounding-box overlap alone", () => {

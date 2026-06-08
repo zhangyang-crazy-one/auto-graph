@@ -3,6 +3,7 @@ import {
 	computeContainerGeometry,
 	computeShapeGeometry,
 	intersectsAabb,
+	normalizeInsets,
 	unionBoxes,
 } from "../geometry/index.js";
 import type { Constraint } from "../ir/constraints.js";
@@ -42,6 +43,8 @@ export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	overlapSpacing?: number;
+	maxStackDepth?: number;
+	preferredAspectRatio?: number;
 	portShifting?: PortShiftingOptions;
 	textMeasurer?: TextMeasurer;
 }
@@ -85,9 +88,24 @@ export function solveDiagram(
 	options: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
 	const diagnostics: Diagnostic[] = [...diagram.diagnostics];
-	const nodes = stableById(diagram.nodes);
-	const edges = stableById(diagram.edges);
-	const groups = stableById(diagram.groups);
+	const nodes = stableUniqueById(
+		diagram.nodes,
+		diagnostics,
+		"nodes",
+		"duplicate_node_id",
+	);
+	const edges = stableUniqueById(
+		diagram.edges,
+		diagnostics,
+		"edges",
+		"duplicate_edge_id",
+	);
+	const groups = stableUniqueById(
+		diagram.groups,
+		diagnostics,
+		"groups",
+		"duplicate_group_id",
+	);
 	const constraints = stableByConstraintId(diagram.constraints);
 	const layout = runDagreInitialLayout({
 		direction: diagram.direction,
@@ -100,11 +118,19 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...layout.diagnostics);
+	const initialNodeBoxes = wrapVerticalStackIfNeeded(
+		layout.boxes,
+		nodes,
+		edges,
+		diagram.direction,
+		options,
+		diagnostics,
+	);
 
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
-		boxes: layout.boxes,
+		boxes: initialNodeBoxes,
 		nodes,
 		groups,
 		constraints,
@@ -371,6 +397,156 @@ function applySwimlaneLayoutContracts(
 		);
 	}
 	return { layouts, diagnostics, movedChildIds };
+}
+
+function wrapVerticalStackIfNeeded(
+	boxes: ReadonlyMap<string, Box>,
+	nodes: readonly NormalizedNode[],
+	edges: readonly NormalizedEdge[],
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[],
+): Map<string, Box> {
+	const wrapped = new Map([...boxes].map(([id, box]) => [id, { ...box }]));
+	const maxStackDepth = options.maxStackDepth;
+	if (
+		maxStackDepth === undefined ||
+		maxStackDepth <= 0 ||
+		nodes.length <= maxStackDepth
+	) {
+		reportVerticalRunaway(
+			wrapped,
+			nodes,
+			edges,
+			direction,
+			options,
+			diagnostics,
+		);
+		return wrapped;
+	}
+	if (
+		edges.length > 0 ||
+		!isVerticalRunaway(wrapped, nodes, direction, options)
+	) {
+		reportVerticalRunaway(
+			wrapped,
+			nodes,
+			edges,
+			direction,
+			options,
+			diagnostics,
+		);
+		return wrapped;
+	}
+
+	const ordered = nodes
+		.map((node) => ({ node, box: wrapped.get(node.id) }))
+		.filter(
+			(item): item is { node: NormalizedNode; box: Box } =>
+				item.box !== undefined,
+		)
+		.sort((a, b) => {
+			const delta = a.box.y - b.box.y;
+			return delta === 0 ? a.node.id.localeCompare(b.node.id) : delta;
+		});
+	const columns = Math.ceil(ordered.length / maxStackDepth);
+	const horizontalGap = options.overlapSpacing ?? 40;
+	const verticalGap = Math.max(24, horizontalGap / 2);
+	const columnWidths = Array.from({ length: columns }, (_, column) =>
+		Math.max(
+			0,
+			...ordered
+				.slice(column * maxStackDepth, (column + 1) * maxStackDepth)
+				.map((item) => item.box.width),
+		),
+	);
+	const startX = Math.min(...ordered.map((item) => item.box.x));
+	const startY = Math.min(...ordered.map((item) => item.box.y));
+	let columnX = startX;
+	for (let column = 0; column < columns; column += 1) {
+		let y = startY;
+		const items = ordered.slice(
+			column * maxStackDepth,
+			(column + 1) * maxStackDepth,
+		);
+		for (const item of items) {
+			wrapped.set(item.node.id, { ...item.box, x: columnX, y });
+			y += item.box.height + verticalGap;
+		}
+		columnX += (columnWidths[column] ?? 0) + horizontalGap;
+	}
+	diagnostics.push({
+		severity: "warning",
+		code: "vertical_runaway",
+		message: `Single-column layout exceeded maxStackDepth ${maxStackDepth}; wrapped into ${columns} columns.`,
+		path: ["nodes"],
+		detail: { nodeCount: ordered.length, maxStackDepth, columns },
+	});
+	return wrapped;
+}
+
+function reportVerticalRunaway(
+	boxes: ReadonlyMap<string, Box>,
+	nodes: readonly NormalizedNode[],
+	edges: readonly NormalizedEdge[],
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[],
+): void {
+	if (!isVerticalRunaway(boxes, nodes, direction, options)) {
+		return;
+	}
+	diagnostics.push({
+		severity: "warning",
+		code: "vertical_runaway",
+		message:
+			"Layout produced a tall vertical stack beyond the preferred aspect ratio.",
+		path: ["nodes"],
+		detail: {
+			nodeCount: nodes.length,
+			edgeCount: edges.length,
+			...(options.preferredAspectRatio === undefined
+				? {}
+				: { preferredAspectRatio: options.preferredAspectRatio }),
+			...(options.maxStackDepth === undefined
+				? {}
+				: { maxStackDepth: options.maxStackDepth }),
+		},
+	});
+}
+
+function isVerticalRunaway(
+	boxes: ReadonlyMap<string, Box>,
+	nodes: readonly NormalizedNode[],
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+): boolean {
+	if (
+		options.maxStackDepth === undefined &&
+		options.preferredAspectRatio === undefined
+	) {
+		return false;
+	}
+	if (nodes.length < 2 || (direction !== "LR" && direction !== "RL")) {
+		return false;
+	}
+	const nodeBoxes = nodes
+		.map((node) => boxes.get(node.id))
+		.filter((box): box is Box => box !== undefined);
+	if (nodeBoxes.length < 2) {
+		return false;
+	}
+	const bounds = unionBoxes(nodeBoxes);
+	const aspectRatio =
+		bounds.width <= 0 ? Number.POSITIVE_INFINITY : bounds.height / bounds.width;
+	const preferred = options.preferredAspectRatio ?? 3;
+	if (aspectRatio < preferred) {
+		return false;
+	}
+	const xCenters = nodeBoxes.map((box) => box.x + box.width / 2);
+	const xSpread = Math.max(...xCenters) - Math.min(...xCenters);
+	const maxWidth = Math.max(...nodeBoxes.map((box) => box.width));
+	return xSpread <= Math.max(maxWidth, options.overlapSpacing ?? 40);
 }
 
 function applySingleSwimlaneContract(
@@ -1417,17 +1593,19 @@ function coordinateFrame(
 	frame: NonNullable<NormalizedDiagram["frame"]>,
 	contentBounds: Box,
 ): CoordinatedFrame {
-	const padding = 32;
-	const titleHeight = 28;
+	const padding = framePadding(frame.padding);
+	const titleHeight = frame.headerHeight ?? 28;
 	const titleWidth = Math.max(180, frame.titleTab.length * 7);
 	const box = {
-		x: contentBounds.x - padding,
-		y: contentBounds.y - padding - titleHeight,
-		width: contentBounds.width + padding * 2,
-		height: contentBounds.height + padding * 2 + titleHeight,
+		x: contentBounds.x - padding.left,
+		y: contentBounds.y - padding.top - titleHeight,
+		width: contentBounds.width + padding.left + padding.right,
+		height: contentBounds.height + padding.top + padding.bottom + titleHeight,
 	};
 	return {
 		...frame,
+		headerHeight: titleHeight,
+		padding: frame.padding ?? 32,
 		box,
 		titleBox: {
 			x: box.x,
@@ -1436,6 +1614,12 @@ function coordinateFrame(
 			height: titleHeight,
 		},
 	};
+}
+
+function framePadding(
+	value: NonNullable<NormalizedDiagram["frame"]>["padding"],
+): Insets {
+	return normalizeInsets(value ?? 32);
 }
 
 function expand(box: Box, padding: number, titleSize: number): Box {
@@ -2799,8 +2983,31 @@ function portGeometry(
 	};
 }
 
-function stableById<T extends { id: string }>(items: readonly T[]): T[] {
-	return [...items].sort((a, b) => a.id.localeCompare(b.id));
+function stableUniqueById<T extends { id: string }>(
+	items: readonly T[],
+	diagnostics: Diagnostic[],
+	pathRoot: string,
+	code: string,
+): T[] {
+	const firstById = new Map<string, T>();
+	for (let index = 0; index < items.length; index += 1) {
+		const item = items[index];
+		if (item === undefined) {
+			continue;
+		}
+		if (firstById.has(item.id)) {
+			diagnostics.push({
+				severity: "error",
+				code,
+				message: `Duplicate ${pathRoot.slice(0, -1)} id ${item.id} was ignored; first occurrence was kept.`,
+				path: [pathRoot, index, "id"],
+				detail: { id: item.id, duplicateIndex: index },
+			});
+			continue;
+		}
+		firstById.set(item.id, item);
+	}
+	return [...firstById.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function stableByConstraintId<T extends { id?: string; kind: string }>(

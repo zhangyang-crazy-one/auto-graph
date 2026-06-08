@@ -36,6 +36,13 @@ const insetsSchema = z.object({
 	left: finiteNumberSchema,
 });
 
+const nonNegativeInsetsSchema = z.object({
+	top: nonNegativeNumberSchema,
+	right: nonNegativeNumberSchema,
+	bottom: nonNegativeNumberSchema,
+	left: nonNegativeNumberSchema,
+});
+
 const labelSchema = z.union([
 	z.string(),
 	z.object({
@@ -131,6 +138,9 @@ const groupSchema = z.object({
 	nodes: z.array(z.string()).optional(),
 	groups: z.array(z.string()).optional(),
 	padding: insetsSchema.optional(),
+	headerHeight: nonNegativeNumberSchema.optional(),
+	labelPosition: z.enum(["top", "inside", "outside"]).optional(),
+	direction: z.enum(["horizontal", "vertical"]).optional(),
 });
 
 const swimlaneSchema = z.object({
@@ -376,6 +386,12 @@ export const diagramDslSchema = z
 				context: z.string().optional(),
 				name: z.string().optional(),
 				titleTab: z.string(),
+				headerHeight: nonNegativeNumberSchema.optional(),
+				padding: z
+					.union([nonNegativeNumberSchema, nonNegativeInsetsSchema])
+					.optional(),
+				labelPosition: z.enum(["top", "inside", "outside"]).optional(),
+				direction: z.enum(["horizontal", "vertical"]).optional(),
 				style: styleSchema.optional(),
 			})
 			.optional(),

@@ -30,7 +30,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			input.source.center,
 			input.targetAnchor ?? defaultAnchors.targetAnchor,
 		);
-		const points = simplifyRoute([source, target]);
+		const points = finalizeRoute(
+			[source, target],
+			softObstacles,
+			hardObstacles,
+			diagnostics,
+		);
 		if (routeCrossesBoxes(points, hardObstacles)) {
 			diagnostics.push({
 				severity: "error",
@@ -91,7 +96,15 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				candidate.endpointObstacles,
 			)
 		) {
-			return { points: simplifyRoute(candidate.points), diagnostics };
+			return {
+				points: finalizeRoute(
+					candidate.points,
+					softObstacles,
+					hardObstacles,
+					diagnostics,
+				),
+				diagnostics,
+			};
 		}
 	}
 
@@ -112,7 +125,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		});
 
 		return {
-			points: simplifyRoute(hardClearCandidate.points),
+			points: finalizeRoute(
+				hardClearCandidate.points,
+				softObstacles,
+				hardObstacles,
+				diagnostics,
+			),
 			diagnostics,
 		};
 	}
@@ -126,8 +144,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		});
 
 		return {
-			points: simplifyRoute(
+			points: finalizeRoute(
 				candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
+				softObstacles,
+				hardObstacles,
+				diagnostics,
 			),
 			diagnostics,
 		};
@@ -140,11 +161,116 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	});
 
 	return {
-		points: simplifyRoute(
+		points: finalizeRoute(
 			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
+			softObstacles,
+			hardObstacles,
+			diagnostics,
 		),
 		diagnostics,
 	};
+}
+
+function finalizeRoute(
+	points: readonly Point[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
+	diagnostics: Diagnostic[],
+): Point[] {
+	const simplified = simplifyRoute(points);
+	const crossesHardObstacles = routeCrossesBoxes(simplified, hardObstacles);
+	const crossesSoftObstacles = routeCrossesBoxes(simplified, softObstacles);
+	if (simplified.length < 3 && (crossesHardObstacles || crossesSoftObstacles)) {
+		diagnostics.push({
+			severity: crossesHardObstacles ? "error" : "warning",
+			code: "route_obstacle_fallback",
+			message:
+				"Obstacle-aware routing fell back to fewer than three route points.",
+			detail: { pointCount: simplified.length },
+		});
+		return expandFallbackRoute(simplified, [
+			...softObstacles,
+			...hardObstacles,
+		]);
+	}
+	return simplified;
+}
+
+function expandFallbackRoute(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): Point[] {
+	if (points.length !== 2) {
+		return points.map((point) => ({ ...point }));
+	}
+	const [source, target] = points;
+	if (source === undefined || target === undefined) {
+		return points.map((point) => ({ ...point }));
+	}
+	if (source.y === target.y) {
+		const detourY = horizontalDetourLane(source, target, obstacles);
+		return [
+			{ ...source },
+			{ x: source.x, y: detourY },
+			{ x: target.x, y: detourY },
+			{ ...target },
+		];
+	}
+	if (source.x === target.x) {
+		const detourX = verticalDetourLane(source, target, obstacles);
+		return [
+			{ ...source },
+			{ x: detourX, y: source.y },
+			{ x: detourX, y: target.y },
+			{ ...target },
+		];
+	}
+	return [
+		{ ...source },
+		{ x: (source.x + target.x) / 2, y: source.y },
+		{ x: (source.x + target.x) / 2, y: target.y },
+		{ ...target },
+	];
+}
+
+function horizontalDetourLane(
+	source: Point,
+	target: Point,
+	obstacles: readonly Box[],
+): number {
+	const crossing = obstacles.filter((obstacle) =>
+		segmentIntersectsBox(source, target, obstacle),
+	);
+	if (crossing.length === 0) {
+		return source.y + (source.x <= target.x ? 1 : -1) * 24;
+	}
+	const margin = 24;
+	const above = Math.min(...crossing.map((obstacle) => obstacle.y)) - margin;
+	const below =
+		Math.max(...crossing.map((obstacle) => obstacle.y + obstacle.height)) +
+		margin;
+	return Math.abs(above - source.y) <= Math.abs(below - source.y)
+		? above
+		: below;
+}
+
+function verticalDetourLane(
+	source: Point,
+	target: Point,
+	obstacles: readonly Box[],
+): number {
+	const crossing = obstacles.filter((obstacle) =>
+		segmentIntersectsBox(source, target, obstacle),
+	);
+	if (crossing.length === 0) {
+		return source.x + (source.y <= target.y ? 1 : -1) * 24;
+	}
+	const margin = 24;
+	const left = Math.min(...crossing.map((obstacle) => obstacle.x)) - margin;
+	const right =
+		Math.max(...crossing.map((obstacle) => obstacle.x + obstacle.width)) +
+		margin;
+	return Math.abs(left - source.x) <= Math.abs(right - source.x) ? left : right;
 }
 
 function endpointObstaclesForAutoAnchors(input: RouteEdgeInput): Box[] {

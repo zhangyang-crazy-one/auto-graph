@@ -155,8 +155,13 @@ describe("layout constraints", () => {
 			boxes: boxMap([
 				["a", { x: 0, y: 0, width: 50, height: 30 }],
 				["b", { x: 10, y: 10, width: 50, height: 30 }],
+				["c", { x: 20, y: 20, width: 50, height: 30 }],
 			]),
-			nodes: [node("a", { x: 0, y: 0 }), node("b", { x: 10, y: 10 })],
+			nodes: [
+				node("a", { x: 0, y: 0 }),
+				node("b", { x: 10, y: 10 }),
+				node("c", { x: 20, y: 20 }),
+			],
 			groups: [],
 			constraints: [
 				{
@@ -168,6 +173,11 @@ describe("layout constraints", () => {
 					kind: "exact-position",
 					targetId: "b",
 					position: { x: 40, y: 40 },
+				},
+				{
+					kind: "exact-position",
+					targetId: "c",
+					position: { x: 20, y: 20 },
 				},
 				{
 					kind: "containment",
@@ -185,6 +195,85 @@ describe("layout constraints", () => {
 				"constraints.containment.impossible",
 				"constraints.overlap.unresolved",
 			]),
+		);
+	});
+
+	it("reports overlaps introduced by the final containment clamp", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 100, height: 100 }],
+				["contained", { x: 180, y: 0, width: 70, height: 70 }],
+				["sibling", { x: 30, y: 30, width: 70, height: 70 }],
+			]),
+			nodes: [
+				node("container", { x: 0, y: 0 }),
+				node("contained"),
+				node("sibling", { x: 30, y: 30 }),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["contained"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("contained")).toMatchObject({ x: 30, y: 0 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "containment_overflow",
+				detail: expect.objectContaining({
+					nodeId: "contained",
+					containerId: "container",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					firstId: "contained",
+					secondId: "sibling",
+				}),
+			}),
+		);
+	});
+
+	it("does not repair valid containment overlap between parent and child", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 160, height: 120 }],
+				["child", { x: 40, y: 30, width: 60, height: 40 }],
+				["sibling", { x: 220, y: 30, width: 60, height: 40 }],
+			]),
+			nodes: [
+				node("container", { x: 0, y: 0 }),
+				node("child"),
+				node("sibling"),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["child"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("child")).toMatchObject({ x: 40, y: 30 });
+		expect(result.boxes.get("container")).toMatchObject({ x: 0, y: 0 });
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "containment_overflow" }),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "constraints.overlap.unresolved" }),
 		);
 	});
 });
