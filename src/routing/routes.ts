@@ -13,7 +13,6 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
 	const hardObstacles = input.hardObstacles ?? [];
-	const allObstacles = [...softObstacles, ...hardObstacles];
 	const defaultAnchors = defaultAnchorsForGeometry(
 		input.source.box,
 		input.target.box,
@@ -31,7 +30,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			input.source.center,
 			input.targetAnchor ?? defaultAnchors.targetAnchor,
 		);
-		const points = finalizeRoute([source, target], allObstacles, diagnostics);
+		const points = finalizeRoute(
+			[source, target],
+			softObstacles,
+			hardObstacles,
+			diagnostics,
+		);
 		if (routeCrossesBoxes(points, hardObstacles)) {
 			diagnostics.push({
 				severity: "error",
@@ -93,7 +97,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			)
 		) {
 			return {
-				points: finalizeRoute(candidate.points, allObstacles, diagnostics),
+				points: finalizeRoute(
+					candidate.points,
+					softObstacles,
+					hardObstacles,
+					diagnostics,
+				),
 				diagnostics,
 			};
 		}
@@ -118,7 +127,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		return {
 			points: finalizeRoute(
 				hardClearCandidate.points,
-				allObstacles,
+				softObstacles,
+				hardObstacles,
 				diagnostics,
 			),
 			diagnostics,
@@ -136,7 +146,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		return {
 			points: finalizeRoute(
 				candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
-				allObstacles,
+				softObstacles,
+				hardObstacles,
 				diagnostics,
 			),
 			diagnostics,
@@ -152,7 +163,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	return {
 		points: finalizeRoute(
 			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
-			allObstacles,
+			softObstacles,
+			hardObstacles,
 			diagnostics,
 		),
 		diagnostics,
@@ -161,23 +173,25 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 function finalizeRoute(
 	points: readonly Point[],
-	obstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
 	diagnostics: Diagnostic[],
 ): Point[] {
 	const simplified = simplifyRoute(points);
-	if (
-		obstacles.length > 0 &&
-		simplified.length < 3 &&
-		routeCrossesBoxes(simplified, obstacles)
-	) {
+	const crossesHardObstacles = routeCrossesBoxes(simplified, hardObstacles);
+	const crossesSoftObstacles = routeCrossesBoxes(simplified, softObstacles);
+	if (simplified.length < 3 && (crossesHardObstacles || crossesSoftObstacles)) {
 		diagnostics.push({
-			severity: "error",
+			severity: crossesHardObstacles ? "error" : "warning",
 			code: "route_obstacle_fallback",
 			message:
 				"Obstacle-aware routing fell back to fewer than three route points.",
 			detail: { pointCount: simplified.length },
 		});
-		return expandFallbackRoute(simplified, obstacles);
+		return expandFallbackRoute(simplified, [
+			...softObstacles,
+			...hardObstacles,
+		]);
 	}
 	return simplified;
 }

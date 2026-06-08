@@ -259,6 +259,32 @@ describe("routing", () => {
 		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
 	});
 
+	it("downgrades fallback diagnostics when straight routes cross only soft obstacles", () => {
+		const softObstacle = { x: 120, y: 10, width: 80, height: 20 };
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 0),
+			obstacles: [softObstacle],
+		});
+
+		expect(result.points.length).toBeGreaterThanOrEqual(3);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "route_obstacle_fallback",
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "route_obstacle_fallback",
+			}),
+		);
+		expect(routeIntersectsObstacle(result.points, softObstacle)).toBe(false);
+	});
+
 	it("chooses fallback detours outside wide obstacle extents", () => {
 		const hardObstacle = { x: 120, y: -80, width: 80, height: 220 };
 		const result = routeEdge({

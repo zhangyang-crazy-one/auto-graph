@@ -3,6 +3,7 @@ import {
 	computeContainerGeometry,
 	computeShapeGeometry,
 	intersectsAabb,
+	normalizeInsets,
 	unionBoxes,
 } from "../geometry/index.js";
 import type { Constraint } from "../ir/constraints.js";
@@ -1618,10 +1619,7 @@ function coordinateFrame(
 function framePadding(
 	value: NonNullable<NormalizedDiagram["frame"]>["padding"],
 ): Insets {
-	if (typeof value === "number") {
-		return { top: value, right: value, bottom: value, left: value };
-	}
-	return value ?? { top: 32, right: 32, bottom: 32, left: 32 };
+	return normalizeInsets(value ?? 32);
 }
 
 function expand(box: Box, padding: number, titleSize: number): Box {

@@ -346,12 +346,16 @@ function repairOverlaps(
 	const spacing = input.overlapSpacing ?? 40;
 	const axis = input.direction === "LR" || input.direction === "RL" ? "x" : "y";
 	const secondaryAxis = axis === "x" ? "y" : "x";
+	const ignoredPairs = containmentOverlapKeys(input.constraints);
 	const ids = [...boxes.keys()].sort();
 
 	for (let pass = 0; pass < 2; pass += 1) {
 		for (const firstId of ids) {
 			for (const secondId of ids) {
 				if (firstId >= secondId) {
+					continue;
+				}
+				if (ignoredPairs.has(overlapKey(firstId, secondId))) {
 					continue;
 				}
 
@@ -386,7 +390,7 @@ function repairOverlaps(
 		}
 	}
 
-	reportOverlaps(boxes, diagnostics);
+	reportOverlaps(boxes, diagnostics, ignoredPairs);
 }
 
 function reportOverlaps(

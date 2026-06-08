@@ -36,6 +36,13 @@ const insetsSchema = z.object({
 	left: finiteNumberSchema,
 });
 
+const nonNegativeInsetsSchema = z.object({
+	top: nonNegativeNumberSchema,
+	right: nonNegativeNumberSchema,
+	bottom: nonNegativeNumberSchema,
+	left: nonNegativeNumberSchema,
+});
+
 const labelSchema = z.union([
 	z.string(),
 	z.object({
@@ -380,7 +387,9 @@ export const diagramDslSchema = z
 				name: z.string().optional(),
 				titleTab: z.string(),
 				headerHeight: nonNegativeNumberSchema.optional(),
-				padding: z.union([nonNegativeNumberSchema, insetsSchema]).optional(),
+				padding: z
+					.union([nonNegativeNumberSchema, nonNegativeInsetsSchema])
+					.optional(),
 				labelPosition: z.enum(["top", "inside", "outside"]).optional(),
 				direction: z.enum(["horizontal", "vertical"]).optional(),
 				style: styleSchema.optional(),

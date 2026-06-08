@@ -311,6 +311,25 @@ output:
 		);
 	});
 
+	it("rejects negative object frame padding before normalization", () => {
+		const result = parseDiagramDsl(`
+nodes:
+  source: { label: Source }
+frame:
+  kind: block
+  titleTab: System
+  padding: { top: -20, right: 16, bottom: 16, left: 16 }
+`);
+
+		expect(result.value).toBeUndefined();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "validate.schema.invalid",
+				path: ["frame", "padding", "top"],
+			}),
+		);
+	});
+
 	it("sizes compartment nodes from their rendered row count", () => {
 		const result = normalizeDiagramDsl({
 			nodes: {

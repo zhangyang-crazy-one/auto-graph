@@ -367,11 +367,24 @@ describe("solveDiagram", () => {
 		expect(result.edges[0]?.points.length).toBeGreaterThanOrEqual(3);
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
-				severity: "error",
+				severity: "warning",
 				code: "route_obstacle_fallback",
 				detail: expect.objectContaining({ edgeId: "source-target" }),
 			}),
 		);
+	});
+
+	it("rejects negative programmatic frame padding objects", () => {
+		expect(() =>
+			solveDiagram({
+				...sampleDiagram(),
+				frame: {
+					kind: "block",
+					titleTab: "System",
+					padding: { top: -1, right: 16, bottom: 16, left: 16 },
+				},
+			}),
+		).toThrow("insets.top must be non-negative");
 	});
 
 	it("preserves frame and group semantic fields in coordinated output", () => {
