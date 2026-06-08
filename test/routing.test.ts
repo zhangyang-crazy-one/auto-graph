@@ -236,23 +236,27 @@ describe("routing", () => {
 	});
 
 	it("rejects straight routes that cross hard evidence obstacles", () => {
+		const hardObstacle = { x: 120, y: 10, width: 80, height: 20 };
 		const result = routeEdge({
 			kind: "straight",
 			direction: "LR",
 			source: shape(0, 0),
 			target: shape(300, 0),
-			hardObstacles: [{ x: 120, y: 10, width: 80, height: 20 }],
+			hardObstacles: [hardObstacle],
 		});
 
-		expect(result.points).toEqual([
-			{ x: 80, y: 20 },
-			{ x: 300, y: 20 },
-		]);
+		expect(result.points.length).toBeGreaterThanOrEqual(3);
+		expect(
+			new Set(result.points.map((point) => `${point.x},${point.y}`)).size,
+		).toBe(result.points.length);
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 300, y: 20 });
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
-				code: "routing.evidence.crossing_forbidden",
+				code: "route_obstacle_fallback",
 			}),
 		);
+		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
 	});
 
 	it("does not reject diagonal straight routes by segment bounding-box overlap alone", () => {

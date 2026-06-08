@@ -24,11 +24,12 @@ export function applyLayoutConstraints(
 
 	applyFixedPositionLocks(input.nodes, boxes, locks, diagnostics);
 	applyExactPositions(input.constraints, boxes, locks, diagnostics, nodeById);
-	applyContainment(input.constraints, boxes, locks, diagnostics);
+	applyContainment(input.constraints, boxes, locks, diagnostics, false);
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
 	applyDistribute(input.constraints, boxes, locks, diagnostics);
 	repairOverlaps(input, boxes, locks, diagnostics);
+	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 
 	return { boxes, locks, diagnostics };
 }
@@ -153,6 +154,7 @@ function applyContainment(
 	boxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLock>,
 	diagnostics: Diagnostic[],
+	reportOverflow: boolean,
 ): void {
 	for (const constraint of constraints) {
 		if (constraint.kind !== "containment") {
@@ -179,21 +181,23 @@ function applyContainment(
 			}
 
 			if (locks.has(childId)) {
-				diagnostics.push({
-					severity: "warning",
-					code: "constraints.locked-target-not-moved",
-					message: `Locked child ${childId} was not moved into containment.`,
-					path: ["constraints", constraint.id ?? constraint.containerId],
-					detail: { nodeId: childId },
-				});
-				if (!isInside(child, content)) {
+				if (!reportOverflow) {
 					diagnostics.push({
-						severity: "error",
-						code: "constraints.containment.impossible",
-						message: `Locked child ${childId} cannot fit inside ${constraint.containerId}.`,
+						severity: "warning",
+						code: "constraints.locked-target-not-moved",
+						message: `Locked child ${childId} was not moved into containment.`,
 						path: ["constraints", constraint.id ?? constraint.containerId],
-						detail: { nodeId: childId, containerId: constraint.containerId },
+						detail: { nodeId: childId },
 					});
+					if (!isInside(child, content)) {
+						diagnostics.push({
+							severity: "error",
+							code: "constraints.containment.impossible",
+							message: `Locked child ${childId} cannot fit inside ${constraint.containerId}.`,
+							path: ["constraints", constraint.id ?? constraint.containerId],
+							detail: { nodeId: childId, containerId: constraint.containerId },
+						});
+					}
 				}
 				continue;
 			}
@@ -210,6 +214,15 @@ function applyContainment(
 			}
 
 			boxes.set(childId, next);
+			if (reportOverflow) {
+				diagnostics.push({
+					severity: "warning",
+					code: "containment_overflow",
+					message: `Child ${childId} was clamped back inside ${constraint.containerId} after constraint solving.`,
+					path: ["constraints", constraint.id ?? constraint.containerId],
+					detail: { nodeId: childId, containerId: constraint.containerId },
+				});
+			}
 		}
 	}
 }

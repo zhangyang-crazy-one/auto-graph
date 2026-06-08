@@ -187,6 +187,207 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("deduplicates repeated node ids before solving and reports an error diagnostic", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [
+				node("duplicate", { x: 0, y: 0 }),
+				{ ...node("duplicate", { x: 400, y: 400 }), label: { text: "later" } },
+				node("target", { x: 180, y: 0 }),
+			],
+			edges: [
+				{
+					id: "duplicate-target",
+					source: { nodeId: "duplicate" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+		});
+
+		expect(result.nodes.map((item) => item.id)).toEqual([
+			"duplicate",
+			"target",
+		]);
+		expect(result.nodes.find((item) => item.id === "duplicate")?.label).toBe(
+			undefined,
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "duplicate_node_id",
+				detail: expect.objectContaining({ id: "duplicate" }),
+			}),
+		);
+	});
+
+	it("wraps a vertical runaway stack when maxStackDepth is configured", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				nodes: Array.from({ length: 7 }, (_, index) => node(`n-${index}`)),
+				edges: [],
+				groups: [],
+				constraints: [],
+			},
+			{ maxStackDepth: 3, preferredAspectRatio: 1 },
+		);
+
+		const uniqueXPositions = new Set(result.nodes.map((item) => item.box.x));
+		expect(uniqueXPositions.size).toBeGreaterThan(1);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "vertical_runaway",
+				detail: expect.objectContaining({ maxStackDepth: 3, columns: 3 }),
+			}),
+		);
+	});
+
+	it("re-clamps containment after later constraints push a child outside", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [
+				{
+					...node("container"),
+					size: { width: 220, height: 160 },
+				},
+				node("child"),
+				node("reference"),
+			],
+			edges: [],
+			groups: [],
+			constraints: [
+				{
+					kind: "exact-position",
+					targetId: "container",
+					position: { x: 0, y: 0 },
+				},
+				{
+					kind: "exact-position",
+					targetId: "reference",
+					position: { x: 500, y: 500 },
+				},
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["child"],
+					padding: { top: 12, right: 12, bottom: 12, left: 12 },
+				},
+				{
+					kind: "relative-position",
+					sourceId: "child",
+					referenceId: "reference",
+					relation: "below",
+					offset: { x: 0, y: 40 },
+				},
+			],
+		});
+		const container = result.nodes.find((item) => item.id === "container");
+		const child = result.nodes.find((item) => item.id === "child");
+
+		if (container === undefined || child === undefined) {
+			throw new Error("Expected container and child nodes");
+		}
+		expect(child.box.x).toBeGreaterThanOrEqual(container.box.x + 12);
+		expect(child.box.y).toBeGreaterThanOrEqual(container.box.y + 12);
+		expect(child.box.x + child.box.width).toBeLessThanOrEqual(
+			container.box.x + container.box.width - 12,
+		);
+		expect(child.box.y + child.box.height).toBeLessThanOrEqual(
+			container.box.y + container.box.height - 12,
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "containment_overflow",
+				detail: expect.objectContaining({
+					nodeId: "child",
+					containerId: "container",
+				}),
+			}),
+		);
+	});
+
+	it("emits an error diagnostic and expands fallback route points when obstacles are present", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				nodes: [
+					node("source", { x: 0, y: 0 }),
+					node("target", { x: 300, y: 0 }),
+				],
+				edges: [
+					{
+						id: "source-target",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				tables: [
+					{
+						id: "obstacle",
+						columns: [{ id: "c", label: { text: "C" } }],
+						rows: [{ id: "r", cells: { c: { text: "R" } } }],
+						position: { x: 120, y: -20 },
+						size: { width: 120, height: 80 },
+					},
+				],
+			},
+			{ routeKind: "straight" },
+		);
+
+		expect(result.edges[0]?.points.length).toBeGreaterThanOrEqual(3);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "route_obstacle_fallback",
+				detail: expect.objectContaining({ edgeId: "source-target" }),
+			}),
+		);
+	});
+
+	it("preserves frame and group semantic fields in coordinated output", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			groups: [
+				{
+					id: "semantic-group",
+					nodeIds: ["a", "b"],
+					groupIds: [],
+					padding: { top: 8, right: 8, bottom: 8, left: 8 },
+					headerHeight: 36,
+					labelPosition: "inside",
+					direction: "vertical",
+				},
+			],
+			frame: {
+				kind: "sysml",
+				titleTab: "System Frame",
+				headerHeight: 44,
+				padding: { top: 20, right: 24, bottom: 28, left: 32 },
+				labelPosition: "top",
+				direction: "horizontal",
+			},
+		});
+
+		expect(result.groups[0]).toMatchObject({
+			id: "semantic-group",
+			headerHeight: 36,
+			labelPosition: "inside",
+			direction: "vertical",
+		});
+		expect(result.frame).toMatchObject({
+			headerHeight: 44,
+			padding: { top: 20, right: 24, bottom: 28, left: 32 },
+			labelPosition: "top",
+			direction: "horizontal",
+		});
+	});
+
 	it("keeps table column offsets stable when rows and cell text change", () => {
 		const baseTable = {
 			id: "parameters",

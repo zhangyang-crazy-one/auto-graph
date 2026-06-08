@@ -204,6 +204,9 @@ export interface IntentGroup {
 	nodeIds?: string[];
 	groupIds?: string[];
 	padding?: Insets;
+	headerHeight?: number;
+	labelPosition?: "top" | "inside" | "outside";
+	direction?: "horizontal" | "vertical";
 	metadata?: JsonObject;
 }
 
@@ -213,6 +216,9 @@ export interface NormalizedGroup {
 	nodeIds: string[];
 	groupIds: string[];
 	padding: Insets;
+	headerHeight?: number;
+	labelPosition?: "top" | "inside" | "outside";
+	direction?: "horizontal" | "vertical";
 	metadata?: JsonObject;
 	labelLayout?: LabelLayout;
 }
@@ -249,6 +255,10 @@ export interface DiagramFrame {
 	context?: string;
 	name?: string;
 	titleTab: string;
+	headerHeight?: number;
+	padding?: number | Insets;
+	labelPosition?: "top" | "inside" | "outside";
+	direction?: "horizontal" | "vertical";
 	style?: VisualStyle;
 }
 
