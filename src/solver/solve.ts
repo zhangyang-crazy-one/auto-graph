@@ -526,7 +526,7 @@ function isVerticalRunaway(
 	) {
 		return false;
 	}
-	if (nodes.length < 2 || direction !== "LR") {
+	if (nodes.length < 2 || (direction !== "LR" && direction !== "RL")) {
 		return false;
 	}
 	const nodeBoxes = nodes

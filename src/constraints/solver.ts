@@ -30,6 +30,7 @@ export function applyLayoutConstraints(
 	applyDistribute(input.constraints, boxes, locks, diagnostics);
 	repairOverlaps(input, boxes, locks, diagnostics);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
+	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
 
 	return { boxes, locks, diagnostics };
 }
@@ -385,9 +386,37 @@ function repairOverlaps(
 		}
 	}
 
+	reportOverlaps(boxes, diagnostics);
+}
+
+function reportOverlaps(
+	boxes: ReadonlyMap<string, Box>,
+	diagnostics: Diagnostic[],
+	ignoredPairs: ReadonlySet<string> = new Set(),
+): void {
+	const ids = [...boxes.keys()].sort();
+	const reported = new Set(
+		diagnostics
+			.filter(
+				(diagnostic) => diagnostic.code === "constraints.overlap.unresolved",
+			)
+			.map((diagnostic) => {
+				const firstId = diagnostic.detail?.firstId;
+				const secondId = diagnostic.detail?.secondId;
+				return typeof firstId === "string" && typeof secondId === "string"
+					? overlapKey(firstId, secondId)
+					: undefined;
+			})
+			.filter((key): key is string => key !== undefined),
+	);
+
 	for (const firstId of ids) {
 		for (const secondId of ids) {
 			if (firstId >= secondId) {
+				continue;
+			}
+			const key = overlapKey(firstId, secondId);
+			if (reported.has(key) || ignoredPairs.has(key)) {
 				continue;
 			}
 
@@ -405,9 +434,31 @@ function repairOverlaps(
 					path: ["boxes"],
 					detail: { firstId, secondId },
 				});
+				reported.add(key);
 			}
 		}
 	}
+}
+
+function overlapKey(firstId: string, secondId: string): string {
+	return firstId < secondId
+		? `${firstId}\0${secondId}`
+		: `${secondId}\0${firstId}`;
+}
+
+function containmentOverlapKeys(
+	constraints: readonly Constraint[],
+): Set<string> {
+	const keys = new Set<string>();
+	for (const constraint of constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		for (const childId of constraint.childIds) {
+			keys.add(overlapKey(constraint.containerId, childId));
+		}
+	}
+	return keys;
 }
 
 function setUnlockedBox(

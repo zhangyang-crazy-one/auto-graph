@@ -187,6 +187,51 @@ describe("layout constraints", () => {
 			]),
 		);
 	});
+
+	it("reports overlaps introduced by the final containment clamp", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 100, height: 100 }],
+				["contained", { x: 180, y: 0, width: 70, height: 70 }],
+				["sibling", { x: 30, y: 30, width: 70, height: 70 }],
+			]),
+			nodes: [
+				node("container", { x: 0, y: 0 }),
+				node("contained"),
+				node("sibling", { x: 30, y: 30 }),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["contained"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("contained")).toMatchObject({ x: 30, y: 0 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "containment_overflow",
+				detail: expect.objectContaining({
+					nodeId: "contained",
+					containerId: "container",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					firstId: "contained",
+					secondId: "sibling",
+				}),
+			}),
+		);
+	});
 });
 
 function node(

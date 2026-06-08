@@ -845,6 +845,49 @@ constraints:
 			}),
 		);
 	});
+
+	it("normalizes group and frame semantic fields from DSL", () => {
+		const source = `
+title: Semantic Fields
+direction: LR
+nodes:
+  a: { label: A }
+  b: { label: B }
+groups:
+  semantic:
+    label: Semantic
+    nodes: [a, b]
+    padding: { top: 4, right: 5, bottom: 6, left: 7 }
+    headerHeight: 32
+    labelPosition: inside
+    direction: vertical
+frame:
+  kind: sysml
+  titleTab: System
+  headerHeight: 44
+  padding: { top: 20, right: 24, bottom: 28, left: 32 }
+  labelPosition: top
+  direction: horizontal
+`;
+		const parsed = parseDiagramDsl(source, { sourceFormat: "yaml" });
+		const normalized = normalizeDiagramDsl(parsed.value);
+
+		expect(parsed.diagnostics).toEqual([]);
+		expect(normalized.diagnostics).toEqual([]);
+		expect(normalized.diagram?.groups[0]).toMatchObject({
+			id: "semantic",
+			headerHeight: 32,
+			labelPosition: "inside",
+			direction: "vertical",
+		});
+		expect(normalized.diagram?.frame).toMatchObject({
+			kind: "sysml",
+			headerHeight: 44,
+			padding: { top: 20, right: 24, bottom: 28, left: 32 },
+			labelPosition: "top",
+			direction: "horizontal",
+		});
+	});
 });
 
 function readFixture(name: string): string {

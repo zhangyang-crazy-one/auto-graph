@@ -177,12 +177,15 @@ function finalizeRoute(
 				"Obstacle-aware routing fell back to fewer than three route points.",
 			detail: { pointCount: simplified.length },
 		});
-		return expandFallbackRoute(simplified);
+		return expandFallbackRoute(simplified, obstacles);
 	}
 	return simplified;
 }
 
-function expandFallbackRoute(points: readonly Point[]): Point[] {
+function expandFallbackRoute(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): Point[] {
 	if (points.length !== 2) {
 		return points.map((point) => ({ ...point }));
 	}
@@ -191,7 +194,7 @@ function expandFallbackRoute(points: readonly Point[]): Point[] {
 		return points.map((point) => ({ ...point }));
 	}
 	if (source.y === target.y) {
-		const detourY = source.y + (source.x <= target.x ? 1 : -1) * 24;
+		const detourY = horizontalDetourLane(source, target, obstacles);
 		return [
 			{ ...source },
 			{ x: source.x, y: detourY },
@@ -200,7 +203,7 @@ function expandFallbackRoute(points: readonly Point[]): Point[] {
 		];
 	}
 	if (source.x === target.x) {
-		const detourX = source.x + (source.y <= target.y ? 1 : -1) * 24;
+		const detourX = verticalDetourLane(source, target, obstacles);
 		return [
 			{ ...source },
 			{ x: detourX, y: source.y },
@@ -214,6 +217,46 @@ function expandFallbackRoute(points: readonly Point[]): Point[] {
 		{ x: (source.x + target.x) / 2, y: target.y },
 		{ ...target },
 	];
+}
+
+function horizontalDetourLane(
+	source: Point,
+	target: Point,
+	obstacles: readonly Box[],
+): number {
+	const crossing = obstacles.filter((obstacle) =>
+		segmentIntersectsBox(source, target, obstacle),
+	);
+	if (crossing.length === 0) {
+		return source.y + (source.x <= target.x ? 1 : -1) * 24;
+	}
+	const margin = 24;
+	const above = Math.min(...crossing.map((obstacle) => obstacle.y)) - margin;
+	const below =
+		Math.max(...crossing.map((obstacle) => obstacle.y + obstacle.height)) +
+		margin;
+	return Math.abs(above - source.y) <= Math.abs(below - source.y)
+		? above
+		: below;
+}
+
+function verticalDetourLane(
+	source: Point,
+	target: Point,
+	obstacles: readonly Box[],
+): number {
+	const crossing = obstacles.filter((obstacle) =>
+		segmentIntersectsBox(source, target, obstacle),
+	);
+	if (crossing.length === 0) {
+		return source.x + (source.y <= target.y ? 1 : -1) * 24;
+	}
+	const margin = 24;
+	const left = Math.min(...crossing.map((obstacle) => obstacle.x)) - margin;
+	const right =
+		Math.max(...crossing.map((obstacle) => obstacle.x + obstacle.width)) +
+		margin;
+	return Math.abs(left - source.x) <= Math.abs(right - source.x) ? left : right;
 }
 
 function endpointObstaclesForAutoAnchors(input: RouteEdgeInput): Box[] {

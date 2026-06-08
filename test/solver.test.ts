@@ -245,6 +245,30 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("wraps right-to-left vertical runaway stacks when configured", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				direction: "RL",
+				nodes: Array.from({ length: 7 }, (_, index) => node(`n-${index}`)),
+				edges: [],
+				groups: [],
+				constraints: [],
+			},
+			{ maxStackDepth: 3, preferredAspectRatio: 1 },
+		);
+
+		const uniqueXPositions = new Set(result.nodes.map((item) => item.box.x));
+		expect(uniqueXPositions.size).toBeGreaterThan(1);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "vertical_runaway",
+				detail: expect.objectContaining({ maxStackDepth: 3, columns: 3 }),
+			}),
+		);
+	});
+
 	it("re-clamps containment after later constraints push a child outside", () => {
 		const result = solveDiagram({
 			...sampleDiagram(),

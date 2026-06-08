@@ -259,6 +259,23 @@ describe("routing", () => {
 		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
 	});
 
+	it("chooses fallback detours outside wide obstacle extents", () => {
+		const hardObstacle = { x: 120, y: -80, width: 80, height: 220 };
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(300, 0),
+			hardObstacles: [hardObstacle],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "route_obstacle_fallback" }),
+		);
+		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+		expect(result.points.some((point) => point.y < hardObstacle.y)).toBe(true);
+	});
+
 	it("does not reject diagonal straight routes by segment bounding-box overlap alone", () => {
 		const result = routeEdge({
 			kind: "straight",
