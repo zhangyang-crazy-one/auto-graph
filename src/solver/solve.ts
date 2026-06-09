@@ -25,7 +25,9 @@ import type {
 	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
+	SwimlaneLane,
 	TableBlock,
+	VisualStyle,
 } from "../ir/elements.js";
 import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type {
@@ -37,7 +39,7 @@ import { fitLabel } from "../labels/index.js";
 import { runDagreInitialLayout } from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
-import type { TextMeasurer } from "../text/types.js";
+import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 
 export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
@@ -46,6 +48,8 @@ export interface SolveDiagramOptions {
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;
 	portShifting?: PortShiftingOptions;
+	cjkFontFamily?: string | false;
+	minCjkFontSize?: number | false;
 	textMeasurer?: TextMeasurer;
 }
 
@@ -60,6 +64,8 @@ const DEFAULT_PANEL_WIDTH = 320;
 const DEFAULT_PANEL_ITEM_HEIGHT = 28;
 const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
 const EDGE_LABEL_CLEARANCE = 8;
+const DEFAULT_CJK_FONT_FAMILY = "YaHei,SimSun,sans-serif";
+const DEFAULT_MIN_CJK_FONT_SIZE = 14;
 const EVIDENCE_TEXT_FONT = {
 	fontFamily: "Arial, sans-serif",
 	fontSize: 10,
@@ -81,6 +87,16 @@ interface SwimlaneContractResult {
 interface LayoutLockLike {
 	nodeId: string;
 	source: string;
+}
+
+interface CjkTypographyOptions {
+	fontFamily?: string;
+	minFontSize?: number;
+}
+
+interface CjkTypography {
+	fontFamily?: string;
+	fontSize?: number;
 }
 
 export function solveDiagram(
@@ -106,11 +122,24 @@ export function solveDiagram(
 		"groups",
 		"duplicate_group_id",
 	);
+	const cjkTypography = createCjkTypographyOptions(options);
+	const styledNodes = nodes.map((node) =>
+		enhanceNodeCjkTypography(node, cjkTypography, diagnostics),
+	);
+	const styledEdges = edges.map((edge) =>
+		enhanceEdgeCjkTypography(edge, cjkTypography, diagnostics),
+	);
+	const styledGroups = groups.map((group) =>
+		enhanceGroupCjkTypography(group, cjkTypography, diagnostics),
+	);
+	const styledSwimlanes = (diagram.swimlanes ?? []).map((swimlane) =>
+		enhanceSwimlaneCjkTypography(swimlane, cjkTypography, diagnostics),
+	);
 	const constraints = stableByConstraintId(diagram.constraints);
 	const layout = runDagreInitialLayout({
 		direction: diagram.direction,
-		nodes: nodes.map((node) => ({ id: node.id, size: node.size })),
-		edges: edges.map((edge) => ({
+		nodes: styledNodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: styledEdges.map((edge) => ({
 			id: edge.id,
 			sourceId: edge.source.nodeId,
 			targetId: edge.target.nodeId,
@@ -120,8 +149,8 @@ export function solveDiagram(
 	diagnostics.push(...layout.diagnostics);
 	const initialNodeBoxes = wrapVerticalStackIfNeeded(
 		layout.boxes,
-		nodes,
-		edges,
+		styledNodes,
+		styledEdges,
 		diagram.direction,
 		options,
 		diagnostics,
@@ -131,16 +160,16 @@ export function solveDiagram(
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
 		boxes: initialNodeBoxes,
-		nodes,
-		groups,
+		nodes: styledNodes,
+		groups: styledGroups,
 		constraints,
 	});
 
 	diagnostics.push(...constrained.diagnostics);
 	const swimlaneContracts = applySwimlaneLayoutContracts(
-		diagram.swimlanes ?? [],
+		styledSwimlanes,
 		constraints,
-		edges,
+		styledEdges,
 		isTopToBottomReadingDirection(diagram.metadata?.primaryReadingDirection),
 		constrained.boxes,
 		constrained.locks,
@@ -152,7 +181,7 @@ export function solveDiagram(
 	diagnostics.push(...swimlaneContracts.diagnostics);
 
 	const coordinatedNodes = coordinateNodes(
-		nodes,
+		styledNodes,
 		constrained.boxes,
 		options,
 		diagnostics,
@@ -168,13 +197,13 @@ export function solveDiagram(
 		]),
 	);
 	const coordinatedGroups = coordinateGroups(
-		groups,
+		styledGroups,
 		constrained.boxes,
 		options,
 		diagnostics,
 	);
 	const coordinatedSwimlanes = coordinateSwimlanes(
-		diagram.swimlanes ?? [],
+		styledSwimlanes,
 		constrained.boxes,
 		swimlaneContracts.layouts,
 	);
@@ -292,7 +321,7 @@ export function solveDiagram(
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
 	];
 	const coordinatedEdges = coordinateEdges(
-		edges,
+		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
 		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
@@ -352,6 +381,308 @@ export function solveDiagram(
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
+}
+
+function createCjkTypographyOptions(
+	options: SolveDiagramOptions,
+): CjkTypographyOptions {
+	const fontFamily =
+		options.cjkFontFamily === false
+			? undefined
+			: (options.cjkFontFamily ?? DEFAULT_CJK_FONT_FAMILY);
+	const minFontSize =
+		options.minCjkFontSize === false
+			? undefined
+			: (options.minCjkFontSize ?? DEFAULT_MIN_CJK_FONT_SIZE);
+	return {
+		...(fontFamily === undefined ? {} : { fontFamily }),
+		...(minFontSize === undefined ? {} : { minFontSize }),
+	};
+}
+
+function enhanceNodeCjkTypography(
+	node: NormalizedNode,
+	options: CjkTypographyOptions,
+	diagnostics: Diagnostic[],
+): NormalizedNode {
+	const nodeWithStyle = enhanceStyledLabelOwner(
+		node,
+		["nodes", node.id],
+		options,
+		diagnostics,
+	);
+	const ports =
+		nodeWithStyle.ports === undefined
+			? undefined
+			: nodeWithStyle.ports.map((port) =>
+					enhanceStyledLabelOwner(
+						port,
+						["nodes", node.id, "ports", port.id],
+						options,
+						diagnostics,
+					),
+				);
+	return ports === undefined ? nodeWithStyle : { ...nodeWithStyle, ports };
+}
+
+function enhanceEdgeCjkTypography(
+	edge: NormalizedEdge,
+	options: CjkTypographyOptions,
+	diagnostics: Diagnostic[],
+): NormalizedEdge {
+	return enhanceStyledLabelOwner(
+		edge,
+		["edges", edge.id],
+		options,
+		diagnostics,
+	);
+}
+
+function enhanceGroupCjkTypography(
+	group: NormalizedGroup,
+	options: CjkTypographyOptions,
+	diagnostics: Diagnostic[],
+): NormalizedGroup {
+	return enhanceStyledLabelOwner(
+		group,
+		["groups", group.id],
+		options,
+		diagnostics,
+	);
+}
+
+function enhanceSwimlaneCjkTypography(
+	swimlane: Swimlane,
+	options: CjkTypographyOptions,
+	diagnostics: Diagnostic[],
+): Swimlane {
+	const root = enhanceStyledLabelOwner(
+		swimlane,
+		["swimlanes", swimlane.id],
+		options,
+		diagnostics,
+	);
+	const lanes = root.lanes.map((lane) =>
+		enhanceSwimlaneLaneCjkTypography(swimlane.id, lane, options, diagnostics),
+	);
+	return { ...root, lanes };
+}
+
+function enhanceSwimlaneLaneCjkTypography(
+	swimlaneId: string,
+	lane: SwimlaneLane,
+	options: CjkTypographyOptions,
+	diagnostics: Diagnostic[],
+): SwimlaneLane {
+	return enhanceStyledLabelOwner(
+		lane,
+		["swimlanes", swimlaneId, "lanes", lane.id],
+		options,
+		diagnostics,
+	);
+}
+
+function enhanceStyledLabelOwner<
+	T extends { id: string; label?: { text: string; metadata?: unknown } },
+>(
+	owner: T,
+	path: readonly (string | number)[],
+	options: CjkTypographyOptions,
+	diagnostics: Diagnostic[],
+): T {
+	const text = owner.label?.text;
+	if (text === undefined || !containsCjk(text)) {
+		return owner;
+	}
+	const typography = cjkTypographyForOwner(owner, options);
+	if (
+		typography.fontFamily === undefined &&
+		typography.fontSize === undefined
+	) {
+		return owner;
+	}
+	const label = owner.label;
+	if (label === undefined) {
+		return owner;
+	}
+	const nextLabel = {
+		...label,
+		metadata: {
+			...metadataObject(label.metadata),
+			cjkTypography: typography,
+		},
+	};
+	const nextOwner = { ...owner, label: nextLabel };
+	const maybeStyled = nextOwner as T & { style?: VisualStyle };
+	const nextStyle = enhanceCjkStyle(maybeStyled.style, typography);
+	reportCjkTypographyDiagnostics(
+		path,
+		typography,
+		maybeStyled.style,
+		diagnostics,
+	);
+	return nextStyle === maybeStyled.style
+		? nextOwner
+		: { ...nextOwner, style: nextStyle };
+}
+
+function cjkTypographyForOwner(
+	owner: {
+		label?: { metadata?: unknown } | undefined;
+		style?: VisualStyle | undefined;
+	},
+	options: CjkTypographyOptions,
+): CjkTypography {
+	const metadataTypography = labelCjkTypography(owner.label?.metadata);
+	const fontFamily =
+		metadataTypography.fontFamily ??
+		owner.style?.fontFamily ??
+		options.fontFamily;
+	const fontSize = boostedCjkFontSize(
+		metadataTypography.fontSize ?? owner.style?.fontSize,
+		options.minFontSize,
+	);
+	return {
+		...(fontFamily === undefined ? {} : { fontFamily }),
+		...(fontSize === undefined ? {} : { fontSize }),
+	};
+}
+
+function labelCjkTypography(metadata: unknown): CjkTypography {
+	const metadataRecord = metadataObject(metadata);
+	if (metadataRecord === undefined) {
+		return {};
+	}
+	const value = metadataRecord.cjkTypography;
+	if (value === undefined || value === null || typeof value !== "object") {
+		return {};
+	}
+	const typography = value as Record<string, unknown>;
+	const fontFamily =
+		typeof typography.fontFamily === "string"
+			? typography.fontFamily
+			: undefined;
+	const fontSize =
+		typeof typography.fontSize === "number" &&
+		Number.isFinite(typography.fontSize) &&
+		typography.fontSize > 0
+			? typography.fontSize
+			: undefined;
+	return {
+		...(fontFamily === undefined ? {} : { fontFamily }),
+		...(fontSize === undefined ? {} : { fontSize }),
+	};
+}
+
+function metadataObject(
+	metadata: unknown,
+): Record<string, unknown> | undefined {
+	if (
+		metadata === undefined ||
+		metadata === null ||
+		typeof metadata !== "object" ||
+		Array.isArray(metadata)
+	) {
+		return undefined;
+	}
+	return metadata as Record<string, unknown>;
+}
+
+function typographyForLabel(
+	label: { metadata?: unknown } | undefined,
+): CjkTypography {
+	return labelCjkTypography(label?.metadata);
+}
+
+function typographyTextStyle(
+	label: { metadata?: unknown } | undefined,
+	base: TextStyleOptions,
+): TextStyleOptions {
+	const typography = typographyForLabel(label);
+	return {
+		...base,
+		...(typography.fontFamily === undefined
+			? {}
+			: { fontFamily: typography.fontFamily }),
+		...(typography.fontSize === undefined
+			? {}
+			: {
+					fontSize: typography.fontSize,
+					lineHeight: Math.max(base.lineHeight ?? 0, typography.fontSize * 1.2),
+				}),
+	};
+}
+
+function boostedCjkFontSize(
+	current: number | undefined,
+	minFontSize: number | undefined,
+): number | undefined {
+	if (minFontSize === undefined) {
+		return current;
+	}
+	if (current === undefined || current < minFontSize) {
+		return minFontSize;
+	}
+	return current;
+}
+
+function enhanceCjkStyle(
+	style: VisualStyle | undefined,
+	typography: CjkTypography,
+): VisualStyle | undefined {
+	let next = style;
+	if (typography.fontFamily !== undefined && next?.fontFamily === undefined) {
+		next = { ...next, fontFamily: typography.fontFamily };
+	}
+	if (
+		typography.fontSize !== undefined &&
+		(next?.fontSize === undefined || next.fontSize < typography.fontSize)
+	) {
+		next = { ...next, fontSize: typography.fontSize };
+	}
+	return next;
+}
+
+function reportCjkTypographyDiagnostics(
+	path: readonly (string | number)[],
+	typography: CjkTypography,
+	previousStyle: VisualStyle | undefined,
+	diagnostics: Diagnostic[],
+): void {
+	if (
+		typography.fontFamily !== undefined &&
+		previousStyle?.fontFamily === undefined
+	) {
+		diagnostics.push({
+			severity: "info",
+			code: "cjk_font_family_applied",
+			message: `Applied CJK font family ${typography.fontFamily}.`,
+			path: [...path, "label", "metadata", "cjkTypography", "fontFamily"],
+			detail: { fontFamily: typography.fontFamily },
+		});
+	}
+	if (
+		typography.fontSize !== undefined &&
+		(previousStyle?.fontSize === undefined ||
+			previousStyle.fontSize < typography.fontSize)
+	) {
+		diagnostics.push({
+			severity: "info",
+			code: "cjk_font_size_boosted",
+			message: `Raised CJK font size to ${typography.fontSize}.`,
+			path: [...path, "label", "metadata", "cjkTypography", "fontSize"],
+			detail: {
+				minFontSize: typography.fontSize,
+				...(previousStyle?.fontSize === undefined
+					? {}
+					: { previousFontSize: previousStyle.fontSize }),
+			},
+		});
+	}
+}
+
+function containsCjk(value: string): boolean {
+	return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u.test(value);
 }
 
 function applySwimlaneLayoutContracts(
@@ -2279,6 +2610,7 @@ function coordinateBaseTextAnnotations(input: {
 				ownerId: node.id,
 				surfaceKind: "node-label",
 				layout,
+				typography: typographyForLabel(node.label),
 				anchor: node.box,
 			}),
 		);
@@ -2299,6 +2631,7 @@ function coordinateBaseTextAnnotations(input: {
 				ownerId: group.id,
 				surfaceKind: "group-label",
 				layout,
+				typography: typographyForLabel(group.label),
 				anchor: group.box,
 			}),
 		);
@@ -2312,7 +2645,11 @@ function coordinateBaseTextAnnotations(input: {
 			const layout = fitLabel(
 				port.label.text,
 				{
-					font: { fontFamily: "Arial", fontSize: 10, lineHeight: 12 },
+					font: typographyTextStyle(port.label, {
+						fontFamily: "Arial",
+						fontSize: 10,
+						lineHeight: 12,
+					}),
 					padding: { top: 0, right: 0, bottom: 0, left: 0 },
 					minSize: { width: 0, height: 0 },
 					maxWidth: 160,
@@ -2324,6 +2661,7 @@ function coordinateBaseTextAnnotations(input: {
 					ownerId: `${node.id}.${port.id}`,
 					surfaceKind: "port-label",
 					layout,
+					typography: typographyForLabel(port.label),
 					anchor: portLabelBox(port),
 				}),
 			);
@@ -2376,7 +2714,11 @@ function coordinateBaseTextAnnotations(input: {
 			const layout = fitLabel(
 				lane.label.text,
 				{
-					font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+					font: typographyTextStyle(lane.label, {
+						fontFamily: "Arial",
+						fontSize: 12,
+						lineHeight: 14,
+					}),
 					padding: { top: 0, right: 0, bottom: 0, left: 0 },
 					minSize: { width: 0, height: 0 },
 					maxWidth:
@@ -2391,6 +2733,7 @@ function coordinateBaseTextAnnotations(input: {
 					ownerId: `${swimlane.id}.${lane.id}`,
 					surfaceKind: "swimlane-label",
 					layout,
+					typography: typographyForLabel(lane.label),
 					anchor: labelBox,
 				}),
 			);
@@ -2414,7 +2757,11 @@ function coordinateEdgeTextAnnotations(
 		const layout = fitLabel(
 			edge.label.text,
 			{
-				font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+				font: typographyTextStyle(edge.label, {
+					fontFamily: "Arial",
+					fontSize: 12,
+					lineHeight: 14,
+				}),
 				padding: { top: 0, right: 0, bottom: 0, left: 0 },
 				minSize: { width: 0, height: 0 },
 				maxWidth: 200,
@@ -2426,6 +2773,7 @@ function coordinateEdgeTextAnnotations(
 				ownerId: edge.id,
 				surfaceKind: "edge-label",
 				layout,
+				typography: typographyForLabel(edge.label),
 				center: edgeLabelAnchor(edge, layout, edges),
 			}),
 		);
@@ -2461,6 +2809,7 @@ function buildTextAnnotation(input: {
 	surfaceKind: TextSurfaceKind;
 	surfaceIndex?: number;
 	layout: LabelLayout;
+	typography?: CjkTypography;
 	anchor: Box;
 }): SolvedTextAnnotation {
 	return {
@@ -2479,7 +2828,10 @@ function buildTextAnnotation(input: {
 		anchor: input.anchor,
 		paddings: input.layout.padding,
 		lines: input.layout.lines,
-		fontSize: input.layout.font.fontSize,
+		fontFamily:
+			input.typography?.fontFamily ??
+			normalizeOutputFontFamily(input.layout.font),
+		fontSize: input.typography?.fontSize ?? input.layout.font.fontSize,
 		textBackend: input.layout.textBackend,
 	};
 }
@@ -2489,6 +2841,7 @@ function buildAnchorCenteredTextAnnotation(input: {
 	surfaceKind: TextSurfaceKind;
 	surfaceIndex?: number;
 	layout: LabelLayout;
+	typography?: CjkTypography;
 	anchor: Box;
 }): SolvedTextAnnotation {
 	return buildCenteredTextAnnotation({
@@ -2498,6 +2851,7 @@ function buildAnchorCenteredTextAnnotation(input: {
 			? {}
 			: { surfaceIndex: input.surfaceIndex }),
 		layout: input.layout,
+		...(input.typography === undefined ? {} : { typography: input.typography }),
 		center: {
 			x: input.anchor.x + input.anchor.width / 2,
 			y: input.anchor.y + input.anchor.height / 2,
@@ -2511,6 +2865,7 @@ function buildCenteredTextAnnotation(input: {
 	surfaceKind: TextSurfaceKind;
 	surfaceIndex?: number;
 	layout: LabelLayout;
+	typography?: CjkTypography;
 	center: Point;
 	anchor?: Box | Point;
 }): SolvedTextAnnotation {
@@ -2530,9 +2885,16 @@ function buildCenteredTextAnnotation(input: {
 		anchor: input.anchor ?? input.center,
 		paddings: input.layout.padding,
 		lines: input.layout.lines,
-		fontSize: input.layout.font.fontSize,
+		fontFamily:
+			input.typography?.fontFamily ??
+			normalizeOutputFontFamily(input.layout.font),
+		fontSize: input.typography?.fontSize ?? input.layout.font.fontSize,
 		textBackend: input.layout.textBackend,
 	};
+}
+
+function normalizeOutputFontFamily(font: TextStyleOptions): string {
+	return font.fontFamily === "Arial" ? "Arial, sans-serif" : font.fontFamily;
 }
 
 function reportTextAnnotationCollisions(

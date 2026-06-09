@@ -54,6 +54,8 @@ const labelSchema = z.union([
 const styleSchema = z.object({
 	fill: z.string().optional(),
 	stroke: z.string().optional(),
+	fontFamily: z.string().optional(),
+	fontSize: finiteNumberSchema.optional(),
 });
 
 const blockCellSchema = z.union([

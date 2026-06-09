@@ -1703,6 +1703,145 @@ describe("solveDiagram", () => {
 		expect(label.box.width).toBeLessThanOrEqual(lane.headerBox.height);
 		expect(label.lines.length).toBeGreaterThan(1);
 	});
+
+	it("applies CJK font family and minimum font size to solved labels", () => {
+		const result = solveDiagram({
+			...sampleDiagram(),
+			nodes: [
+				{
+					...node("a", { x: 0, y: 0 }),
+					label: { text: "中文节点" },
+					style: { fontSize: 12 },
+					ports: [
+						{
+							id: "in",
+							side: "left",
+							kind: "flow",
+							label: { text: "输入" },
+							style: { fontSize: 10 },
+						},
+					],
+				},
+				{ ...node("b", { x: 200, y: 0 }), label: { text: "English" } },
+			],
+			edges: [
+				{
+					id: "a-b",
+					source: { nodeId: "a", portId: "in" },
+					target: { nodeId: "b" },
+					label: { text: "接口流" },
+				},
+			],
+			groups: [
+				{
+					id: "group",
+					label: { text: "分组" },
+					nodeIds: ["a", "b"],
+					groupIds: [],
+					padding: { top: 8, right: 8, bottom: 8, left: 8 },
+				},
+			],
+			constraints: [],
+		});
+
+		const cjkNode = result.nodes.find((item) => item.id === "a");
+		expect(cjkNode?.style).toMatchObject({
+			fontFamily: "YaHei,SimSun,sans-serif",
+			fontSize: 14,
+		});
+		expect(cjkNode?.label?.metadata).toMatchObject({
+			cjkTypography: {
+				fontFamily: "YaHei,SimSun,sans-serif",
+				fontSize: 14,
+			},
+		});
+		expect(cjkNode?.ports?.[0]?.style).toMatchObject({
+			fontFamily: "YaHei,SimSun,sans-serif",
+			fontSize: 14,
+		});
+		expect(result.edges[0]?.label?.metadata).toMatchObject({
+			cjkTypography: {
+				fontFamily: "YaHei,SimSun,sans-serif",
+				fontSize: 14,
+			},
+		});
+		expect(
+			result.textAnnotations?.find(
+				(annotation) =>
+					annotation.surfaceKind === "node-label" && annotation.ownerId === "a",
+			),
+		).toMatchObject({
+			fontFamily: "YaHei,SimSun,sans-serif",
+			fontSize: 14,
+		});
+		expect(
+			result.textAnnotations?.find(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.ownerId === "a-b",
+			),
+		).toMatchObject({
+			fontFamily: "YaHei,SimSun,sans-serif",
+			fontSize: 14,
+		});
+		expect(result.nodes.find((item) => item.id === "b")?.style).toBeUndefined();
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "cjk_font_family_applied" }),
+				expect.objectContaining({ code: "cjk_font_size_boosted" }),
+			]),
+		);
+	});
+
+	it("respects custom CJK typography options and does not reduce larger font sizes", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				nodes: [
+					{
+						...node("a", { x: 0, y: 0 }),
+						label: { text: "中文节点" },
+						style: { fontSize: 18 },
+					},
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+			},
+			{ cjkFontFamily: "Noto Sans CJK SC", minCjkFontSize: 16 },
+		);
+
+		expect(result.nodes[0]?.style).toMatchObject({
+			fontFamily: "Noto Sans CJK SC",
+			fontSize: 18,
+		});
+		expect(
+			result.diagnostics.some(
+				(diagnostic) => diagnostic.code === "cjk_font_size_boosted",
+			),
+		).toBe(false);
+	});
+
+	it("can disable automatic CJK typography enhancement", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				nodes: [{ ...node("a", { x: 0, y: 0 }), label: { text: "中文节点" } }],
+				edges: [],
+				groups: [],
+				constraints: [],
+			},
+			{ cjkFontFamily: false, minCjkFontSize: false },
+		);
+
+		expect(result.nodes[0]?.style).toBeUndefined();
+		expect(result.nodes[0]?.label?.metadata).toBeUndefined();
+		expect(
+			result.diagnostics.some((diagnostic) =>
+				diagnostic.code.startsWith("cjk_"),
+			),
+		).toBe(false);
+	});
 });
 
 function sampleDiagram(): NormalizedDiagram {

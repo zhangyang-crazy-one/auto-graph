@@ -53,6 +53,7 @@ export interface SolvedTextAnnotation {
 	anchor: Box | { x: number; y: number };
 	paddings: Insets;
 	lines: LabelLayout["lines"];
+	fontFamily: string;
 	fontSize: number;
 	textBackend?: LabelLayout["textBackend"];
 }
