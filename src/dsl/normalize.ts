@@ -318,10 +318,14 @@ function endpoint(
 function style(value: {
 	fill?: string | undefined;
 	stroke?: string | undefined;
+	fontFamily?: string | undefined;
+	fontSize?: number | undefined;
 }): VisualStyle {
 	return {
 		...(value.fill === undefined ? {} : { fill: value.fill }),
 		...(value.stroke === undefined ? {} : { stroke: value.stroke }),
+		...(value.fontFamily === undefined ? {} : { fontFamily: value.fontFamily }),
+		...(value.fontSize === undefined ? {} : { fontSize: value.fontSize }),
 	};
 }
 

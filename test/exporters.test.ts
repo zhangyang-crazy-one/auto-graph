@@ -528,6 +528,7 @@ nodes:
 						lineIndex: 1,
 					}),
 				],
+				fontFamily: "Arial",
 				fontSize: 14,
 				textBackend: "deterministic",
 			},

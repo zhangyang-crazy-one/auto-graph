@@ -655,7 +655,7 @@ function renderSolvedTextAnnotation(
 		`data-text-surface="${escapeAttribute(annotation.surfaceKind)}"`,
 		`data-owner-id="${escapeAttribute(annotation.ownerId)}"`,
 		`data-text-backend="${escapeAttribute(annotation.textBackend ?? "deterministic")}"`,
-		`font-family="${FONT_FAMILY}"`,
+		`font-family="${escapeAttribute(annotation.fontFamily)}"`,
 		`font-size="${formatNumber(annotation.fontSize)}"`,
 		`fill="#111827"`,
 	];

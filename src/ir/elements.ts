@@ -74,6 +74,8 @@ export type PortKind = "proxy" | "flow";
 export interface VisualStyle {
 	fill?: string;
 	stroke?: string;
+	fontFamily?: string;
+	fontSize?: number;
 }
 
 export interface EvidenceCell {
