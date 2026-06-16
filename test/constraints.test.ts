@@ -276,6 +276,117 @@ describe("layout constraints", () => {
 			expect.objectContaining({ code: "constraints.overlap.unresolved" }),
 		);
 	});
+
+	it("does not report intra-container sibling issues when minSiblingGap is unset", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 200, height: 200 }],
+				["c1", { x: 50, y: 50, width: 60, height: 60 }],
+				["c2", { x: 50, y: 80, width: 60, height: 60 }],
+			]),
+			nodes: [
+				node("container", { x: 0, y: 0 }),
+				node("c1", { x: 50, y: 50 }),
+				node("c2", { x: 50, y: 80 }),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+				{ kind: "exact-position", targetId: "c1", position: { x: 50, y: 50 } },
+				{ kind: "exact-position", targetId: "c2", position: { x: 50, y: 80 } },
+			],
+		});
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "intra_container_overflow" }),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "intra_container_overflow_total" }),
+		);
+	});
+
+	it("reports intra_container_overflow when siblings overlap with minSiblingGap set", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			minSiblingGap: 10,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 200, height: 200 }],
+				["c1", { x: 50, y: 50, width: 60, height: 60 }],
+				["c2", { x: 50, y: 80, width: 60, height: 60 }],
+			]),
+			nodes: [
+				node("container", { x: 0, y: 0 }),
+				node("c1", { x: 50, y: 50 }),
+				node("c2", { x: 50, y: 80 }),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+				{ kind: "exact-position", targetId: "c1", position: { x: 50, y: 50 } },
+				{ kind: "exact-position", targetId: "c2", position: { x: 50, y: 80 } },
+			],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "intra_container_overflow",
+				detail: expect.objectContaining({
+					containerId: "container",
+					overlapPairs: 1,
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "intra_container_overflow_total" }),
+		);
+	});
+
+	it("reports intra_container_overflow_total when siblings cannot fit with minSiblingGap", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			minSiblingGap: 20,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 100 }],
+				["c1", { x: 50, y: 0, width: 60, height: 60 }],
+				["c2", { x: 150, y: 0, width: 60, height: 60 }],
+			]),
+			nodes: [node("container", { x: 0, y: 0 }), node("c1"), node("c2")],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "intra_container_overflow_total",
+				detail: expect.objectContaining({
+					containerId: "container",
+					axis: "y",
+					needed: 140,
+					available: 100,
+				}),
+			}),
+		);
+	});
 });
 
 function node(

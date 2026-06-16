@@ -31,6 +31,7 @@ export function applyLayoutConstraints(
 	repairOverlaps(input, boxes, locks, diagnostics);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
+	reportIntraContainerOverflow(input, boxes, diagnostics);
 
 	return { boxes, locks, diagnostics };
 }
@@ -440,6 +441,90 @@ function reportOverlaps(
 				});
 				reported.add(key);
 			}
+		}
+	}
+}
+
+function reportIntraContainerOverflow(
+	input: ConstraintSolverInput,
+	boxes: ReadonlyMap<string, Box>,
+	diagnostics: Diagnostic[],
+): void {
+	if (input.minSiblingGap === undefined) {
+		return;
+	}
+	const minGap = input.minSiblingGap;
+	const axis: "x" | "y" =
+		input.direction === "LR" || input.direction === "RL" ? "x" : "y";
+	const mainSize = axis === "x" ? "width" : "height";
+
+	for (const constraint of input.constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		const container = boxes.get(constraint.containerId);
+		if (container === undefined) {
+			continue;
+		}
+		const children: Box[] = [];
+		for (const childId of constraint.childIds) {
+			const child = boxes.get(childId);
+			if (child !== undefined) {
+				children.push(child);
+			}
+		}
+		if (children.length < 2) {
+			continue;
+		}
+
+		let overlapPairs = 0;
+		for (let i = 0; i < children.length; i += 1) {
+			const first = children[i];
+			if (first === undefined) {
+				continue;
+			}
+			for (let j = i + 1; j < children.length; j += 1) {
+				const second = children[j];
+				if (second !== undefined && intersectsAabb(first, second)) {
+					overlapPairs += 1;
+				}
+			}
+		}
+		if (overlapPairs > 0) {
+			diagnostics.push({
+				severity: "warning",
+				code: "intra_container_overflow",
+				message: `${overlapPairs} sibling pair(s) overlap inside ${constraint.containerId}.`,
+				path: ["constraints", constraint.id ?? constraint.containerId],
+				detail: {
+					containerId: constraint.containerId,
+					overlapPairs,
+					minGap,
+				},
+			});
+		}
+
+		const content = contentBox(container, constraint.padding);
+		const sumChildren = children.reduce(
+			(acc, child) => acc + child[mainSize],
+			0,
+		);
+		const needed = sumChildren + minGap * (children.length - 1);
+		if (needed > content[mainSize]) {
+			diagnostics.push({
+				severity: "error",
+				code: "intra_container_overflow_total",
+				message: `Container ${constraint.containerId} cannot fit ${children.length} siblings along ${axis} (need ${needed}, have ${content[mainSize]}).`,
+				path: ["constraints", constraint.id ?? constraint.containerId],
+				detail: {
+					containerId: constraint.containerId,
+					axis,
+					needed,
+					available: content[mainSize],
+					siblingCount: children.length,
+					minGap,
+				},
+			});
 		}
 	}
 }

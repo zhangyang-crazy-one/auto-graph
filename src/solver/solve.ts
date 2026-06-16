@@ -45,6 +45,8 @@ export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	overlapSpacing?: number;
+	minSiblingGap?: number;
+	pageBounds?: { width: number; height: number };
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;
 	portShifting?: PortShiftingOptions;
@@ -159,6 +161,9 @@ export function solveDiagram(
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
+		...(options.minSiblingGap === undefined
+			? {}
+			: { minSiblingGap: options.minSiblingGap }),
 		boxes: initialNodeBoxes,
 		nodes: styledNodes,
 		groups: styledGroups,
@@ -308,6 +313,7 @@ export function solveDiagram(
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(allBoxes);
+	diagnostics.push(...reportPageOverflow(contentBounds, options.pageBounds));
 	const frame =
 		diagram.frame === undefined
 			? undefined
@@ -381,6 +387,54 @@ export function solveDiagram(
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
+}
+
+function reportPageOverflow(
+	contentBounds: Box,
+	pageBounds: { width: number; height: number } | undefined,
+): Diagnostic[] {
+	if (pageBounds === undefined) {
+		return [];
+	}
+	const overflowRight = Math.max(
+		0,
+		contentBounds.x + contentBounds.width - pageBounds.width,
+	);
+	const overflowBottom = Math.max(
+		0,
+		contentBounds.y + contentBounds.height - pageBounds.height,
+	);
+	const overflowLeft = Math.max(0, -contentBounds.x);
+	const overflowTop = Math.max(0, -contentBounds.y);
+	if (
+		overflowRight === 0 &&
+		overflowBottom === 0 &&
+		overflowLeft === 0 &&
+		overflowTop === 0
+	) {
+		return [];
+	}
+	return [
+		{
+			severity: "warning",
+			code: "page_overflow",
+			message: `Content ${contentBounds.width}x${contentBounds.height} exceeds page ${pageBounds.width}x${pageBounds.height}.`,
+			path: ["bounds"],
+			detail: {
+				page: { width: pageBounds.width, height: pageBounds.height },
+				content: {
+					width: contentBounds.width,
+					height: contentBounds.height,
+				},
+				overflow: {
+					right: overflowRight,
+					bottom: overflowBottom,
+					left: overflowLeft,
+					top: overflowTop,
+				},
+			},
+		},
+	];
 }
 
 function createCjkTypographyOptions(

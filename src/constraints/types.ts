@@ -13,6 +13,7 @@ export interface LayoutLock {
 export interface ConstraintSolverInput {
 	direction: DiagramDirection;
 	overlapSpacing?: number;
+	minSiblingGap?: number;
 	boxes: ReadonlyMap<string, Box>;
 	nodes: readonly NormalizedNode[];
 	groups: readonly NormalizedGroup[];

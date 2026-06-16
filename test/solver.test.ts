@@ -30,6 +30,49 @@ describe("solveDiagram", () => {
 		}
 	});
 
+	it("emits page_overflow when content exceeds pageBounds", () => {
+		const result = solveDiagram(sampleDiagram(), {
+			pageBounds: { width: 1, height: 1 },
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "page_overflow",
+				detail: expect.objectContaining({
+					page: { width: 1, height: 1 },
+				}),
+			}),
+		);
+	});
+
+	it("does not emit page_overflow when content fits pageBounds", () => {
+		const result = solveDiagram(sampleDiagram(), {
+			pageBounds: { width: 1_000_000, height: 1_000_000 },
+		});
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "page_overflow" }),
+		);
+	});
+
+	it("does not emit page_overflow when pageBounds is unset", () => {
+		const result = solveDiagram(sampleDiagram());
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "page_overflow" }),
+		);
+	});
+
+	it("does not clip bounds when content exceeds pageBounds", () => {
+		const baseline = solveDiagram(sampleDiagram());
+		const result = solveDiagram(sampleDiagram(), {
+			pageBounds: { width: 1, height: 1 },
+		});
+
+		expect(result.bounds).toEqual(baseline.bounds);
+	});
+
 	it("coordinates evidence block boxes and includes them in diagram bounds", () => {
 		const result = solveDiagram({
 			...sampleDiagram(),
