@@ -1383,6 +1383,22 @@ describe("solveDiagram", () => {
 		expect(withGutter.swimlanes?.[0]?.box?.width).toBeGreaterThan(
 			base.swimlanes?.[0]?.box?.width ?? 0,
 		);
+
+		// Lane boxes must follow the gutter-shifted children, not stay
+		// contiguous (regression guard for codex review on laneStep).
+		const baseLanes = base.swimlanes?.[0]?.lanes ?? [];
+		const gutterLanes = withGutter.swimlanes?.[0]?.lanes ?? [];
+		const baseSecondX = baseLanes[1]?.box?.x ?? 0;
+		const gutterSecondX = gutterLanes[1]?.box?.x ?? 0;
+		expect(gutterSecondX - baseSecondX).toBeCloseTo(50, 5);
+		// Second lane's box should contain its child node (alignment).
+		const targetA = withGutter.nodes.find((n) => n.id === "target_a");
+		const secondLaneBox = gutterLanes[1]?.box;
+		expect(secondLaneBox).toBeDefined();
+		expect(targetA?.box.x).toBeGreaterThanOrEqual(secondLaneBox?.x ?? 0);
+		expect(targetA?.box.x).toBeLessThanOrEqual(
+			(secondLaneBox?.x ?? 0) + (secondLaneBox?.width ?? 0),
+		);
 	});
 
 	it("expands node size to fit its label when prefitLabelSize is set", () => {
@@ -1412,7 +1428,16 @@ describe("solveDiagram", () => {
 				detail: expect.objectContaining({ nodeId: "wide" }),
 			}),
 		);
-		expect(result.nodes[0]?.box.width).toBeGreaterThan(80);
+		const wideNode = result.nodes[0];
+		expect(wideNode?.box.width).toBeGreaterThan(80);
+		// The rendered node-label must use the same fitted (wrapped) layout the
+		// size was derived from, so it stays within the resized box (regression
+		// guard for codex review on dropped prefit layout).
+		const nodeLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "node-label",
+		);
+		expect(nodeLabel).toBeDefined();
+		expect(nodeLabel?.box.width).toBeLessThanOrEqual(wideNode?.box.width ?? 0);
 	});
 
 	it("distributes vertical contract swimlane children by top-to-bottom flow rank", () => {

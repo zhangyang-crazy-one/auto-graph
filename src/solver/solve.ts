@@ -91,6 +91,7 @@ interface SwimlaneContractLayout {
 	box: Box;
 	slotWidth: number;
 	slotHeight: number;
+	laneStep: number;
 }
 
 interface SwimlaneContractResult {
@@ -441,7 +442,7 @@ function prefitNodeLabelSize(
 			to: { width, height },
 		},
 	});
-	return { ...node, size: { width, height } };
+	return { ...node, size: { width, height }, labelLayout: layout };
 }
 
 function createCjkTypographyOptions(
@@ -1093,6 +1094,7 @@ function applyVerticalSwimlaneContract(
 		},
 		slotWidth,
 		slotHeight: contentHeight + padding * 2 + headerHeight,
+		laneStep,
 	};
 }
 
@@ -1337,6 +1339,7 @@ function applyHorizontalSwimlaneContract(
 		},
 		slotWidth,
 		slotHeight,
+		laneStep,
 	};
 }
 
@@ -1871,14 +1874,14 @@ function coordinateSwimlanes(
 				const box =
 					swimlane.orientation === "vertical"
 						? {
-								x: contractLayout.box.x + contractLayout.slotWidth * index,
+								x: contractLayout.box.x + contractLayout.laneStep * index,
 								y: contractLayout.box.y,
 								width: contractLayout.slotWidth,
 								height: contractLayout.box.height,
 							}
 						: {
 								x: contractLayout.box.x,
-								y: contractLayout.box.y + contractLayout.slotHeight * index,
+								y: contractLayout.box.y + contractLayout.laneStep * index,
 								width: contractLayout.box.width,
 								height: contractLayout.slotHeight,
 							};
@@ -3321,27 +3324,34 @@ function edgeLabelAnchorCandidates(
 		return [placement];
 	}
 
+	const candidates: Point[] = [placement];
+	// Expand the offset progressively so labels can clear nodes/labels that
+	// sit farther than a couple of fixed steps away, instead of giving up
+	// after ±2 * clearance.
+	const maxSteps = 12;
 	if (segment.start.y === segment.end.y) {
-		return [
-			placement,
-			{ x: placement.x, y: placement.y - EDGE_LABEL_CLEARANCE },
-			{ x: placement.x, y: placement.y + EDGE_LABEL_CLEARANCE },
-			{ x: placement.x, y: placement.y - EDGE_LABEL_CLEARANCE * 2 },
-			{ x: placement.x, y: placement.y + EDGE_LABEL_CLEARANCE * 2 },
-		];
+		for (let step = 1; step <= maxSteps; step += 1) {
+			const offset = EDGE_LABEL_CLEARANCE * step;
+			candidates.push(
+				{ x: placement.x, y: placement.y - offset },
+				{ x: placement.x, y: placement.y + offset },
+			);
+		}
+		return candidates;
 	}
 
 	if (segment.start.x === segment.end.x) {
-		return [
-			placement,
-			{ x: placement.x + EDGE_LABEL_CLEARANCE, y: placement.y },
-			{ x: placement.x - EDGE_LABEL_CLEARANCE, y: placement.y },
-			{ x: placement.x + EDGE_LABEL_CLEARANCE * 2, y: placement.y },
-			{ x: placement.x - EDGE_LABEL_CLEARANCE * 2, y: placement.y },
-		];
+		for (let step = 1; step <= maxSteps; step += 1) {
+			const offset = EDGE_LABEL_CLEARANCE * step;
+			candidates.push(
+				{ x: placement.x + offset, y: placement.y },
+				{ x: placement.x - offset, y: placement.y },
+			);
+		}
+		return candidates;
 	}
 
-	return [placement];
+	return candidates;
 }
 
 function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
