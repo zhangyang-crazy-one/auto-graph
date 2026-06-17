@@ -196,7 +196,7 @@ export function solveDiagram(
 		constrained.boxes,
 		constrained.locks,
 		options?.overlapSpacing ?? 40,
-		options?.minLaneGutter ?? 0,
+		Math.max(0, options?.minLaneGutter ?? 0),
 	);
 	if (swimlaneContracts.layouts.size > 0) {
 		removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
@@ -426,7 +426,9 @@ function prefitNodeLabelSize(
 			font: PREFIT_LABEL_FONT,
 			padding: PREFIT_LABEL_PADDING,
 			minSize: PREFIT_LABEL_MIN_SIZE,
-			maxWidth: node.label.maxWidth ?? PREFIT_LABEL_MAX_WIDTH,
+			maxWidth:
+				node.label.maxWidth ??
+				Math.max(node.size.width, PREFIT_LABEL_MAX_WIDTH),
 		},
 		measurer,
 	);
@@ -446,9 +448,51 @@ function prefitNodeLabelSize(
 			},
 		});
 	}
-	// Always carry the wrapped layout so rendering matches the fitted size,
-	// even when no resize was needed (the node may lack a labelLayout).
-	return { ...node, size: { width, height }, labelLayout: layout };
+	// Center the label layout within the node dimensions so the
+	// annotation is visually centered even when the node is larger
+	// than what the label text requires (codex P2).
+	const centeredLayout = expandLabelLayoutToNode(layout, { width, height });
+	return { ...node, size: { width, height }, labelLayout: centeredLayout };
+}
+function expandLabelLayoutToNode(
+	layout: LabelLayout,
+	nodeSize: Size,
+): LabelLayout {
+	if (
+		layout.fittedSize.width >= nodeSize.width &&
+		layout.fittedSize.height >= nodeSize.height
+	) {
+		return layout;
+	}
+	const offsetX = Math.max(0, (nodeSize.width - layout.box.width) / 2);
+	const offsetY = Math.max(0, (nodeSize.height - layout.box.height) / 2);
+	if (offsetX === 0 && offsetY === 0) {
+		return layout;
+	}
+	return {
+		...layout,
+		box: {
+			x: layout.box.x + offsetX,
+			y: layout.box.y + offsetY,
+			width: layout.box.width,
+			height: layout.box.height,
+		},
+		contentBox: {
+			x: layout.contentBox.x + offsetX,
+			y: layout.contentBox.y + offsetY,
+			width: layout.contentBox.width,
+			height: layout.contentBox.height,
+		},
+		lines: layout.lines.map((line) => ({
+			...line,
+			box: {
+				x: line.box.x + offsetX,
+				y: line.box.y + offsetY,
+				width: line.box.width,
+				height: line.box.height,
+			},
+		})),
+	};
 }
 
 function createCjkTypographyOptions(
