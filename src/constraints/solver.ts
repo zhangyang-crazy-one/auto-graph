@@ -28,7 +28,13 @@ export function applyLayoutConstraints(
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
 	applyDistribute(input.constraints, boxes, locks, diagnostics);
-	repairOverlaps(input, boxes, locks, diagnostics);
+	repairOverlaps(
+		input,
+		boxes,
+		locks,
+		diagnostics,
+		siblingOverlapKeys(input.constraints),
+	);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
 	reportIntraContainerOverflow(input, boxes, diagnostics);
@@ -343,6 +349,7 @@ function repairOverlaps(
 	boxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLock>,
 	diagnostics: Diagnostic[],
+	siblingPairs: ReadonlySet<string>,
 ): void {
 	const spacing = input.overlapSpacing ?? 40;
 	const axis = input.direction === "LR" || input.direction === "RL" ? "x" : "y";
@@ -385,7 +392,16 @@ function repairOverlaps(
 				const fixed = movingId === firstId ? second : first;
 				const repairAxis =
 					firstLocked === secondLocked && pass === 0 ? secondaryAxis : axis;
-				const moved = movePastOverlap(moving, fixed, repairAxis, spacing);
+				const pairKey = overlapKey(firstId, secondId);
+				const effectiveSpacing = siblingPairs.has(pairKey)
+					? Math.max(spacing, input.minSiblingGap ?? 0)
+					: spacing;
+				const moved = movePastOverlap(
+					moving,
+					fixed,
+					repairAxis,
+					effectiveSpacing,
+				);
 				boxes.set(movingId, moved);
 			}
 		}
@@ -559,6 +575,27 @@ function containmentOverlapKeys(
 		}
 		for (const childId of constraint.childIds) {
 			keys.add(overlapKey(constraint.containerId, childId));
+		}
+	}
+	return keys;
+}
+
+function siblingOverlapKeys(constraints: readonly Constraint[]): Set<string> {
+	const keys = new Set<string>();
+	for (const constraint of constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		const { childIds } = constraint;
+		for (let i = 0; i < childIds.length; i += 1) {
+			for (let j = i + 1; j < childIds.length; j += 1) {
+				const a = childIds[i];
+				const b = childIds[j];
+				if (a === undefined || b === undefined) {
+					continue;
+				}
+				keys.add(overlapKey(a, b));
+			}
 		}
 	}
 	return keys;

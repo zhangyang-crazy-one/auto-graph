@@ -387,6 +387,40 @@ describe("layout constraints", () => {
 			}),
 		);
 	});
+
+	it("repairs sibling overlap to satisfy minSiblingGap", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			minSiblingGap: 50,
+			overlapSpacing: 40,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 200, height: 200 }],
+				["c1", { x: 50, y: 50, width: 40, height: 40 }],
+				["c2", { x: 50, y: 60, width: 40, height: 40 }],
+			]),
+			nodes: [node("container"), node("c1"), node("c2")],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		const c1 = result.boxes.get("c1");
+		const c2 = result.boxes.get("c2");
+		expect(c1).toBeDefined();
+		expect(c2).toBeDefined();
+		// Effective spacing = max(overlapSpacing=40, minSiblingGap=50) = 50.
+		// In TB direction, pass 0 repairs on secondary (x) axis first.
+		// c2 is pushed right by c1.width + effectiveSpacing = 40 + 50 = 90px.
+		// So c2.x should be 50 + 40 + 50 = 140.
+		expect(c2?.x).toBe(140);
+		expect(c2?.y).toBe(60);
+	});
 });
 
 function node(
