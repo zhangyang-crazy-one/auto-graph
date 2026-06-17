@@ -24,21 +24,25 @@ import { sortDslDiagnostics } from "./diagnostics.js";
 import type { DiagramDsl } from "./schema.js";
 import type { DslDiagnostic, NormalizeDiagramDslResult } from "./types.js";
 
-const DEFAULT_NODE_PADDING: Insets = {
+export const DEFAULT_NODE_PADDING: Insets = {
 	top: 12,
 	right: 16,
 	bottom: 12,
 	left: 16,
 };
-const DEFAULT_NODE_MIN_SIZE: Size = { width: 80, height: 40 };
+export const DEFAULT_NODE_MIN_SIZE: Size = { width: 80, height: 40 };
 const DEFAULT_GROUP_PADDING: Insets = {
 	top: 16,
 	right: 16,
 	bottom: 16,
 	left: 16,
 };
-const DEFAULT_LABEL_MAX_WIDTH = 160;
-const DEFAULT_FONT = { fontFamily: "Arial", fontSize: 14, lineHeight: 18 };
+export const DEFAULT_LABEL_MAX_WIDTH = 160;
+export const DEFAULT_FONT = {
+	fontFamily: "Arial",
+	fontSize: 14,
+	lineHeight: 18,
+};
 const DEFAULT_MATRIX_CELL_SIZE: Size = { width: 120, height: 36 };
 const DEFAULT_TABLE_CELL_SIZE: Size = { width: 128, height: 34 };
 const DEFAULT_PANEL_ITEM_HEIGHT = 28;

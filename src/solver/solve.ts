@@ -1,4 +1,10 @@
 import { applyLayoutConstraints } from "../constraints/index.js";
+import {
+	DEFAULT_FONT,
+	DEFAULT_LABEL_MAX_WIDTH,
+	DEFAULT_NODE_MIN_SIZE,
+	DEFAULT_NODE_PADDING,
+} from "../dsl/normalize.js";
 import { computeArrowhead } from "../exporters/arrow.js";
 import {
 	computeContainerGeometry,
@@ -71,36 +77,20 @@ const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
 const EDGE_LABEL_CLEARANCE = 8;
 const DEFAULT_CJK_FONT_FAMILY = "YaHei,SimSun,sans-serif";
 const DEFAULT_MIN_CJK_FONT_SIZE = 14;
-const PREFIT_LABEL_FONT: TextStyleOptions = {
-	fontFamily: "Arial",
-	fontSize: 14,
-	lineHeight: 18,
-};
-const PREFIT_LABEL_PADDING: Insets = {
-	top: 12,
-	right: 16,
-	bottom: 12,
-	left: 16,
-};
-const PREFIT_LABEL_MIN_SIZE: Size = { width: 80, height: 40 };
-const PREFIT_LABEL_MAX_WIDTH = 160;
+// Reuse DSL defaults — these are the same values as DEFAULT_FONT,
+// DEFAULT_NODE_PADDING, DEFAULT_NODE_MIN_SIZE, DEFAULT_LABEL_MAX_WIDTH
+// imported from normalize.ts above.
 function prefitLabelFont(
 	node: NormalizedNode,
 	_options: SolveDiagramOptions,
 ): TextStyleOptions {
-	const cjk =
-		node.label?.metadata !== undefined
-			? ((node.label.metadata as Record<string, unknown> | undefined)
-					?.cjkTypography as
-					| { fontFamily?: string; fontSize?: number }
-					| undefined)
-			: undefined;
-	const fontFamily = cjk?.fontFamily ?? PREFIT_LABEL_FONT.fontFamily;
-	const fontSize = cjk?.fontSize ?? PREFIT_LABEL_FONT.fontSize;
+	const cjk = labelCjkTypography(node.label?.metadata);
+	const fontFamily = cjk.fontFamily ?? DEFAULT_FONT.fontFamily;
+	const fontSize = cjk.fontSize ?? DEFAULT_FONT.fontSize;
 	const lineHeight =
-		fontSize !== PREFIT_LABEL_FONT.fontSize
-			? Math.max(PREFIT_LABEL_FONT.lineHeight ?? 18, fontSize * 1.2)
-			: (PREFIT_LABEL_FONT.lineHeight ?? 18);
+		fontSize !== DEFAULT_FONT.fontSize
+			? Math.max(DEFAULT_FONT.lineHeight ?? 18, fontSize * 1.2)
+			: (DEFAULT_FONT.lineHeight ?? 18);
 	return { fontFamily, fontSize, lineHeight };
 }
 
@@ -458,11 +448,11 @@ function prefitNodeLabelSize(
 		node.label.text,
 		{
 			font: prefitLabelFont(node, options),
-			padding: PREFIT_LABEL_PADDING,
-			minSize: PREFIT_LABEL_MIN_SIZE,
+			padding: DEFAULT_NODE_PADDING,
+			minSize: DEFAULT_NODE_MIN_SIZE,
 			maxWidth:
 				node.label.maxWidth ??
-				Math.max(node.size.width, PREFIT_LABEL_MAX_WIDTH),
+				Math.max(node.size.width, DEFAULT_LABEL_MAX_WIDTH),
 		},
 		measurer,
 	);

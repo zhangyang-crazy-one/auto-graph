@@ -540,12 +540,18 @@ function reportIntraContainerOverflow(
 		// Use actual spatial extent rather than sequential-stack
 		// estimate. Children may be laid out along the cross-axis,
 		// making the sequential sum too pessimistic.
-		const childStart =
-			sorted.length === 0 ? 0 : Math.min(...sorted.map((child) => child[axis]));
-		const childEnd =
-			sorted.length === 0
-				? 0
-				: Math.max(...sorted.map((child) => child[axis] + child[mainDim]));
+		let childStart = Infinity;
+		let childEnd = -Infinity;
+		for (const child of sorted) {
+			const start = child[axis];
+			const end = start + child[mainDim];
+			if (start < childStart) childStart = start;
+			if (end > childEnd) childEnd = end;
+		}
+		if (sorted.length === 0) {
+			childStart = 0;
+			childEnd = 0;
+		}
 		const actualExtent = childEnd - childStart;
 		if (actualExtent > contentMain) {
 			diagnostics.push({
