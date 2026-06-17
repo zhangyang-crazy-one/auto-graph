@@ -766,6 +766,8 @@ function contentBox(container: Box, padding: Insets | undefined): Box {
 	};
 }
 
+type ReservedInterval = { start: number; end: number };
+
 function applyDistributeContained(
 	input: ConstraintSolverInput,
 	boxes: Map<string, Box>,
@@ -796,6 +798,7 @@ function applyDistributeContained(
 
 		const content = contentBox(container, constraint.padding);
 		const unlocked: { id: string; box: Box }[] = [];
+		const reserved: ReservedInterval[] = [];
 		for (const childId of constraint.childIds) {
 			const box = boxes.get(childId);
 			if (box === undefined) {
@@ -809,6 +812,7 @@ function applyDistributeContained(
 					path: ["constraints", constraint.id ?? constraint.containerId],
 					detail: { nodeId: childId },
 				});
+				reserved.push(intervalForBox(box, axis, mainSize));
 				continue;
 			}
 			unlocked.push({ id: childId, box });
@@ -836,6 +840,10 @@ function applyDistributeContained(
 				},
 			});
 		}
+		for (const child of oversized) {
+			reserved.push(intervalForBox(child.box, axis, mainSize));
+		}
+		reserved.sort((a, b) => a.start - b.start || a.end - b.end);
 		const distributable = unlocked.filter(
 			(child) =>
 				child.box[mainSize] <= content[mainSize] &&
@@ -845,22 +853,10 @@ function applyDistributeContained(
 			continue;
 		}
 
-		// Start distribution after any locked child that occupies the
-		// content origin region (fix: locked-child overlap).
-		let origin = content[axis];
-		for (const childId of constraint.childIds) {
-			const box = boxes.get(childId);
-			if (box !== undefined && locks.has(childId)) {
-				const far = box[axis] + box[mainSize] + minGap;
-				if (far > origin) {
-					origin = far;
-				}
-			}
-		}
-
 		// Distribute evenly along the main axis within the content box.
-		let pos = origin;
+		let pos = content[axis];
 		for (const child of distributable) {
+			pos = advancePastReserved(pos, child.box[mainSize], reserved, minGap);
 			const crossPos =
 				content[crossAxis] +
 				Math.max(0, (content[crossSize] - child.box[crossSize]) / 2);
@@ -894,6 +890,33 @@ function applyDistributeContained(
 			},
 		});
 	}
+}
+
+function intervalForBox(
+	box: Box,
+	axis: "x" | "y",
+	mainSize: "width" | "height",
+): ReservedInterval {
+	return { start: box[axis], end: box[axis] + box[mainSize] };
+}
+
+function advancePastReserved(
+	pos: number,
+	size: number,
+	reserved: readonly ReservedInterval[],
+	minGap: number,
+): number {
+	let next = pos;
+	for (const interval of reserved) {
+		if (next + size + minGap <= interval.start) {
+			break;
+		}
+		if (next >= interval.end + minGap) {
+			continue;
+		}
+		next = interval.end + minGap;
+	}
+	return next;
 }
 
 function moveInside(child: Box, container: Box): Box {

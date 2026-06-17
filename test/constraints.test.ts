@@ -521,6 +521,79 @@ describe("layout constraints", () => {
 		);
 	});
 
+	it("does not let locked children away from the origin skew distribution", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 50, y: 0, width: 40, height: 30 }],
+				["c2", { x: 50, y: 0, width: 40, height: 30 }],
+				["locked", { x: 130, y: 150, width: 40, height: 30 }],
+			]),
+			nodes: [
+				node("container"),
+				node("c1"),
+				node("c2"),
+				node("locked", { x: 130, y: 150 }),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "locked", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		const c1 = result.boxes.get("c1");
+		const c2 = result.boxes.get("c2");
+		expect(c1?.y).toBe(0);
+		expect(c2?.y).toBeGreaterThan(c1?.y ?? 0);
+		expect(c2?.y).toBeLessThan(result.boxes.get("locked")?.y ?? 0);
+	});
+
+	it("reserves skipped oversized children during distribution", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 100, height: 200 }],
+				["oversized", { x: 0, y: 0, width: 120, height: 30 }],
+				["c1", { x: 0, y: 0, width: 40, height: 30 }],
+				["c2", { x: 0, y: 0, width: 40, height: 30 }],
+			]),
+			nodes: [node("container"), node("oversized"), node("c1"), node("c2")],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["oversized", "c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("c1")?.y).toBeGreaterThanOrEqual(38);
+		expect(result.boxes.get("c2")?.y).toBeGreaterThan(
+			result.boxes.get("c1")?.y ?? 0,
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.unresolved",
+				detail: expect.objectContaining({
+					firstId: "c1",
+					secondId: "oversized",
+				}),
+			}),
+		);
+	});
+
 	it("centers distributed children on the cross axis", () => {
 		const result = applyLayoutConstraints({
 			direction: "LR",
