@@ -84,6 +84,26 @@ const PREFIT_LABEL_PADDING: Insets = {
 };
 const PREFIT_LABEL_MIN_SIZE: Size = { width: 80, height: 40 };
 const PREFIT_LABEL_MAX_WIDTH = 160;
+function prefitLabelFont(
+	node: NormalizedNode,
+	_options: SolveDiagramOptions,
+): TextStyleOptions {
+	const cjk =
+		node.label?.metadata !== undefined
+			? ((node.label.metadata as Record<string, unknown> | undefined)
+					?.cjkTypography as
+					| { fontFamily?: string; fontSize?: number }
+					| undefined)
+			: undefined;
+	const fontFamily = cjk?.fontFamily ?? PREFIT_LABEL_FONT.fontFamily;
+	const fontSize = cjk?.fontSize ?? PREFIT_LABEL_FONT.fontSize;
+	const lineHeight =
+		fontSize !== PREFIT_LABEL_FONT.fontSize
+			? Math.max(PREFIT_LABEL_FONT.lineHeight ?? 18, fontSize * 1.2)
+			: (PREFIT_LABEL_FONT.lineHeight ?? 18);
+	return { fontFamily, fontSize, lineHeight };
+}
+
 const EVIDENCE_TEXT_FONT = {
 	fontFamily: "Arial, sans-serif",
 	fontSize: 10,
@@ -389,7 +409,12 @@ export function solveDiagram(
 		...edgeTextAnnotations.map((annotation) => annotation.box),
 	];
 	diagnostics.push(
-		...reportPageOverflow(unionBoxes(boundsBase), options.pageBounds),
+		...reportPageOverflow(
+			frame === undefined
+				? unionBoxes(boundsBase)
+				: unionBoxes([...boundsBase, frame.box, frame.titleBox]),
+			options.pageBounds,
+		),
 	);
 
 	return {
@@ -432,7 +457,7 @@ function prefitNodeLabelSize(
 	const layout = fitLabel(
 		node.label.text,
 		{
-			font: PREFIT_LABEL_FONT,
+			font: prefitLabelFont(node, options),
 			padding: PREFIT_LABEL_PADDING,
 			minSize: PREFIT_LABEL_MIN_SIZE,
 			maxWidth:
@@ -468,8 +493,8 @@ function expandLabelLayoutToNode(
 	nodeSize: Size,
 ): LabelLayout {
 	if (
-		layout.fittedSize.width >= nodeSize.width &&
-		layout.fittedSize.height >= nodeSize.height
+		layout.box.width >= nodeSize.width &&
+		layout.box.height >= nodeSize.height
 	) {
 		return layout;
 	}

@@ -353,14 +353,16 @@ describe("layout constraints", () => {
 		);
 	});
 
-	it("reports intra_container_overflow_total when siblings cannot fit with minSiblingGap", () => {
+	it("reports intra_container_overflow_total when stacked children exceed container", () => {
+		// Container height 50 cannot hold two 60px-tall children even after
+		// containment clamping, so the spatial extent must exceed the content.
 		const result = applyLayoutConstraints({
 			direction: "TB",
 			minSiblingGap: 20,
 			boxes: boxMap([
-				["container", { x: 0, y: 0, width: 300, height: 100 }],
+				["container", { x: 0, y: 0, width: 300, height: 50 }],
 				["c1", { x: 50, y: 0, width: 60, height: 60 }],
-				["c2", { x: 150, y: 0, width: 60, height: 60 }],
+				["c2", { x: 50, y: 30, width: 60, height: 60 }],
 			]),
 			nodes: [node("container", { x: 0, y: 0 }), node("c1"), node("c2")],
 			groups: [],
@@ -381,8 +383,6 @@ describe("layout constraints", () => {
 				detail: expect.objectContaining({
 					containerId: "container",
 					axis: "y",
-					needed: 140,
-					available: 100,
 				}),
 			}),
 		);

@@ -496,13 +496,11 @@ function reportIntraContainerOverflow(
 		const sorted = [...children].sort((a, b) => a[axis] - b[axis]);
 		const mainDim = axis === "x" ? "width" : "height";
 		let overlapPairs = 0;
-		let sumMain = 0;
 		for (let i = 0; i < sorted.length; i += 1) {
 			const first = sorted[i];
 			if (first === undefined) {
 				continue;
 			}
-			sumMain += first[mainDim];
 			for (let j = i + 1; j < sorted.length; j += 1) {
 				const second = sorted[j];
 				if (second === undefined) {
@@ -539,17 +537,26 @@ function reportIntraContainerOverflow(
 			mainDim === "width"
 				? Math.max(0, container.width - pad.left - pad.right)
 				: Math.max(0, container.height - pad.top - pad.bottom);
-		const needed = sumMain + minGap * (sorted.length - 1);
-		if (needed > contentMain) {
+		// Use actual spatial extent rather than sequential-stack
+		// estimate. Children may be laid out along the cross-axis,
+		// making the sequential sum too pessimistic.
+		const childStart =
+			sorted.length === 0 ? 0 : Math.min(...sorted.map((child) => child[axis]));
+		const childEnd =
+			sorted.length === 0
+				? 0
+				: Math.max(...sorted.map((child) => child[axis] + child[mainDim]));
+		const actualExtent = childEnd - childStart;
+		if (actualExtent > contentMain) {
 			diagnostics.push({
 				severity: "error",
 				code: "intra_container_overflow_total",
-				message: `Container ${constraint.containerId} cannot fit ${sorted.length} siblings along ${axis} (need ${needed}, have ${contentMain}).`,
+				message: `Container ${constraint.containerId} cannot fit ${sorted.length} siblings along ${axis} (extent ${actualExtent}, available ${contentMain}).`,
 				path: ["constraints", constraint.id ?? constraint.containerId],
 				detail: {
 					containerId: constraint.containerId,
 					axis,
-					needed,
+					needed: actualExtent,
 					available: contentMain,
 					siblingCount: sorted.length,
 					minGap,
