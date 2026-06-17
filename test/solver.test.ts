@@ -777,10 +777,15 @@ describe("solveDiagram", () => {
 		const dense = result.nodes.find((n) => n.id === "dense");
 		const top = dense?.box.y ?? 0;
 		const bottom = top + (dense?.box.height ?? 0);
+		const anchorYs: number[] = [];
 		for (const port of dense?.ports ?? []) {
 			expect(port.anchor.y).toBeGreaterThanOrEqual(top);
 			expect(port.anchor.y).toBeLessThanOrEqual(bottom);
+			anchorYs.push(port.anchor.y);
 		}
+		// Each overflowing port must get a distinct anchor (regression guard for
+		// codex review: naive clamp collapsed several ports onto the same point).
+		expect(new Set(anchorYs).size).toBe(anchorYs.length);
 	});
 
 	it("keeps edge label boxes clear of node boxes", () => {

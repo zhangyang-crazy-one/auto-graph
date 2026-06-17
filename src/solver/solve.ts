@@ -360,7 +360,11 @@ export function solveDiagram(
 	);
 	const edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
-		coordinatedNodes.map((node) => node.box),
+		[
+			...coordinatedNodes.map((node) => node.box),
+			...baseTextAnnotations.map((annotation) => annotation.box),
+			...frameTextAnnotation.map((annotation) => annotation.box),
+		],
 		options.textMeasurer,
 	);
 	const textAnnotations = [
@@ -428,20 +432,22 @@ function prefitNodeLabelSize(
 	);
 	const width = Math.max(node.size.width, layout.fittedSize.width);
 	const height = Math.max(node.size.height, layout.fittedSize.height);
-	if (width === node.size.width && height === node.size.height) {
-		return node;
+	const resized = width !== node.size.width || height !== node.size.height;
+	if (resized) {
+		diagnostics.push({
+			severity: "info",
+			code: "prefit_label_resized",
+			message: `Node ${node.id} size expanded to fit its label.`,
+			path: ["nodes", node.id],
+			detail: {
+				nodeId: node.id,
+				from: { width: node.size.width, height: node.size.height },
+				to: { width, height },
+			},
+		});
 	}
-	diagnostics.push({
-		severity: "info",
-		code: "prefit_label_resized",
-		message: `Node ${node.id} size expanded to fit its label.`,
-		path: ["nodes", node.id],
-		detail: {
-			nodeId: node.id,
-			from: { width: node.size.width, height: node.size.height },
-			to: { width, height },
-		},
-	});
+	// Always carry the wrapped layout so rendering matches the fitted size,
+	// even when no resize was needed (the node may lack a labelLayout).
 	return { ...node, size: { width, height }, labelLayout: layout };
 }
 
@@ -1800,15 +1806,23 @@ function portAnchor(
 	portShifting: PortShiftingOptions | undefined,
 ): Point {
 	const shiftingEnabled = portShifting?.enabled ?? true;
-	const spacing = portShifting?.spacing ?? 24;
-	const rawOffset = shiftingEnabled ? (index - (count - 1) / 2) * spacing : 0;
-	// Clamp so ports never escape the node edge, even when
-	// (count * spacing) exceeds the node's extent on that side.
+	const requestedSpacing = portShifting?.spacing ?? 24;
 	const maxOffset =
 		side === "left" || side === "right"
 			? nodeBox.height / 2
 			: nodeBox.width / 2;
-	const centeredOffset = Math.max(-maxOffset, Math.min(maxOffset, rawOffset));
+	// When (count - 1) * spacing would overflow the node edge, compress the
+	// spacing so every port still gets a distinct anchor evenly distributed
+	// within the available extent, instead of clamping several ports onto the
+	// same endpoint.
+	const availableSpan = 2 * maxOffset;
+	const spacing =
+		shiftingEnabled && count > 1
+			? Math.min(requestedSpacing, availableSpan / (count - 1))
+			: requestedSpacing;
+	const centeredOffset = shiftingEnabled
+		? (index - (count - 1) / 2) * spacing
+		: 0;
 	switch (side) {
 		case "left":
 			return {
@@ -2832,7 +2846,7 @@ function coordinateBaseTextAnnotations(input: {
 
 function coordinateEdgeTextAnnotations(
 	edges: readonly CoordinatedEdge[],
-	nodeBoxes: readonly Box[],
+	obstacleBoxes: readonly Box[],
 	textMeasurer?: TextMeasurer,
 ): SolvedTextAnnotation[] {
 	const measurer = textMeasurer ?? createDefaultTextMeasurer();
@@ -2861,7 +2875,7 @@ function coordinateEdgeTextAnnotations(
 			edge,
 			layout,
 			edges,
-			nodeBoxes,
+			obstacleBoxes,
 			placedLabelBoxes,
 		);
 		placedLabelBoxes.push({
@@ -3275,7 +3289,7 @@ function edgeLabelAnchor(
 	edge: CoordinatedEdge,
 	layout: LabelLayout,
 	edges: readonly CoordinatedEdge[],
-	nodeBoxes: readonly Box[],
+	obstacleBoxes: readonly Box[],
 	placedLabelBoxes: readonly Box[],
 ): Point {
 	const placement = labelPlacementOnPolyline(edge.points);
@@ -3283,7 +3297,11 @@ function edgeLabelAnchor(
 		return { x: 0, y: 0 };
 	}
 
-	for (const candidate of edgeLabelAnchorCandidates(edge.points, placement)) {
+	for (const candidate of edgeLabelAnchorCandidates(
+		edge.points,
+		placement,
+		layout,
+	)) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
 			y: candidate.y - layout.box.height / 2,
@@ -3300,7 +3318,9 @@ function edgeLabelAnchor(
 		if (crossesOtherRoute) {
 			continue;
 		}
-		const overlapsNode = nodeBoxes.some((box) => intersectsAabb(labelBox, box));
+		const overlapsNode = obstacleBoxes.some((box) =>
+			intersectsAabb(labelBox, box),
+		);
 		if (overlapsNode) {
 			continue;
 		}
@@ -3318,6 +3338,7 @@ function edgeLabelAnchor(
 function edgeLabelAnchorCandidates(
 	points: readonly Point[],
 	placement: Point,
+	layout: LabelLayout,
 ): Point[] {
 	const segment = labelSegmentOnPolyline(points);
 	if (segment === undefined) {
@@ -3325,11 +3346,14 @@ function edgeLabelAnchorCandidates(
 	}
 
 	const candidates: Point[] = [placement];
-	// Expand the offset progressively so labels can clear nodes/labels that
-	// sit farther than a couple of fixed steps away, instead of giving up
-	// after ±2 * clearance.
-	const maxSteps = 12;
+	// Expand the offset progressively. The number of steps is derived from the
+	// label's own size so wide/tall labels can move far enough to clear their
+	// own route segment (a fixed step count fails for labels wider than the
+	// search range).
 	if (segment.start.y === segment.end.y) {
+		// Horizontal segment: label moves vertically; must clear half its height.
+		const needed = layout.box.height / 2 + EDGE_LABEL_CLEARANCE;
+		const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
 		for (let step = 1; step <= maxSteps; step += 1) {
 			const offset = EDGE_LABEL_CLEARANCE * step;
 			candidates.push(
@@ -3341,6 +3365,9 @@ function edgeLabelAnchorCandidates(
 	}
 
 	if (segment.start.x === segment.end.x) {
+		// Vertical segment: label moves horizontally; must clear half its width.
+		const needed = layout.box.width / 2 + EDGE_LABEL_CLEARANCE;
+		const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
 		for (let step = 1; step <= maxSteps; step += 1) {
 			const offset = EDGE_LABEL_CLEARANCE * step;
 			candidates.push(
