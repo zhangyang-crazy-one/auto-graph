@@ -2,6 +2,13 @@
 
 @/home/zhangyangrui/.codex/RTK.md
 
+## Cursor Cloud specific instructions
+
+- Single npm package (not a monorepo): a TypeScript library + `agh` CLI. No servers, databases, or external services — everything is headless and one-shot. Requires Node `>=20` (Node 22 works).
+- Standard commands live in `package.json` scripts and `README.md`; don't duplicate them. Key ones: `npm run verify` (typecheck + build + test + lint, mirrors CI), `npm test` (vitest), `npm run build` (tsup → `dist/`), `npm run lint` (`biome ci .`).
+- The CLI must be built before running directly: `npm run build`, then `node dist/cli/index.js --input examples/architecture.yaml --format svg --output out.svg`. The CLI also reads YAML from stdin (e.g. `cat examples/flowchart.yaml | node dist/cli/index.js --format excalidraw`). Sample inputs are in `examples/*.yaml`.
+- `@napi-rs/canvas` is a native dependency; `npm ci` downloads a prebuilt binary (no extra system packages were needed here).
+
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
