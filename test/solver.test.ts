@@ -2155,6 +2155,33 @@ function sampleDiagram(): NormalizedDiagram {
 	};
 }
 
+it("solveDiagramSafe enables prefitLabelSize by default", () => {
+	const result = solveDiagramSafe({
+		id: "safe-test",
+		direction: "TB",
+		nodes: [
+			{
+				id: "safe-node",
+				shape: "rectangle" as const,
+				size: { width: 50, height: 20 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				label: {
+					text: "this is a very long label that should expand the node",
+				},
+			},
+		],
+		edges: [],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	});
+
+	const node = result.nodes[0];
+	expect(node).toBeDefined();
+	expect(node?.box.width).toBeGreaterThan(50);
+	expect(node?.box.height).toBeGreaterThan(20);
+});
+
 function node(id: string, position?: { x: number; y: number }) {
 	return {
 		id,

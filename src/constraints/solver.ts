@@ -781,7 +781,9 @@ function applyDistributeContained(
 	const crossAxis = axis === "x" ? "y" : "x";
 	const mainSize = axis === "x" ? "width" : "height";
 	const crossSize = axis === "x" ? "height" : "width";
-	const minGap = input.minSiblingGap ?? 0;
+	// Default to a positive gap so distributed children are
+	// visually separated even when minSiblingGap is not set.
+	const minGap = input.minSiblingGap ?? 8;
 
 	for (const constraint of input.constraints) {
 		if (constraint.kind !== "containment") {
@@ -815,10 +817,50 @@ function applyDistributeContained(
 			continue;
 		}
 
-		// Distribute evenly along the main axis within the content box.
+		// Skip children that are already larger than the content area;
+		// applyContainment already diagnoses these and moving them is futile.
+		const oversized = unlocked.filter(
+			(child) =>
+				child.box[mainSize] > content[mainSize] ||
+				child.box[crossSize] > content[crossSize],
+		);
+		if (oversized.length > 0) {
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.containment.impossible",
+				message: `Skipped ${oversized.length} oversized child(ren) during distribution in ${constraint.containerId}.`,
+				path: ["constraints", constraint.id ?? constraint.containerId],
+				detail: {
+					containerId: constraint.containerId,
+					oversized: oversized.map((c) => c.id),
+				},
+			});
+		}
+		const distributable = unlocked.filter(
+			(child) =>
+				child.box[mainSize] <= content[mainSize] &&
+				child.box[crossSize] <= content[crossSize],
+		);
+		if (distributable.length < 2) {
+			continue;
+		}
 
-		let pos = content[axis];
-		for (const child of unlocked) {
+		// Start distribution after any locked child that occupies the
+		// content origin region (fix: locked-child overlap).
+		let origin = content[axis];
+		for (const childId of constraint.childIds) {
+			const box = boxes.get(childId);
+			if (box !== undefined && locks.has(childId)) {
+				const far = box[axis] + box[mainSize] + minGap;
+				if (far > origin) {
+					origin = far;
+				}
+			}
+		}
+
+		// Distribute evenly along the main axis within the content box.
+		let pos = origin;
+		for (const child of distributable) {
 			const crossPos =
 				content[crossAxis] +
 				Math.max(0, (content[crossSize] - child.box[crossSize]) / 2);
@@ -826,6 +868,16 @@ function applyDistributeContained(
 			next[axis] = pos;
 			next[crossAxis] = crossPos;
 			const clamped = moveInside(next, content);
+			// Report when clamping squashed the requested spacing.
+			if (clamped[axis] !== next[axis]) {
+				diagnostics.push({
+					severity: "warning",
+					code: "intra_container_distributed_clamped",
+					message: `Distribution gap clamped for ${child.id} in ${constraint.containerId}.`,
+					path: ["constraints", constraint.id ?? constraint.containerId],
+					detail: { nodeId: child.id, containerId: constraint.containerId },
+				});
+			}
 			boxes.set(child.id, clamped);
 			pos = clamped[axis] + clamped[mainSize] + minGap;
 		}
@@ -833,11 +885,11 @@ function applyDistributeContained(
 		diagnostics.push({
 			severity: "info",
 			code: "intra_container_distributed",
-			message: `Distributed ${unlocked.length} children in ${constraint.containerId} along ${axis}.`,
+			message: `Distributed ${distributable.length} children in ${constraint.containerId} along ${axis}.`,
 			path: ["constraints", constraint.id ?? constraint.containerId],
 			detail: {
 				containerId: constraint.containerId,
-				count: unlocked.length,
+				count: distributable.length,
 				axis,
 			},
 		});
