@@ -349,6 +349,69 @@ describe("routing", () => {
 	});
 });
 
+it("dodges a diagonal straight edge around a single obstacle", () => {
+	const obstacle = { x: 130, y: 70, width: 60, height: 60 };
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+		obstacles: [obstacle],
+	});
+
+	expect(result.points.length).toBeGreaterThanOrEqual(3);
+	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({ code: "route_obstacle_fallback" }),
+	);
+});
+
+it("dodges a diagonal straight edge around two obstacles", () => {
+	const o1 = { x: 130, y: 70, width: 60, height: 60 };
+	const o2 = { x: 160, y: 170, width: 60, height: 60 };
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+		obstacles: [o1, o2],
+	});
+
+	expect(result.points.length).toBeGreaterThanOrEqual(3);
+	expect(routeIntersectsObstacle(result.points, o1)).toBe(false);
+	expect(routeIntersectsObstacle(result.points, o2)).toBe(false);
+});
+
+it("keeps diagonal straight edge unchanged when no obstacles present", () => {
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+	});
+
+	expect(result.points.length).toBe(2);
+	expect(result.diagnostics).toEqual([]);
+});
+
+it("emits crossing_forbidden for diagonal straight edge hitting hard obstacle", () => {
+	const hard = { x: 130, y: 70, width: 60, height: 60 };
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+		hardObstacles: [hard],
+	});
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			severity: "error",
+			code: "route_obstacle_fallback",
+		}),
+	);
+});
+
 function shape(x: number, y: number) {
 	return computeShapeGeometry({
 		shape: "rectangle",

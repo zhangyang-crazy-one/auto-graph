@@ -1,31 +1,81 @@
 # Changelog
 
-## v0.0.6 - 2026-06-04
+## 0.1.0
 
-### Fixed
+### Layout & Routing
 
-- Fixed medium-density solver warnings reported in issue #13.
-- Improved deterministic overlap repair for unlocked dense nodes by trying
-  secondary-axis separation before primary-axis fallback.
-- Expanded orthogonal routing with alternate automatic side anchors and outer
-  dogleg candidates for dense obstacle layouts.
-- Prevented automatic routes from crossing source or target node interiors when
-  alternate anchors or doglegs are selected.
-- Kept omitted endpoint anchors automatic when the opposite endpoint has an
-  explicit anchor.
-- Improved edge label placement so labels preserve the original clear offset and
-  avoid crossing their owning edge or other routes.
-- Added regression coverage for the issue #13 microservice fixture and Codex
-  review routing cases.
+- **Container child distribution** — New `distributeContainedChildren` option distributes
+  siblings along the main axis inside containment groups, with cross-axis centering.
+  Locked children are skipped with a diagnostic; oversized children are reserved.
+  Opt-in (default `false`). (#23)
+- **Sibling gap enforcement** — `minSiblingGap` now actively enforces minimum spacing
+  in `repairOverlaps` for sibling pairs, rather than only reporting violations.
+  Sibling pairs use `max(overlapSpacing, minSiblingGap)` as effective spacing. (#18 P0)
+- **Intra-container overflow diagnostics** — New `intra_container_overflow` (warning)
+  and `intra_container_overflow_total` (error) diagnostics report sibling overlaps
+  and aggregate size overflow within containers when `minSiblingGap` is set.
+- **Page bounds diagnostics** — New `pageBounds` option reports `page_overflow` when
+  content exceeds page dimensions. Frame boxes included in the check.
+- **Vertical stack wrapping** — `maxStackDepth` and `preferredAspectRatio` options
+  detect and reflow single-column vertical runaways into multi-column layouts.
+- **Diagonal straight edge obstacle avoidance** — `expandFallbackRoute` now generates
+  obstacle-aware L-shaped detour candidates for diagonal edges, reusing
+  `horizontalDetourLane` / `verticalDetourLane` and selecting the shortest
+  obstacle-free path. (#21)
+- **Port anchor clamping** — Port spacing is compressed when `spacing * (count - 1)`
+  would overflow the node edge, ensuring distinct anchors even with many ports.
+- **Lane gutter** — `minLaneGutter` option adds configurable spacing between contract
+  swimlane lanes. Negative values clamped to 0.
 
-## v0.0.5 - 2026-05-27
+### Label & Text
 
-### Fixed
+- **Prefit label sizing** — `prefitLabelSize` option measures labels before layout
+  and expands node sizes to fit. Uses CJK-aware font when CJK metadata is present.
+  `solveDiagramSafe` convenience wrapper enables it by default. (#22)
+- **Label layout centering** — `expandLabelLayoutToNode` centers fitted label layouts
+  within preserved node dimensions when the node is larger than needed.
+- **Edge label avoidance** — Edge label placement now avoids node, port, swimlane,
+  and frame text annotation boxes, plus previously placed edge labels.
+  Anchor candidates expand progressively based on label size.
 
-- Added MIT package metadata to npm-facing `package.json`.
+### CJK Typography
 
-## v0.0.4 - 2026-05-27
+- **Automatic CJK font family** — CJK text labels get `YaHei,SimSun,sans-serif` and
+  minimum 14px font size by default. Configurable via `cjkFontFamily` / `minCjkFontSize`
+  options (set to `false` to disable).
+- **Safe metadata extraction** — `prefitLabelFont` uses `labelCjkTypography` for
+  runtime-validated extraction rather than unsafe type casts.
+- **Shared defaults** — DSL default constants (`DEFAULT_FONT`, `DEFAULT_NODE_PADDING`,
+  etc.) exported from `normalize.ts` and reused in solver's prefit path.
 
-### Changed
+### Diagnostics & Reporting
 
-- Previous patch release for the public auto-graph package.
+- **Content box clamping** — `contentBox` dimensions are clamped to 0 to prevent
+  negative content sizes from excessive padding triggering false overflow errors.
+- **Page overflow deferred** — `reportPageOverflow` now runs after edge routing and
+  text annotation placement, covering the full diagram extent.
+- **Spatial extent overflow** — `reportIntraContainerOverflow` uses actual spatial
+  extent (`max - min`) rather than sequential-stack estimate, avoiding false
+  positives for cross-axis arrangements.
+
+### Performance
+
+- **Sibling pair spatial pre-sort** — Sorted children by main-axis position with
+  early break in the overlap pair-check loop, reducing O(n²) to near O(n log n)
+  for well-separated children.
+- **Inlined content dimension** — Avoids full `Box` allocation during overlap
+  total-size check.
+- **Safe spread elimination** — `Math.min/max(...spread)` replaced with for-loop
+  to avoid RangeError for very large containment groups.
+
+### Testing
+
+- **Deterministic text measurement in CI** — Two font-sensitive tests use
+  `DeterministicTextMeasurer` to avoid platform-dependent label widths on Ubuntu CI.
+- **Test isolation** — `pool: "forks"` and `fileParallelism: false` for CI stability.
+  Replaced by the `DeterministicTextMeasurer` approach.
+
+### Misc
+
+- **`solveDiagramSafe`** — Convenience wrapper enabling `prefitLabelSize` by default.
+- **Planning docs** — Removed `.planning/` directory from the repository.
