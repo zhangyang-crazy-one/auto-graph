@@ -225,6 +225,28 @@ function expandFallbackRoute(
 			{ ...target },
 		];
 	}
+	// Generate two L-shaped detour candidates for diagonal edges,
+	// picking the one that avoids all obstacles with the smallest
+	// path-length increase (issue #21 approach A).
+	const hv = diagonalDetourHV(source, target, obstacles);
+	const vh = diagonalDetourVH(source, target, obstacles);
+	// Filter to obstacle-free candidates, preferring shorter paths.
+	const viable = [hv, vh].filter((c) => !routeCrossesBoxes(c, obstacles));
+	if (viable.length > 0) {
+		const directLen = Math.hypot(target.x - source.x, target.y - source.y);
+		let best = viable[0];
+		for (let i = 1; i < viable.length; i += 1) {
+			const cand = viable[i]!;
+			if (
+				cand !== undefined &&
+				pathLength(cand) - directLen < pathLength(best!) - directLen
+			) {
+				best = cand;
+			}
+		}
+		return best!;
+	}
+	// Fallback: midpoint L-shape (same as before).
 	return [
 		{ ...source },
 		{ x: (source.x + target.x) / 2, y: source.y },
@@ -271,6 +293,46 @@ function verticalDetourLane(
 		Math.max(...crossing.map((obstacle) => obstacle.x + obstacle.width)) +
 		margin;
 	return Math.abs(left - source.x) <= Math.abs(right - source.x) ? left : right;
+}
+
+function diagonalDetourHV(
+	source: Point,
+	target: Point,
+	obstacles: readonly Box[],
+): Point[] {
+	const detourY = horizontalDetourLane(source, target, obstacles);
+	return [
+		{ ...source },
+		{ x: source.x, y: detourY },
+		{ x: target.x, y: detourY },
+		{ ...target },
+	];
+}
+
+function diagonalDetourVH(
+	source: Point,
+	target: Point,
+	obstacles: readonly Box[],
+): Point[] {
+	const detourX = verticalDetourLane(source, target, obstacles);
+	return [
+		{ ...source },
+		{ x: detourX, y: source.y },
+		{ x: detourX, y: target.y },
+		{ ...target },
+	];
+}
+
+function pathLength(points: readonly Point[]): number {
+	let len = 0;
+	for (let i = 1; i < points.length; i += 1) {
+		const a = points[i - 1];
+		const b = points[i];
+		if (a !== undefined && b !== undefined) {
+			len += Math.hypot(b.x - a.x, b.y - a.y);
+		}
+	}
+	return len;
 }
 
 function endpointObstaclesForAutoAnchors(input: RouteEdgeInput): Box[] {
