@@ -696,8 +696,8 @@ function contentBox(container: Box, padding: Insets | undefined): Box {
 	return {
 		x: container.x + margin.left,
 		y: container.y + margin.top,
-		width: container.width - margin.left - margin.right,
-		height: container.height - margin.top - margin.bottom,
+		width: Math.max(0, container.width - margin.left - margin.right),
+		height: Math.max(0, container.height - margin.top - margin.bottom),
 	};
 }
 

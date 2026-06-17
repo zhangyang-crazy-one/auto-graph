@@ -313,7 +313,6 @@ export function solveDiagram(
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(allBoxes);
-	diagnostics.push(...reportPageOverflow(contentBounds, options.pageBounds));
 	const frame =
 		diagram.frame === undefined
 			? undefined
@@ -360,6 +359,9 @@ export function solveDiagram(
 		...edgePointBounds,
 		...edgeTextAnnotations.map((annotation) => annotation.box),
 	];
+	diagnostics.push(
+		...reportPageOverflow(unionBoxes(boundsBase), options.pageBounds),
+	);
 
 	return {
 		id: diagram.id,
