@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
-import { DeterministicTextMeasurer } from "../src/text/index.js";
 import type {
 	PreparedText,
 	TextLayout,
 	TextMeasurer,
 	TextStyleOptions,
 } from "../src/text/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("solveDiagram", () => {
 	it("returns coordinated nodes, routed edges, groups, bounds, and diagnostics", () => {
@@ -967,38 +967,41 @@ describe("solveDiagram", () => {
 	});
 
 	it("reports unresolved overlap between externally placed solved text boxes", () => {
-		const result = solveDiagram({
-			id: "text-overlap",
-			direction: "LR",
-			nodes: [
-				{
-					...node("left", { x: 0, y: 0 }),
-					ports: [
-						{
-							id: "out",
-							side: "right",
-							kind: "proxy",
-							label: { text: "shared interface" },
-						},
-					],
-				},
-				{
-					...node("right", { x: 115, y: 0 }),
-					ports: [
-						{
-							id: "in",
-							side: "left",
-							kind: "proxy",
-							label: { text: "shared interface" },
-						},
-					],
-				},
-			],
-			edges: [],
-			groups: [],
-			constraints: [],
-			diagnostics: [],
-		});
+		const result = solveDiagram(
+			{
+				id: "text-overlap",
+				direction: "LR",
+				nodes: [
+					{
+						...node("left", { x: 0, y: 0 }),
+						ports: [
+							{
+								id: "out",
+								side: "right",
+								kind: "proxy",
+								label: { text: "shared interface" },
+							},
+						],
+					},
+					{
+						...node("right", { x: 115, y: 0 }),
+						ports: [
+							{
+								id: "in",
+								side: "left",
+								kind: "proxy",
+								label: { text: "shared interface" },
+							},
+						],
+					},
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ textMeasurer: new DeterministicTextMeasurer() },
+		);
 
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({

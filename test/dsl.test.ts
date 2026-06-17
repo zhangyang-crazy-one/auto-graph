@@ -14,6 +14,7 @@ import {
 	resolveOutputFormat,
 } from "../src/dsl/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("DSL parser contract", () => {
 	it("names the planned public DSL APIs", () => {
@@ -253,6 +254,7 @@ output:
 		);
 		const result = renderDiagramDsl(source, {
 			sourcePath: "test/fixtures/issue-13/microservice.auto-graph.yaml",
+			textMeasurer: new DeterministicTextMeasurer(),
 		});
 
 		expect(result.content).toContain("<svg");
