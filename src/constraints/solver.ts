@@ -36,6 +36,7 @@ export function applyLayoutConstraints(
 		siblingOverlapKeys(input.constraints),
 	);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
+	applyDistributeContained(input, boxes, locks, diagnostics);
 	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
 	reportIntraContainerOverflow(input, boxes, diagnostics);
 
@@ -763,6 +764,84 @@ function contentBox(container: Box, padding: Insets | undefined): Box {
 		width: Math.max(0, container.width - margin.left - margin.right),
 		height: Math.max(0, container.height - margin.top - margin.bottom),
 	};
+}
+
+function applyDistributeContained(
+	input: ConstraintSolverInput,
+	boxes: Map<string, Box>,
+	locks: ReadonlyMap<string, LayoutLock>,
+	diagnostics: Diagnostic[],
+): void {
+	if (!input.distributeContainedChildren) {
+		return;
+	}
+
+	const axis: "x" | "y" =
+		input.direction === "LR" || input.direction === "RL" ? "x" : "y";
+	const crossAxis = axis === "x" ? "y" : "x";
+	const mainSize = axis === "x" ? "width" : "height";
+	const crossSize = axis === "x" ? "height" : "width";
+	const minGap = input.minSiblingGap ?? 0;
+
+	for (const constraint of input.constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		const container = boxes.get(constraint.containerId);
+		if (container === undefined) {
+			continue;
+		}
+
+		const content = contentBox(container, constraint.padding);
+		const unlocked: { id: string; box: Box }[] = [];
+		for (const childId of constraint.childIds) {
+			const box = boxes.get(childId);
+			if (box === undefined) {
+				continue;
+			}
+			if (locks.has(childId)) {
+				diagnostics.push({
+					severity: "warning",
+					code: "constraints.locked-target-not-moved",
+					message: `Locked child ${childId} skipped during containment distribution.`,
+					path: ["constraints", constraint.id ?? constraint.containerId],
+					detail: { nodeId: childId },
+				});
+				continue;
+			}
+			unlocked.push({ id: childId, box });
+		}
+		if (unlocked.length < 2) {
+			continue;
+		}
+
+		// Distribute evenly along the main axis within the content box.
+
+		let pos = content[axis];
+		for (const child of unlocked) {
+			const crossPos =
+				content[crossAxis] +
+				Math.max(0, (content[crossSize] - child.box[crossSize]) / 2);
+			const next: Box = { ...child.box };
+			next[axis] = pos;
+			next[crossAxis] = crossPos;
+			const clamped = moveInside(next, content);
+			boxes.set(child.id, clamped);
+			pos = clamped[axis] + clamped[mainSize] + minGap;
+		}
+
+		diagnostics.push({
+			severity: "info",
+			code: "intra_container_distributed",
+			message: `Distributed ${unlocked.length} children in ${constraint.containerId} along ${axis}.`,
+			path: ["constraints", constraint.id ?? constraint.containerId],
+			detail: {
+				containerId: constraint.containerId,
+				count: unlocked.length,
+				axis,
+			},
+		});
+	}
 }
 
 function moveInside(child: Box, container: Box): Box {

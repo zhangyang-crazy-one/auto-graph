@@ -421,6 +421,134 @@ describe("layout constraints", () => {
 		expect(c2?.x).toBe(140);
 		expect(c2?.y).toBe(60);
 	});
+
+	it("distributes contained children along main axis when enabled", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 50, y: 0, width: 40, height: 30 }],
+				["c2", { x: 50, y: 0, width: 40, height: 30 }],
+				["c3", { x: 50, y: 0, width: 40, height: 30 }],
+			]),
+			nodes: [node("container"), node("c1"), node("c2"), node("c3")],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2", "c3"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		const c1 = result.boxes.get("c1");
+		const c2 = result.boxes.get("c2");
+		const c3 = result.boxes.get("c3");
+		expect(c1?.y).toBeLessThan(c2?.y ?? Infinity);
+		expect(c2?.y).toBeLessThan(c3?.y ?? Infinity);
+		expect(c1?.y).toBeGreaterThanOrEqual(0);
+		expect(c3?.y).toBeLessThanOrEqual(200 - 30);
+		expect(c1?.x).toBe(130);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "intra_container_distributed" }),
+		);
+	});
+
+	it("does not distribute when disabled (default)", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 50, y: 0, width: 40, height: 30 }],
+				["c2", { x: 50, y: 0, width: 40, height: 30 }],
+			]),
+			nodes: [node("container"), node("c1"), node("c2")],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("c1")?.y).toBe(0);
+		expect(result.boxes.get("c2")?.y).toBe(0);
+	});
+
+	it("skips locked children during distribution", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 50, y: 0, width: 40, height: 30 }],
+				["c2", { x: 50, y: 0, width: 40, height: 30 }],
+				["c3", { x: 50, y: 0, width: 40, height: 30 }],
+			]),
+			nodes: [
+				node("container"),
+				node("c1", { x: 50, y: 0 }),
+				node("c2"),
+				node("c3"),
+			],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2", "c3"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("c1")?.y).toBe(0);
+		expect(result.boxes.get("c2")?.y).toBeGreaterThanOrEqual(0);
+		expect(result.boxes.get("c3")?.y).toBeGreaterThan(
+			result.boxes.get("c2")?.y ?? 0,
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "constraints.locked-target-not-moved" }),
+		);
+	});
+
+	it("centers distributed children on the cross axis", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 0, y: 0, width: 40, height: 30 }],
+				["c2", { x: 0, y: 0, width: 40, height: 50 }],
+			]),
+			nodes: [node("container"), node("c1"), node("c2")],
+			groups: [],
+			constraints: [
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("c1")?.y).toBe(85);
+		expect(result.boxes.get("c2")?.y).toBe(75);
+		expect(result.boxes.get("c1")?.x).toBeLessThan(
+			result.boxes.get("c2")?.x ?? Infinity,
+		);
+	});
 });
 
 function node(

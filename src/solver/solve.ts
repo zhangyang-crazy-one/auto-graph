@@ -55,6 +55,7 @@ export interface SolveDiagramOptions {
 	minLaneGutter?: number;
 	prefitLabelSize?: boolean;
 	minSiblingGap?: number;
+	distributeContainedChildren?: boolean;
 	pageBounds?: { width: number; height: number };
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;
@@ -197,6 +198,9 @@ export function solveDiagram(
 		...(options.minSiblingGap === undefined
 			? {}
 			: { minSiblingGap: options.minSiblingGap }),
+		...(options.distributeContainedChildren === undefined
+			? {}
+			: { distributeContainedChildren: options.distributeContainedChildren }),
 		boxes: initialNodeBoxes,
 		nodes: styledNodes,
 		groups: styledGroups,
@@ -433,6 +437,22 @@ export function solveDiagram(
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
+}
+
+/**
+ * Convenience wrapper around {@link solveDiagram} that enables
+ * {@link SolveDiagramOptions.prefitLabelSize} by default so node sizes are
+ * expanded to fit their label text.  Direct callers of `solveDiagram` who
+ * pass hard-coded `NormalizedNode.size` values without a `labelLayout`
+ * often see truncated labels; this wrapper avoids that trap.
+ *
+ * @see SolveDiagramOptions.prefitLabelSize
+ */
+export function solveDiagramSafe(
+	diagram: NormalizedDiagram,
+	options: SolveDiagramOptions = {},
+): CoordinatedDiagram {
+	return solveDiagram(diagram, { ...options, prefitLabelSize: true });
 }
 
 function prefitNodeLabelSize(

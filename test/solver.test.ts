@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import { computeArrowhead } from "../src/exporters/arrow.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
-import { solveDiagram } from "../src/solver/index.js";
+import { solveDiagram, solveDiagramSafe } from "../src/solver/index.js";
 import type {
 	PreparedText,
 	TextLayout,
