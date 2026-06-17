@@ -9,6 +9,7 @@ import { computeArrowhead } from "../exporters/arrow.js";
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
+	expandBox,
 	intersectsAabb,
 	normalizeInsets,
 	unionBoxes,
@@ -363,17 +364,39 @@ export function solveDiagram(
 		...baseTextAnnotations.filter(isPreRouteTextObstacle),
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
 	];
+	// Expand evidence-block boxes by obstacleMargin so edges route
+	// around them with the same clearance as node/group boxes.
+	const margin = options.obstacleMargin ?? 0;
+	const softObstacles = [
+		...coordinatedTables.map((table) => expandBox(table.box, margin)),
+		...coordinatedEvidencePanels.map((panel) => expandBox(panel.box, margin)),
+	];
+	const hardObstacles = coordinatedMatrices.map((matrix) =>
+		expandBox(matrix.box, margin),
+	);
+
+	// Include frame title box and swimlane lane header boxes so edges
+	// do not route through title bars (issue #29).
+	const titleBarObstacles: Box[] = [];
+	if (frame !== undefined) {
+		titleBarObstacles.push(frame.titleBox);
+	}
+	for (const swimlane of coordinatedSwimlanes) {
+		for (const lane of swimlane.lanes) {
+			if (lane.headerBox !== undefined) {
+				titleBarObstacles.push(expandBox(lane.headerBox, margin));
+			}
+		}
+	}
+
 	const coordinatedEdges = coordinateEdges(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
 		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
-		[
-			...coordinatedTables.map((table) => table.box),
-			...coordinatedEvidencePanels.map((panel) => panel.box),
-		],
+		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
-		coordinatedMatrices.map((matrix) => matrix.box),
+		hardObstacles,
 		diagram.direction,
 		options,
 		diagnostics,
