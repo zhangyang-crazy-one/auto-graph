@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 import type {
 	PreparedText,
 	TextLayout,
@@ -1246,6 +1247,101 @@ describe("solveDiagram", () => {
 				.find((node) => node.id === "source_a")
 				?.anchors.find((anchor) => anchor.name === "right")?.point,
 		);
+	});
+
+	it("applies minLaneGutter between contract swimlane lanes", () => {
+		const diagram = {
+			id: "gutter-swimlane",
+			direction: "LR" as const,
+			nodes: [
+				node("source_a"),
+				node("source_b"),
+				node("target_a"),
+				node("target_b"),
+			],
+			edges: [
+				{
+					id: "e1",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+				},
+				{
+					id: "e2",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					label: { text: "Behavior" },
+					layout: "contract" as const,
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical" as const,
+					lanes: [
+						{
+							id: "left",
+							label: { text: "Source" },
+							children: ["source_a", "source_b"],
+						},
+						{
+							id: "right",
+							label: { text: "Target" },
+							children: ["target_a", "target_b"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		};
+		const base = solveDiagram(diagram);
+		const withGutter = solveDiagram(diagram, { minLaneGutter: 50 });
+
+		expect(withGutter.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "lane_gutter_applied",
+				detail: expect.objectContaining({ laneGutter: 50 }),
+			}),
+		);
+		expect(base.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "lane_gutter_applied" }),
+		);
+		expect(withGutter.swimlanes?.[0]?.box?.width).toBeGreaterThan(
+			base.swimlanes?.[0]?.box?.width ?? 0,
+		);
+	});
+
+	it("expands node size to fit its label when prefitLabelSize is set", () => {
+		const result = solveDiagram(
+			{
+				id: "prefit-label",
+				direction: "LR",
+				nodes: [
+					{
+						...node("wide"),
+						label: {
+							text: "a sufficiently long label to exceed the default node width",
+						},
+					},
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ prefitLabelSize: true },
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "prefit_label_resized",
+				detail: expect.objectContaining({ nodeId: "wide" }),
+			}),
+		);
+		expect(result.nodes[0]?.box.width).toBeGreaterThan(80);
 	});
 
 	it("distributes vertical contract swimlane children by top-to-bottom flow rank", () => {

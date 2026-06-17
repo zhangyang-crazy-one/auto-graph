@@ -45,6 +45,8 @@ export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	overlapSpacing?: number;
+	minLaneGutter?: number;
+	prefitLabelSize?: boolean;
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;
 	portShifting?: PortShiftingOptions;
@@ -66,6 +68,19 @@ const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
 const EDGE_LABEL_CLEARANCE = 8;
 const DEFAULT_CJK_FONT_FAMILY = "YaHei,SimSun,sans-serif";
 const DEFAULT_MIN_CJK_FONT_SIZE = 14;
+const PREFIT_LABEL_FONT: TextStyleOptions = {
+	fontFamily: "Arial",
+	fontSize: 14,
+	lineHeight: 18,
+};
+const PREFIT_LABEL_PADDING: Insets = {
+	top: 12,
+	right: 16,
+	bottom: 12,
+	left: 16,
+};
+const PREFIT_LABEL_MIN_SIZE: Size = { width: 80, height: 40 };
+const PREFIT_LABEL_MAX_WIDTH = 160;
 const EVIDENCE_TEXT_FONT = {
 	fontFamily: "Arial, sans-serif",
 	fontSize: 10,
@@ -123,9 +138,15 @@ export function solveDiagram(
 		"duplicate_group_id",
 	);
 	const cjkTypography = createCjkTypographyOptions(options);
-	const styledNodes = nodes.map((node) =>
+	const cjkStyledNodes = nodes.map((node) =>
 		enhanceNodeCjkTypography(node, cjkTypography, diagnostics),
 	);
+	const styledNodes =
+		options.prefitLabelSize === true
+			? cjkStyledNodes.map((node) =>
+					prefitNodeLabelSize(node, options, diagnostics),
+				)
+			: cjkStyledNodes;
 	const styledEdges = edges.map((edge) =>
 		enhanceEdgeCjkTypography(edge, cjkTypography, diagnostics),
 	);
@@ -174,6 +195,7 @@ export function solveDiagram(
 		constrained.boxes,
 		constrained.locks,
 		options?.overlapSpacing ?? 40,
+		options?.minLaneGutter ?? 0,
 	);
 	if (swimlaneContracts.layouts.size > 0) {
 		removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
@@ -381,6 +403,44 @@ export function solveDiagram(
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
+}
+
+function prefitNodeLabelSize(
+	node: NormalizedNode,
+	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[],
+): NormalizedNode {
+	if (node.label === undefined) {
+		return node;
+	}
+	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
+	const layout = fitLabel(
+		node.label.text,
+		{
+			font: PREFIT_LABEL_FONT,
+			padding: PREFIT_LABEL_PADDING,
+			minSize: PREFIT_LABEL_MIN_SIZE,
+			maxWidth: node.label.maxWidth ?? PREFIT_LABEL_MAX_WIDTH,
+		},
+		measurer,
+	);
+	const width = Math.max(node.size.width, layout.fittedSize.width);
+	const height = Math.max(node.size.height, layout.fittedSize.height);
+	if (width === node.size.width && height === node.size.height) {
+		return node;
+	}
+	diagnostics.push({
+		severity: "info",
+		code: "prefit_label_resized",
+		message: `Node ${node.id} size expanded to fit its label.`,
+		path: ["nodes", node.id],
+		detail: {
+			nodeId: node.id,
+			from: { width: node.size.width, height: node.size.height },
+			to: { width, height },
+		},
+	});
+	return { ...node, size: { width, height } };
 }
 
 function createCjkTypographyOptions(
@@ -693,6 +753,7 @@ function applySwimlaneLayoutContracts(
 	nodeBoxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	overlapSpacing: number,
+	laneGutter: number,
 ): SwimlaneContractResult {
 	const layouts = new Map<string, SwimlaneContractLayout>();
 	const diagnostics: Diagnostic[] = [];
@@ -712,6 +773,7 @@ function applySwimlaneLayoutContracts(
 			locks,
 			diagnostics,
 			movedChildIds,
+			laneGutter,
 		);
 		if (layout !== undefined) {
 			layouts.set(swimlane.id, layout);
@@ -726,6 +788,15 @@ function applySwimlaneLayoutContracts(
 				movedChildIds,
 			),
 		);
+		if (laneGutter > 0) {
+			diagnostics.push({
+				severity: "info",
+				code: "lane_gutter_applied",
+				message: `Applied ${laneGutter}px gutter between ${layouts.size} contract swimlane lane(s).`,
+				path: ["swimlanes"],
+				detail: { laneGutter, swimlaneCount: layouts.size },
+			});
+		}
 	}
 	return { layouts, diagnostics, movedChildIds };
 }
@@ -888,6 +959,7 @@ function applySingleSwimlaneContract(
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	diagnostics: Diagnostic[],
 	movedChildIds: Set<string>,
+	laneGutter: number,
 ): SwimlaneContractLayout | undefined {
 	const headerHeight = swimlane.headerHeight ?? 28;
 	const padding = swimlane.padding ?? 16;
@@ -916,6 +988,7 @@ function applySingleSwimlaneContract(
 			locks,
 			diagnostics,
 			movedChildIds,
+			laneGutter,
 		);
 	}
 	return applyHorizontalSwimlaneContract(
@@ -927,6 +1000,7 @@ function applySingleSwimlaneContract(
 		locks,
 		diagnostics,
 		movedChildIds,
+		laneGutter,
 	);
 }
 
@@ -941,6 +1015,7 @@ function applyVerticalSwimlaneContract(
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	diagnostics: Diagnostic[],
 	movedChildIds: Set<string>,
+	laneGutter: number,
 ): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
@@ -965,6 +1040,7 @@ function applyVerticalSwimlaneContract(
 		maxRank === 0 ? maxChildHeight : maxRankStackHeight + maxRank * rankSpacing;
 	const slotWidth =
 		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
+	const laneStep = slotWidth + laneGutter;
 	const laneContentTop = top + headerHeight + padding;
 
 	for (let index = 0; index < swimlane.lanes.length; index += 1) {
@@ -974,7 +1050,7 @@ function applyVerticalSwimlaneContract(
 			continue;
 		}
 		const target = {
-			x: left + slotWidth * index + padding,
+			x: left + laneStep * index + padding,
 			y: laneContentTop,
 		};
 		if (maxRank === 0) {
@@ -1011,7 +1087,7 @@ function applyVerticalSwimlaneContract(
 		box: {
 			x: left,
 			y: top,
-			width: slotWidth * swimlane.lanes.length,
+			width: laneStep * (swimlane.lanes.length - 1) + slotWidth,
 			height: contentHeight + padding * 2 + headerHeight,
 		},
 		slotWidth,
@@ -1213,6 +1289,7 @@ function applyHorizontalSwimlaneContract(
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	diagnostics: Diagnostic[],
 	movedChildIds: Set<string>,
+	laneGutter: number,
 ): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
@@ -1225,6 +1302,7 @@ function applyHorizontalSwimlaneContract(
 		padding * 2;
 	const slotHeight =
 		Math.max(...populatedBounds.map((box) => box.height)) + padding * 2;
+	const laneStep = slotHeight + laneGutter;
 
 	for (let index = 0; index < swimlane.lanes.length; index += 1) {
 		const lane = swimlane.lanes[index];
@@ -1234,7 +1312,7 @@ function applyHorizontalSwimlaneContract(
 		}
 		const target = {
 			x: left + headerHeight + padding,
-			y: top + slotHeight * index + padding,
+			y: top + laneStep * index + padding,
 		};
 		moveLaneChildren(
 			lane.children,
@@ -1254,7 +1332,7 @@ function applyHorizontalSwimlaneContract(
 			x: left,
 			y: top,
 			width: slotWidth,
-			height: slotHeight * swimlane.lanes.length,
+			height: laneStep * (swimlane.lanes.length - 1) + slotHeight,
 		},
 		slotWidth,
 		slotHeight,
