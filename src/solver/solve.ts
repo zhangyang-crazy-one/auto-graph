@@ -1,4 +1,5 @@
 import { applyLayoutConstraints } from "../constraints/index.js";
+import { computeArrowhead } from "../exporters/arrow.js";
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
@@ -47,6 +48,8 @@ export interface SolveDiagramOptions {
 	overlapSpacing?: number;
 	minLaneGutter?: number;
 	prefitLabelSize?: boolean;
+	minSiblingGap?: number;
+	pageBounds?: { width: number; height: number };
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;
 	portShifting?: PortShiftingOptions;
@@ -181,6 +184,9 @@ export function solveDiagram(
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
+		...(options.minSiblingGap === undefined
+			? {}
+			: { minSiblingGap: options.minSiblingGap }),
 		boxes: initialNodeBoxes,
 		nodes: styledNodes,
 		groups: styledGroups,
@@ -382,6 +388,9 @@ export function solveDiagram(
 		...edgePointBounds,
 		...edgeTextAnnotations.map((annotation) => annotation.box),
 	];
+	diagnostics.push(
+		...reportPageOverflow(unionBoxes(boundsBase), options.pageBounds),
+	);
 
 	return {
 		id: diagram.id,
@@ -493,6 +502,54 @@ function expandLabelLayoutToNode(
 			},
 		})),
 	};
+}
+
+function reportPageOverflow(
+	contentBounds: Box,
+	pageBounds: { width: number; height: number } | undefined,
+): Diagnostic[] {
+	if (pageBounds === undefined) {
+		return [];
+	}
+	const overflowRight = Math.max(
+		0,
+		contentBounds.x + contentBounds.width - pageBounds.width,
+	);
+	const overflowBottom = Math.max(
+		0,
+		contentBounds.y + contentBounds.height - pageBounds.height,
+	);
+	const overflowLeft = Math.max(0, -contentBounds.x);
+	const overflowTop = Math.max(0, -contentBounds.y);
+	if (
+		overflowRight === 0 &&
+		overflowBottom === 0 &&
+		overflowLeft === 0 &&
+		overflowTop === 0
+	) {
+		return [];
+	}
+	return [
+		{
+			severity: "warning",
+			code: "page_overflow",
+			message: `Content ${contentBounds.width}x${contentBounds.height} exceeds page ${pageBounds.width}x${pageBounds.height}.`,
+			path: ["bounds"],
+			detail: {
+				page: { width: pageBounds.width, height: pageBounds.height },
+				content: {
+					width: contentBounds.width,
+					height: contentBounds.height,
+				},
+				overflow: {
+					right: overflowRight,
+					bottom: overflowBottom,
+					left: overflowLeft,
+					top: overflowTop,
+				},
+			},
+		},
+	];
 }
 
 function createCjkTypographyOptions(
@@ -2224,10 +2281,18 @@ function edgeBounds(edges: readonly CoordinatedEdge[]): Box[] {
 		if (edge.points.length === 0) {
 			return [];
 		}
-		const minX = Math.min(...edge.points.map((point) => point.x));
-		const minY = Math.min(...edge.points.map((point) => point.y));
-		const maxX = Math.max(...edge.points.map((point) => point.x));
-		const maxY = Math.max(...edge.points.map((point) => point.y));
+		// Include the rendered arrowhead polygon (tip/left/right) so page
+		// overflow accounts for geometry that extends past the route points.
+		const extraPoints: Point[] = [];
+		if (edge.points.length >= 2) {
+			const arrowhead = computeArrowhead(edge.points);
+			extraPoints.push(arrowhead.tip, arrowhead.left, arrowhead.right);
+		}
+		const allPoints = [...edge.points, ...extraPoints];
+		const minX = Math.min(...allPoints.map((point) => point.x));
+		const minY = Math.min(...allPoints.map((point) => point.y));
+		const maxX = Math.max(...allPoints.map((point) => point.x));
+		const maxY = Math.max(...allPoints.map((point) => point.y));
 		return [
 			{
 				x: minX,

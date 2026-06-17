@@ -28,9 +28,16 @@ export function applyLayoutConstraints(
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
 	applyDistribute(input.constraints, boxes, locks, diagnostics);
-	repairOverlaps(input, boxes, locks, diagnostics);
+	repairOverlaps(
+		input,
+		boxes,
+		locks,
+		diagnostics,
+		siblingOverlapKeys(input.constraints),
+	);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
+	reportIntraContainerOverflow(input, boxes, diagnostics);
 
 	return { boxes, locks, diagnostics };
 }
@@ -342,6 +349,7 @@ function repairOverlaps(
 	boxes: Map<string, Box>,
 	locks: ReadonlyMap<string, LayoutLock>,
 	diagnostics: Diagnostic[],
+	siblingPairs: ReadonlySet<string>,
 ): void {
 	const spacing = input.overlapSpacing ?? 40;
 	const axis = input.direction === "LR" || input.direction === "RL" ? "x" : "y";
@@ -384,7 +392,16 @@ function repairOverlaps(
 				const fixed = movingId === firstId ? second : first;
 				const repairAxis =
 					firstLocked === secondLocked && pass === 0 ? secondaryAxis : axis;
-				const moved = movePastOverlap(moving, fixed, repairAxis, spacing);
+				const pairKey = overlapKey(firstId, secondId);
+				const effectiveSpacing = siblingPairs.has(pairKey)
+					? Math.max(spacing, input.minSiblingGap ?? 0)
+					: spacing;
+				const moved = movePastOverlap(
+					moving,
+					fixed,
+					repairAxis,
+					effectiveSpacing,
+				);
 				boxes.set(movingId, moved);
 			}
 		}
@@ -444,6 +461,104 @@ function reportOverlaps(
 	}
 }
 
+function reportIntraContainerOverflow(
+	input: ConstraintSolverInput,
+	boxes: ReadonlyMap<string, Box>,
+	diagnostics: Diagnostic[],
+): void {
+	if (input.minSiblingGap === undefined) {
+		return;
+	}
+	const minGap = input.minSiblingGap;
+	const axis: "x" | "y" =
+		input.direction === "LR" || input.direction === "RL" ? "x" : "y";
+
+	for (const constraint of input.constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		const container = boxes.get(constraint.containerId);
+		if (container === undefined) {
+			continue;
+		}
+		const children: Box[] = [];
+		for (const childId of constraint.childIds) {
+			const child = boxes.get(childId);
+			if (child !== undefined) {
+				children.push(child);
+			}
+		}
+		if (children.length < 2) {
+			continue;
+		}
+
+		// Sort by main-axis position so pair-check can break early.
+		const sorted = [...children].sort((a, b) => a[axis] - b[axis]);
+		const mainDim = axis === "x" ? "width" : "height";
+		let overlapPairs = 0;
+		let sumMain = 0;
+		for (let i = 0; i < sorted.length; i += 1) {
+			const first = sorted[i];
+			if (first === undefined) {
+				continue;
+			}
+			sumMain += first[mainDim];
+			for (let j = i + 1; j < sorted.length; j += 1) {
+				const second = sorted[j];
+				if (second === undefined) {
+					continue;
+				}
+				// Children are sorted by main-axis position; if second starts
+				// beyond first's far edge it cannot overlap first (or any
+				// earlier child), so we can break the inner loop.
+				if (second[axis] >= first[axis] + first[mainDim]) {
+					break;
+				}
+				if (intersectsAabb(first, second)) {
+					overlapPairs += 1;
+				}
+			}
+		}
+		if (overlapPairs > 0) {
+			diagnostics.push({
+				severity: "warning",
+				code: "intra_container_overflow",
+				message: `${overlapPairs} sibling pair(s) overlap inside ${constraint.containerId}.`,
+				path: ["constraints", constraint.id ?? constraint.containerId],
+				detail: {
+					containerId: constraint.containerId,
+					overlapPairs,
+					minGap,
+				},
+			});
+		}
+
+		// Compute content size inline to avoid allocating a full Box.
+		const pad = constraint.padding ?? { top: 0, right: 0, bottom: 0, left: 0 };
+		const contentMain =
+			mainDim === "width"
+				? Math.max(0, container.width - pad.left - pad.right)
+				: Math.max(0, container.height - pad.top - pad.bottom);
+		const needed = sumMain + minGap * (sorted.length - 1);
+		if (needed > contentMain) {
+			diagnostics.push({
+				severity: "error",
+				code: "intra_container_overflow_total",
+				message: `Container ${constraint.containerId} cannot fit ${sorted.length} siblings along ${axis} (need ${needed}, have ${contentMain}).`,
+				path: ["constraints", constraint.id ?? constraint.containerId],
+				detail: {
+					containerId: constraint.containerId,
+					axis,
+					needed,
+					available: contentMain,
+					siblingCount: sorted.length,
+					minGap,
+				},
+			});
+		}
+	}
+}
+
 function overlapKey(firstId: string, secondId: string): string {
 	return firstId < secondId
 		? `${firstId}\0${secondId}`
@@ -460,6 +575,27 @@ function containmentOverlapKeys(
 		}
 		for (const childId of constraint.childIds) {
 			keys.add(overlapKey(constraint.containerId, childId));
+		}
+	}
+	return keys;
+}
+
+function siblingOverlapKeys(constraints: readonly Constraint[]): Set<string> {
+	const keys = new Set<string>();
+	for (const constraint of constraints) {
+		if (constraint.kind !== "containment") {
+			continue;
+		}
+		const { childIds } = constraint;
+		for (let i = 0; i < childIds.length; i += 1) {
+			for (let j = i + 1; j < childIds.length; j += 1) {
+				const a = childIds[i];
+				const b = childIds[j];
+				if (a === undefined || b === undefined) {
+					continue;
+				}
+				keys.add(overlapKey(a, b));
+			}
 		}
 	}
 	return keys;
@@ -611,8 +747,8 @@ function contentBox(container: Box, padding: Insets | undefined): Box {
 	return {
 		x: container.x + margin.left,
 		y: container.y + margin.top,
-		width: container.width - margin.left - margin.right,
-		height: container.height - margin.top - margin.bottom,
+		width: Math.max(0, container.width - margin.left - margin.right),
+		height: Math.max(0, container.height - margin.top - margin.bottom),
 	};
 }
 
