@@ -334,6 +334,19 @@ describe("routing", () => {
 			}),
 		);
 	});
+
+	it("dodges a soft obstacle on a straight edge instead of crossing it", () => {
+		const obstacle: Box = { x: 120, y: -40, width: 40, height: 100 };
+		const result = routeEdge({
+			kind: "straight",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(280, 0),
+			obstacles: [obstacle],
+		});
+
+		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+	});
 });
 
 function shape(x: number, y: number) {

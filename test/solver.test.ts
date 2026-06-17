@@ -752,6 +752,74 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("clamps port anchors within the node edge when ports outnumber the available extent", () => {
+		const result = solveDiagram({
+			id: "port-clamp",
+			direction: "LR",
+			nodes: [
+				{
+					...node("dense", { x: 0, y: 0 }),
+					ports: [
+						{ id: "p0", side: "right", kind: "proxy" },
+						{ id: "p1", side: "right", kind: "proxy" },
+						{ id: "p2", side: "right", kind: "proxy" },
+						{ id: "p3", side: "right", kind: "proxy" },
+						{ id: "p4", side: "right", kind: "proxy" },
+					],
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		});
+
+		const dense = result.nodes.find((n) => n.id === "dense");
+		const top = dense?.box.y ?? 0;
+		const bottom = top + (dense?.box.height ?? 0);
+		for (const port of dense?.ports ?? []) {
+			expect(port.anchor.y).toBeGreaterThanOrEqual(top);
+			expect(port.anchor.y).toBeLessThanOrEqual(bottom);
+		}
+	});
+
+	it("keeps edge label boxes clear of node boxes", () => {
+		const result = solveDiagram(
+			{
+				id: "edge-label-node-clearance",
+				direction: "LR",
+				nodes: [node("a", { x: 0, y: 0 }), node("b", { x: 400, y: 0 })],
+				edges: [
+					{
+						id: "a-b",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						label: { text: "edge label" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ textMeasurer: new DeterministicTextMeasurer() },
+		);
+
+		const labelAnnotation = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+		expect(labelAnnotation).toBeDefined();
+		const labelBox = labelAnnotation?.box;
+		for (const coordinatedNode of result.nodes) {
+			const overlaps =
+				labelBox !== undefined &&
+				labelBox.x < coordinatedNode.box.x + coordinatedNode.box.width &&
+				labelBox.x + labelBox.width > coordinatedNode.box.x &&
+				labelBox.y < coordinatedNode.box.y + coordinatedNode.box.height &&
+				labelBox.y + labelBox.height > coordinatedNode.box.y;
+			expect(overlaps).toBe(false);
+		}
+	});
+
 	it("includes boundary ports and port labels in diagram bounds", () => {
 		const result = solveDiagram({
 			id: "port-bounds",

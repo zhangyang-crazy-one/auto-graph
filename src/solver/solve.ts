@@ -359,6 +359,7 @@ export function solveDiagram(
 	);
 	const edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
+		coordinatedNodes.map((node) => node.box),
 		options.textMeasurer,
 	);
 	const textAnnotations = [
@@ -1797,9 +1798,14 @@ function portAnchor(
 ): Point {
 	const shiftingEnabled = portShifting?.enabled ?? true;
 	const spacing = portShifting?.spacing ?? 24;
-	const centeredOffset = shiftingEnabled
-		? (index - (count - 1) / 2) * spacing
-		: 0;
+	const rawOffset = shiftingEnabled ? (index - (count - 1) / 2) * spacing : 0;
+	// Clamp so ports never escape the node edge, even when
+	// (count * spacing) exceeds the node's extent on that side.
+	const maxOffset =
+		side === "left" || side === "right"
+			? nodeBox.height / 2
+			: nodeBox.width / 2;
+	const centeredOffset = Math.max(-maxOffset, Math.min(maxOffset, rawOffset));
 	switch (side) {
 		case "left":
 			return {
@@ -2823,10 +2829,12 @@ function coordinateBaseTextAnnotations(input: {
 
 function coordinateEdgeTextAnnotations(
 	edges: readonly CoordinatedEdge[],
+	nodeBoxes: readonly Box[],
 	textMeasurer?: TextMeasurer,
 ): SolvedTextAnnotation[] {
 	const measurer = textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];
+	const placedLabelBoxes: Box[] = [];
 
 	for (const edge of edges) {
 		if (edge.label?.text === undefined) {
@@ -2846,13 +2854,26 @@ function coordinateEdgeTextAnnotations(
 			},
 			measurer,
 		);
+		const center = edgeLabelAnchor(
+			edge,
+			layout,
+			edges,
+			nodeBoxes,
+			placedLabelBoxes,
+		);
+		placedLabelBoxes.push({
+			x: center.x - layout.box.width / 2,
+			y: center.y - layout.box.height / 2,
+			width: layout.box.width,
+			height: layout.box.height,
+		});
 		annotations.push(
 			buildCenteredTextAnnotation({
 				ownerId: edge.id,
 				surfaceKind: "edge-label",
 				layout,
 				typography: typographyForLabel(edge.label),
-				center: edgeLabelAnchor(edge, layout, edges),
+				center,
 			}),
 		);
 	}
@@ -3251,6 +3272,8 @@ function edgeLabelAnchor(
 	edge: CoordinatedEdge,
 	layout: LabelLayout,
 	edges: readonly CoordinatedEdge[],
+	nodeBoxes: readonly Box[],
+	placedLabelBoxes: readonly Box[],
 ): Point {
 	const placement = labelPlacementOnPolyline(edge.points);
 	if (placement === undefined) {
@@ -3271,7 +3294,17 @@ function edgeLabelAnchor(
 			(other) =>
 				other.id !== edge.id && routeIntersectsTextBox(other.points, labelBox),
 		);
-		if (!crossesOtherRoute) {
+		if (crossesOtherRoute) {
+			continue;
+		}
+		const overlapsNode = nodeBoxes.some((box) => intersectsAabb(labelBox, box));
+		if (overlapsNode) {
+			continue;
+		}
+		const overlapsPlacedLabel = placedLabelBoxes.some((box) =>
+			intersectsAabb(labelBox, box),
+		);
+		if (!overlapsPlacedLabel) {
 			return candidate;
 		}
 	}
