@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
+import { computeArrowhead } from "../src/exporters/arrow.js";
 import type { NormalizedDiagram } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
 import type {
@@ -72,6 +73,37 @@ describe("solveDiagram", () => {
 		});
 
 		expect(result.bounds).toEqual(baseline.bounds);
+	});
+
+	it("includes edge arrowhead geometry in diagram bounds", () => {
+		const diagram = {
+			id: "arrowhead-bounds",
+			direction: "TB" as const,
+			nodes: [node("a", { x: 0, y: 0 }), node("b", { x: 0, y: 200 })],
+			edges: [{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const result = solveDiagram(diagram, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const edge = result.edges[0];
+		expect(edge).toBeDefined();
+		const arrowhead = computeArrowhead(edge?.points ?? []);
+		// The returned bounds must cover every arrowhead polygon vertex, so the
+		// exported SVG arrowhead can never fall outside the diagram bounds
+		// (regression guard for codex review on arrowhead overflow).
+		for (const vertex of [arrowhead.tip, arrowhead.left, arrowhead.right]) {
+			expect(vertex.x).toBeGreaterThanOrEqual(result.bounds.x);
+			expect(vertex.x).toBeLessThanOrEqual(
+				result.bounds.x + result.bounds.width,
+			);
+			expect(vertex.y).toBeGreaterThanOrEqual(result.bounds.y);
+			expect(vertex.y).toBeLessThanOrEqual(
+				result.bounds.y + result.bounds.height,
+			);
+		}
 	});
 
 	it("coordinates evidence block boxes and includes them in diagram bounds", () => {
