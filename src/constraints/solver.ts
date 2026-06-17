@@ -456,7 +456,6 @@ function reportIntraContainerOverflow(
 	const minGap = input.minSiblingGap;
 	const axis: "x" | "y" =
 		input.direction === "LR" || input.direction === "RL" ? "x" : "y";
-	const mainSize = axis === "x" ? "width" : "height";
 
 	for (const constraint of input.constraints) {
 		if (constraint.kind !== "containment") {
@@ -477,15 +476,29 @@ function reportIntraContainerOverflow(
 			continue;
 		}
 
+		// Sort by main-axis position so pair-check can break early.
+		const sorted = [...children].sort((a, b) => a[axis] - b[axis]);
+		const mainDim = axis === "x" ? "width" : "height";
 		let overlapPairs = 0;
-		for (let i = 0; i < children.length; i += 1) {
-			const first = children[i];
+		let sumMain = 0;
+		for (let i = 0; i < sorted.length; i += 1) {
+			const first = sorted[i];
 			if (first === undefined) {
 				continue;
 			}
-			for (let j = i + 1; j < children.length; j += 1) {
-				const second = children[j];
-				if (second !== undefined && intersectsAabb(first, second)) {
+			sumMain += first[mainDim];
+			for (let j = i + 1; j < sorted.length; j += 1) {
+				const second = sorted[j];
+				if (second === undefined) {
+					continue;
+				}
+				// Children are sorted by main-axis position; if second starts
+				// beyond first's far edge it cannot overlap first (or any
+				// earlier child), so we can break the inner loop.
+				if (second[axis] >= first[axis] + first[mainDim]) {
+					break;
+				}
+				if (intersectsAabb(first, second)) {
 					overlapPairs += 1;
 				}
 			}
@@ -504,24 +517,25 @@ function reportIntraContainerOverflow(
 			});
 		}
 
-		const content = contentBox(container, constraint.padding);
-		const sumChildren = children.reduce(
-			(acc, child) => acc + child[mainSize],
-			0,
-		);
-		const needed = sumChildren + minGap * (children.length - 1);
-		if (needed > content[mainSize]) {
+		// Compute content size inline to avoid allocating a full Box.
+		const pad = constraint.padding ?? { top: 0, right: 0, bottom: 0, left: 0 };
+		const contentMain =
+			mainDim === "width"
+				? Math.max(0, container.width - pad.left - pad.right)
+				: Math.max(0, container.height - pad.top - pad.bottom);
+		const needed = sumMain + minGap * (sorted.length - 1);
+		if (needed > contentMain) {
 			diagnostics.push({
 				severity: "error",
 				code: "intra_container_overflow_total",
-				message: `Container ${constraint.containerId} cannot fit ${children.length} siblings along ${axis} (need ${needed}, have ${content[mainSize]}).`,
+				message: `Container ${constraint.containerId} cannot fit ${sorted.length} siblings along ${axis} (need ${needed}, have ${contentMain}).`,
 				path: ["constraints", constraint.id ?? constraint.containerId],
 				detail: {
 					containerId: constraint.containerId,
 					axis,
 					needed,
-					available: content[mainSize],
-					siblingCount: children.length,
+					available: contentMain,
+					siblingCount: sorted.length,
 					minGap,
 				},
 			});
