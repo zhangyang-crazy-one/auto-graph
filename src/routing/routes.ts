@@ -178,22 +178,30 @@ function finalizeRoute(
 	diagnostics: Diagnostic[],
 ): Point[] {
 	const simplified = simplifyRoute(points);
+	if (simplified.length >= 3) {
+		return simplified;
+	}
 	const crossesHardObstacles = routeCrossesBoxes(simplified, hardObstacles);
 	const crossesSoftObstacles = routeCrossesBoxes(simplified, softObstacles);
-	if (simplified.length < 3 && (crossesHardObstacles || crossesSoftObstacles)) {
+	if (!crossesHardObstacles && !crossesSoftObstacles) {
+		return simplified;
+	}
+	const expanded = expandFallbackRoute(simplified, [
+		...softObstacles,
+		...hardObstacles,
+	]);
+	const expandedCrossesHard = routeCrossesBoxes(expanded, hardObstacles);
+	const expandedCrossesSoft = routeCrossesBoxes(expanded, softObstacles);
+	if (expandedCrossesHard || expandedCrossesSoft) {
 		diagnostics.push({
-			severity: crossesHardObstacles ? "error" : "warning",
+			severity: expandedCrossesHard ? "error" : "warning",
 			code: "route_obstacle_fallback",
 			message:
 				"Obstacle-aware routing fell back to fewer than three route points.",
 			detail: { pointCount: simplified.length },
 		});
-		return expandFallbackRoute(simplified, [
-			...softObstacles,
-			...hardObstacles,
-		]);
 	}
-	return simplified;
+	return expanded;
 }
 
 function expandFallbackRoute(

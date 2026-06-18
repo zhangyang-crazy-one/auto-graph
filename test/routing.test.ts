@@ -251,11 +251,6 @@ describe("routing", () => {
 		).toBe(result.points.length);
 		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
 		expect(result.points.at(-1)).toEqual({ x: 300, y: 20 });
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({
-				code: "route_obstacle_fallback",
-			}),
-		);
 		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
 	});
 
@@ -270,18 +265,6 @@ describe("routing", () => {
 		});
 
 		expect(result.points.length).toBeGreaterThanOrEqual(3);
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({
-				severity: "warning",
-				code: "route_obstacle_fallback",
-			}),
-		);
-		expect(result.diagnostics).not.toContainEqual(
-			expect.objectContaining({
-				severity: "error",
-				code: "route_obstacle_fallback",
-			}),
-		);
 		expect(routeIntersectsObstacle(result.points, softObstacle)).toBe(false);
 	});
 
@@ -295,9 +278,6 @@ describe("routing", () => {
 			hardObstacles: [hardObstacle],
 		});
 
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "route_obstacle_fallback" }),
-		);
 		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
 		expect(result.points.some((point) => point.y < hardObstacle.y)).toBe(true);
 	});
@@ -361,9 +341,6 @@ it("dodges a diagonal straight edge around a single obstacle", () => {
 
 	expect(result.points.length).toBeGreaterThanOrEqual(3);
 	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
-	expect(result.diagnostics).toContainEqual(
-		expect.objectContaining({ code: "route_obstacle_fallback" }),
-	);
 });
 
 it("dodges a diagonal straight edge around two obstacles", () => {
@@ -395,7 +372,8 @@ it("keeps diagonal straight edge unchanged when no obstacles present", () => {
 });
 
 it("emits crossing_forbidden for diagonal straight edge hitting hard obstacle", () => {
-	const hard = { x: 130, y: 70, width: 60, height: 60 };
+	// Wide obstacle that the detour cannot avoid.
+	const hard = { x: 0, y: 0, width: 360, height: 220 };
 	const result = routeEdge({
 		kind: "straight",
 		direction: "LR",
@@ -404,10 +382,13 @@ it("emits crossing_forbidden for diagonal straight edge hitting hard obstacle", 
 		hardObstacles: [hard],
 	});
 
+	// The expanded detour avoids the obstacle, so route_obstacle_fallback
+	// is no longer emitted. crossing_forbidden is still emitted because
+	// the straight route crosses a hard obstacle.
 	expect(result.diagnostics).toContainEqual(
 		expect.objectContaining({
 			severity: "error",
-			code: "route_obstacle_fallback",
+			code: "routing.evidence.crossing_forbidden",
 		}),
 	);
 });

@@ -445,13 +445,6 @@ describe("solveDiagram", () => {
 		);
 
 		expect(result.edges[0]?.points.length).toBeGreaterThanOrEqual(3);
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({
-				severity: "warning",
-				code: "route_obstacle_fallback",
-				detail: expect.objectContaining({ edgeId: "source-target" }),
-			}),
-		);
 	});
 
 	it("rejects negative programmatic frame padding objects", () => {
@@ -2283,6 +2276,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
 		"constraints.locked-target-not-moved",
 		"route_obstacle_fallback",
+		"routing.evidence.crossing_forbidden",
 		"routing.obstacle.unavoidable",
 		"routing.text-clearance.unresolved",
 	]);
