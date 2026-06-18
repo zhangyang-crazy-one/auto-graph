@@ -609,6 +609,52 @@ describe("solveDiagram", () => {
 		expect(new Set([matrix?.box.y, table?.box.y, panel?.box.y]).size).toBe(3);
 	});
 
+	it("spaces automatic evidence blocks by opposing obstacle margins", () => {
+		const result = solveDiagram(
+			{
+				id: "evidence-obstacle-margin",
+				direction: "LR",
+				nodes: [node("a", { x: 0, y: 0 })],
+				edges: [],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+				matrices: [
+					{
+						id: "matrix",
+						rows: ["need"],
+						cols: ["function"],
+						cells: [[{ text: "covered" }]],
+						size: { width: 120, height: 72 },
+					},
+				],
+				tables: [
+					{
+						id: "table",
+						columns: [{ id: "parameter", label: { text: "Parameter" } }],
+						rows: [
+							{
+								id: "mass",
+								cells: { parameter: { text: "mass_kg" } },
+							},
+						],
+						size: { width: 128, height: 68 },
+					},
+				],
+			},
+			{ obstacleMargin: 40 },
+		);
+
+		const nodeBox = result.nodes[0]?.box;
+		const matrix = result.matrices?.[0];
+		const table = result.tables?.[0];
+
+		expect(matrix?.box.x).toBe((nodeBox?.x ?? 0) + (nodeBox?.width ?? 0) + 80);
+		expect(table?.box.y).toBe(
+			(matrix?.box.y ?? 0) + (matrix?.box.height ?? 0) + 80,
+		);
+	});
+
 	it("keeps fixed position nodes while automatic nodes receive finite boxes", () => {
 		const result = solveDiagram(sampleDiagram());
 		const fixed = result.nodes.find((node) => node.id === "a");

@@ -2384,21 +2384,24 @@ function placeEvidenceBlocks(
 	blocks: Array<{ position?: Point; box: Box }>,
 	contentBounds: Box,
 ): void {
-	const maxMargin = Math.max(
-		...(Object.values(normalizeInsets(obstacleMargin)) as number[]),
+	const margin = normalizeInsets(obstacleMargin);
+	const horizontalGap = Math.max(
+		DEFAULT_EVIDENCE_BLOCK_GAP,
+		margin.right + margin.left,
+	);
+	const verticalGap = Math.max(
+		DEFAULT_EVIDENCE_BLOCK_GAP,
+		margin.bottom + margin.top,
 	);
 	let nextY = contentBounds.y;
-	const x =
-		contentBounds.x +
-		contentBounds.width +
-		Math.max(DEFAULT_EVIDENCE_BLOCK_GAP, maxMargin);
+	const x = contentBounds.x + contentBounds.width + horizontalGap;
 	for (const block of blocks) {
 		if (block.position !== undefined) {
 			continue;
 		}
 		block.box.x = x;
 		block.box.y = nextY;
-		nextY += block.box.height + Math.max(DEFAULT_EVIDENCE_BLOCK_GAP, maxMargin);
+		nextY += block.box.height + verticalGap;
 	}
 }
 
