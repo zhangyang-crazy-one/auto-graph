@@ -144,7 +144,14 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				};
 			}
 			if (reroutedAvoidsEndpointInteriors) {
-				bestPoints = rerouted;
+				if (
+					routeCrossesBoxes(rerouted, hardObstacles) &&
+					!routeCrossesBoxes(bestPoints, hardObstacles)
+				) {
+					// keep original hard-clear candidate
+				} else {
+					bestPoints = rerouted;
+				}
 			}
 		}
 		diagnostics.push({
@@ -166,6 +173,28 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	}
 
 	if (hardObstacles.length > 0) {
+		let bestPoints =
+			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors);
+		if (input.kind === "obstacle-avoiding") {
+			const allObstacles = [...softObstacles, ...hardObstacles];
+			const rerouted = greedyRerouteAroundObstacles(
+				bestPoints,
+				allObstacles,
+				5,
+			);
+			if (!routeCrossesBoxes(rerouted, allObstacles)) {
+				return {
+					points: finalizeRoute(
+						rerouted,
+						softObstacles,
+						hardObstacles,
+						diagnostics,
+					),
+					diagnostics,
+				};
+			}
+			bestPoints = rerouted;
+		}
 		diagnostics.push({
 			severity: "error",
 			code: "routing.evidence.crossing_forbidden",
