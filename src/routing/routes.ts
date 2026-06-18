@@ -125,7 +125,14 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				allObstacles,
 				3,
 			);
-			if (!routeCrossesBoxes(rerouted, allObstacles)) {
+			const reroutedAvoidsEndpointInteriors = !routeIntersectsEndpointInteriors(
+				rerouted,
+				hardClearCandidate.endpointObstacles,
+			);
+			if (
+				!routeCrossesBoxes(rerouted, allObstacles) &&
+				reroutedAvoidsEndpointInteriors
+			) {
 				return {
 					points: finalizeRoute(
 						rerouted,
@@ -136,7 +143,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					diagnostics,
 				};
 			}
-			bestPoints = rerouted;
+			if (reroutedAvoidsEndpointInteriors) {
+				bestPoints = rerouted;
+			}
 		}
 		diagnostics.push({
 			severity: "warning",

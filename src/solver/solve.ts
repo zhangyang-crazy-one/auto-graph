@@ -3587,12 +3587,11 @@ function edgeLabelAnchorCandidates(
 		if (segLen > 0) {
 			const nx = -dy / segLen;
 			const ny = dx / segLen;
-			const maxSteps = Math.max(
-				12,
-				Math.ceil(
-					(layout.box.height / 2 + EDGE_LABEL_CLEARANCE) / EDGE_LABEL_CLEARANCE,
-				),
-			);
+			const needed =
+				(Math.abs(nx) * layout.box.width + Math.abs(ny) * layout.box.height) /
+					2 +
+				EDGE_LABEL_CLEARANCE;
+			const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
 			for (let step = 1; step <= maxSteps; step += 1) {
 				const offset = EDGE_LABEL_CLEARANCE * step;
 				candidates.push(
@@ -3614,7 +3613,7 @@ function edgeLabelAnchorCandidates(
 	}, 0);
 	if (totalLen > 200) {
 		for (const ratio of [0.25, 0.75]) {
-			const qp = pointAtRatio(points, ratio, totalLen);
+			const qp = labelPlacementAtRatio(points, ratio, totalLen);
 			if (qp !== undefined) {
 				candidates.push(qp);
 			}
@@ -3688,7 +3687,7 @@ function nonZeroSegments(points: readonly Point[]): Array<{
 	return segments;
 }
 
-function pointAtRatio(
+function labelPlacementAtRatio(
 	points: readonly Point[],
 	ratio: number,
 	totalLength: number,
@@ -3705,11 +3704,15 @@ function pointAtRatio(
 			continue;
 		}
 		const segLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+		if (segLen <= 0) {
+			continue;
+		}
 		if (travelled + segLen >= targetDist) {
-			const t = segLen === 0 ? 0 : (targetDist - travelled) / segLen;
+			const t = (targetDist - travelled) / segLen;
+			const offset = labelOffset({ start: prev, end: curr, length: segLen });
 			return {
-				x: prev.x + (curr.x - prev.x) * t,
-				y: prev.y + (curr.y - prev.y) * t,
+				x: prev.x + (curr.x - prev.x) * t + offset.x,
+				y: prev.y + (curr.y - prev.y) * t + offset.y,
 			};
 		}
 		travelled += segLen;
