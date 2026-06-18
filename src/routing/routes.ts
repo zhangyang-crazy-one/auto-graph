@@ -237,9 +237,7 @@ function expandFallbackRoute(
 		const directLen = Math.hypot(target.x - source.x, target.y - source.y);
 		let best = firstViable;
 		for (const cand of remainingViable) {
-			if (
-				pathLength(cand) - directLen < pathLength(best) - directLen
-			) {
+			if (pathLength(cand) - directLen < pathLength(best) - directLen) {
 				best = cand;
 			}
 		}
