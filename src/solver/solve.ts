@@ -384,7 +384,11 @@ export function solveDiagram(
 	}
 	for (const swimlane of coordinatedSwimlanes) {
 		for (const lane of swimlane.lanes) {
-			if (lane.headerBox !== undefined && lane.headerBox.width > 0 && lane.headerBox.height > 0) {
+			if (
+				lane.headerBox !== undefined &&
+				lane.headerBox.width > 0 &&
+				lane.headerBox.height > 0
+			) {
 				titleBarObstacles.push(expandBox(lane.headerBox, margin));
 			}
 		}
@@ -2380,9 +2384,14 @@ function placeEvidenceBlocks(
 	blocks: Array<{ position?: Point; box: Box }>,
 	contentBounds: Box,
 ): void {
-	const maxMargin = Math.max(...Object.values(normalizeInsets(obstacleMargin)) as number[]);
+	const maxMargin = Math.max(
+		...(Object.values(normalizeInsets(obstacleMargin)) as number[]),
+	);
 	let nextY = contentBounds.y;
-	const x = contentBounds.x + contentBounds.width + Math.max(DEFAULT_EVIDENCE_BLOCK_GAP, maxMargin);
+	const x =
+		contentBounds.x +
+		contentBounds.width +
+		Math.max(DEFAULT_EVIDENCE_BLOCK_GAP, maxMargin);
 	for (const block of blocks) {
 		if (block.position !== undefined) {
 			continue;
