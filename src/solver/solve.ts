@@ -405,11 +405,6 @@ export function solveDiagram(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) =>
-			options.routingGutter === undefined
-				? geometry.obstacleBox
-				: expandBox(geometry.obstacleBox, options.routingGutter),
-		),
 		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
 		hardObstacles,
@@ -2799,7 +2794,6 @@ function coordinateEdges(
 	edges: readonly NormalizedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
-	obstacles: readonly Box[],
 	softObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
 	hardObstacles: readonly Box[],
@@ -2852,10 +2846,16 @@ function coordinateEdges(
 				? {}
 				: { targetAnchor: edge.target.anchor }),
 			obstacles: [
-				...obstacles.filter(
-					(obstacle) =>
-						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
-				),
+				...[...nodes].flatMap(([nid, geom]) => {
+					if (nid === edge.source.nodeId || nid === edge.target.nodeId) {
+						return [];
+					}
+					const box =
+						options.routingGutter === undefined
+							? geom.obstacleBox
+							: expandBox(geom.obstacleBox, options.routingGutter);
+					return [box];
+				}),
 				...softObstacles,
 				...routeTextObstacles,
 			],

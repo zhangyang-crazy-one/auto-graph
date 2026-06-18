@@ -82,7 +82,9 @@ export function renderDiagramDsl(
 		routeKind:
 			normalized.diagram.metadata?.routeKind === "straight"
 				? "straight"
-				: "orthogonal",
+				: normalized.diagram.metadata?.routeKind === "obstacle-avoiding"
+					? "obstacle-avoiding"
+					: "orthogonal",
 		...solvePortShiftingOption(normalized.diagram.metadata?.portShifting),
 		...(options.textMeasurer === undefined
 			? {}
