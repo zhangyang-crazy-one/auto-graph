@@ -285,6 +285,7 @@ export function solveDiagram(
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(layoutBoxes);
 	placeEvidenceBlocks(
+		options.obstacleMargin ?? 0,
 		[
 			...coordinatedMatrices,
 			...coordinatedTables,
@@ -379,11 +380,11 @@ export function solveDiagram(
 	// do not route through title bars (issue #29).
 	const titleBarObstacles: Box[] = [];
 	if (frame !== undefined) {
-		titleBarObstacles.push(frame.titleBox);
+		titleBarObstacles.push(expandBox(frame.titleBox, margin));
 	}
 	for (const swimlane of coordinatedSwimlanes) {
 		for (const lane of swimlane.lanes) {
-			if (lane.headerBox !== undefined) {
+			if (lane.headerBox !== undefined && lane.headerBox.width > 0 && lane.headerBox.height > 0) {
 				titleBarObstacles.push(expandBox(lane.headerBox, margin));
 			}
 		}
@@ -2375,18 +2376,20 @@ function blockBox(
 }
 
 function placeEvidenceBlocks(
+	obstacleMargin: number | Insets,
 	blocks: Array<{ position?: Point; box: Box }>,
 	contentBounds: Box,
 ): void {
+	const maxMargin = Math.max(...Object.values(normalizeInsets(obstacleMargin)) as number[]);
 	let nextY = contentBounds.y;
-	const x = contentBounds.x + contentBounds.width + DEFAULT_EVIDENCE_BLOCK_GAP;
+	const x = contentBounds.x + contentBounds.width + Math.max(DEFAULT_EVIDENCE_BLOCK_GAP, maxMargin);
 	for (const block of blocks) {
 		if (block.position !== undefined) {
 			continue;
 		}
 		block.box.x = x;
 		block.box.y = nextY;
-		nextY += block.box.height + DEFAULT_EVIDENCE_BLOCK_GAP;
+		nextY += block.box.height + Math.max(DEFAULT_EVIDENCE_BLOCK_GAP, maxMargin);
 	}
 }
 
