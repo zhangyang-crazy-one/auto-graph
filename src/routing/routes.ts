@@ -51,13 +51,6 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				message: "Straight route crosses soft obstacles.",
 			});
 		}
-		if (input.kind === "obstacle-avoiding") {
-			const allObstacles = [...softObstacles, ...hardObstacles];
-			const rerouted = greedyRerouteAroundObstacles(points, allObstacles, 3);
-			if (!routeCrossesBoxes(rerouted, allObstacles)) {
-				return { points: rerouted, diagnostics };
-			}
-		}
 		return { points, diagnostics };
 	}
 
@@ -126,12 +119,13 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	if (hardClearCandidate !== undefined) {
 		let bestPoints = hardClearCandidate.points;
 		if (input.kind === "obstacle-avoiding") {
+			const allObstacles = [...softObstacles, ...hardObstacles];
 			const rerouted = greedyRerouteAroundObstacles(
 				bestPoints,
-				[...softObstacles, ...hardObstacles],
+				allObstacles,
 				3,
 			);
-			if (!routeCrossesBoxes(rerouted, softObstacles)) {
+			if (!routeCrossesBoxes(rerouted, allObstacles)) {
 				return {
 					points: finalizeRoute(
 						rerouted,
@@ -153,7 +147,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 		return {
 			points: finalizeRoute(
-				hardClearCandidate.points,
+				bestPoints,
 				softObstacles,
 				hardObstacles,
 				diagnostics,
@@ -209,7 +203,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 	return {
 		points: finalizeRoute(
-			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
+			bestPoints,
 			softObstacles,
 			hardObstacles,
 			diagnostics,

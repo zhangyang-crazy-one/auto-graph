@@ -3568,6 +3568,18 @@ function edgeLabelAnchorCandidates(
 				{ x: placement.x, y: placement.y + offset },
 			);
 		}
+	} else if (segment.start.x === segment.end.x) {
+		// Vertical segment: label moves horizontally; must clear half its width.
+		const needed = layout.box.width / 2 + EDGE_LABEL_CLEARANCE;
+		const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
+		for (let step = 1; step <= maxSteps; step += 1) {
+			const offset = EDGE_LABEL_CLEARANCE * step;
+			candidates.push(
+				{ x: placement.x + offset, y: placement.y },
+				{ x: placement.x - offset, y: placement.y },
+			);
+		}
+	} else {
 		// Diagonal segment: expand in both perpendicular directions.
 		const dx = segment.end.x - segment.start.x;
 		const dy = segment.end.y - segment.start.y;
@@ -3589,39 +3601,24 @@ function edgeLabelAnchorCandidates(
 				);
 			}
 		}
-
-		// For long edges, also try quartile positions along the polyline.
-		const totalLen = points.reduce((sum, p, idx) => {
-			if (idx === 0) return 0;
-			const prev = points[idx - 1];
-			return (
-				sum +
-				Math.hypot((p?.x ?? 0) - (prev?.x ?? 0), (p?.y ?? 0) - (prev?.y ?? 0))
-			);
-		}, 0);
-		if (totalLen > 200) {
-			for (const ratio of [0.25, 0.75]) {
-				const qp = pointAtRatio(points, ratio, totalLen);
-				if (qp !== undefined) {
-					candidates.push(qp);
-				}
-			}
-		}
-		return candidates;
 	}
 
-	if (segment.start.x === segment.end.x) {
-		// Vertical segment: label moves horizontally; must clear half its width.
-		const needed = layout.box.width / 2 + EDGE_LABEL_CLEARANCE;
-		const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
-		for (let step = 1; step <= maxSteps; step += 1) {
-			const offset = EDGE_LABEL_CLEARANCE * step;
-			candidates.push(
-				{ x: placement.x + offset, y: placement.y },
-				{ x: placement.x - offset, y: placement.y },
-			);
+	// For long edges, also try quartile positions along the polyline.
+	const totalLen = points.reduce((sum, p, idx) => {
+		if (idx === 0) return 0;
+		const prev = points[idx - 1];
+		return (
+			sum +
+			Math.hypot((p?.x ?? 0) - (prev?.x ?? 0), (p?.y ?? 0) - (prev?.y ?? 0))
+		);
+	}, 0);
+	if (totalLen > 200) {
+		for (const ratio of [0.25, 0.75]) {
+			const qp = pointAtRatio(points, ratio, totalLen);
+			if (qp !== undefined) {
+				candidates.push(qp);
+			}
 		}
-		return candidates;
 	}
 
 	return candidates;
