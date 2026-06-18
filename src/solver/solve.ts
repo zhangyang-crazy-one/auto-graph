@@ -445,14 +445,15 @@ export function solveDiagram(
 	);
 
 	let degraded = false;
-	for (const d of diagnostics) {
-		if (DELIVERABILITY_DIAGNOSTIC_CODES.has(d.code)) {
+	const resultDiagnostics = diagnostics.map((diagnostic) => {
+		if (DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code)) {
 			degraded = true;
 			if (options.strict) {
-				d.severity = "error";
+				return { ...diagnostic, severity: "error" as const };
 			}
 		}
-	}
+		return diagnostic;
+	});
 
 	return {
 		id: diagram.id,
@@ -471,7 +472,7 @@ export function solveDiagram(
 		...(coordinatedEvidencePanels.length === 0
 			? {}
 			: { evidencePanels: coordinatedEvidencePanels }),
-		diagnostics,
+		diagnostics: resultDiagnostics,
 		degraded,
 		bounds:
 			frame === undefined

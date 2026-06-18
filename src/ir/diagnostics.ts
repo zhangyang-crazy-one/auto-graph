@@ -19,7 +19,7 @@ export interface Diagnostic {
  * {@link SolveDiagramOptions.strict} option to promote these to
  * errors.
  */
-export const DELIVERABILITY_DIAGNOSTIC_CODES = new Set([
+export const DELIVERABILITY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"constraints.locked-target-not-moved",
 	"routing.obstacle.unavoidable",
 	"route_obstacle_fallback",

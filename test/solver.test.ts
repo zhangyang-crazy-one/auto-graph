@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import { computeArrowhead } from "../src/exporters/arrow.js";
-import type { NormalizedDiagram } from "../src/ir/index.js";
+import {
+	DELIVERABILITY_DIAGNOSTIC_CODES,
+	type Diagnostic,
+	type NormalizedDiagram,
+} from "../src/ir/index.js";
 import { solveDiagram, solveDiagramSafe } from "../src/solver/index.js";
 import type {
 	PreparedText,
@@ -2235,6 +2239,14 @@ function lockedChildDiagram(): ReturnType<typeof sampleDiagram> {
 	};
 }
 
+function diagramWithDiagnostic(diagnostic: Diagnostic): NormalizedDiagram {
+	return {
+		...sampleDiagram(),
+		id: `diagnostic-${diagnostic.code}`,
+		diagnostics: [diagnostic],
+	};
+}
+
 it("sets degraded when a deliverability diagnostic is emitted", () => {
 	const result = solveDiagram(lockedChildDiagram());
 	expect(result.degraded).toBe(true);
@@ -2265,6 +2277,68 @@ it("does not promote severity when strict is unset", () => {
 	for (const d of locked) {
 		expect(d.severity).toBe("warning");
 	}
+});
+
+it("certifies the deliverability diagnostics strict mode gates on", () => {
+	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
+		"constraints.locked-target-not-moved",
+		"route_obstacle_fallback",
+		"routing.obstacle.unavoidable",
+		"routing.text-clearance.unresolved",
+	]);
+});
+
+it("promotes every deliverability diagnostic code in strict mode", () => {
+	for (const code of DELIVERABILITY_DIAGNOSTIC_CODES) {
+		const result = solveDiagram(
+			diagramWithDiagnostic({
+				severity: "warning",
+				code,
+				message: `Seeded deliverability diagnostic: ${code}`,
+			}),
+			{ strict: true },
+		);
+
+		expect(result.degraded).toBe(true);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code, severity: "error" }),
+		);
+	}
+});
+
+it("does not promote non-deliverability warnings in strict mode", () => {
+	const result = solveDiagram(
+		diagramWithDiagnostic({
+			severity: "warning",
+			code: "page_overflow",
+			message: "Seeded non-deliverability warning.",
+		}),
+		{ strict: true },
+	);
+
+	expect(result.degraded).toBe(false);
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({ code: "page_overflow", severity: "warning" }),
+	);
+});
+
+it("does not mutate input diagnostics when strict promotes the result", () => {
+	const inputDiagnostic: Diagnostic = {
+		severity: "warning",
+		code: "routing.obstacle.unavoidable",
+		message: "Seeded deliverability warning.",
+	};
+	const diagram = diagramWithDiagnostic(inputDiagnostic);
+	const result = solveDiagram(diagram, { strict: true });
+
+	expect(inputDiagnostic.severity).toBe("warning");
+	expect(diagram.diagnostics[0]?.severity).toBe("warning");
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.obstacle.unavoidable",
+			severity: "error",
+		}),
+	);
 });
 
 it("solveDiagramSafe enables prefitLabelSize by default", () => {
