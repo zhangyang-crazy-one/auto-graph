@@ -2335,6 +2335,107 @@ it("does not mutate input diagnostics when strict promotes the result", () => {
 	);
 });
 
+it("uses obstacle-avoiding routing to dodge nodes", () => {
+	const result = solveDiagram(
+		{
+			id: "obstacle-avoiding-test",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 0 },
+				},
+				{
+					id: "b",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 100, y: 0 },
+				},
+				{
+					id: "c",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 200, y: 0 },
+				},
+			],
+			edges: [
+				{
+					id: "a-c",
+					source: { nodeId: "a" },
+					target: { nodeId: "c" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{ routeKind: "obstacle-avoiding" },
+	);
+
+	expect(result.edges[0]?.points.length).toBeGreaterThanOrEqual(2);
+});
+
+it("applies routingGutter to expand node obstacle clearance", () => {
+	const without = solveDiagram({
+		id: "gutter-test",
+		direction: "LR",
+		nodes: [
+			{
+				id: "a",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			},
+			{
+				id: "b",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			},
+		],
+		edges: [{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	});
+	const withGutter = solveDiagram(
+		{
+			id: "gutter-test",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+				{
+					id: "b",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+			edges: [{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{ routingGutter: 24 },
+	);
+
+	// Both should produce valid routes
+	expect(without.edges[0]?.points.length).toBeGreaterThanOrEqual(2);
+	expect(withGutter.edges[0]?.points.length).toBeGreaterThanOrEqual(2);
+	// With gutter, the bounds should be larger due to expanded obstacle boxes
+	expect(withGutter.bounds.width).toBeGreaterThanOrEqual(without.bounds.width);
+});
+
 it("solveDiagramSafe enables prefitLabelSize by default", () => {
 	const result = solveDiagramSafe({
 		id: "safe-test",

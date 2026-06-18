@@ -51,6 +51,13 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				message: "Straight route crosses soft obstacles.",
 			});
 		}
+		if (input.kind === "obstacle-avoiding") {
+			const allObstacles = [...softObstacles, ...hardObstacles];
+			const rerouted = greedyRerouteAroundObstacles(points, allObstacles, 3);
+			if (!routeCrossesBoxes(rerouted, allObstacles)) {
+				return { points: rerouted, diagnostics };
+			}
+		}
 		return { points, diagnostics };
 	}
 
@@ -117,6 +124,26 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			),
 	);
 	if (hardClearCandidate !== undefined) {
+		let bestPoints = hardClearCandidate.points;
+		if (input.kind === "obstacle-avoiding") {
+			const rerouted = greedyRerouteAroundObstacles(
+				bestPoints,
+				[...softObstacles, ...hardObstacles],
+				3,
+			);
+			if (!routeCrossesBoxes(rerouted, softObstacles)) {
+				return {
+					points: finalizeRoute(
+						rerouted,
+						softObstacles,
+						hardObstacles,
+						diagnostics,
+					),
+					diagnostics,
+				};
+			}
+			bestPoints = rerouted;
+		}
 		diagnostics.push({
 			severity: "warning",
 			code: "routing.obstacle.unavoidable",
@@ -154,6 +181,26 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		};
 	}
 
+	let bestPoints =
+		candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors);
+	if (input.kind === "obstacle-avoiding") {
+		bestPoints = greedyRerouteAroundObstacles(
+			bestPoints,
+			[...softObstacles, ...hardObstacles],
+			5,
+		);
+		if (!routeCrossesBoxes(bestPoints, [...softObstacles, ...hardObstacles])) {
+			return {
+				points: finalizeRoute(
+					bestPoints,
+					softObstacles,
+					hardObstacles,
+					diagnostics,
+				),
+				diagnostics,
+			};
+		}
+	}
 	diagnostics.push({
 		severity: "warning",
 		code: "routing.obstacle.unavoidable",
@@ -365,6 +412,101 @@ function insetBox(box: Box, margin: number): Box {
 		width: box.width - margin * 2,
 		height: box.height - margin * 2,
 	};
+}
+
+/**
+ * Iteratively pushes route segments away from intersecting obstacles,
+ * up to maxIterations times. Returns the improved route (may still
+ * cross obstacles if avoidance was not possible).
+ */
+function greedyRerouteAroundObstacles(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+	maxIterations: number,
+): Point[] {
+	let current = [...points];
+	for (let iter = 0; iter < maxIterations; iter++) {
+		const improved = pushRouteAwayFromObstacles(current, obstacles);
+		if (improved === null) {
+			break; // no improvements possible
+		}
+		current = improved;
+		if (!routeCrossesBoxes(current, obstacles)) {
+			break; // route is clean
+		}
+	}
+	return current;
+}
+
+/**
+ * Tries to push each segment of the route away from intersecting obstacles.
+ * Returns a new route with waypoints inserted, or null if no push was possible.
+ */
+function pushRouteAwayFromObstacles(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): Point[] | null {
+	const result: Point[] = [];
+	let improved = false;
+
+	for (let i = 0; i < points.length - 1; i++) {
+		const a = points[i];
+		const b = points[i + 1];
+		if (a === undefined || b === undefined) {
+			result.push(a ?? b ?? { x: 0, y: 0 });
+			continue;
+		}
+		result.push(a);
+
+		const intersectors = obstacles.filter((obs) =>
+			segmentIntersectsBox(a, b, obs),
+		);
+		if (intersectors.length === 0) {
+			continue;
+		}
+
+		// Find the obstacle whose edge is closest to the segment midpoint.
+		const mx = (a.x + b.x) / 2;
+		const my = (a.y + b.y) / 2;
+		const isHorizontal = a.y === b.y;
+		const margin = 12;
+
+		let bestWaypoint: Point | null = null;
+		let bestDist = Infinity;
+
+		for (const obs of intersectors) {
+			// Try escaping above/below (for horizontal segments) or left/right (for vertical)
+			const candidates: Point[] = isHorizontal
+				? [
+						{ x: mx, y: obs.y - margin },
+						{ x: mx, y: obs.y + obs.height + margin },
+					]
+				: [
+						{ x: obs.x - margin, y: my },
+						{ x: obs.x + obs.width + margin, y: my },
+					];
+
+			for (const wp of candidates) {
+				const dist = Math.hypot(wp.x - mx, wp.y - my);
+				if (dist < bestDist) {
+					bestDist = dist;
+					bestWaypoint = wp;
+				}
+			}
+		}
+
+		if (bestWaypoint !== null) {
+			result.push(bestWaypoint);
+			improved = true;
+		}
+	}
+
+	const last = points[points.length - 1];
+	if (last !== undefined) {
+		result.push(last);
+	}
+
+	return improved ? result : null;
 }
 
 function fallbackRoute(

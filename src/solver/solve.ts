@@ -55,6 +55,8 @@ import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
+	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
+	routingGutter?: number;
 	overlapSpacing?: number;
 	minLaneGutter?: number;
 	prefitLabelSize?: boolean;
@@ -403,7 +405,11 @@ export function solveDiagram(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+		[...nodeGeometryById.values()].map((geometry) =>
+			options.routingGutter === undefined
+				? geometry.obstacleBox
+				: expandBox(geometry.obstacleBox, options.routingGutter),
+		),
 		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
 		hardObstacles,
@@ -3562,6 +3568,45 @@ function edgeLabelAnchorCandidates(
 				{ x: placement.x, y: placement.y + offset },
 			);
 		}
+		// Diagonal segment: expand in both perpendicular directions.
+		const dx = segment.end.x - segment.start.x;
+		const dy = segment.end.y - segment.start.y;
+		const segLen = Math.hypot(dx, dy);
+		if (segLen > 0) {
+			const nx = -dy / segLen;
+			const ny = dx / segLen;
+			const maxSteps = Math.max(
+				12,
+				Math.ceil(
+					(layout.box.height / 2 + EDGE_LABEL_CLEARANCE) / EDGE_LABEL_CLEARANCE,
+				),
+			);
+			for (let step = 1; step <= maxSteps; step += 1) {
+				const offset = EDGE_LABEL_CLEARANCE * step;
+				candidates.push(
+					{ x: placement.x + nx * offset, y: placement.y + ny * offset },
+					{ x: placement.x - nx * offset, y: placement.y - ny * offset },
+				);
+			}
+		}
+
+		// For long edges, also try quartile positions along the polyline.
+		const totalLen = points.reduce((sum, p, idx) => {
+			if (idx === 0) return 0;
+			const prev = points[idx - 1];
+			return (
+				sum +
+				Math.hypot((p?.x ?? 0) - (prev?.x ?? 0), (p?.y ?? 0) - (prev?.y ?? 0))
+			);
+		}, 0);
+		if (totalLen > 200) {
+			for (const ratio of [0.25, 0.75]) {
+				const qp = pointAtRatio(points, ratio, totalLen);
+				if (qp !== undefined) {
+					candidates.push(qp);
+				}
+			}
+		}
 		return candidates;
 	}
 
@@ -3644,6 +3689,35 @@ function nonZeroSegments(points: readonly Point[]): Array<{
 		}
 	}
 	return segments;
+}
+
+function pointAtRatio(
+	points: readonly Point[],
+	ratio: number,
+	totalLength: number,
+): Point | undefined {
+	if (points.length < 2 || ratio < 0 || ratio > 1) {
+		return undefined;
+	}
+	const targetDist = totalLength * ratio;
+	let travelled = 0;
+	for (let idx = 1; idx < points.length; idx++) {
+		const prev = points[idx - 1];
+		const curr = points[idx];
+		if (prev === undefined || curr === undefined) {
+			continue;
+		}
+		const segLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+		if (travelled + segLen >= targetDist) {
+			const t = segLen === 0 ? 0 : (targetDist - travelled) / segLen;
+			return {
+				x: prev.x + (curr.x - prev.x) * t,
+				y: prev.y + (curr.y - prev.y) * t,
+			};
+		}
+		travelled += segLen;
+	}
+	return undefined;
 }
 
 function labelOffset(segment: {
