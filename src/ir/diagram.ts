@@ -76,6 +76,8 @@ export interface CoordinatedDiagram {
 	evidencePanels?: CoordinatedEvidencePanel[];
 	textAnnotations?: SolvedTextAnnotation[];
 	diagnostics: Diagnostic[];
+	/** True when any deliverability-breaking diagnostic was emitted. */
+	degraded: boolean;
 	bounds: Box;
 	frame?: CoordinatedFrame;
 	metadata?: DiagramMetadata;

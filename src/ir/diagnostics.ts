@@ -11,3 +11,17 @@ export interface Diagnostic {
 	path?: DiagnosticPathSegment[];
 	detail?: JsonObject;
 }
+
+/**
+ * Diagnostic codes that indicate the solver produced a degraded
+ * (non-deliverable) layout.  Downstream consumers can gate on the
+ * {@link CoordinatedDiagram.degraded} flag or use the
+ * {@link SolveDiagramOptions.strict} option to promote these to
+ * errors.
+ */
+export const DELIVERABILITY_DIAGNOSTIC_CODES = new Set([
+	"constraints.locked-target-not-moved",
+	"routing.obstacle.unavoidable",
+	"route_obstacle_fallback",
+	"routing.text-clearance.unresolved",
+]);

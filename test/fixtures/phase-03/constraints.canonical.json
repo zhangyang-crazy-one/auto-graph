@@ -5,6 +5,7 @@
     "x": 0,
     "y": 0
   },
+  "degraded": true,
   "diagnostics": [
     {
       "code": "layout.edge-reference.missing",

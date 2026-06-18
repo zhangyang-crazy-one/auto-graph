@@ -2201,6 +2201,72 @@ function sampleDiagram(): NormalizedDiagram {
 	};
 }
 
+function lockedChildDiagram(): ReturnType<typeof sampleDiagram> {
+	return {
+		id: "locked-child",
+		direction: "TB",
+		nodes: [
+			{
+				id: "container",
+				shape: "rectangle" as const,
+				size: { width: 200, height: 100 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: 0 },
+			},
+			{
+				id: "child",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 999, y: 999 },
+			},
+		],
+		edges: [],
+		groups: [],
+		constraints: [
+			{
+				kind: "containment" as const,
+				containerId: "container",
+				childIds: ["child"],
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			},
+		],
+		diagnostics: [],
+	};
+}
+
+it("sets degraded when a deliverability diagnostic is emitted", () => {
+	const result = solveDiagram(lockedChildDiagram());
+	expect(result.degraded).toBe(true);
+});
+
+it("promotes deliverability warnings to errors when strict is set", () => {
+	const result = solveDiagram(lockedChildDiagram(), { strict: true });
+	expect(result.degraded).toBe(true);
+	const locked = result.diagnostics.filter(
+		(d) => d.code === "constraints.locked-target-not-moved",
+	);
+	expect(locked.length).toBeGreaterThan(0);
+	for (const d of locked) {
+		expect(d.severity).toBe("error");
+	}
+});
+
+it("keeps degraded false when no deliverability diagnostics are emitted", () => {
+	const result = solveDiagram(sampleDiagram());
+	expect(result.degraded).toBe(false);
+});
+
+it("does not promote severity when strict is unset", () => {
+	const result = solveDiagram(lockedChildDiagram());
+	const locked = result.diagnostics.filter(
+		(d) => d.code === "constraints.locked-target-not-moved",
+	);
+	for (const d of locked) {
+		expect(d.severity).toBe("warning");
+	}
+});
+
 it("solveDiagramSafe enables prefitLabelSize by default", () => {
 	const result = solveDiagramSafe({
 		id: "safe-test",
