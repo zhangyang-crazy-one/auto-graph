@@ -178,22 +178,30 @@ function finalizeRoute(
 	diagnostics: Diagnostic[],
 ): Point[] {
 	const simplified = simplifyRoute(points);
+	if (simplified.length >= 3) {
+		return simplified;
+	}
 	const crossesHardObstacles = routeCrossesBoxes(simplified, hardObstacles);
 	const crossesSoftObstacles = routeCrossesBoxes(simplified, softObstacles);
-	if (simplified.length < 3 && (crossesHardObstacles || crossesSoftObstacles)) {
+	if (!crossesHardObstacles && !crossesSoftObstacles) {
+		return simplified;
+	}
+	const expanded = expandFallbackRoute(simplified, [
+		...softObstacles,
+		...hardObstacles,
+	]);
+	const expandedCrossesHard = routeCrossesBoxes(expanded, hardObstacles);
+	const expandedCrossesSoft = routeCrossesBoxes(expanded, softObstacles);
+	if (expandedCrossesHard || expandedCrossesSoft) {
 		diagnostics.push({
-			severity: crossesHardObstacles ? "error" : "warning",
+			severity: expandedCrossesHard ? "error" : "warning",
 			code: "route_obstacle_fallback",
 			message:
 				"Obstacle-aware routing fell back to fewer than three route points.",
 			detail: { pointCount: simplified.length },
 		});
-		return expandFallbackRoute(simplified, [
-			...softObstacles,
-			...hardObstacles,
-		]);
 	}
-	return simplified;
+	return expanded;
 }
 
 function expandFallbackRoute(
@@ -232,19 +240,16 @@ function expandFallbackRoute(
 	const vh = diagonalDetourVH(source, target, obstacles);
 	// Filter to obstacle-free candidates, preferring shorter paths.
 	const viable = [hv, vh].filter((c) => !routeCrossesBoxes(c, obstacles));
-	if (viable.length > 0) {
+	const [firstViable, ...remainingViable] = viable;
+	if (firstViable !== undefined) {
 		const directLen = Math.hypot(target.x - source.x, target.y - source.y);
-		let best = viable[0];
-		for (let i = 1; i < viable.length; i += 1) {
-			const cand = viable[i]!;
-			if (
-				cand !== undefined &&
-				pathLength(cand) - directLen < pathLength(best!) - directLen
-			) {
+		let best = firstViable;
+		for (const cand of remainingViable) {
+			if (pathLength(cand) - directLen < pathLength(best) - directLen) {
 				best = cand;
 			}
 		}
-		return best!;
+		return best;
 	}
 	// Fallback: midpoint L-shape (same as before).
 	return [

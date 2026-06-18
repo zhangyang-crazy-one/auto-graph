@@ -109,6 +109,7 @@ describe("public API", () => {
 			],
 			groups: [],
 			diagnostics: [],
+			degraded: false,
 			bounds: { x: 0, y: 0, width: 120, height: 60 },
 		};
 
@@ -240,6 +241,8 @@ describe("public API", () => {
 			],
 			groups: [],
 			diagnostics: [],
+
+			degraded: false,
 			bounds: { x: 0, y: 0, width: 220, height: 40 },
 		};
 

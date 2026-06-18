@@ -5,6 +5,7 @@
     "x": 0,
     "y": 0
   },
+  "degraded": false,
   "diagnostics": [],
   "direction": "LR",
   "edges": [

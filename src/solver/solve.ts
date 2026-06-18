@@ -15,7 +15,10 @@ import {
 	unionBoxes,
 } from "../geometry/index.js";
 import type { Constraint } from "../ir/constraints.js";
-import type { Diagnostic } from "../ir/diagnostics.js";
+import {
+	DELIVERABILITY_DIAGNOSTIC_CODES,
+	type Diagnostic,
+} from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -64,6 +67,8 @@ export interface SolveDiagramOptions {
 	cjkFontFamily?: string | false;
 	minCjkFontSize?: number | false;
 	textMeasurer?: TextMeasurer;
+	/** When true, promote deliverability-breaking diagnostics to errors. */
+	strict?: boolean;
 }
 
 export interface PortShiftingOptions {
@@ -439,6 +444,17 @@ export function solveDiagram(
 		),
 	);
 
+	let degraded = false;
+	const resultDiagnostics = diagnostics.map((diagnostic) => {
+		if (DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code)) {
+			degraded = true;
+			if (options.strict) {
+				return { ...diagnostic, severity: "error" as const };
+			}
+		}
+		return diagnostic;
+	});
+
 	return {
 		id: diagram.id,
 		...(diagram.title === undefined ? {} : { title: diagram.title }),
@@ -456,7 +472,8 @@ export function solveDiagram(
 		...(coordinatedEvidencePanels.length === 0
 			? {}
 			: { evidencePanels: coordinatedEvidencePanels }),
-		diagnostics,
+		diagnostics: resultDiagnostics,
+		degraded,
 		bounds:
 			frame === undefined
 				? unionBoxes(boundsBase)
@@ -2871,6 +2888,8 @@ function coordinateBaseTextAnnotations(input: {
 	groups: readonly CoordinatedGroup[];
 	swimlanes: readonly Swimlane[];
 	textMeasurer?: TextMeasurer;
+	/** When true, promote deliverability-breaking diagnostics to errors. */
+	strict?: boolean;
 }): SolvedTextAnnotation[] {
 	const measurer = input.textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];

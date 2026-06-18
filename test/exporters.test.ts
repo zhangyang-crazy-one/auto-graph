@@ -1129,6 +1129,7 @@ function createCoordinatedDiagram(): CoordinatedDiagram {
 			},
 		],
 		diagnostics: [],
+		degraded: false,
 		bounds: { x: 0, y: 0, width: 520, height: 360 },
 	};
 }
