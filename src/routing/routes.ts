@@ -204,7 +204,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 		return {
 			points: finalizeRoute(
-				candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
+				bestPoints,
 				softObstacles,
 				hardObstacles,
 				diagnostics,

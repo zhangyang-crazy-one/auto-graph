@@ -405,6 +405,11 @@ export function solveDiagram(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
+		[...nodeGeometryById.values()].map((geometry) =>
+			options.routingGutter === undefined
+				? geometry.obstacleBox
+				: expandBox(geometry.obstacleBox, options.routingGutter),
+		),
 		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
 		hardObstacles,
@@ -2794,6 +2799,7 @@ function coordinateEdges(
 	edges: readonly NormalizedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
+	obstacles: readonly Box[],
 	softObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
 	hardObstacles: readonly Box[],
@@ -2846,16 +2852,10 @@ function coordinateEdges(
 				? {}
 				: { targetAnchor: edge.target.anchor }),
 			obstacles: [
-				...[...nodes].flatMap(([nid, geom]) => {
-					if (nid === edge.source.nodeId || nid === edge.target.nodeId) {
-						return [];
-					}
-					const box =
-						options.routingGutter === undefined
-							? geom.obstacleBox
-							: expandBox(geom.obstacleBox, options.routingGutter);
-					return [box];
-				}),
+				...obstacles.filter(
+					(obstacle) =>
+						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
+				),
 				...softObstacles,
 				...routeTextObstacles,
 			],
@@ -3616,6 +3616,48 @@ function edgeLabelAnchorCandidates(
 			const qp = labelPlacementAtRatio(points, ratio, totalLen);
 			if (qp !== undefined) {
 				candidates.push(qp);
+				// Also generate progressive offsets like the midpoint search
+				const seg = labelSegmentOnPolyline(points);
+				if (seg !== undefined) {
+					const segLen = Math.hypot(
+						seg.end.x - seg.start.x,
+						seg.end.y - seg.start.y,
+					);
+					const qpNeeded =
+						seg.start.y === seg.end.y
+							? layout.box.height / 2 + EDGE_LABEL_CLEARANCE
+							: seg.start.x === seg.end.x
+								? layout.box.width / 2 + EDGE_LABEL_CLEARANCE
+								: (Math.abs(seg.end.x - seg.start.x) * layout.box.width +
+										Math.abs(seg.end.y - seg.start.y) * layout.box.height) /
+										(2 * segLen) +
+									EDGE_LABEL_CLEARANCE;
+					const qpMaxSteps = Math.max(
+						12,
+						Math.ceil(qpNeeded / EDGE_LABEL_CLEARANCE),
+					);
+					for (let step = 1; step <= qpMaxSteps; step += 1) {
+						const offset = EDGE_LABEL_CLEARANCE * step;
+						if (seg.start.y === seg.end.y) {
+							candidates.push(
+								{ x: qp.x, y: qp.y - offset },
+								{ x: qp.x, y: qp.y + offset },
+							);
+						} else if (seg.start.x === seg.end.x) {
+							candidates.push(
+								{ x: qp.x - offset, y: qp.y },
+								{ x: qp.x + offset, y: qp.y },
+							);
+						} else {
+							const nx = -(seg.end.y - seg.start.y) / segLen;
+							const ny = (seg.end.x - seg.start.x) / segLen;
+							candidates.push(
+								{ x: qp.x + nx * offset, y: qp.y + ny * offset },
+								{ x: qp.x - nx * offset, y: qp.y - ny * offset },
+							);
+						}
+					}
+				}
 			}
 		}
 	}
