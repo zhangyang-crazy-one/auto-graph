@@ -3643,8 +3643,8 @@ function edgeLabelAnchorCandidates(
 							? layout.box.height / 2 + EDGE_LABEL_CLEARANCE
 							: seg.start.x === seg.end.x
 								? layout.box.width / 2 + EDGE_LABEL_CLEARANCE
-								: (Math.abs(seg.end.x - seg.start.x) * layout.box.width +
-										Math.abs(seg.end.y - seg.start.y) * layout.box.height) /
+								: (Math.abs(seg.start.y - seg.end.y) * layout.box.width +
+										Math.abs(seg.end.x - seg.start.x) * layout.box.height) /
 										(2 * segLen) +
 									EDGE_LABEL_CLEARANCE;
 					const qpMaxSteps = Math.max(

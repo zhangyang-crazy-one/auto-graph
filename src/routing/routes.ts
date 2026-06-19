@@ -120,6 +120,41 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		let bestPoints = hardClearCandidate.points;
 		if (input.kind === "obstacle-avoiding") {
 			const allObstacles = [...softObstacles, ...hardObstacles];
+			// Try greedy rerouting on all hard-clear candidates, not just the first.
+			for (const candidate of candidateRoutes) {
+				if (
+					routeCrossesBoxes(candidate.points, hardObstacles) ||
+					routeIntersectsEndpointInteriors(
+						candidate.points,
+						candidate.endpointObstacles,
+					)
+				) {
+					continue;
+				}
+				const rerouted = greedyRerouteAroundObstacles(
+					candidate.points,
+					allObstacles,
+					3,
+				);
+				if (
+					!routeCrossesBoxes(rerouted, allObstacles) &&
+					!routeIntersectsEndpointInteriors(
+						rerouted,
+						candidate.endpointObstacles,
+					)
+				) {
+					return {
+						points: finalizeRoute(
+							rerouted,
+							softObstacles,
+							hardObstacles,
+							diagnostics,
+						),
+						diagnostics,
+					};
+				}
+			}
+			// Fall back to improving the first hard-clear candidate
 			const rerouted = greedyRerouteAroundObstacles(
 				bestPoints,
 				allObstacles,
@@ -129,20 +164,6 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				rerouted,
 				hardClearCandidate.endpointObstacles,
 			);
-			if (
-				!routeCrossesBoxes(rerouted, allObstacles) &&
-				reroutedAvoidsEndpointInteriors
-			) {
-				return {
-					points: finalizeRoute(
-						rerouted,
-						softObstacles,
-						hardObstacles,
-						diagnostics,
-					),
-					diagnostics,
-				};
-			}
 			if (reroutedAvoidsEndpointInteriors) {
 				if (
 					routeCrossesBoxes(rerouted, hardObstacles) &&
@@ -177,23 +198,30 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors);
 		if (input.kind === "obstacle-avoiding") {
 			const allObstacles = [...softObstacles, ...hardObstacles];
-			const rerouted = greedyRerouteAroundObstacles(
-				bestPoints,
+			// Try greedy rerouting on all candidates, return first clean one.
+			for (const candidate of candidateRoutes) {
+				const rerouted = greedyRerouteAroundObstacles(
+					candidate.points,
+					allObstacles,
+					5,
+				);
+				if (!routeCrossesBoxes(rerouted, allObstacles)) {
+					return {
+						points: finalizeRoute(
+							rerouted,
+							softObstacles,
+							hardObstacles,
+							diagnostics,
+						),
+						diagnostics,
+					};
+				}
+			}
+			bestPoints = greedyRerouteAroundObstacles(
+				candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
 				allObstacles,
 				5,
 			);
-			if (!routeCrossesBoxes(rerouted, allObstacles)) {
-				return {
-					points: finalizeRoute(
-						rerouted,
-						softObstacles,
-						hardObstacles,
-						diagnostics,
-					),
-					diagnostics,
-				};
-			}
-			bestPoints = rerouted;
 		}
 		diagnostics.push({
 			severity: "error",
