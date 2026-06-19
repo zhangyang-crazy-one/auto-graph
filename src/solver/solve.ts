@@ -3616,8 +3616,23 @@ function edgeLabelAnchorCandidates(
 			const qp = labelPlacementAtRatio(points, ratio, totalLen);
 			if (qp !== undefined) {
 				candidates.push(qp);
-				// Also generate progressive offsets like the midpoint search
-				const seg = labelSegmentOnPolyline(points);
+				// Find the segment that contains the quartile point
+				// (labelSegmentOnPolyline gives the midpoint segment, not the quartile one)
+				const qTargetDist = totalLen * ratio;
+				let qTravelled = 0;
+				let seg: { start: Point; end: Point; length: number } | undefined;
+				for (let si = 1; si < points.length; si++) {
+					const sp = points[si - 1];
+					const sc = points[si];
+					if (sp === undefined || sc === undefined) continue;
+					const sl = Math.hypot(sc.x - sp.x, sc.y - sp.y);
+					if (sl <= 0) continue;
+					if (qTravelled + sl >= qTargetDist) {
+						seg = { start: sp, end: sc, length: sl };
+						break;
+					}
+					qTravelled += sl;
+				}
 				if (seg !== undefined) {
 					const segLen = Math.hypot(
 						seg.end.x - seg.start.x,

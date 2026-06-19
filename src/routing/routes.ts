@@ -216,22 +216,32 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	let bestPoints =
 		candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors);
 	if (input.kind === "obstacle-avoiding") {
+		const allObstacles = [...softObstacles, ...hardObstacles];
+		// Try greedy rerouting on multiple candidates, not just the first.
+		for (const candidate of candidateRoutes) {
+			const rerouted = greedyRerouteAroundObstacles(
+				candidate.points,
+				allObstacles,
+				5,
+			);
+			if (!routeCrossesBoxes(rerouted, allObstacles)) {
+				return {
+					points: finalizeRoute(
+						rerouted,
+						softObstacles,
+						hardObstacles,
+						diagnostics,
+					),
+					diagnostics,
+				};
+			}
+		}
+		// Keep the best attempt from the first candidate
 		bestPoints = greedyRerouteAroundObstacles(
-			bestPoints,
-			[...softObstacles, ...hardObstacles],
+			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
+			allObstacles,
 			5,
 		);
-		if (!routeCrossesBoxes(bestPoints, [...softObstacles, ...hardObstacles])) {
-			return {
-				points: finalizeRoute(
-					bestPoints,
-					softObstacles,
-					hardObstacles,
-					diagnostics,
-				),
-				diagnostics,
-			};
-		}
 	}
 	diagnostics.push({
 		severity: "warning",
