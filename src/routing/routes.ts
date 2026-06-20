@@ -159,7 +159,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			const rerouted = greedyRerouteAroundObstacles(
 				bestPoints,
 				allObstacles,
-				Math.min(maxAttempts, 3),
+				maxAttempts,
 			);
 			const reroutedAvoidsEndpointInteriors = !routeIntersectsEndpointInteriors(
 				rerouted,

@@ -2868,6 +2868,9 @@ function coordinateEdges(
 				...routeTextObstacles,
 			],
 			hardObstacles,
+			...(options.maxRoutingAttempts === undefined
+				? {}
+				: { maxRoutingAttempts: options.maxRoutingAttempts }),
 		});
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
@@ -3523,6 +3526,7 @@ function edgeLabelAnchor(
 		edge.points,
 		placement,
 		layout,
+		baseOffset,
 	)) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
@@ -3561,8 +3565,9 @@ function edgeLabelAnchorCandidates(
 	points: readonly Point[],
 	placement: Point,
 	layout: LabelLayout,
+	baseOffset = 10,
 ): Point[] {
-	const segment = labelSegmentOnPolyline(points);
+	const segment = labelSegmentOnPolyline(points, baseOffset);
 	if (segment === undefined) {
 		return [placement];
 	}
@@ -3628,7 +3633,7 @@ function edgeLabelAnchorCandidates(
 	}, 0);
 	if (totalLen > 200) {
 		for (const ratio of [0.25, 0.75]) {
-			const qp = labelPlacementAtRatio(points, ratio, totalLen);
+			const qp = labelPlacementAtRatio(points, ratio, totalLen, baseOffset);
 			if (qp !== undefined) {
 				candidates.push(qp);
 				// Find the segment that contains the quartile point
@@ -3735,7 +3740,7 @@ function labelSegmentOnPolyline(
 	if (last === undefined) {
 		return undefined;
 	}
-	const offset = labelOffset(last);
+	const offset = labelOffset(last, baseOffset);
 	return {
 		start: last.start,
 		end: last.end,
@@ -3767,6 +3772,7 @@ function labelPlacementAtRatio(
 	points: readonly Point[],
 	ratio: number,
 	totalLength: number,
+	baseOffset = 10,
 ): Point | undefined {
 	if (points.length < 2 || ratio < 0 || ratio > 1) {
 		return undefined;
@@ -3785,7 +3791,10 @@ function labelPlacementAtRatio(
 		}
 		if (travelled + segLen >= targetDist) {
 			const t = (targetDist - travelled) / segLen;
-			const offset = labelOffset({ start: prev, end: curr, length: segLen });
+			const offset = labelOffset(
+				{ start: prev, end: curr, length: segLen },
+				baseOffset,
+			);
 			return {
 				x: prev.x + (curr.x - prev.x) * t + offset.x,
 				y: prev.y + (curr.y - prev.y) * t + offset.y,

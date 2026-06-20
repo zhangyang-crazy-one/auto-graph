@@ -70,7 +70,12 @@ if (parsed.value === undefined) {
 }
 
 const normalized = normalizeDiagramDsl(parsed.value);
-const coordinated = solveDiagram(normalized.diagram);
+const coordinated = solveDiagram(normalized.diagram, {
+  routeKind: "obstacle-avoiding",
+  maxRoutingAttempts: 8,
+  labelPlacement: "beside",
+  labelOffset: 16,
+});
 
 const svg = exportSvg(coordinated, { title: "Architecture" });
 const excalidraw = exportExcalidraw(coordinated);
