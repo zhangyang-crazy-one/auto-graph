@@ -13,6 +13,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
 	const hardObstacles = input.hardObstacles ?? [];
+	const maxAttempts = input.maxRoutingAttempts ?? 5;
 	const defaultAnchors = defaultAnchorsForGeometry(
 		input.source.box,
 		input.target.box,
@@ -134,7 +135,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				const rerouted = greedyRerouteAroundObstacles(
 					candidate.points,
 					allObstacles,
-					3,
+					maxAttempts,
 				);
 				if (
 					!routeCrossesBoxes(rerouted, allObstacles) &&
@@ -158,7 +159,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			const rerouted = greedyRerouteAroundObstacles(
 				bestPoints,
 				allObstacles,
-				3,
+				Math.min(maxAttempts, 3),
 			);
 			const reroutedAvoidsEndpointInteriors = !routeIntersectsEndpointInteriors(
 				rerouted,
@@ -203,7 +204,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				const rerouted = greedyRerouteAroundObstacles(
 					candidate.points,
 					allObstacles,
-					5,
+					maxAttempts,
 				);
 				if (!routeCrossesBoxes(rerouted, allObstacles)) {
 					return {
@@ -220,7 +221,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			bestPoints = greedyRerouteAroundObstacles(
 				candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
 				allObstacles,
-				5,
+				maxAttempts,
 			);
 		}
 		diagnostics.push({
@@ -250,7 +251,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			const rerouted = greedyRerouteAroundObstacles(
 				candidate.points,
 				allObstacles,
-				5,
+				maxAttempts,
 			);
 			if (!routeCrossesBoxes(rerouted, allObstacles)) {
 				return {
@@ -268,7 +269,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		bestPoints = greedyRerouteAroundObstacles(
 			candidateRoutes[0]?.points ?? fallbackRoute(input, defaultAnchors),
 			allObstacles,
-			5,
+			maxAttempts,
 		);
 	}
 	diagnostics.push({

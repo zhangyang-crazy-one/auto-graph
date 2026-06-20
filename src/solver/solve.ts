@@ -71,6 +71,12 @@ export interface SolveDiagramOptions {
 	textMeasurer?: TextMeasurer;
 	/** When true, promote deliverability-breaking diagnostics to errors. */
 	strict?: boolean;
+	/** Maximum greedy rerouting iterations per edge (default 5). */
+	maxRoutingAttempts?: number;
+	/** Edge label placement mode: "beside" offsets away from the edge, "on-path" (default) places at the midpoint. */
+	labelPlacement?: "beside" | "on-path";
+	/** Pixels to offset edge labels from the edge path when labelPlacement is "beside". */
+	labelOffset?: number;
 }
 
 export interface PortShiftingOptions {
@@ -425,6 +431,8 @@ export function solveDiagram(
 			...frameTextAnnotation.map((annotation) => annotation.box),
 		],
 		options.textMeasurer,
+		options.labelPlacement,
+		options.labelOffset,
 	);
 	const textAnnotations = [
 		...baseTextAnnotations,
@@ -3055,7 +3063,12 @@ function coordinateEdgeTextAnnotations(
 	edges: readonly CoordinatedEdge[],
 	obstacleBoxes: readonly Box[],
 	textMeasurer?: TextMeasurer,
+	labelPlacement?: "beside" | "on-path",
+	labelOffset?: number,
 ): SolvedTextAnnotation[] {
+	const labelBaseOffset =
+		labelPlacement === "beside" ? (labelOffset ?? 16) : 10;
+
 	const measurer = textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];
 	const placedLabelBoxes: Box[] = [];
@@ -3084,6 +3097,7 @@ function coordinateEdgeTextAnnotations(
 			edges,
 			obstacleBoxes,
 			placedLabelBoxes,
+			labelBaseOffset,
 		);
 		placedLabelBoxes.push({
 			x: center.x - layout.box.width / 2,
@@ -3498,8 +3512,9 @@ function edgeLabelAnchor(
 	edges: readonly CoordinatedEdge[],
 	obstacleBoxes: readonly Box[],
 	placedLabelBoxes: readonly Box[],
+	baseOffset = 10,
 ): Point {
-	const placement = labelPlacementOnPolyline(edge.points);
+	const placement = labelPlacementOnPolyline(edge.points, baseOffset);
 	if (placement === undefined) {
 		return { x: 0, y: 0 };
 	}
@@ -3680,12 +3695,16 @@ function edgeLabelAnchorCandidates(
 	return candidates;
 }
 
-function labelPlacementOnPolyline(points: readonly Point[]): Point | undefined {
-	return labelSegmentOnPolyline(points)?.placement;
+function labelPlacementOnPolyline(
+	points: readonly Point[],
+	baseOffset = 10,
+): Point | undefined {
+	return labelSegmentOnPolyline(points, baseOffset)?.placement;
 }
 
 function labelSegmentOnPolyline(
 	points: readonly Point[],
+	baseOffset = 10,
 ): { start: Point; end: Point; placement: Point } | undefined {
 	const segments = nonZeroSegments(points);
 	const totalLength = segments.reduce(
@@ -3702,7 +3721,7 @@ function labelSegmentOnPolyline(
 			const ratio = remaining / segment.length;
 			const x = segment.start.x + (segment.end.x - segment.start.x) * ratio;
 			const y = segment.start.y + (segment.end.y - segment.start.y) * ratio;
-			const offset = labelOffset(segment);
+			const offset = labelOffset(segment, baseOffset);
 			return {
 				start: segment.start,
 				end: segment.end,
@@ -3777,12 +3796,11 @@ function labelPlacementAtRatio(
 	return undefined;
 }
 
-function labelOffset(segment: {
-	start: Point;
-	end: Point;
-	length: number;
-}): Point {
-	const offset = 10;
+function labelOffset(
+	segment: { start: Point; end: Point; length: number },
+	baseOffset = 10,
+): Point {
+	const offset = baseOffset;
 	const dx = segment.end.x - segment.start.x;
 	const dy = segment.end.y - segment.start.y;
 	return {
