@@ -426,6 +426,38 @@ it("dodges multiple obstacles in obstacle-avoiding orthogonal mode", () => {
 	}
 });
 
+it("honors requested reroute attempts above three in hard-clear fallback", () => {
+	const obstacles = [
+		{ x: 389, y: -90, width: 106, height: 88 },
+		{ x: 127, y: 70, width: 31, height: 100 },
+		{ x: 187, y: -134, width: 51, height: 120 },
+		{ x: 343, y: 103, width: 62, height: 123 },
+		{ x: 430, y: -12, width: 114, height: 141 },
+		{ x: 376, y: -1, width: 48, height: 113 },
+	];
+	const threeAttempts = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(500, 0),
+		obstacles,
+		maxRoutingAttempts: 3,
+	});
+	const fourAttempts = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(500, 0),
+		obstacles,
+		maxRoutingAttempts: 4,
+	});
+
+	expect(fourAttempts.points).not.toEqual(threeAttempts.points);
+	expect(fourAttempts.points.length).toBeGreaterThan(
+		threeAttempts.points.length,
+	);
+});
+
 it("dodges obstacles in obstacle-avoiding straight mode", () => {
 	const obstacle = { x: 140, y: 20, width: 40, height: 20 };
 	const result = routeEdge({

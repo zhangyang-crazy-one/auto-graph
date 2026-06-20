@@ -1157,6 +1157,53 @@ describe("solveDiagram", () => {
 		).toBe(false);
 	});
 
+	it("honors beside labelOffset for long-edge fallback label anchors", () => {
+		const result = solveDiagram(
+			{
+				id: "edge-label-beside-fallback-offset",
+				direction: "LR",
+				nodes: [
+					node("source", { x: 0, y: 0 }),
+					node("target", { x: 400, y: 0 }),
+					node("blocker_source", { x: 200, y: -180 }),
+					node("blocker_target", { x: 200, y: 180 }),
+				],
+				edges: [
+					{
+						id: "labeled",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+						label: { text: "realizes" },
+					},
+					{
+						id: "blocker",
+						source: { nodeId: "blocker_source" },
+						target: { nodeId: "blocker_target" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				labelPlacement: "beside",
+				labelOffset: 64,
+			},
+		);
+		const edge = result.edges.find((item) => item.id === "labeled");
+		const label = result.textAnnotations?.find(
+			(annotation) =>
+				annotation.surfaceKind === "edge-label" &&
+				annotation.ownerId === "labeled",
+		);
+
+		expect(edge).toBeDefined();
+		expect(label).toBeDefined();
+		expect(label?.anchor.x).not.toBeCloseTo(240);
+		expect(label?.anchor.y).toBeCloseTo((edge?.points[0]?.y ?? 0) + 64);
+	});
+
 	it("reports unresolved overlap between externally placed solved text boxes", () => {
 		const result = solveDiagram(
 			{
@@ -1250,6 +1297,43 @@ describe("solveDiagram", () => {
 					diagnostic.detail?.textSurfaceKind === "port-label",
 			),
 		).toBe(false);
+	});
+
+	it("forwards maxRoutingAttempts to obstacle-avoiding route solving", () => {
+		const obstacles = routingAttemptObstaclePanels();
+		const diagram: NormalizedDiagram = {
+			id: "max-routing-forwarding",
+			direction: "LR",
+			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 500, y: 0 })],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			evidencePanels: obstacles,
+		};
+
+		const shallow = solveDiagram(diagram, {
+			routeKind: "obstacle-avoiding",
+			maxRoutingAttempts: 0,
+		});
+		const deeper = solveDiagram(diagram, {
+			routeKind: "obstacle-avoiding",
+			maxRoutingAttempts: 4,
+		});
+
+		expect(shallow.edges[0]?.points).not.toEqual(deeper.edges[0]?.points);
+		expect(shallow.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "route_obstacle_fallback" }),
+		);
+		expect(deeper.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "route_obstacle_fallback" }),
+		);
 	});
 
 	it("reports edge-label clearance conflicts after route placement", () => {
@@ -2471,6 +2555,25 @@ function node(id: string, position?: { x: number; y: number }) {
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
 	};
+}
+
+function routingAttemptObstaclePanels(): NonNullable<
+	NormalizedDiagram["evidencePanels"]
+> {
+	return [
+		{ x: 389, y: -90, width: 106, height: 88 },
+		{ x: 127, y: 70, width: 31, height: 100 },
+		{ x: 187, y: -134, width: 51, height: 120 },
+		{ x: 343, y: 103, width: 62, height: 123 },
+		{ x: 430, y: -12, width: 114, height: 141 },
+		{ x: 376, y: -1, width: 48, height: 113 },
+	].map((box, index) => ({
+		id: `routing-obstacle-${index}`,
+		kind: "legend" as const,
+		position: { x: box.x, y: box.y },
+		size: { width: box.width, height: box.height },
+		items: [],
+	}));
 }
 
 class WideGlyphTextMeasurer implements TextMeasurer {

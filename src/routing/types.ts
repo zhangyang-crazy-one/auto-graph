@@ -18,6 +18,8 @@ export interface RouteEdgeInput {
 	targetAnchor?: AnchorName;
 	obstacles?: readonly Box[];
 	hardObstacles?: readonly Box[];
+	/** Maximum greedy rerouting iterations (default 5). */
+	maxRoutingAttempts?: number;
 }
 
 export interface RouteEdgeResult {
