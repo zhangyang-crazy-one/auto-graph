@@ -55,6 +55,8 @@ import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
+	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
+	routingGutter?: number;
 	overlapSpacing?: number;
 	minLaneGutter?: number;
 	prefitLabelSize?: boolean;
@@ -403,7 +405,11 @@ export function solveDiagram(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) => geometry.obstacleBox),
+		[...nodeGeometryById.values()].map((geometry) =>
+			options.routingGutter === undefined
+				? geometry.obstacleBox
+				: expandBox(geometry.obstacleBox, options.routingGutter),
+		),
 		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
 		hardObstacles,
@@ -3562,10 +3568,7 @@ function edgeLabelAnchorCandidates(
 				{ x: placement.x, y: placement.y + offset },
 			);
 		}
-		return candidates;
-	}
-
-	if (segment.start.x === segment.end.x) {
+	} else if (segment.start.x === segment.end.x) {
 		// Vertical segment: label moves horizontally; must clear half its width.
 		const needed = layout.box.width / 2 + EDGE_LABEL_CLEARANCE;
 		const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
@@ -3576,7 +3579,102 @@ function edgeLabelAnchorCandidates(
 				{ x: placement.x - offset, y: placement.y },
 			);
 		}
-		return candidates;
+	} else {
+		// Diagonal segment: expand in both perpendicular directions.
+		const dx = segment.end.x - segment.start.x;
+		const dy = segment.end.y - segment.start.y;
+		const segLen = Math.hypot(dx, dy);
+		if (segLen > 0) {
+			const nx = -dy / segLen;
+			const ny = dx / segLen;
+			const needed =
+				(Math.abs(nx) * layout.box.width + Math.abs(ny) * layout.box.height) /
+					2 +
+				EDGE_LABEL_CLEARANCE;
+			const maxSteps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
+			for (let step = 1; step <= maxSteps; step += 1) {
+				const offset = EDGE_LABEL_CLEARANCE * step;
+				candidates.push(
+					{ x: placement.x + nx * offset, y: placement.y + ny * offset },
+					{ x: placement.x - nx * offset, y: placement.y - ny * offset },
+				);
+			}
+		}
+	}
+
+	// For long edges, also try quartile positions along the polyline.
+	const totalLen = points.reduce((sum, p, idx) => {
+		if (idx === 0) return 0;
+		const prev = points[idx - 1];
+		return (
+			sum +
+			Math.hypot((p?.x ?? 0) - (prev?.x ?? 0), (p?.y ?? 0) - (prev?.y ?? 0))
+		);
+	}, 0);
+	if (totalLen > 200) {
+		for (const ratio of [0.25, 0.75]) {
+			const qp = labelPlacementAtRatio(points, ratio, totalLen);
+			if (qp !== undefined) {
+				candidates.push(qp);
+				// Find the segment that contains the quartile point
+				// (labelSegmentOnPolyline gives the midpoint segment, not the quartile one)
+				const qTargetDist = totalLen * ratio;
+				let qTravelled = 0;
+				let seg: { start: Point; end: Point; length: number } | undefined;
+				for (let si = 1; si < points.length; si++) {
+					const sp = points[si - 1];
+					const sc = points[si];
+					if (sp === undefined || sc === undefined) continue;
+					const sl = Math.hypot(sc.x - sp.x, sc.y - sp.y);
+					if (sl <= 0) continue;
+					if (qTravelled + sl >= qTargetDist) {
+						seg = { start: sp, end: sc, length: sl };
+						break;
+					}
+					qTravelled += sl;
+				}
+				if (seg !== undefined) {
+					const segLen = Math.hypot(
+						seg.end.x - seg.start.x,
+						seg.end.y - seg.start.y,
+					);
+					const qpNeeded =
+						seg.start.y === seg.end.y
+							? layout.box.height / 2 + EDGE_LABEL_CLEARANCE
+							: seg.start.x === seg.end.x
+								? layout.box.width / 2 + EDGE_LABEL_CLEARANCE
+								: (Math.abs(seg.start.y - seg.end.y) * layout.box.width +
+										Math.abs(seg.end.x - seg.start.x) * layout.box.height) /
+										(2 * segLen) +
+									EDGE_LABEL_CLEARANCE;
+					const qpMaxSteps = Math.max(
+						12,
+						Math.ceil(qpNeeded / EDGE_LABEL_CLEARANCE),
+					);
+					for (let step = 1; step <= qpMaxSteps; step += 1) {
+						const offset = EDGE_LABEL_CLEARANCE * step;
+						if (seg.start.y === seg.end.y) {
+							candidates.push(
+								{ x: qp.x, y: qp.y - offset },
+								{ x: qp.x, y: qp.y + offset },
+							);
+						} else if (seg.start.x === seg.end.x) {
+							candidates.push(
+								{ x: qp.x - offset, y: qp.y },
+								{ x: qp.x + offset, y: qp.y },
+							);
+						} else {
+							const nx = -(seg.end.y - seg.start.y) / segLen;
+							const ny = (seg.end.x - seg.start.x) / segLen;
+							candidates.push(
+								{ x: qp.x + nx * offset, y: qp.y + ny * offset },
+								{ x: qp.x - nx * offset, y: qp.y - ny * offset },
+							);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return candidates;
@@ -3644,6 +3742,39 @@ function nonZeroSegments(points: readonly Point[]): Array<{
 		}
 	}
 	return segments;
+}
+
+function labelPlacementAtRatio(
+	points: readonly Point[],
+	ratio: number,
+	totalLength: number,
+): Point | undefined {
+	if (points.length < 2 || ratio < 0 || ratio > 1) {
+		return undefined;
+	}
+	const targetDist = totalLength * ratio;
+	let travelled = 0;
+	for (let idx = 1; idx < points.length; idx++) {
+		const prev = points[idx - 1];
+		const curr = points[idx];
+		if (prev === undefined || curr === undefined) {
+			continue;
+		}
+		const segLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+		if (segLen <= 0) {
+			continue;
+		}
+		if (travelled + segLen >= targetDist) {
+			const t = (targetDist - travelled) / segLen;
+			const offset = labelOffset({ start: prev, end: curr, length: segLen });
+			return {
+				x: prev.x + (curr.x - prev.x) * t + offset.x,
+				y: prev.y + (curr.y - prev.y) * t + offset.y,
+			};
+		}
+		travelled += segLen;
+	}
+	return undefined;
 }
 
 function labelOffset(segment: {

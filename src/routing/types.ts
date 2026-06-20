@@ -7,7 +7,7 @@ import type {
 	Point,
 } from "../ir/geometry.js";
 
-export type RouteKind = "orthogonal" | "straight";
+export type RouteKind = "orthogonal" | "straight" | "obstacle-avoiding";
 
 export interface RouteEdgeInput {
 	kind?: RouteKind;

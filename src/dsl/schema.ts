@@ -3,7 +3,7 @@ import { createSchemaDiagnostic, sortDslDiagnostics } from "./diagnostics.js";
 import type { DslDiagnostic } from "./types.js";
 
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
-const routeKindSchema = z.enum(["orthogonal", "straight"]);
+const routeKindSchema = z.enum(["orthogonal", "straight", "obstacle-avoiding"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);

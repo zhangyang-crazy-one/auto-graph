@@ -393,6 +393,52 @@ it("emits crossing_forbidden for diagonal straight edge hitting hard obstacle", 
 	);
 });
 
+it("dodges obstacles in obstacle-avoiding orthogonal mode", () => {
+	const obstacle = { x: 130, y: 5, width: 80, height: 30 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(300, 0),
+		obstacles: [obstacle],
+	});
+
+	expect(result.points.length).toBeGreaterThanOrEqual(3);
+	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+});
+
+it("dodges multiple obstacles in obstacle-avoiding orthogonal mode", () => {
+	const obstacles = [
+		{ x: 130, y: 30, width: 60, height: 40 },
+		{ x: 220, y: -40, width: 60, height: 40 },
+		{ x: 160, y: 60, width: 60, height: 40 },
+	];
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(300, 0),
+		obstacles,
+	});
+
+	for (const obs of obstacles) {
+		expect(routeIntersectsObstacle(result.points, obs)).toBe(false);
+	}
+});
+
+it("dodges obstacles in obstacle-avoiding straight mode", () => {
+	const obstacle = { x: 140, y: 20, width: 40, height: 20 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 0),
+		obstacles: [obstacle],
+	});
+
+	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+});
+
 function shape(x: number, y: number) {
 	return computeShapeGeometry({
 		shape: "rectangle",
