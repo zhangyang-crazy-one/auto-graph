@@ -805,6 +805,16 @@ function applyDistributeContained(
 				continue;
 			}
 			if (locks.has(childId)) {
+				const lock = locks.get(childId);
+				// When distribution is explicitly requested, a fixed-position
+				// lock (from the node's `position` field) yields to the
+				// distributor so the caller's distributeContainedChildren
+				// option actually takes effect (#37). Explicit exact-position
+				// constraints still win and are reserved.
+				if (lock?.source === "fixed-position") {
+					unlocked.push({ id: childId, box });
+					continue;
+				}
 				diagnostics.push({
 					severity: "warning",
 					code: "constraints.locked-target-not-moved",

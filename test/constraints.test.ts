@@ -483,7 +483,41 @@ describe("layout constraints", () => {
 		expect(result.boxes.get("c2")?.y).toBe(0);
 	});
 
-	it("skips locked children during distribution", () => {
+	it("skips exact-position locked children during distribution", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 50, y: 0, width: 40, height: 30 }],
+				["c2", { x: 50, y: 0, width: 40, height: 30 }],
+				["c3", { x: 50, y: 0, width: 40, height: 30 }],
+			]),
+			nodes: [node("container"), node("c1"), node("c2"), node("c3")],
+			groups: [],
+			constraints: [
+				{ kind: "exact-position", targetId: "c1", position: { x: 50, y: 0 } },
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2", "c3"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("c1")?.y).toBe(0);
+		expect(result.boxes.get("c2")?.y).toBeGreaterThanOrEqual(0);
+		expect(result.boxes.get("c3")?.y).toBeGreaterThan(
+			result.boxes.get("c2")?.y ?? 0,
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "constraints.locked-target-not-moved" }),
+		);
+	});
+
+	it("distributes fixed-position children when distributeContainedChildren is set (#37)", () => {
 		const result = applyLayoutConstraints({
 			direction: "TB",
 			overlapSpacing: 40,
@@ -511,17 +545,19 @@ describe("layout constraints", () => {
 			],
 		});
 
-		expect(result.boxes.get("c1")?.y).toBe(0);
-		expect(result.boxes.get("c2")?.y).toBeGreaterThanOrEqual(0);
+		// fixed-position lock yields to the distributor
+		expect(result.boxes.get("c2")?.y).toBeGreaterThan(
+			result.boxes.get("c1")?.y ?? 0,
+		);
 		expect(result.boxes.get("c3")?.y).toBeGreaterThan(
 			result.boxes.get("c2")?.y ?? 0,
 		);
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "constraints.locked-target-not-moved" }),
-		);
+		expect(
+			result.diagnostics.some((d) => d.code === "intra_container_distributed"),
+		).toBe(true);
 	});
 
-	it("does not let locked children away from the origin skew distribution", () => {
+	it("does not let exact-position locked children away from the origin skew distribution", () => {
 		const result = applyLayoutConstraints({
 			direction: "TB",
 			overlapSpacing: 40,
@@ -532,14 +568,14 @@ describe("layout constraints", () => {
 				["c2", { x: 50, y: 0, width: 40, height: 30 }],
 				["locked", { x: 130, y: 150, width: 40, height: 30 }],
 			]),
-			nodes: [
-				node("container"),
-				node("c1"),
-				node("c2"),
-				node("locked", { x: 130, y: 150 }),
-			],
+			nodes: [node("container"), node("c1"), node("c2"), node("locked")],
 			groups: [],
 			constraints: [
+				{
+					kind: "exact-position",
+					targetId: "locked",
+					position: { x: 130, y: 150 },
+				},
 				{
 					kind: "containment",
 					containerId: "container",
