@@ -5,6 +5,7 @@ import { computeArrowhead } from "../src/exporters/arrow.js";
 import {
 	DELIVERABILITY_DIAGNOSTIC_CODES,
 	type Diagnostic,
+	type LabelLayout,
 	type NormalizedDiagram,
 } from "../src/ir/index.js";
 import { solveDiagram, solveDiagramSafe } from "../src/solver/index.js";
@@ -1309,6 +1310,54 @@ describe("solveDiagram", () => {
 					diagnostic.detail?.textSurfaceKind === "port-label",
 			),
 		).toBe(false);
+	});
+
+	it("routes around group-label text when an endpoint node shares the group id", () => {
+		const result = solveDiagram(
+			{
+				id: "same-id-group-label-route-clearance",
+				direction: "LR",
+				nodes: [
+					node("shared", { x: 0, y: 0 }),
+					node("target", { x: 300, y: 0 }),
+					node("member", { x: 150, y: 50 }),
+				],
+				edges: [
+					{
+						id: "shared-target",
+						source: { nodeId: "shared" },
+						target: { nodeId: "target" },
+					},
+				],
+				groups: [
+					{
+						id: "shared",
+						label: { text: "shared group title" },
+						nodeIds: ["member"],
+						groupIds: [],
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						labelLayout: createTestLabelLayout("shared group title", {
+							x: -100,
+							y: -15,
+							width: 200,
+							height: 20,
+						}),
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ routeKind: "straight" },
+		);
+		const route = result.edges.find((edge) => edge.id === "shared-target");
+
+		expect(result.textAnnotations).toContainEqual(
+			expect.objectContaining({
+				ownerId: "shared",
+				surfaceKind: "group-label",
+			}),
+		);
+		expect(route?.points.some((point) => point.y !== 20)).toBe(true);
 	});
 
 	it("forwards maxRoutingAttempts to obstacle-avoiding route solving", () => {
@@ -2705,6 +2754,33 @@ function node(id: string, position?: { x: number; y: number }) {
 		size: { width: 80, height: 40 },
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
+	};
+}
+
+function createTestLabelLayout(
+	text: string,
+	box: LabelLayout["box"],
+): LabelLayout {
+	return {
+		text,
+		box,
+		contentBox: box,
+		naturalSize: { width: box.width, height: box.height },
+		fittedSize: { width: box.width, height: box.height },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+		lineHeight: 14,
+		lines: [
+			{
+				text,
+				box,
+				baselineY: box.y + 11.2,
+				width: box.width,
+				lineIndex: 0,
+			},
+		],
+		overflow: { horizontal: false, vertical: false, truncated: false },
+		diagnostics: [],
 	};
 }
 

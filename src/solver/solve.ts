@@ -2853,9 +2853,8 @@ function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
-		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
 		const routeTextObstacles = textObstacles
-			.filter((annotation) => !connectedTextOwners.has(annotation.ownerId))
+			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => annotation.box);
 
 		const route = routeEdge({
@@ -2898,20 +2897,32 @@ function coordinateEdges(
 	return coordinated;
 }
 
-function edgeConnectedTextOwnerIds(
+function isEdgeConnectedTextAnnotation(
 	edge: NormalizedEdge | CoordinatedEdge,
-): Set<string> {
-	const owners = new Set<string>();
-	owners.add(edge.source.nodeId);
-	owners.add(edge.id);
-	owners.add(edge.target.nodeId);
-	if (edge.source.portId !== undefined) {
-		owners.add(`${edge.source.nodeId}.${edge.source.portId}`);
+	annotation: SolvedTextAnnotation,
+): boolean {
+	switch (annotation.surfaceKind) {
+		case "edge-label":
+			return annotation.ownerId === edge.id;
+		case "node-label":
+		case "compartment-row":
+			return (
+				annotation.ownerId === edge.source.nodeId ||
+				annotation.ownerId === edge.target.nodeId
+			);
+		case "port-label":
+			return (
+				(edge.source.portId !== undefined &&
+					annotation.ownerId ===
+						`${edge.source.nodeId}.${edge.source.portId}`) ||
+				(edge.target.portId !== undefined &&
+					annotation.ownerId === `${edge.target.nodeId}.${edge.target.portId}`)
+			);
+		case "group-label":
+		case "swimlane-label":
+		case "frame-title":
+			return false;
 	}
-	if (edge.target.portId !== undefined) {
-		owners.add(`${edge.target.nodeId}.${edge.target.portId}`);
-	}
-	return owners;
 }
 
 /**
@@ -3439,12 +3450,8 @@ function reportRouteTextClearance(
 	const relevantAnnotations = annotations.filter(isRouteClearanceText);
 
 	for (const edge of edges) {
-		const connectedTextOwners = edgeConnectedTextOwnerIds(edge);
 		for (const annotation of relevantAnnotations) {
-			if (
-				annotation.ownerId === edge.id ||
-				connectedTextOwners.has(annotation.ownerId)
-			) {
+			if (isEdgeConnectedTextAnnotation(edge, annotation)) {
 				continue;
 			}
 			if (!routeIntersectsTextBox(edge.points, annotation.box)) {
