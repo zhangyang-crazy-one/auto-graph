@@ -2583,7 +2583,80 @@ it("distributeContainedChildren distributes children even when they have a posit
 	expect(c2).toBeDefined();
 	if (c1 === undefined || c2 === undefined) return;
 	const gap = c2.y - (c1.y + c1.height);
-	expect(gap).toBeGreaterThanOrEqual(20);
+	expect(gap).toBe(28);
+});
+
+function overlappingPositionedChildrenDiagram(): ReturnType<
+	typeof sampleDiagram
+> {
+	return {
+		id: "overlapping-positioned-children",
+		direction: "TB",
+		nodes: [
+			{
+				id: "container",
+				shape: "rectangle" as const,
+				size: { width: 200, height: 200 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: 0 },
+			},
+			{
+				id: "c1",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 10, y: 10 },
+			},
+			{
+				id: "c2",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 10, y: 30 },
+			},
+		],
+		edges: [],
+		groups: [],
+		constraints: [
+			{
+				kind: "containment" as const,
+				containerId: "container",
+				childIds: ["c1", "c2"],
+				padding: { top: 8, right: 8, bottom: 8, left: 8 },
+			},
+		],
+		diagnostics: [],
+	};
+}
+
+it("distributeContainedChildren separates overlapping fixed-position children without stale diagnostics", () => {
+	// c1 at y=10 (h=40) and c2 at y=30 (h=40) overlap by 20 px.
+	const locked = solveDiagram(overlappingPositionedChildrenDiagram());
+	const lockedC1 = locked.nodes.find((n) => n.id === "c1")?.box;
+	const lockedC2 = locked.nodes.find((n) => n.id === "c2")?.box;
+	expect(lockedC1).toBeDefined();
+	expect(lockedC2).toBeDefined();
+	if (lockedC1 === undefined || lockedC2 === undefined) return;
+	// Without distribution they overlap (or are exactly adjacent after repair).
+	expect(lockedC2.y).toBeLessThan(lockedC1.y + lockedC1.height + 10);
+
+	const distributed = solveDiagram(overlappingPositionedChildrenDiagram(), {
+		distributeContainedChildren: true,
+		minSiblingGap: 28,
+	});
+	const c1 = distributed.nodes.find((n) => n.id === "c1")?.box;
+	const c2 = distributed.nodes.find((n) => n.id === "c2")?.box;
+	expect(c1).toBeDefined();
+	expect(c2).toBeDefined();
+	if (c1 === undefined || c2 === undefined) return;
+	const gap = c2.y - (c1.y + c1.height);
+	expect(gap).toBe(28);
+
+	// Distribution must not leave stale overlap diagnostics behind.
+	const unresolvedOverlaps = distributed.diagnostics.filter(
+		(d) => d.code === "constraints.overlap.unresolved",
+	);
+	expect(unresolvedOverlaps).toHaveLength(0);
 });
 
 it("solveDiagramSafe enables prefitLabelSize by default", () => {

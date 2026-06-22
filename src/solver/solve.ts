@@ -232,9 +232,9 @@ export function solveDiagram(
 		options?.overlapSpacing ?? 40,
 		Math.max(0, options?.minLaneGutter ?? 0),
 	);
-	if (swimlaneContracts.layouts.size > 0) {
-		removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
-	}
+	// Distribution may resolve overlaps that were reported earlier
+	// by repairOverlaps — clean those up before continuing.
+	removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
 	diagnostics.push(...swimlaneContracts.diagnostics);
 
 	const coordinatedNodes = coordinateNodes(
