@@ -52,8 +52,13 @@ export function applyLayoutConstraints(
 	// nested containers whose own children may have been displaced,
 	// then clean up any remaining loose ends (Codex P2).
 	if (input.distributeContainedChildren) {
+		const diagBefore = diagnostics.length;
 		applyContainment(input.constraints, boxes, locks, diagnostics, true);
 		applyDistributeContained(input, boxes, locks, diagnostics);
+		// Remove duplicate diagnostics emitted by the re-run on
+		// containers that were already handled in the first pass
+		// (Codex P3: avoid re-emitting distribution diagnostics).
+		dedupReplayDiagnostics(diagnostics, diagBefore);
 	}
 
 	// Clean up diagnostics that distribution may have resolved (Codex P2).
@@ -122,6 +127,45 @@ function applyFixedPositionLocks(
 }
 
 /**
+ * Remove duplicate diagnostics that the re-run containment/distribution
+ * pass may have emitted for containers already handled in the first pass
+ * (Codex P3).
+ */
+function dedupReplayDiagnostics(
+	diagnostics: Diagnostic[],
+	keepUpTo: number,
+): void {
+	const seen = new Set<string>();
+	// Mark pre-existing diagnostics as seen.
+	for (let i = 0; i < keepUpTo && i < diagnostics.length; i += 1) {
+		const d = diagnostics[i];
+		if (d === undefined) continue;
+		seen.add(diagnosticFingerprint(d));
+	}
+	// Remove new duplicates.
+	for (let i = diagnostics.length - 1; i >= keepUpTo; i -= 1) {
+		const d = diagnostics[i];
+		if (d === undefined) continue;
+		const fp = diagnosticFingerprint(d);
+		if (seen.has(fp)) {
+			diagnostics.splice(i, 1);
+		} else {
+			seen.add(fp);
+		}
+	}
+}
+
+/**
+ * Stable fingerprint of a diagnostic for dedup: code + primary node/container.
+ */
+function diagnosticFingerprint(d: Diagnostic): string {
+	const nodeId = typeof d.detail?.nodeId === "string" ? d.detail.nodeId : "";
+	const containerId =
+		typeof d.detail?.containerId === "string" ? d.detail.containerId : "";
+	return `${d.code}|${nodeId}|${containerId}`;
+}
+
+/**
  * Drop fixed-position locks for children that will be distributed,
  * so downstream passes (repairOverlaps, containment) treat them as
  * movable instead of displacing unrelated nodes (Codex P2).
@@ -137,14 +181,26 @@ function yieldFixedPositionLocks(
 ): void {
 	for (const c of input.constraints) {
 		if (c.kind !== "containment") continue;
-		// Count eligible children: unlocked or fixed-position locked
-		// (exact-position locks are reserved and not counted).
+		const container = boxes.get(c.containerId);
+		if (container === undefined) continue;
+		const content = contentBox(container, c.padding);
+		const mainAxis: "width" | "height" =
+			input.direction === "LR" || input.direction === "RL" ? "width" : "height";
+		const crossAxis: "width" | "height" =
+			mainAxis === "width" ? "height" : "width";
+		// Count eligible children: unlocked or fixed-position locked,
+		// not oversized (distribution would skip oversized children).
+		// Exact-position locks are reserved and not counted.
 		let eligible = 0;
 		for (const childId of c.childIds) {
 			const box = boxes.get(childId);
 			if (box === undefined) continue;
 			const lock = locks.get(childId);
-			if (lock === undefined || lock.source === "fixed-position") {
+			if (lock?.source === "exact-position") continue;
+			const fits =
+				box[mainAxis] <= content[mainAxis] &&
+				box[crossAxis] <= content[crossAxis];
+			if (fits) {
 				eligible += 1;
 			}
 		}
@@ -152,7 +208,14 @@ function yieldFixedPositionLocks(
 		for (const childId of c.childIds) {
 			const lock = locks.get(childId);
 			if (lock?.source === "fixed-position") {
-				locks.delete(childId);
+				const box = boxes.get(childId);
+				if (box === undefined) continue;
+				const fits =
+					box[mainAxis] <= content[mainAxis] &&
+					box[crossAxis] <= content[crossAxis];
+				if (fits) {
+					locks.delete(childId);
+				}
 			}
 		}
 	}
