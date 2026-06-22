@@ -28,8 +28,10 @@ export function applyLayoutConstraints(
 	// When distribution is enabled, drop fixed-position locks early so
 	// repairOverlaps and containment treat positioned children as
 	// movable instead of displacing unrelated nodes (Codex P2).
+	// Only yields locks for children in containment constraints that
+	// will actually be distributed (2+ eligible children).
 	if (input.distributeContainedChildren) {
-		yieldFixedPositionLocks(locks);
+		yieldFixedPositionLocks(input, boxes, locks);
 	}
 
 	applyContainment(input.constraints, boxes, locks, diagnostics, false);
@@ -120,15 +122,38 @@ function applyFixedPositionLocks(
 }
 
 /**
- * Drop every fixed-position lock so downstream passes (repairOverlaps,
- * containment) treat positioned children as movable instead of displacing
- * unrelated nodes based on a position that distribution will override
- * (Codex P2).
+ * Drop fixed-position locks for children that will be distributed,
+ * so downstream passes (repairOverlaps, containment) treat them as
+ * movable instead of displacing unrelated nodes (Codex P2).
+ *
+ * Only yields locks on children inside containment constraints with
+ * 2+ eligible children — a single positioned child outside a
+ * container is intentionally left locked.
  */
-function yieldFixedPositionLocks(locks: Map<string, LayoutLock>): void {
-	for (const [id, lock] of locks) {
-		if (lock.source === "fixed-position") {
-			locks.delete(id);
+function yieldFixedPositionLocks(
+	input: ConstraintSolverInput,
+	boxes: ReadonlyMap<string, Box>,
+	locks: Map<string, LayoutLock>,
+): void {
+	for (const c of input.constraints) {
+		if (c.kind !== "containment") continue;
+		// Count eligible children: unlocked or fixed-position locked
+		// (exact-position locks are reserved and not counted).
+		let eligible = 0;
+		for (const childId of c.childIds) {
+			const box = boxes.get(childId);
+			if (box === undefined) continue;
+			const lock = locks.get(childId);
+			if (lock === undefined || lock.source === "fixed-position") {
+				eligible += 1;
+			}
+		}
+		if (eligible < 2) continue;
+		for (const childId of c.childIds) {
+			const lock = locks.get(childId);
+			if (lock?.source === "fixed-position") {
+				locks.delete(childId);
+			}
 		}
 	}
 }
