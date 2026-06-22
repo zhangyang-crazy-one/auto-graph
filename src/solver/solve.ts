@@ -2143,7 +2143,7 @@ function portAnchor(
 }
 
 function portBox(anchor: Point): Box {
-	const size = 10;
+	const size = PORT_BOX_SIZE;
 	return {
 		x: anchor.x - size / 2,
 		y: anchor.y - size / 2,
