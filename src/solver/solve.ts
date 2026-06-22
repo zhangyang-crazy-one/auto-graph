@@ -2035,6 +2035,18 @@ function expandNodeBoxesForPorts(
 
 		if (heightExpansion > 0) box.height += heightExpansion;
 		if (widthExpansion > 0) box.width += widthExpansion;
+		// Recenter the label layout when the node box grew so
+		// text annotations stay centered in the expanded box
+		// (Codex P2: port-driven expansion vs label positioning).
+		if (
+			(heightExpansion > 0 || widthExpansion > 0) &&
+			node.labelLayout !== undefined
+		) {
+			(node as NormalizedNode).labelLayout = expandLabelLayoutToNode(
+				node.labelLayout,
+				{ width: box.width, height: box.height },
+			);
+		}
 	}
 }
 
