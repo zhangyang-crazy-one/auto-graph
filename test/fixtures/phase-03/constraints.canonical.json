@@ -24,6 +24,7 @@
     {
       "code": "constraints.locked-target-not-moved",
       "detail": {
+        "containerId": "container",
         "nodeId": "child"
       },
       "message": "Locked child child was not moved into containment.",

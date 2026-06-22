@@ -24,6 +24,14 @@ export function applyLayoutConstraints(
 
 	applyFixedPositionLocks(input.nodes, boxes, locks, diagnostics);
 	applyExactPositions(input.constraints, boxes, locks, diagnostics, nodeById);
+
+	// When distribution is enabled, drop fixed-position locks early so
+	// repairOverlaps and containment treat positioned children as
+	// movable instead of displacing unrelated nodes (Codex P2).
+	if (input.distributeContainedChildren) {
+		yieldFixedPositionLocks(locks);
+	}
+
 	applyContainment(input.constraints, boxes, locks, diagnostics, false);
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
@@ -38,10 +46,12 @@ export function applyLayoutConstraints(
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 	applyDistributeContained(input, boxes, locks, diagnostics);
 
-	// After distribution, re-run containment for redistributed
-	// containers whose own children may have been displaced (Codex P2).
+	// After distribution, re-run containment and distribution for
+	// nested containers whose own children may have been displaced,
+	// then clean up any remaining loose ends (Codex P2).
 	if (input.distributeContainedChildren) {
 		applyContainment(input.constraints, boxes, locks, diagnostics, true);
+		applyDistributeContained(input, boxes, locks, diagnostics);
 	}
 
 	// Clean up diagnostics that distribution may have resolved (Codex P2).
@@ -106,6 +116,20 @@ function applyFixedPositionLocks(
 
 		boxes.set(node.id, { ...box, x: node.position.x, y: node.position.y });
 		locks.set(node.id, { nodeId: node.id, source: "fixed-position" });
+	}
+}
+
+/**
+ * Drop every fixed-position lock so downstream passes (repairOverlaps,
+ * containment) treat positioned children as movable instead of displacing
+ * unrelated nodes based on a position that distribution will override
+ * (Codex P2).
+ */
+function yieldFixedPositionLocks(locks: Map<string, LayoutLock>): void {
+	for (const [id, lock] of locks) {
+		if (lock.source === "fixed-position") {
+			locks.delete(id);
+		}
 	}
 }
 
@@ -206,7 +230,7 @@ function applyContainment(
 						code: "constraints.locked-target-not-moved",
 						message: `Locked child ${childId} was not moved into containment.`,
 						path: ["constraints", constraint.id ?? constraint.containerId],
-						detail: { nodeId: childId },
+						detail: { nodeId: childId, containerId: constraint.containerId },
 					});
 					if (!isInside(child, content)) {
 						diagnostics.push({
@@ -457,18 +481,49 @@ function removeResolvedConstraintDiagnostics(
 			if (typeof nodeId !== "string") continue;
 			const child = boxes.get(nodeId);
 			if (child === undefined) continue;
-			// Find the containment constraint for this node and check
-			// whether it is now properly inside its container.
+			// Extract the specific container that emitted this
+			// diagnostic so we only clear it when THAT container
+			// is satisfied (Codex P2: multi-container case).
+			const diagContainerId =
+				typeof d.detail?.containerId === "string"
+					? d.detail.containerId
+					: undefined;
+			let resolved = false;
 			for (const c of constraints) {
 				if (c.kind !== "containment") continue;
 				if (!c.childIds.includes(nodeId)) continue;
+				// If we know which container emitted the diagnostic,
+				// only match against that one.
+				if (
+					diagContainerId !== undefined &&
+					c.containerId !== diagContainerId
+				) {
+					continue;
+				}
 				const container = boxes.get(c.containerId);
 				if (container === undefined) continue;
 				const content = contentBox(container, c.padding);
 				if (isInside(child, content)) {
 					diagnostics.splice(i, 1);
+					resolved = true;
 				}
 				break;
+			}
+			// If we matched a specific container and it wasn't
+			// satisfied, keep searching for the right one.
+			if (!resolved && diagContainerId !== undefined) {
+				for (const c of constraints) {
+					if (c.kind !== "containment") continue;
+					if (c.containerId !== diagContainerId) continue;
+					if (!c.childIds.includes(nodeId)) continue;
+					const container = boxes.get(c.containerId);
+					if (container === undefined) continue;
+					const content = contentBox(container, c.padding);
+					if (isInside(child, content)) {
+						diagnostics.splice(i, 1);
+					}
+					break;
+				}
 			}
 		}
 	}
@@ -952,6 +1007,10 @@ function applyDistributeContained(
 				});
 			}
 			boxes.set(child.id, clamped);
+			// The fixed-position lock was yielded pre-distribution;
+			// clean up any remaining lock on successfully distributed
+			// children so downstream stages see them as movable.
+			locks.delete(child.id);
 			pos = clamped[axis] + clamped[mainSize] + minGap;
 		}
 
