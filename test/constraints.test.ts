@@ -557,6 +557,46 @@ describe("layout constraints", () => {
 		).toBe(true);
 	});
 
+	it("keeps a lone fixed-position child locked when exact-position siblings prevent distribution", () => {
+		const result = applyLayoutConstraints({
+			direction: "TB",
+			overlapSpacing: 40,
+			distributeContainedChildren: true,
+			boxes: boxMap([
+				["container", { x: 0, y: 0, width: 300, height: 200 }],
+				["c1", { x: 50, y: -50, width: 40, height: 30 }],
+				["c2", { x: 120, y: 20, width: 40, height: 30 }],
+				["c3", { x: 180, y: 80, width: 40, height: 30 }],
+			]),
+			nodes: [
+				node("container"),
+				node("c1", { x: 50, y: -50 }),
+				node("c2"),
+				node("c3"),
+			],
+			groups: [],
+			constraints: [
+				{ kind: "exact-position", targetId: "c2", position: { x: 120, y: 20 } },
+				{ kind: "exact-position", targetId: "c3", position: { x: 180, y: 80 } },
+				{
+					kind: "containment",
+					containerId: "container",
+					childIds: ["c1", "c2", "c3"],
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				},
+			],
+		});
+
+		expect(result.boxes.get("c1")).toMatchObject({ x: 50, y: -50 });
+		expect(result.locks.get("c1")).toEqual({
+			nodeId: "c1",
+			source: "fixed-position",
+		});
+		expect(
+			result.diagnostics.some((d) => d.code === "intra_container_distributed"),
+		).toBe(false);
+	});
+
 	it("does not let exact-position locked children away from the origin skew distribution", () => {
 		const result = applyLayoutConstraints({
 			direction: "TB",

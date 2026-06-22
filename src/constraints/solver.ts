@@ -1019,10 +1019,6 @@ function applyDistributeContained(
 				// constraints still win and are reserved.
 				if (lock?.source === "fixed-position") {
 					unlocked.push({ id: childId, box });
-					// Drop the lock so subsequent containment passes and
-					// downstream layout stages (e.g. swimlane contracts)
-					// treat this child as movable (#37, Codex P2).
-					locks.delete(childId);
 					continue;
 				}
 				diagnostics.push({
@@ -1095,9 +1091,7 @@ function applyDistributeContained(
 				});
 			}
 			boxes.set(child.id, clamped);
-			// The fixed-position lock was yielded pre-distribution;
-			// clean up any remaining lock on successfully distributed
-			// children so downstream stages see them as movable.
+			// Fixed-position locks only yield once distribution succeeds.
 			locks.delete(child.id);
 			pos = clamped[axis] + clamped[mainSize] + minGap;
 		}
