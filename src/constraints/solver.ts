@@ -37,6 +37,16 @@ export function applyLayoutConstraints(
 	);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 	applyDistributeContained(input, boxes, locks, diagnostics);
+
+	// After distribution, re-run containment for redistributed
+	// containers whose own children may have been displaced (Codex P2).
+	if (input.distributeContainedChildren) {
+		applyContainment(input.constraints, boxes, locks, diagnostics, true);
+	}
+
+	// Clean up diagnostics that distribution may have resolved (Codex P2).
+	removeResolvedConstraintDiagnostics(input.constraints, boxes, diagnostics);
+
 	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
 	reportIntraContainerOverflow(input, boxes, diagnostics);
 
@@ -411,6 +421,59 @@ function repairOverlaps(
 	reportOverlaps(boxes, diagnostics, ignoredPairs);
 }
 
+function removeResolvedConstraintDiagnostics(
+	constraints: readonly Constraint[],
+	boxes: ReadonlyMap<string, Box>,
+	diagnostics: Diagnostic[],
+): void {
+	// Remove diagnostics for issues that distribution or a later
+	// containment pass may have resolved (Codex P2).
+	for (let i = diagnostics.length - 1; i >= 0; i -= 1) {
+		const d = diagnostics[i];
+		if (d === undefined) continue;
+
+		// ---- stale overlap warnings ----
+		if (d.code === "constraints.overlap.unresolved") {
+			const aId = d.detail?.firstId;
+			const bId = d.detail?.secondId;
+			if (typeof aId !== "string" || typeof bId !== "string") continue;
+			const a = boxes.get(aId);
+			const b = boxes.get(bId);
+			if (a !== undefined && b !== undefined && !intersectsAabb(a, b)) {
+				diagnostics.splice(i, 1);
+			}
+			continue;
+		}
+
+		// ---- stale containment warnings (from applyContainment,
+		// not from applyDistributeContained) ----
+		if (
+			d.code === "constraints.containment.impossible" ||
+			(d.code === "constraints.locked-target-not-moved" &&
+				typeof d.message === "string" &&
+				d.message.includes("not moved into containment"))
+		) {
+			const nodeId = d.detail?.nodeId;
+			if (typeof nodeId !== "string") continue;
+			const child = boxes.get(nodeId);
+			if (child === undefined) continue;
+			// Find the containment constraint for this node and check
+			// whether it is now properly inside its container.
+			for (const c of constraints) {
+				if (c.kind !== "containment") continue;
+				if (!c.childIds.includes(nodeId)) continue;
+				const container = boxes.get(c.containerId);
+				if (container === undefined) continue;
+				const content = contentBox(container, c.padding);
+				if (isInside(child, content)) {
+					diagnostics.splice(i, 1);
+				}
+				break;
+			}
+		}
+	}
+}
+
 function reportOverlaps(
 	boxes: ReadonlyMap<string, Box>,
 	diagnostics: Diagnostic[],
@@ -771,7 +834,7 @@ type ReservedInterval = { start: number; end: number };
 function applyDistributeContained(
 	input: ConstraintSolverInput,
 	boxes: Map<string, Box>,
-	locks: ReadonlyMap<string, LayoutLock>,
+	locks: Map<string, LayoutLock>,
 	diagnostics: Diagnostic[],
 ): void {
 	if (!input.distributeContainedChildren) {
@@ -813,6 +876,10 @@ function applyDistributeContained(
 				// constraints still win and are reserved.
 				if (lock?.source === "fixed-position") {
 					unlocked.push({ id: childId, box });
+					// Drop the lock so subsequent containment passes and
+					// downstream layout stages (e.g. swimlane contracts)
+					// treat this child as movable (#37, Codex P2).
+					locks.delete(childId);
 					continue;
 				}
 				diagnostics.push({
