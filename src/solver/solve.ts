@@ -2033,19 +2033,20 @@ function expandNodeBoxesForPorts(
 			}
 		}
 
-		if (heightExpansion > 0) box.height += heightExpansion;
-		if (widthExpansion > 0) box.width += widthExpansion;
-		// Recenter the label layout when the node box grew so
-		// text annotations stay centered in the expanded box
-		// (Codex P2: port-driven expansion vs label positioning).
-		if (
-			(heightExpansion > 0 || widthExpansion > 0) &&
-			node.labelLayout !== undefined
-		) {
-			(node as NormalizedNode).labelLayout = expandLabelLayoutToNode(
-				node.labelLayout,
-				{ width: box.width, height: box.height },
-			);
+		if (heightExpansion > 0) {
+			box.y -= heightExpansion / 2;
+			box.height += heightExpansion;
+		}
+		if (widthExpansion > 0) {
+			box.x -= widthExpansion / 2;
+			box.width += widthExpansion;
+		}
+		// Recenter labels by invalidating the stale labelLayout so
+		// coordinateBaseTextAnnotations recomputes from the current
+		// box dimensions (Codex P2: avoid double-offset from
+		// expandLabelLayoutToNode on already-centered layouts).
+		if (heightExpansion > 0 || widthExpansion > 0) {
+			delete (node as NormalizedNode).labelLayout;
 		}
 	}
 }
