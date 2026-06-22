@@ -24,6 +24,16 @@ export function applyLayoutConstraints(
 
 	applyFixedPositionLocks(input.nodes, boxes, locks, diagnostics);
 	applyExactPositions(input.constraints, boxes, locks, diagnostics, nodeById);
+
+	// When distribution is enabled, drop fixed-position locks early so
+	// repairOverlaps and containment treat positioned children as
+	// movable instead of displacing unrelated nodes (Codex P2).
+	// Only yields locks for children in containment constraints that
+	// will actually be distributed (2+ eligible children).
+	if (input.distributeContainedChildren) {
+		yieldFixedPositionLocks(input, boxes, locks);
+	}
+
 	applyContainment(input.constraints, boxes, locks, diagnostics, false);
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
@@ -37,6 +47,23 @@ export function applyLayoutConstraints(
 	);
 	applyContainment(input.constraints, boxes, locks, diagnostics, true);
 	applyDistributeContained(input, boxes, locks, diagnostics);
+
+	// After distribution, re-run containment and distribution for
+	// nested containers whose own children may have been displaced,
+	// then clean up any remaining loose ends (Codex P2).
+	if (input.distributeContainedChildren) {
+		const diagBefore = diagnostics.length;
+		applyContainment(input.constraints, boxes, locks, diagnostics, true);
+		applyDistributeContained(input, boxes, locks, diagnostics);
+		// Remove duplicate diagnostics emitted by the re-run on
+		// containers that were already handled in the first pass
+		// (Codex P3: avoid re-emitting distribution diagnostics).
+		dedupReplayDiagnostics(diagnostics, diagBefore);
+	}
+
+	// Clean up diagnostics that distribution may have resolved (Codex P2).
+	removeResolvedConstraintDiagnostics(input.constraints, boxes, diagnostics);
+
 	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
 	reportIntraContainerOverflow(input, boxes, diagnostics);
 
@@ -96,6 +123,101 @@ function applyFixedPositionLocks(
 
 		boxes.set(node.id, { ...box, x: node.position.x, y: node.position.y });
 		locks.set(node.id, { nodeId: node.id, source: "fixed-position" });
+	}
+}
+
+/**
+ * Remove duplicate diagnostics that the re-run containment/distribution
+ * pass may have emitted for containers already handled in the first pass
+ * (Codex P3).
+ */
+function dedupReplayDiagnostics(
+	diagnostics: Diagnostic[],
+	keepUpTo: number,
+): void {
+	const seen = new Set<string>();
+	// Mark pre-existing diagnostics as seen.
+	for (let i = 0; i < keepUpTo && i < diagnostics.length; i += 1) {
+		const d = diagnostics[i];
+		if (d === undefined) continue;
+		seen.add(diagnosticFingerprint(d));
+	}
+	// Remove new duplicates.
+	for (let i = diagnostics.length - 1; i >= keepUpTo; i -= 1) {
+		const d = diagnostics[i];
+		if (d === undefined) continue;
+		const fp = diagnosticFingerprint(d);
+		if (seen.has(fp)) {
+			diagnostics.splice(i, 1);
+		} else {
+			seen.add(fp);
+		}
+	}
+}
+
+/**
+ * Stable fingerprint of a diagnostic for dedup: code + primary node/container.
+ */
+function diagnosticFingerprint(d: Diagnostic): string {
+	const nodeId = typeof d.detail?.nodeId === "string" ? d.detail.nodeId : "";
+	const containerId =
+		typeof d.detail?.containerId === "string" ? d.detail.containerId : "";
+	return `${d.code}|${nodeId}|${containerId}`;
+}
+
+/**
+ * Drop fixed-position locks for children that will be distributed,
+ * so downstream passes (repairOverlaps, containment) treat them as
+ * movable instead of displacing unrelated nodes (Codex P2).
+ *
+ * Only yields locks on children inside containment constraints with
+ * 2+ eligible children — a single positioned child outside a
+ * container is intentionally left locked.
+ */
+function yieldFixedPositionLocks(
+	input: ConstraintSolverInput,
+	boxes: ReadonlyMap<string, Box>,
+	locks: Map<string, LayoutLock>,
+): void {
+	for (const c of input.constraints) {
+		if (c.kind !== "containment") continue;
+		const container = boxes.get(c.containerId);
+		if (container === undefined) continue;
+		const content = contentBox(container, c.padding);
+		const mainAxis: "width" | "height" =
+			input.direction === "LR" || input.direction === "RL" ? "width" : "height";
+		const crossAxis: "width" | "height" =
+			mainAxis === "width" ? "height" : "width";
+		// Count eligible children: unlocked or fixed-position locked,
+		// not oversized (distribution would skip oversized children).
+		// Exact-position locks are reserved and not counted.
+		let eligible = 0;
+		for (const childId of c.childIds) {
+			const box = boxes.get(childId);
+			if (box === undefined) continue;
+			const lock = locks.get(childId);
+			if (lock?.source === "exact-position") continue;
+			const fits =
+				box[mainAxis] <= content[mainAxis] &&
+				box[crossAxis] <= content[crossAxis];
+			if (fits) {
+				eligible += 1;
+			}
+		}
+		if (eligible < 2) continue;
+		for (const childId of c.childIds) {
+			const lock = locks.get(childId);
+			if (lock?.source === "fixed-position") {
+				const box = boxes.get(childId);
+				if (box === undefined) continue;
+				const fits =
+					box[mainAxis] <= content[mainAxis] &&
+					box[crossAxis] <= content[crossAxis];
+				if (fits) {
+					locks.delete(childId);
+				}
+			}
+		}
 	}
 }
 
@@ -196,7 +318,7 @@ function applyContainment(
 						code: "constraints.locked-target-not-moved",
 						message: `Locked child ${childId} was not moved into containment.`,
 						path: ["constraints", constraint.id ?? constraint.containerId],
-						detail: { nodeId: childId },
+						detail: { nodeId: childId, containerId: constraint.containerId },
 					});
 					if (!isInside(child, content)) {
 						diagnostics.push({
@@ -409,6 +531,90 @@ function repairOverlaps(
 	}
 
 	reportOverlaps(boxes, diagnostics, ignoredPairs);
+}
+
+function removeResolvedConstraintDiagnostics(
+	constraints: readonly Constraint[],
+	boxes: ReadonlyMap<string, Box>,
+	diagnostics: Diagnostic[],
+): void {
+	// Remove diagnostics for issues that distribution or a later
+	// containment pass may have resolved (Codex P2).
+	for (let i = diagnostics.length - 1; i >= 0; i -= 1) {
+		const d = diagnostics[i];
+		if (d === undefined) continue;
+
+		// ---- stale overlap warnings ----
+		if (d.code === "constraints.overlap.unresolved") {
+			const aId = d.detail?.firstId;
+			const bId = d.detail?.secondId;
+			if (typeof aId !== "string" || typeof bId !== "string") continue;
+			const a = boxes.get(aId);
+			const b = boxes.get(bId);
+			if (a !== undefined && b !== undefined && !intersectsAabb(a, b)) {
+				diagnostics.splice(i, 1);
+			}
+			continue;
+		}
+
+		// ---- stale containment warnings (from applyContainment,
+		// not from applyDistributeContained) ----
+		if (
+			d.code === "constraints.containment.impossible" ||
+			(d.code === "constraints.locked-target-not-moved" &&
+				typeof d.message === "string" &&
+				d.message.includes("not moved into containment"))
+		) {
+			const nodeId = d.detail?.nodeId;
+			if (typeof nodeId !== "string") continue;
+			const child = boxes.get(nodeId);
+			if (child === undefined) continue;
+			// Extract the specific container that emitted this
+			// diagnostic so we only clear it when THAT container
+			// is satisfied (Codex P2: multi-container case).
+			const diagContainerId =
+				typeof d.detail?.containerId === "string"
+					? d.detail.containerId
+					: undefined;
+			let resolved = false;
+			for (const c of constraints) {
+				if (c.kind !== "containment") continue;
+				if (!c.childIds.includes(nodeId)) continue;
+				// If we know which container emitted the diagnostic,
+				// only match against that one.
+				if (
+					diagContainerId !== undefined &&
+					c.containerId !== diagContainerId
+				) {
+					continue;
+				}
+				const container = boxes.get(c.containerId);
+				if (container === undefined) continue;
+				const content = contentBox(container, c.padding);
+				if (isInside(child, content)) {
+					diagnostics.splice(i, 1);
+					resolved = true;
+				}
+				break;
+			}
+			// If we matched a specific container and it wasn't
+			// satisfied, keep searching for the right one.
+			if (!resolved && diagContainerId !== undefined) {
+				for (const c of constraints) {
+					if (c.kind !== "containment") continue;
+					if (c.containerId !== diagContainerId) continue;
+					if (!c.childIds.includes(nodeId)) continue;
+					const container = boxes.get(c.containerId);
+					if (container === undefined) continue;
+					const content = contentBox(container, c.padding);
+					if (isInside(child, content)) {
+						diagnostics.splice(i, 1);
+					}
+					break;
+				}
+			}
+		}
+	}
 }
 
 function reportOverlaps(
@@ -771,7 +977,7 @@ type ReservedInterval = { start: number; end: number };
 function applyDistributeContained(
 	input: ConstraintSolverInput,
 	boxes: Map<string, Box>,
-	locks: ReadonlyMap<string, LayoutLock>,
+	locks: Map<string, LayoutLock>,
 	diagnostics: Diagnostic[],
 ): void {
 	if (!input.distributeContainedChildren) {
@@ -805,6 +1011,16 @@ function applyDistributeContained(
 				continue;
 			}
 			if (locks.has(childId)) {
+				const lock = locks.get(childId);
+				// When distribution is explicitly requested, a fixed-position
+				// lock (from the node's `position` field) yields to the
+				// distributor so the caller's distributeContainedChildren
+				// option actually takes effect (#37). Explicit exact-position
+				// constraints still win and are reserved.
+				if (lock?.source === "fixed-position") {
+					unlocked.push({ id: childId, box });
+					continue;
+				}
 				diagnostics.push({
 					severity: "warning",
 					code: "constraints.locked-target-not-moved",
@@ -875,6 +1091,8 @@ function applyDistributeContained(
 				});
 			}
 			boxes.set(child.id, clamped);
+			// Fixed-position locks only yield once distribution succeeds.
+			locks.delete(child.id);
 			pos = clamped[axis] + clamped[mainSize] + minGap;
 		}
 
