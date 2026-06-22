@@ -816,12 +816,14 @@ describe("solveDiagram", () => {
 			(port) => port.side === "right",
 		);
 		expect(new Set(rightSidePorts?.map((port) => port.box.y)).size).toBe(2);
+		// With minimum port gap guarantee (#42), spacing is at least
+		// PORT_BOX_SIZE (10) + MIN_PORT_EDGE_GAP (12) = 22 px.
 		expect(
 			Math.abs(
 				(rightSidePorts?.[1]?.anchor.y ?? 0) -
 					(rightSidePorts?.[0]?.anchor.y ?? 0),
 			),
-		).toBe(14);
+		).toBeGreaterThanOrEqual(22);
 		const cooling = result.diagram?.edges.find(
 			(edge) => edge.id === "cooling_flow",
 		);

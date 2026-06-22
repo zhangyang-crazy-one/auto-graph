@@ -1925,6 +1925,13 @@ function coordinateNodes(
 			continue;
 		}
 
+		// Place ports first — they may expand the node box to
+		// accommodate minimum port spacing (#42).
+		const ports =
+			node.ports === undefined
+				? undefined
+				: coordinatePorts(node, box, options.portShifting, diagnostics);
+
 		const geometry = computeShapeGeometry({
 			shape: node.shape,
 			box,
@@ -1935,9 +1942,7 @@ function coordinateNodes(
 			id: node.id,
 			...(node.label === undefined ? {} : { label: node.label }),
 			...(node.style === undefined ? {} : { style: node.style }),
-			...(node.ports === undefined
-				? {}
-				: { ports: coordinatePorts(node, box, options.portShifting) }),
+			...(ports === undefined ? {} : { ports }),
 			...(node.compartments === undefined
 				? {}
 				: { compartments: node.compartments }),
@@ -1955,10 +1960,14 @@ function coordinateNodes(
 	return coordinated;
 }
 
+const PORT_BOX_SIZE = 10;
+const MIN_PORT_EDGE_GAP = 12;
+
 function coordinatePorts(
 	node: NormalizedNode,
 	nodeBox: Box,
 	portShifting: PortShiftingOptions | undefined,
+	diagnostics: Diagnostic[],
 ): CoordinatedPort[] {
 	const portsBySide = new Map<string, NormalizedNode["ports"]>();
 	for (const port of node.ports ?? []) {
@@ -1967,12 +1976,42 @@ function coordinatePorts(
 		portsBySide.set(port.side, ports);
 	}
 
+	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
 	const coordinated: CoordinatedPort[] = [];
 	for (const [side, ports] of portsBySide) {
 		const sorted = [...(ports ?? [])].sort((a, b) => {
 			const order = (a.order ?? 0) - (b.order ?? 0);
 			return order === 0 ? a.id.localeCompare(b.id) : order;
 		});
+		const count = sorted.length;
+
+		// If the side edge cannot accommodate all ports at minimum
+		// spacing, expand the node to guarantee clearance (#42).
+		const isVertical = side === "left" || side === "right";
+		const availableSpan = isVertical ? nodeBox.height : nodeBox.width;
+		const requiredSpan =
+			count <= 1 ? 0 : (count - 1) * minSpacing + PORT_BOX_SIZE;
+		if (requiredSpan > availableSpan) {
+			const expansion = requiredSpan - availableSpan;
+			if (isVertical) {
+				nodeBox.height += expansion;
+			} else {
+				nodeBox.width += expansion;
+			}
+			diagnostics.push({
+				severity: "info",
+				code: "port_capacity_overflow",
+				message: `Expanded node ${node.id} ${isVertical ? "height" : "width"} by ${Math.ceil(expansion)} px to fit ${count} port(s) on ${side} side.`,
+				path: ["nodes", node.id, "ports"],
+				detail: {
+					nodeId: node.id,
+					side,
+					portCount: count,
+					expansion: Math.ceil(expansion),
+				},
+			});
+		}
+
 		for (let index = 0; index < sorted.length; index += 1) {
 			const port = sorted[index];
 			if (port === undefined) {
@@ -2011,9 +2050,13 @@ function portAnchor(
 	// within the available extent, instead of clamping several ports onto the
 	// same endpoint.
 	const availableSpan = 2 * maxOffset;
+	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
 	const spacing =
 		shiftingEnabled && count > 1
-			? Math.min(requestedSpacing, availableSpan / (count - 1))
+			? Math.max(
+					Math.min(requestedSpacing, availableSpan / (count - 1)),
+					minSpacing,
+				)
 			: requestedSpacing;
 	const centeredOffset = shiftingEnabled
 		? (index - (count - 1) / 2) * spacing
