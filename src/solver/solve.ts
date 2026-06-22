@@ -280,6 +280,11 @@ export function solveDiagram(
 			? {}
 			: { textMeasurer: options.textMeasurer }),
 	});
+	const edgeLabelEstimates = estimateEdgeLabelAnnotations(
+		styledEdges,
+		nodeGeometryById,
+		options.textMeasurer,
+	);
 	const layoutBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
@@ -377,6 +382,9 @@ export function solveDiagram(
 	const routingTextObstacles = [
 		...baseTextAnnotations.filter(isPreRouteTextObstacle),
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
+		// Dry-run edge-label estimates so edges route around
+		// each other's label areas (Issue #41).
+		...edgeLabelEstimates,
 	];
 	// Expand evidence-block boxes by obstacleMargin so edges route
 	// around them with the same clearance as node/group boxes.
@@ -422,6 +430,7 @@ export function solveDiagram(
 		diagram.direction,
 		options,
 		diagnostics,
+		coordinatedGroups,
 	);
 	const edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
@@ -2814,6 +2823,7 @@ function coordinateEdges(
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
+	groups: readonly CoordinatedGroup[],
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
@@ -2865,6 +2875,7 @@ function coordinateEdges(
 						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
 				),
 				...softObstacles,
+				...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
 				...routeTextObstacles,
 			],
 			hardObstacles,
@@ -2891,6 +2902,9 @@ function edgeConnectedTextOwnerIds(
 	edge: NormalizedEdge | CoordinatedEdge,
 ): Set<string> {
 	const owners = new Set<string>();
+	owners.add(edge.source.nodeId);
+	owners.add(edge.id);
+	owners.add(edge.target.nodeId);
 	if (edge.source.portId !== undefined) {
 		owners.add(`${edge.source.nodeId}.${edge.source.portId}`);
 	}
@@ -2898,6 +2912,64 @@ function edgeConnectedTextOwnerIds(
 		owners.add(`${edge.target.nodeId}.${edge.target.portId}`);
 	}
 	return owners;
+}
+
+/**
+ * Collect every group (including nested ancestors) that contains
+ * the given node, by walking `group.nodeIds` and `group.groupIds`.
+ */
+function ancestorGroupIds(
+	groups: readonly CoordinatedGroup[],
+	nodeId: string,
+): Set<string> {
+	const direct = new Set<string>();
+	for (const group of groups) {
+		if (group.nodeIds.includes(nodeId)) {
+			direct.add(group.id);
+		}
+	}
+	// Walk upward: if a group contains any of the direct parent groups,
+	// it is an ancestor container that should also be skipped.
+	let previousSize = -1;
+	const ancestors = new Set(direct);
+	while (ancestors.size !== previousSize) {
+		previousSize = ancestors.size;
+		for (const group of groups) {
+			for (const candidate of ancestors) {
+				if (group.groupIds.includes(candidate)) {
+					ancestors.add(group.id);
+					break;
+				}
+			}
+		}
+	}
+	return ancestors;
+}
+
+/**
+ * Return group boxes that should act as soft routing obstacles for a
+ * given edge.  Groups that contain both endpoints (or are ancestors
+ * of such groups) are skipped — an edge entirely inside a container
+ * is free to route within that container (Issue #41).
+ */
+function groupObstaclesForEdge(
+	edge: NormalizedEdge,
+	groups: readonly CoordinatedGroup[],
+	margin: number | Insets,
+): Box[] {
+	const sourceAncestors = ancestorGroupIds(groups, edge.source.nodeId);
+	const targetAncestors = ancestorGroupIds(groups, edge.target.nodeId);
+	// Edges that touch a group (at least one endpoint inside)
+	// are allowed to cross its boundary; only fully external
+	// edges must detour around the group box.
+	return groups
+		.filter((group) => {
+			if (sourceAncestors.has(group.id) || targetAncestors.has(group.id)) {
+				return false;
+			}
+			return true;
+		})
+		.map((group) => (margin === 0 ? group.box : expandBox(group.box, margin)));
 }
 
 function coordinateBaseTextAnnotations(input: {
@@ -3122,6 +3194,68 @@ function coordinateEdgeTextAnnotations(
 	return annotations;
 }
 
+/**
+ * Produce a rough edge-label box estimate using the straight-line
+ * midpoint between source and target node centers.  The estimate is
+ * used as a pre-route text obstacle so edges can avoid each other's
+ * label areas before the real label placement runs (Issue #41).
+ */
+function estimateEdgeLabelAnnotations(
+	edges: readonly NormalizedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	textMeasurer: TextMeasurer | undefined,
+): SolvedTextAnnotation[] {
+	const measurer = textMeasurer ?? createDefaultTextMeasurer();
+	const annotations: SolvedTextAnnotation[] = [];
+
+	for (const edge of edges) {
+		if (edge.label?.text === undefined) {
+			continue;
+		}
+		const sourceGeom = nodes.get(edge.source.nodeId);
+		const targetGeom = nodes.get(edge.target.nodeId);
+		if (sourceGeom === undefined || targetGeom === undefined) {
+			continue;
+		}
+		const layout = fitLabel(
+			edge.label.text,
+			{
+				font: typographyTextStyle(edge.label, {
+					fontFamily: "Arial",
+					fontSize: 12,
+					lineHeight: 14,
+				}),
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				minSize: { width: 0, height: 0 },
+				maxWidth: 200,
+			},
+			measurer,
+		);
+		// Straight-line midpoint between node centers.
+		const cx = (sourceGeom.center.x + targetGeom.center.x) / 2;
+		const cy = (sourceGeom.center.y + targetGeom.center.y) / 2;
+		const box: Box = {
+			x: cx - layout.box.width / 2,
+			y: cy - layout.box.height / 2,
+			width: layout.box.width,
+			height: layout.box.height,
+		};
+		annotations.push({
+			text: layout.text,
+			ownerId: edge.id,
+			surfaceKind: "edge-label",
+			box,
+			anchor: { x: cx, y: cy },
+			paddings: layout.padding,
+			lines: layout.lines,
+			fontFamily: normalizeOutputFontFamily(layout.font),
+			fontSize: layout.font.fontSize,
+			textBackend: layout.textBackend,
+		});
+	}
+	return annotations;
+}
+
 function coordinateFrameTextAnnotation(
 	frame: CoordinatedFrame,
 	textMeasurer?: TextMeasurer,
@@ -3336,9 +3470,6 @@ function reportRouteTextClearance(
 }
 
 function isPreRouteTextObstacle(annotation: SolvedTextAnnotation): boolean {
-	if (annotation.surfaceKind === "edge-label") {
-		return false;
-	}
 	return isRouteClearanceText(annotation);
 }
 
@@ -3350,8 +3481,9 @@ function isRouteClearanceText(annotation: SolvedTextAnnotation): boolean {
 		case "frame-title":
 			return true;
 		case "node-label":
-		case "group-label":
 		case "compartment-row":
+			return true;
+		case "group-label":
 			return textExtendsOutsideAnchor(annotation);
 	}
 }
