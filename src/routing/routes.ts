@@ -7,6 +7,7 @@ import type {
 	DiagramDirection,
 	Point,
 } from "../ir/geometry.js";
+import { findObstacleFreePath } from "./astar.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
@@ -53,6 +54,46 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			});
 		}
 		return { points, diagnostics };
+	}
+
+	// For obstacle-avoiding edges, try A* visibility-graph routing
+	// first.  Fall through to heuristic candidates if it fails (#39).
+	if ((input.kind ?? "orthogonal") === "obstacle-avoiding") {
+		const endpointObstacles = endpointObstaclesForAutoAnchors(input);
+		for (const { sourceAnchor, targetAnchor } of routeAnchorPairs(
+			input,
+			defaultAnchors,
+		)) {
+			const source = getEdgePort(
+				input.source,
+				input.target.center,
+				sourceAnchor,
+			);
+			const target = getEdgePort(
+				input.target,
+				input.source.center,
+				targetAnchor,
+			);
+			const path = findObstacleFreePath(
+				source,
+				target,
+				[...softObstacles, ...hardObstacles],
+				{
+					endpointObstacles,
+				},
+			);
+			if (path !== null && path.length >= 2) {
+				return {
+					points: finalizeRoute(
+						path,
+						softObstacles,
+						hardObstacles,
+						diagnostics,
+					),
+					diagnostics,
+				};
+			}
+		}
 	}
 
 	const routeLaneObstacles = [...softObstacles, ...hardObstacles];
