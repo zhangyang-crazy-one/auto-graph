@@ -90,11 +90,13 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					diagnostics,
 				);
 				// Verify the A* path against the router's AABB
-				// collision contract; very close obstacles may
-				// still overlap via segmentBox's 1 px expansion.
+				// Verify the A* path against the router.s AABB
+				// collision contract (segmentBox with 1 px floor)
+				// so we don.t accept routes that the existing
+				// non-A* path would reject (Codex P2).
 				if (
-					!routeCrossesBoxes(finalized, softObstacles) &&
-					!routeCrossesBoxes(finalized, hardObstacles)
+					!routeIntersectsObstacles(finalized, softObstacles) &&
+					!routeIntersectsObstacles(finalized, hardObstacles)
 				) {
 					return { points: finalized, diagnostics };
 				}
