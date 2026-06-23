@@ -2041,12 +2041,41 @@ function expandNodeBoxesForPorts(
 			box.x -= widthExpansion / 2;
 			box.width += widthExpansion;
 		}
-		// Recenter labels by invalidating the stale labelLayout so
-		// coordinateBaseTextAnnotations recomputes from the current
-		// box dimensions (Codex P2: avoid double-offset from
-		// expandLabelLayoutToNode on already-centered layouts).
-		if (heightExpansion > 0 || widthExpansion > 0) {
-			delete (node as NormalizedNode).labelLayout;
+		// Recenter the label layout to match the expanded box.
+		// expandLabelLayoutToNode expects an unshifted layout
+		// (anchor-relative positions at 0); we zero the offsets
+		// first so the centering is recomputed fresh without
+		// double-offsetting (Codex P2).
+		if (
+			(heightExpansion > 0 || widthExpansion > 0) &&
+			node.labelLayout !== undefined
+		) {
+			const layout = node.labelLayout;
+			// Compute the unshifted layout by subtracting the old
+			// label offset from every positioned rectangle.
+			const dx = layout.box.x;
+			const dy = layout.box.y;
+			const unshifted: LabelLayout = {
+				...layout,
+				box: { ...layout.box, x: 0, y: 0 },
+				contentBox: {
+					...layout.contentBox,
+					x: layout.contentBox.x - dx,
+					y: layout.contentBox.y - dy,
+				},
+				lines: layout.lines.map((line) => ({
+					...line,
+					box: {
+						...line.box,
+						x: line.box.x - dx,
+						y: line.box.y - dy,
+					},
+				})),
+			};
+			(node as NormalizedNode).labelLayout = expandLabelLayoutToNode(
+				unshifted,
+				{ width: box.width, height: box.height },
+			);
 		}
 	}
 }
