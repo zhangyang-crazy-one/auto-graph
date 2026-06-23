@@ -206,6 +206,11 @@ export function solveDiagram(
 		diagnostics,
 	);
 
+	// Expand node boxes for port capacity before constraint solving
+	// so containment, overlap repair, and swimlane contracts see the
+	// final sizes (Codex P2: avoid post-hoc expansion issues).
+	expandNodeBoxesForPorts(styledNodes, initialNodeBoxes, options, diagnostics);
+
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
@@ -589,21 +594,6 @@ function expandLabelLayoutToNode(
 			width: layout.box.width,
 			height: layout.box.height,
 		},
-		contentBox: {
-			x: layout.contentBox.x + offsetX,
-			y: layout.contentBox.y + offsetY,
-			width: layout.contentBox.width,
-			height: layout.contentBox.height,
-		},
-		lines: layout.lines.map((line) => ({
-			...line,
-			box: {
-				x: line.box.x + offsetX,
-				y: line.box.y + offsetY,
-				width: line.box.width,
-				height: line.box.height,
-			},
-		})),
 	};
 }
 
@@ -1934,6 +1924,13 @@ function coordinateNodes(
 			continue;
 		}
 
+		// Place ports first — they may expand the node box to
+		// accommodate minimum port spacing (#42).
+		const ports =
+			node.ports === undefined
+				? undefined
+				: coordinatePorts(node, box, options.portShifting);
+
 		const geometry = computeShapeGeometry({
 			shape: node.shape,
 			box,
@@ -1944,9 +1941,7 @@ function coordinateNodes(
 			id: node.id,
 			...(node.label === undefined ? {} : { label: node.label }),
 			...(node.style === undefined ? {} : { style: node.style }),
-			...(node.ports === undefined
-				? {}
-				: { ports: coordinatePorts(node, box, options.portShifting) }),
+			...(ports === undefined ? {} : { ports }),
 			...(node.compartments === undefined
 				? {}
 				: { compartments: node.compartments }),
@@ -1962,6 +1957,107 @@ function coordinateNodes(
 	}
 
 	return coordinated;
+}
+
+const PORT_BOX_SIZE = 10;
+const MIN_PORT_EDGE_GAP = 12;
+
+/**
+ * Pre-expand node boxes whose sides cannot accommodate all ports
+ * at the minimum spacing.  Runs before constraint solving so
+ * containment, overlap repair, and swimlane contracts see the
+ * expanded sizes (Codex P2: #42).
+ */
+function expandNodeBoxesForPorts(
+	nodes: readonly NormalizedNode[],
+	boxes: Map<string, Box>,
+	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[],
+): void {
+	const shiftingEnabled = options.portShifting?.enabled ?? true;
+	if (!shiftingEnabled) return;
+	const requestedSpacing = options.portShifting?.spacing ?? 24;
+	const minSpacing = Math.max(
+		requestedSpacing,
+		PORT_BOX_SIZE + MIN_PORT_EDGE_GAP,
+	);
+
+	for (const node of nodes) {
+		if (node.ports === undefined || node.ports.length === 0) continue;
+		const box = boxes.get(node.id);
+		if (box === undefined) continue;
+
+		// Aggregate required expansion per axis so all sides
+		// are handled atomically (Codex P2: avoid stale anchors).
+		let heightExpansion = 0;
+		let widthExpansion = 0;
+
+		const portsBySide = new Map<string, NormalizedNode["ports"]>();
+		for (const port of node.ports) {
+			const list = portsBySide.get(port.side) ?? [];
+			list.push(port);
+			portsBySide.set(port.side, list);
+		}
+
+		for (const [side, ports] of portsBySide) {
+			const count = (ports ?? []).length;
+			if (count <= 1) continue;
+			const isVertical = side === "left" || side === "right";
+			const availableSpan = isVertical ? box.height : box.width;
+			const requiredSpan = (count - 1) * minSpacing + PORT_BOX_SIZE;
+			if (requiredSpan > availableSpan) {
+				const expansion = requiredSpan - availableSpan;
+				if (isVertical) {
+					heightExpansion = Math.max(heightExpansion, expansion);
+				} else {
+					widthExpansion = Math.max(widthExpansion, expansion);
+				}
+				diagnostics.push({
+					severity: "info",
+					code: "port_capacity_overflow",
+					message: `Expanded node ${node.id} ${isVertical ? "height" : "width"} by ${Math.ceil(expansion)} px to fit ${count} port(s) on ${side} side.`,
+					path: ["nodes", node.id, "ports"],
+					detail: {
+						nodeId: node.id,
+						side,
+						portCount: count,
+						expansion: Math.ceil(expansion),
+					},
+				});
+			}
+		}
+
+		if (heightExpansion > 0) {
+			box.y -= heightExpansion / 2;
+			box.height += heightExpansion;
+		}
+		if (widthExpansion > 0) {
+			box.x -= widthExpansion / 2;
+			box.width += widthExpansion;
+		}
+		// Recenter the label layout to match the expanded box.
+		// Recenter the label layout to match the expanded box.
+		// Only shift layout.box — lines and contentBox stay
+		// relative to the label area so the SVG renderer's
+		// annotation.box + line.box addition is not doubled
+		// (Codex P2: multiline labels on port-expanded nodes).
+		if (
+			(heightExpansion > 0 || widthExpansion > 0) &&
+			node.labelLayout !== undefined
+		) {
+			const layout = node.labelLayout;
+			const newOffsetX = Math.max(0, (box.width - layout.box.width) / 2);
+			const newOffsetY = Math.max(0, (box.height - layout.box.height) / 2);
+			(node as NormalizedNode).labelLayout = {
+				...layout,
+				box: {
+					...layout.box,
+					x: newOffsetX,
+					y: newOffsetY,
+				},
+			};
+		}
+	}
 }
 
 function coordinatePorts(
@@ -2020,9 +2116,13 @@ function portAnchor(
 	// within the available extent, instead of clamping several ports onto the
 	// same endpoint.
 	const availableSpan = 2 * maxOffset;
+	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
 	const spacing =
 		shiftingEnabled && count > 1
-			? Math.min(requestedSpacing, availableSpan / (count - 1))
+			? Math.max(
+					Math.min(requestedSpacing, availableSpan / (count - 1)),
+					minSpacing,
+				)
 			: requestedSpacing;
 	const centeredOffset = shiftingEnabled
 		? (index - (count - 1) / 2) * spacing
@@ -2052,7 +2152,7 @@ function portAnchor(
 }
 
 function portBox(anchor: Point): Box {
-	const size = 10;
+	const size = PORT_BOX_SIZE;
 	return {
 		x: anchor.x - size / 2,
 		y: anchor.y - size / 2,

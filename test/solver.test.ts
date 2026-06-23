@@ -817,12 +817,14 @@ describe("solveDiagram", () => {
 			(port) => port.side === "right",
 		);
 		expect(new Set(rightSidePorts?.map((port) => port.box.y)).size).toBe(2);
+		// With minimum port gap guarantee (#42), spacing is at least
+		// PORT_BOX_SIZE (10) + MIN_PORT_EDGE_GAP (12) = 22 px.
 		expect(
 			Math.abs(
 				(rightSidePorts?.[1]?.anchor.y ?? 0) -
 					(rightSidePorts?.[0]?.anchor.y ?? 0),
 			),
-		).toBe(14);
+		).toBeGreaterThanOrEqual(22);
 		const cooling = result.diagram?.edges.find(
 			(edge) => edge.id === "cooling_flow",
 		);
@@ -1706,6 +1708,49 @@ describe("solveDiagram", () => {
 		);
 		expect(nodeLabel).toBeDefined();
 		expect(nodeLabel?.box.width).toBeLessThanOrEqual(wideNode?.box.width ?? 0);
+	});
+
+	it("keeps prefit multiline label lines local after port expansion", () => {
+		const result = solveDiagramSafe(
+			{
+				id: "port-expanded-prefit-label",
+				direction: "LR",
+				nodes: [
+					{
+						...node("dense", { x: 0, y: 0 }),
+						size: { width: 160, height: 80 },
+						label: { text: "alpha\nbeta" },
+						ports: Array.from({ length: 9 }, (_, index) => ({
+							id: `p${index}`,
+							side: "top" as const,
+							kind: "proxy" as const,
+						})),
+					},
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ textMeasurer: new DeterministicTextMeasurer() },
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "port_capacity_overflow" }),
+		);
+		const denseNode = result.nodes[0];
+		const nodeLabel = result.textAnnotations?.find(
+			(annotation) => annotation.surfaceKind === "node-label",
+		);
+		if (denseNode === undefined || nodeLabel === undefined) {
+			throw new Error("Expected dense node and node-label annotation");
+		}
+		expect(nodeLabel.box.x + nodeLabel.box.width / 2).toBeCloseTo(
+			denseNode.box.x + denseNode.box.width / 2,
+		);
+		expect(nodeLabel.lines.map((line) => line.box.x)).toEqual(
+			nodeLabel.lines.map(() => nodeLabel.paddings.left),
+		);
 	});
 
 	it("distributes vertical contract swimlane children by top-to-bottom flow rank", () => {
