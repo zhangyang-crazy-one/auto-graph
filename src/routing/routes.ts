@@ -83,15 +83,21 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				},
 			);
 			if (path !== null && path.length >= 2) {
-				return {
-					points: finalizeRoute(
-						path,
-						softObstacles,
-						hardObstacles,
-						diagnostics,
-					),
+				const finalized = finalizeRoute(
+					path,
+					softObstacles,
+					hardObstacles,
 					diagnostics,
-				};
+				);
+				// Verify the A* path against the router's AABB
+				// collision contract; very close obstacles may
+				// still overlap via segmentBox's 1 px expansion.
+				if (
+					!routeCrossesBoxes(finalized, softObstacles) &&
+					!routeCrossesBoxes(finalized, hardObstacles)
+				) {
+					return { points: finalized, diagnostics };
+				}
 			}
 		}
 	}
