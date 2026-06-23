@@ -585,21 +585,6 @@ function expandLabelLayoutToNode(
 			width: layout.box.width,
 			height: layout.box.height,
 		},
-		contentBox: {
-			x: layout.contentBox.x + offsetX,
-			y: layout.contentBox.y + offsetY,
-			width: layout.contentBox.width,
-			height: layout.contentBox.height,
-		},
-		lines: layout.lines.map((line) => ({
-			...line,
-			box: {
-				x: line.box.x + offsetX,
-				y: line.box.y + offsetY,
-				width: line.box.width,
-				height: line.box.height,
-			},
-		})),
 	};
 }
 
