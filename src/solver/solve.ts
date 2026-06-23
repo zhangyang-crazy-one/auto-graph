@@ -217,9 +217,7 @@ export function solveDiagram(
 		...(options.minSiblingGap === undefined
 			? {}
 			: { minSiblingGap: options.minSiblingGap }),
-		...(options.distributeContainedChildren === undefined
-			? {}
-			: { distributeContainedChildren: options.distributeContainedChildren }),
+		distributeContainedChildren: options.distributeContainedChildren ?? true,
 		boxes: initialNodeBoxes,
 		nodes: styledNodes,
 		groups: styledGroups,

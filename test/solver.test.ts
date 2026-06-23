@@ -2668,8 +2668,10 @@ function positionedChildDiagram(): ReturnType<typeof sampleDiagram> {
 }
 
 it("distributeContainedChildren distributes children even when they have a position (#37)", () => {
-	// Without the option, the position field locks children in place.
-	const locked = solveDiagram(positionedChildDiagram());
+	// With distributeContainedChildren: false, the position field
+	const locked = solveDiagram(positionedChildDiagram(), {
+		distributeContainedChildren: false,
+	});
 	const lockedC1 = locked.nodes.find((n) => n.id === "c1")?.box;
 	const lockedC2 = locked.nodes.find((n) => n.id === "c2")?.box;
 	expect(lockedC1).toBeDefined();
