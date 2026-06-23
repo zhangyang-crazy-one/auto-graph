@@ -100,13 +100,22 @@ function collectXs(
 	obstacles: readonly Box[],
 	margin: number,
 ): number[] {
-	const raw: number[] = [source.x, target.x];
+	const raw: number[] = [];
 	// Offset obstacle edges by 2 px so grid lines sit just outside,
 	// avoiding tangent-touch AABB intersections (Issue #39).
 	for (const obs of obstacles) {
 		raw.push(obs.x - margin - 2, obs.x + obs.width + margin + 2);
 	}
-	return dedupSorted(raw);
+	// Deduplicate obstacle grid lines, then always include source
+	// and target exactly so A* can find its start/goal nodes even
+	// when they happen to be near a grid line (Codex P2).
+	const deduped = dedupSorted(raw);
+	for (const v of [source.x, target.x]) {
+		if (!deduped.includes(v)) {
+			deduped.push(v);
+		}
+	}
+	return deduped.sort((a, b) => a - b);
 }
 
 function collectYs(
@@ -115,13 +124,22 @@ function collectYs(
 	obstacles: readonly Box[],
 	margin: number,
 ): number[] {
-	const raw: number[] = [source.y, target.y];
+	const raw: number[] = [];
 	// Offset obstacle edges by 2 px so grid lines sit just outside,
 	// avoiding tangent-touch AABB intersections (Issue #39).
 	for (const obs of obstacles) {
 		raw.push(obs.y - margin - 2, obs.y + obs.height + margin + 2);
 	}
-	return dedupSorted(raw);
+	// Deduplicate obstacle grid lines, then always include source
+	// and target exactly so A* can find its start/goal nodes even
+	// when they happen to be near a grid line (Codex P2).
+	const deduped = dedupSorted(raw);
+	for (const v of [source.y, target.y]) {
+		if (!deduped.includes(v)) {
+			deduped.push(v);
+		}
+	}
+	return deduped.sort((a, b) => a - b);
 }
 
 /**
