@@ -47,7 +47,7 @@ export function findObstacleFreePath(
 	const turnPenalty = options.turnPenalty ?? 50;
 	const segmentPenalty = options.segmentPenalty ?? 1;
 	const endpointObstacles = options.endpointObstacles ?? [];
-	const maxNodes = options.maxNodes ?? (obstacles.length > 30 ? 16000 : 4000);
+	const maxNodes = options.maxNodes ?? (obstacles.length > 30 ? 16000 : 8000);
 
 	// 1. Collect interesting coordinates.
 	const xs = collectXs(source, target, obstacles, margin);
@@ -167,6 +167,7 @@ function dedupSorted(values: number[]): number[] {
  * Issue #49, P0-2.
  */
 function insertChannelMidpoints(sorted: number[], minGap = 8): number[] {
+	if (sorted.length === 0) return [];
 	const result: number[] = [];
 	for (let i = 0; i < sorted.length - 1; i++) {
 		const a = sorted[i] as number;

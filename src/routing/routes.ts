@@ -13,6 +13,10 @@ import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 /**
  * Emit a diagnostic when the route length exceeds `threshold` × the
  * straight-line distance between source and target (Issue #49, P0-4).
+
+/**
+ * Emit a diagnostic when the route length exceeds `threshold` × the
+ * straight-line distance between source and target (Issue #49, P0-4).
  */
 function checkBacktracking(
 	points: readonly Point[],
@@ -34,7 +38,7 @@ function checkBacktracking(
 		diagnostics.push({
 			severity: "warning",
 			code: "routing.backtracking_excessive",
-			message: `Route length ${Math.round(routeLen)} px exceeds ${threshold}× direct distance ${Math.round(direct)} px.`,
+			message: `Route length ${Math.round(routeLen)} px exceeds ${threshold}x direct distance ${Math.round(direct)} px.`,
 			detail: {
 				routeLength: Math.round(routeLen),
 				directDistance: Math.round(direct),
@@ -123,6 +127,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					softObstacles,
 					hardObstacles,
 					diagnostics,
+					source,
+					target,
 				);
 				// Verify the A* path against the router.s AABB
 				// collision contract (segmentBox with 1 px floor)
@@ -186,6 +192,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				softObstacles,
 				hardObstacles,
 				diagnostics,
+				candidate.points[0] as Point,
+				candidate.points[candidate.points.length - 1] as Point,
 			);
 			checkBacktracking(
 				finalizedClean,
@@ -382,6 +390,8 @@ function finalizeRoute(
 	softObstacles: readonly Box[],
 	hardObstacles: readonly Box[],
 	diagnostics: Diagnostic[],
+	source?: Point,
+	target?: Point,
 ): Point[] {
 	const simplified = simplifyRoute(points);
 	if (simplified.length >= 3) {
@@ -406,6 +416,9 @@ function finalizeRoute(
 				"Obstacle-aware routing fell back to fewer than three route points.",
 			detail: { pointCount: simplified.length },
 		});
+	}
+	if (source !== undefined && target !== undefined) {
+		checkBacktracking(expanded, source, target, diagnostics);
 	}
 	return expanded;
 }

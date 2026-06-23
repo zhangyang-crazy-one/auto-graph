@@ -1080,9 +1080,22 @@ function applyDistributeContained(
 			for (const child of distributable) {
 				totalChildSpan += child.box[mainSize];
 			}
+			// Subtract reserved intervals (exact-position / oversized
+			// children) so the spread gap is computed from actually
+			// usable space (Codex P2: avoid clamping onto reserved).
+			let reservedSpan = 0;
+			const contentEnd = content[axis] + content[mainSize];
+			for (const r of reserved) {
+				const rStart = Math.max(r.start, content[axis]);
+				const rEnd = Math.min(r.end, contentEnd);
+				if (rEnd > rStart) {
+					reservedSpan += rEnd - rStart;
+				}
+			}
 			const remaining =
 				content[mainSize] -
 				totalChildSpan -
+				reservedSpan -
 				minGap * (distributable.length - 1);
 			if (remaining > 0) {
 				effectiveGap = minGap + remaining / (distributable.length - 1);
