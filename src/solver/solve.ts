@@ -61,7 +61,7 @@ export interface SolveDiagramOptions {
 	minLaneGutter?: number;
 	prefitLabelSize?: boolean;
 	minSiblingGap?: number;
-	distributeContainedChildren?: boolean;
+	distributeContainedChildren?: boolean | "spread";
 	pageBounds?: { width: number; height: number };
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;

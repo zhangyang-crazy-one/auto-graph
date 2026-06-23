@@ -109,7 +109,7 @@ function collectXs(
 	// Deduplicate obstacle grid lines, then always include source
 	// and target exactly so A* can find its start/goal nodes even
 	// when they happen to be near a grid line (Codex P2).
-	const deduped = dedupSorted(raw);
+	const deduped = insertChannelMidpoints(dedupSorted(raw));
 	for (const v of [source.x, target.x]) {
 		if (!deduped.includes(v)) {
 			deduped.push(v);
@@ -133,7 +133,7 @@ function collectYs(
 	// Deduplicate obstacle grid lines, then always include source
 	// and target exactly so A* can find its start/goal nodes even
 	// when they happen to be near a grid line (Codex P2).
-	const deduped = dedupSorted(raw);
+	const deduped = insertChannelMidpoints(dedupSorted(raw));
 	for (const v of [source.y, target.y]) {
 		if (!deduped.includes(v)) {
 			deduped.push(v);
@@ -157,6 +157,27 @@ function dedupSorted(values: number[]): number[] {
 		}
 	}
 	return result;
+}
+
+/**
+ * Insert midpoints between adjacent coordinate pairs that are more
+ * than `minGap` apart, so the visibility graph has grid lines
+ * inside narrow channels between close obstacles (libavoid approach:
+ * "non-uniform grid whose mesh size is tailored to the geometry").
+ * Issue #49, P0-2.
+ */
+function insertChannelMidpoints(sorted: number[], minGap = 8): number[] {
+	const result: number[] = [];
+	for (let i = 0; i < sorted.length - 1; i++) {
+		const a = sorted[i] as number;
+		const b = sorted[i + 1] as number;
+		result.push(a);
+		if (b - a > minGap) {
+			result.push((a + b) / 2);
+		}
+	}
+	result.push(sorted[sorted.length - 1] as number);
+	return result.sort((a, b) => a - b);
 }
 
 // ---------------------------------------------------------------------------

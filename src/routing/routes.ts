@@ -10,6 +10,40 @@ import type {
 import { findObstacleFreePath } from "./astar.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
+/**
+ * Emit a diagnostic when the route length exceeds `threshold` × the
+ * straight-line distance between source and target (Issue #49, P0-4).
+ */
+function checkBacktracking(
+	points: readonly Point[],
+	source: Point,
+	target: Point,
+	diagnostics: Diagnostic[],
+): void {
+	if (points.length < 2) return;
+	const direct = Math.hypot(target.x - source.x, target.y - source.y);
+	if (direct <= 0) return;
+	let routeLen = 0;
+	for (let i = 0; i < points.length - 1; i++) {
+		const a = points[i] as Point;
+		const b = points[i + 1] as Point;
+		routeLen += Math.hypot(b.x - a.x, b.y - a.y);
+	}
+	const threshold = 10;
+	if (routeLen > direct * threshold) {
+		diagnostics.push({
+			severity: "warning",
+			code: "routing.backtracking_excessive",
+			message: `Route length ${Math.round(routeLen)} px exceeds ${threshold}× direct distance ${Math.round(direct)} px.`,
+			detail: {
+				routeLength: Math.round(routeLen),
+				directDistance: Math.round(direct),
+				threshold,
+			},
+		});
+	}
+}
+
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
@@ -98,6 +132,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					!routeIntersectsObstacles(finalized, softObstacles) &&
 					!routeIntersectsObstacles(finalized, hardObstacles)
 				) {
+					checkBacktracking(finalized, source, target, diagnostics);
 					return { points: finalized, diagnostics };
 				}
 			}
@@ -146,15 +181,19 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				candidate.endpointObstacles,
 			)
 		) {
-			return {
-				points: finalizeRoute(
-					candidate.points,
-					softObstacles,
-					hardObstacles,
-					diagnostics,
-				),
+			const finalizedClean = finalizeRoute(
+				candidate.points,
+				softObstacles,
+				hardObstacles,
 				diagnostics,
-			};
+			);
+			checkBacktracking(
+				finalizedClean,
+				candidate.points[0] as Point,
+				candidate.points[candidate.points.length - 1] as Point,
+				diagnostics,
+			);
+			return { points: finalizedClean, diagnostics };
 		}
 	}
 

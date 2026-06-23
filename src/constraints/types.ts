@@ -14,7 +14,7 @@ export interface ConstraintSolverInput {
 	direction: DiagramDirection;
 	overlapSpacing?: number;
 	minSiblingGap?: number;
-	distributeContainedChildren?: boolean;
+	distributeContainedChildren?: boolean | "spread";
 	boxes: ReadonlyMap<string, Box>;
 	nodes: readonly NormalizedNode[];
 	groups: readonly NormalizedGroup[];
