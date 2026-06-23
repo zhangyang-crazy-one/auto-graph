@@ -2042,40 +2042,26 @@ function expandNodeBoxesForPorts(
 			box.width += widthExpansion;
 		}
 		// Recenter the label layout to match the expanded box.
-		// expandLabelLayoutToNode expects an unshifted layout
-		// (anchor-relative positions at 0); we zero the offsets
-		// first so the centering is recomputed fresh without
-		// double-offsetting (Codex P2).
+		// Recenter the label layout to match the expanded box.
+		// Only shift layout.box — lines and contentBox stay
+		// relative to the label area so the SVG renderer's
+		// annotation.box + line.box addition is not doubled
+		// (Codex P2: multiline labels on port-expanded nodes).
 		if (
 			(heightExpansion > 0 || widthExpansion > 0) &&
 			node.labelLayout !== undefined
 		) {
 			const layout = node.labelLayout;
-			// Compute the unshifted layout by subtracting the old
-			// label offset from every positioned rectangle.
-			const dx = layout.box.x;
-			const dy = layout.box.y;
-			const unshifted: LabelLayout = {
+			const newOffsetX = Math.max(0, (box.width - layout.box.width) / 2);
+			const newOffsetY = Math.max(0, (box.height - layout.box.height) / 2);
+			(node as NormalizedNode).labelLayout = {
 				...layout,
-				box: { ...layout.box, x: 0, y: 0 },
-				contentBox: {
-					...layout.contentBox,
-					x: layout.contentBox.x - dx,
-					y: layout.contentBox.y - dy,
+				box: {
+					...layout.box,
+					x: newOffsetX,
+					y: newOffsetY,
 				},
-				lines: layout.lines.map((line) => ({
-					...line,
-					box: {
-						...line.box,
-						x: line.box.x - dx,
-						y: line.box.y - dy,
-					},
-				})),
 			};
-			(node as NormalizedNode).labelLayout = expandLabelLayoutToNode(
-				unshifted,
-				{ width: box.width, height: box.height },
-			);
 		}
 	}
 }
