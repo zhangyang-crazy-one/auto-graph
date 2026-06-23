@@ -1069,8 +1069,25 @@ function applyDistributeContained(
 			continue;
 		}
 
-		// Distribute evenly along the main axis within the content box.
+		// Distribute along the main axis within the content box.
+		// When spread mode is requested, distribute children across
+		// the full content area instead of stacking at one end (#49).
+		const spread = typeof input.distributeContainedChildren === "string";
+		let effectiveGap = minGap;
 		let pos = content[axis];
+		if (spread) {
+			let totalChildSpan = 0;
+			for (const child of distributable) {
+				totalChildSpan += child.box[mainSize];
+			}
+			const remaining =
+				content[mainSize] -
+				totalChildSpan -
+				minGap * (distributable.length - 1);
+			if (remaining > 0) {
+				effectiveGap = minGap + remaining / (distributable.length - 1);
+			}
+		}
 		for (const child of distributable) {
 			pos = advancePastReserved(pos, child.box[mainSize], reserved, minGap);
 			const crossPos =
@@ -1093,7 +1110,7 @@ function applyDistributeContained(
 			boxes.set(child.id, clamped);
 			// Fixed-position locks only yield once distribution succeeds.
 			locks.delete(child.id);
-			pos = clamped[axis] + clamped[mainSize] + minGap;
+			pos = clamped[axis] + clamped[mainSize] + effectiveGap;
 		}
 
 		diagnostics.push({
