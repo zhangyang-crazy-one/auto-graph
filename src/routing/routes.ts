@@ -7,6 +7,7 @@ import type {
 	DiagramDirection,
 	Point,
 } from "../ir/geometry.js";
+import { findObstacleFreePath } from "./astar.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
@@ -53,6 +54,54 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			});
 		}
 		return { points, diagnostics };
+	}
+
+	// For obstacle-avoiding edges, try A* visibility-graph routing
+	// first.  Fall through to heuristic candidates if it fails (#39).
+	if ((input.kind ?? "orthogonal") === "obstacle-avoiding") {
+		const endpointObstacles = endpointObstaclesForAutoAnchors(input);
+		for (const { sourceAnchor, targetAnchor } of routeAnchorPairs(
+			input,
+			defaultAnchors,
+		)) {
+			const source = getEdgePort(
+				input.source,
+				input.target.center,
+				sourceAnchor,
+			);
+			const target = getEdgePort(
+				input.target,
+				input.source.center,
+				targetAnchor,
+			);
+			const path = findObstacleFreePath(
+				source,
+				target,
+				[...softObstacles, ...hardObstacles],
+				{
+					endpointObstacles,
+				},
+			);
+			if (path !== null && path.length >= 2) {
+				const finalized = finalizeRoute(
+					path,
+					softObstacles,
+					hardObstacles,
+					diagnostics,
+				);
+				// Verify the A* path against the router's AABB
+				// Verify the A* path against the router.s AABB
+				// collision contract (segmentBox with 1 px floor)
+				// so we don.t accept routes that the existing
+				// non-A* path would reject (Codex P2).
+				if (
+					!routeIntersectsObstacles(finalized, softObstacles) &&
+					!routeIntersectsObstacles(finalized, hardObstacles)
+				) {
+					return { points: finalized, diagnostics };
+				}
+			}
+		}
 	}
 
 	const routeLaneObstacles = [...softObstacles, ...hardObstacles];
