@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../ir/diagnostics.js";
 import type { Box, Point } from "../ir/geometry.js";
 
 // ---------------------------------------------------------------------------
@@ -40,19 +41,30 @@ export function findObstacleFreePath(
 	target: Point,
 	obstacles: readonly Box[],
 	options: AstarOptions = {},
+	diagnostics?: Diagnostic[],
 ): Point[] | null {
 	const margin = options.margin ?? 0;
 	const turnPenalty = options.turnPenalty ?? 50;
 	const segmentPenalty = options.segmentPenalty ?? 1;
 	const endpointObstacles = options.endpointObstacles ?? [];
-	const maxNodes = options.maxNodes ?? 4000;
+	const maxNodes = options.maxNodes ?? (obstacles.length > 30 ? 16000 : 4000);
 
 	// 1. Collect interesting coordinates.
 	const xs = collectXs(source, target, obstacles, margin);
 	const ys = collectYs(source, target, obstacles, margin);
 
 	if (xs.length * ys.length > maxNodes) {
-		return null; // graph too large, fall back to heuristic
+		diagnostics?.push({
+			severity: "warning",
+			code: "routing.astar.grid_overflow",
+			message: `A* grid overflow: ${xs.length * ys.length} nodes > ${maxNodes} limit. Falling back to heuristic routing.`,
+			detail: {
+				xsCount: xs.length,
+				ysCount: ys.length,
+				maxNodes,
+			},
+		});
+		return null;
 	}
 
 	// 2. Build graph.
@@ -88,16 +100,22 @@ function collectXs(
 	obstacles: readonly Box[],
 	margin: number,
 ): number[] {
-	const set = new Set<number>();
-	set.add(source.x);
-	set.add(target.x);
-	// Offset obstacle edges by 1 px so grid lines sit just outside,
+	const raw: number[] = [];
+	// Offset obstacle edges by 2 px so grid lines sit just outside,
 	// avoiding tangent-touch AABB intersections (Issue #39).
 	for (const obs of obstacles) {
-		set.add(obs.x - margin - 2);
-		set.add(obs.x + obs.width + margin + 2);
+		raw.push(obs.x - margin - 2, obs.x + obs.width + margin + 2);
 	}
-	return [...set].sort((a, b) => a - b);
+	// Deduplicate obstacle grid lines, then always include source
+	// and target exactly so A* can find its start/goal nodes even
+	// when they happen to be near a grid line (Codex P2).
+	const deduped = dedupSorted(raw);
+	for (const v of [source.x, target.x]) {
+		if (!deduped.includes(v)) {
+			deduped.push(v);
+		}
+	}
+	return deduped.sort((a, b) => a - b);
 }
 
 function collectYs(
@@ -106,16 +124,39 @@ function collectYs(
 	obstacles: readonly Box[],
 	margin: number,
 ): number[] {
-	const set = new Set<number>();
-	set.add(source.y);
-	set.add(target.y);
-	// Offset obstacle edges by 1 px so grid lines sit just outside,
+	const raw: number[] = [];
+	// Offset obstacle edges by 2 px so grid lines sit just outside,
 	// avoiding tangent-touch AABB intersections (Issue #39).
 	for (const obs of obstacles) {
-		set.add(obs.y - margin - 2);
-		set.add(obs.y + obs.height + margin + 2);
+		raw.push(obs.y - margin - 2, obs.y + obs.height + margin + 2);
 	}
-	return [...set].sort((a, b) => a - b);
+	// Deduplicate obstacle grid lines, then always include source
+	// and target exactly so A* can find its start/goal nodes even
+	// when they happen to be near a grid line (Codex P2).
+	const deduped = dedupSorted(raw);
+	for (const v of [source.y, target.y]) {
+		if (!deduped.includes(v)) {
+			deduped.push(v);
+		}
+	}
+	return deduped.sort((a, b) => a - b);
+}
+
+/**
+ * Sort and merge coordinates within 2 px tolerance so aligned
+ * obstacles (e.g. same container) produce fewer redundant grid
+ * lines (Issue #47).
+ */
+function dedupSorted(values: number[]): number[] {
+	const sorted = [...values].sort((a, b) => a - b);
+	const result: number[] = [];
+	for (const v of sorted) {
+		const last = result[result.length - 1];
+		if (last === undefined || v - last > 2) {
+			result.push(v);
+		}
+	}
+	return result;
 }
 
 // ---------------------------------------------------------------------------
