@@ -81,6 +81,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				{
 					endpointObstacles,
 				},
+				diagnostics,
 			);
 			if (path !== null && path.length >= 2) {
 				const finalized = finalizeRoute(
@@ -89,10 +90,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					hardObstacles,
 					diagnostics,
 				);
-				// Verify the A* path against the router's AABB
 				// Verify the A* path against the router.s AABB
 				// collision contract (segmentBox with 1 px floor)
-				// so we don.t accept routes that the existing
+				// so we do not accept routes that the existing
 				// non-A* path would reject (Codex P2).
 				if (
 					!routeIntersectsObstacles(finalized, softObstacles) &&
