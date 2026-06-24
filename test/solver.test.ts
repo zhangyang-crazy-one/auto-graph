@@ -2585,6 +2585,7 @@ it("does not promote severity when strict is unset", () => {
 it("certifies the deliverability diagnostics strict mode gates on", () => {
 	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
 		"constraints.locked-target-not-moved",
+		"constraints.overlap.locked-conflict",
 		"route_obstacle_fallback",
 		"routing.evidence.crossing_forbidden",
 		"routing.obstacle.unavoidable",

@@ -41,6 +41,11 @@ export function exportSvg(
 	return `${[
 		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(diagram.bounds)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
+		...(options.viewportPadding === undefined
+			? []
+			: [
+					`  <metadata data-dge-viewport="${escapeAttribute(viewportMetadata(diagram.bounds, options.viewportPadding))}"></metadata>`,
+				]),
 		`  <rect class="background" x="${formatNumber(diagram.bounds.x)}" y="${formatNumber(diagram.bounds.y)}" width="${formatNumber(diagram.bounds.width)}" height="${formatNumber(diagram.bounds.height)}" fill="#ffffff"/>`,
 		...(diagram.frame === undefined
 			? []
@@ -78,6 +83,17 @@ export function exportSvg(
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
 		"</svg>",
 	].join("\n")}\n`;
+}
+
+function viewportMetadata(bounds: Box, padding: number): string {
+	const safePadding = Number.isFinite(padding) ? Math.max(0, padding) : 0;
+	return JSON.stringify({
+		x: bounds.x - safePadding,
+		y: bounds.y - safePadding,
+		width: bounds.width + safePadding * 2,
+		height: bounds.height + safePadding * 2,
+		padding: safePadding,
+	});
 }
 
 function renderGroup(group: CoordinatedGroup): string {

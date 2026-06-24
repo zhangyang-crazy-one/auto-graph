@@ -7,6 +7,7 @@ export interface DagreLayoutOptions {
 	edgesep: number;
 	marginx: number;
 	marginy: number;
+	componentGap: number;
 	ranker: "network-simplex" | "tight-tree" | "longest-path";
 }
 

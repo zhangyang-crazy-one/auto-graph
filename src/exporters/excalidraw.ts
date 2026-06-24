@@ -155,11 +155,30 @@ export function exportExcalidraw(
 			name: options.title ?? diagram.title ?? diagram.id,
 			viewBackgroundColor: "#ffffff",
 			gridSize: null,
+			...(options.viewportPadding === undefined
+				? {}
+				: viewportAppState(diagram.bounds, options.viewportPadding)),
 		},
 		files: {},
 	};
 
 	return `${JSON.stringify(scene, null, 2)}\n`;
+}
+
+function viewportAppState(
+	bounds: Box,
+	padding: number,
+): {
+	scrollX: number;
+	scrollY: number;
+	zoom: { value: number };
+} {
+	const safePadding = Number.isFinite(padding) ? Math.max(0, padding) : 0;
+	return {
+		scrollX: finite(-bounds.x + safePadding),
+		scrollY: finite(-bounds.y + safePadding),
+		zoom: { value: 1 },
+	};
 }
 
 function renderGroup(group: CoordinatedGroup): ExcalidrawShapeElement {

@@ -9,9 +9,12 @@ import { computeArrowhead } from "../exporters/arrow.js";
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
+	createBoxSpatialIndex,
 	expandBox,
+	expandBoxForQuery,
 	intersectsAabb,
 	normalizeInsets,
+	queryBoxSpatialIndex,
 	unionBoxes,
 } from "../geometry/index.js";
 import type { Constraint } from "../ir/constraints.js";
@@ -49,6 +52,7 @@ import type {
 import { fitLabel } from "../labels/index.js";
 import {
 	type InitialLayoutResult,
+	runComponentAwareDagreInitialLayout,
 	runDagreInitialLayout,
 } from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
@@ -196,6 +200,7 @@ export function solveDiagram(
 	const initialLayoutMode = options.initialLayout ?? "dagre";
 	const layout = runInitialLayout({
 		mode: initialLayoutMode,
+		componentAware: options.maxStackDepth === undefined,
 		direction: diagram.direction,
 		nodes: styledNodes,
 		edges: styledEdges,
@@ -536,6 +541,7 @@ export function solveDiagramSafe(
 
 function runInitialLayout(input: {
 	mode: InitialLayoutMode;
+	componentAware: boolean;
 	direction: NormalizedDiagram["direction"];
 	nodes: readonly NormalizedNode[];
 	edges: readonly NormalizedEdge[];
@@ -544,7 +550,10 @@ function runInitialLayout(input: {
 		return runPositionSeededInitialLayout(input);
 	}
 
-	return runDagreInitialLayout({
+	const runAutoLayout = input.componentAware
+		? runComponentAwareDagreInitialLayout
+		: runDagreInitialLayout;
+	return runAutoLayout({
 		direction: input.direction,
 		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
 		edges: input.edges.map((edge) => ({
@@ -608,7 +617,7 @@ function runPositionSeededInitialLayout(input: {
 	}
 
 	const autoNodeIds = new Set(autoNodes.map((node) => node.id));
-	const autoLayout = runDagreInitialLayout({
+	const autoLayout = runComponentAwareDagreInitialLayout({
 		direction: input.direction,
 		nodes: autoNodes.map((node) => ({ id: node.id, size: node.size })),
 		edges: input.edges
@@ -3040,6 +3049,10 @@ function coordinateEdges(
 	const coordinatedNodeById = new Map(
 		coordinatedNodes.map((node) => [node.id, node]),
 	);
+	const nodeObstacleIndex = createBoxSpatialIndex(
+		obstacles.map((box, index) => ({ id: `node-obstacle:${index}`, box })),
+		options.routingGutter ?? 160,
+	);
 
 	for (const edge of edges) {
 		const source = nodes.get(edge.source.nodeId);
@@ -3067,6 +3080,18 @@ function coordinateEdges(
 		const routeTextObstacles = textObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => annotation.box);
+		const corridor = edgeCorridorBox(
+			source.box,
+			target.box,
+			options.routingGutter ?? 160,
+		);
+		const routeNodeObstacles = queryBoxSpatialIndex(nodeObstacleIndex, corridor)
+			.map((entry) => entry.box)
+			.filter(
+				(obstacle) =>
+					!sameBox(obstacle, source.obstacleBox) &&
+					!sameBox(obstacle, target.obstacleBox),
+			);
 
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
@@ -3080,10 +3105,7 @@ function coordinateEdges(
 				? {}
 				: { targetAnchor: edge.target.anchor }),
 			obstacles: [
-				...obstacles.filter(
-					(obstacle) =>
-						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
-				),
+				...routeNodeObstacles,
 				...softObstacles,
 				...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
 				...routeTextObstacles,
@@ -3106,6 +3128,26 @@ function coordinateEdges(
 	}
 
 	return coordinated;
+}
+
+function edgeCorridorBox(source: Box, target: Box, margin: number): Box {
+	const minX = Math.min(source.x, target.x);
+	const minY = Math.min(source.y, target.y);
+	const maxX = Math.max(source.x + source.width, target.x + target.width);
+	const maxY = Math.max(source.y + source.height, target.y + target.height);
+	return expandBoxForQuery(
+		{ x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+		margin,
+	);
+}
+
+function sameBox(first: Box, second: Box): boolean {
+	return (
+		first.x === second.x &&
+		first.y === second.y &&
+		first.width === second.width &&
+		first.height === second.height
+	);
 }
 
 function isEdgeConnectedTextAnnotation(

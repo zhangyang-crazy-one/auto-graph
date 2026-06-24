@@ -21,18 +21,19 @@ the solved coordinates without clipping.
 
 ## PR sequence
 
-1. Add an explicit `positions` initial layout mode so callers can seed an
+1. Done: add an explicit `positions` initial layout mode so callers can seed an
    infinite canvas directly from node positions, while unpositioned nodes still
    fall back to Dagre.
-2. Add component-aware packing for disconnected auto-layout subgraphs.
-3. Add a scalable overlap resolver with spatial indexing and clearer locked-node
-   conflict diagnostics.
-4. Add routing spatial indexes and large-canvas stress fixtures.
-5. Add exporter viewport metadata for editable infinite-canvas targets where the
+2. Done: add component-aware packing for disconnected auto-layout subgraphs.
+3. Done: add spatial-index-backed overlap candidate selection and clearer
+   locked-node conflict diagnostics.
+4. Done: add routing obstacle spatial filtering and a large-canvas stress test.
+5. Done: add opt-in exporter viewport metadata for editable targets where the
    target format supports it.
 
-## First PR scope
+## PR scope
 
-This PR implements step 1 only. It preserves the default Dagre behavior and adds
-focused tests for sparse positioned nodes, negative coordinates, mixed positioned
-and automatic nodes, and DSL rendering through `layout.mode: positions`.
+This PR implements the plan as v1 building blocks. It preserves default Dagre
+behavior, adds explicit positioned-canvas seeding, separates disconnected auto
+components, improves overlap/routing candidate selection with spatial indexes,
+and adds opt-in viewport metadata without changing solved coordinates.

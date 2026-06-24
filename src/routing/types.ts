@@ -1,4 +1,5 @@
 import type { ShapeGeometry } from "../geometry/shapes.js";
+import type { BoxSpatialIndex } from "../geometry/spatial-index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type {
 	AnchorName,
@@ -18,6 +19,8 @@ export interface RouteEdgeInput {
 	targetAnchor?: AnchorName;
 	obstacles?: readonly Box[];
 	hardObstacles?: readonly Box[];
+	obstacleIndex?: BoxSpatialIndex;
+	hardObstacleIndex?: BoxSpatialIndex;
 	/** Maximum greedy rerouting iterations (default 5). */
 	maxRoutingAttempts?: number;
 }

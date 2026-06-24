@@ -101,6 +101,56 @@ describe("layout constraints", () => {
 		expect(result.boxes.get("free")?.[axis]).toBe(expected);
 	});
 
+	it("reports locked overlap conflicts when neither box can move", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			boxes: boxMap([
+				["fixed-a", { x: 0, y: 0, width: 80, height: 40 }],
+				["fixed-b", { x: 20, y: 10, width: 80, height: 40 }],
+			]),
+			nodes: [
+				node("fixed-a", { x: 0, y: 0 }),
+				node("fixed-b", { x: 20, y: 10 }),
+			],
+			groups: [],
+			constraints: [],
+		});
+
+		expect(result.boxes.get("fixed-a")).toMatchObject({ x: 0, y: 0 });
+		expect(result.boxes.get("fixed-b")).toMatchObject({ x: 20, y: 10 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.locked-conflict",
+				detail: expect.objectContaining({
+					firstId: "fixed-a",
+					secondId: "fixed-b",
+					firstLockSource: "fixed-position",
+					secondLockSource: "fixed-position",
+				}),
+			}),
+		);
+	});
+
+	it("does not report locked conflict when an unlocked overlap can be repaired", () => {
+		const result = applyLayoutConstraints({
+			direction: "LR",
+			boxes: boxMap([
+				["fixed", { x: 0, y: 0, width: 50, height: 30 }],
+				["free", { x: 20, y: 0, width: 50, height: 30 }],
+			]),
+			nodes: [node("fixed", { x: 0, y: 0 }), node("free")],
+			groups: [],
+			constraints: [],
+		});
+
+		expect(result.boxes.get("free")?.x).toBe(90);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "constraints.overlap.locked-conflict",
+			}),
+		);
+	});
+
 	it("uses configured spacing and never moves fixed or exact boxes", () => {
 		const result = applyLayoutConstraints({
 			direction: "LR",
@@ -193,7 +243,7 @@ describe("layout constraints", () => {
 				"constraints.position.invalid",
 				"constraints.conflict.exact-position",
 				"constraints.containment.impossible",
-				"constraints.overlap.unresolved",
+				"constraints.overlap.locked-conflict",
 			]),
 		);
 	});
