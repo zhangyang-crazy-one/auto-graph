@@ -59,6 +59,7 @@ import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 import { LayoutPipeline } from "./pipeline/pipeline.js";
+import { scoreLayoutQuality } from "./pipeline/quality.js";
 import type { LayoutState } from "./pipeline/types.js";
 
 export type InitialLayoutMode = "dagre" | "positions";
@@ -69,6 +70,8 @@ export interface SolveDiagramOptions {
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
+	/** When true, compute quality score after solving (Issue #54, 方案 E). */
+	qualityScore?: boolean;
 	routingGutter?: number;
 	overlapSpacing?: number;
 	minLaneGutter?: number;
@@ -4310,15 +4313,30 @@ function groupReferenceMissing(
  * PRs for 方案 A (recursive layout) and 方案 B (corner-graph A*).
  */
 export function createDefaultPipeline(): LayoutPipeline {
-	return new LayoutPipeline().addPhase({
-		name: "solve-diagram",
-		run(state: LayoutState): void {
-			const result = solveDiagram(state.diagram, state.options);
-			// Mirror the result back into the state so downstream
-			// consumers can inspect it after the pipeline runs.
-			state.diagnostics.push(...result.diagnostics);
-			state.bounds = result.bounds;
-			state.degraded = result.degraded ?? false;
-		},
-	});
+	return new LayoutPipeline()
+		.addPhase({
+			name: "solve-diagram",
+			run(state: LayoutState): void {
+				const result = solveDiagram(state.diagram, state.options);
+				// Mirror the result back into the state so downstream
+				// consumers can inspect it after the pipeline runs.
+				state.diagnostics.push(...result.diagnostics);
+				state.bounds = result.bounds;
+				state.degraded = result.degraded ?? false;
+				state.coordinatedNodes = result.nodes;
+				state.coordinatedEdges = result.edges;
+			},
+		})
+		.addPhase({
+			name: "quality-score",
+			run(state: LayoutState): void {
+				if (!state.options.qualityScore) return;
+				const { scoreLayoutQuality } = require("./pipeline/quality.js");
+				const report = scoreLayoutQuality(
+					state.coordinatedNodes,
+					state.coordinatedEdges,
+				);
+				state.diagnostics.push(...report.diagnostics);
+			},
+		});
 }
