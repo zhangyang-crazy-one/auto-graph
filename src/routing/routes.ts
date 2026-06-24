@@ -14,6 +14,7 @@ import type {
 } from "../ir/geometry.js";
 import { findObstacleFreePath } from "./astar.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
+import { findCornerGraphPath } from "./visibility-router.js";
 
 /**
  * Emit a diagnostic when the route length exceeds `threshold` × the
@@ -120,15 +121,24 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				input.source.center,
 				targetAnchor,
 			);
-			const path = findObstacleFreePath(
+			// Try corner visibility graph first (Issue #54, 方案 B).
+			const cornerPath = findCornerGraphPath(
 				source,
 				target,
 				[...softObstacles, ...hardObstacles],
-				{
-					endpointObstacles,
-				},
+				{ endpointObstacles },
 				diagnostics,
 			);
+			// Fall back to grid A* if corner graph fails.
+			const path =
+				cornerPath ??
+				findObstacleFreePath(
+					source,
+					target,
+					[...softObstacles, ...hardObstacles],
+					{ endpointObstacles },
+					diagnostics,
+				);
 			if (path !== null && path.length >= 2) {
 				const finalized = finalizeRoute(
 					path,
