@@ -1089,7 +1089,7 @@ function applyDistributeContained(
 				const rStart = Math.max(r.start, content[axis]);
 				const rEnd = Math.min(r.end, contentEnd);
 				if (rEnd > rStart) {
-					reservedSpan += rEnd - rStart;
+					reservedSpan += rEnd - rStart + minGap; // reserved width + minGap budget
 				}
 			}
 			const remaining =

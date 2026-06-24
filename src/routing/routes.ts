@@ -417,8 +417,11 @@ function finalizeRoute(
 			detail: { pointCount: simplified.length },
 		});
 	}
-	if (source !== undefined && target !== undefined) {
-		checkBacktracking(expanded, source, target, diagnostics);
+	const src = source ?? (points.length > 0 ? points[0] : undefined);
+	const tgt =
+		target ?? (points.length > 0 ? points[points.length - 1] : undefined);
+	if (src !== undefined && tgt !== undefined) {
+		checkBacktracking(expanded, src, tgt, diagnostics);
 	}
 	return expanded;
 }

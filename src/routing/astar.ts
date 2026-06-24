@@ -47,7 +47,7 @@ export function findObstacleFreePath(
 	const turnPenalty = options.turnPenalty ?? 50;
 	const segmentPenalty = options.segmentPenalty ?? 1;
 	const endpointObstacles = options.endpointObstacles ?? [];
-	const maxNodes = options.maxNodes ?? (obstacles.length > 30 ? 16000 : 8000);
+	const maxNodes = options.maxNodes ?? (obstacles.length > 20 ? 16000 : 12000);
 
 	// 1. Collect interesting coordinates.
 	const xs = collectXs(source, target, obstacles, margin);
