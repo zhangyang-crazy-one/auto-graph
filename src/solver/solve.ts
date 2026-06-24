@@ -55,6 +55,7 @@ import {
 	runComponentAwareDagreInitialLayout,
 	runDagreInitialLayout,
 } from "../layout/index.js";
+import { runRecursiveContainerLayout } from "../layout/recursive.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
@@ -67,6 +68,8 @@ export type InitialLayoutMode = "dagre" | "positions";
 export interface SolveDiagramOptions {
 	/** Selects the seed coordinates before constraints, routing, and export. */
 	initialLayout?: InitialLayoutMode;
+	/** When true, use recursive bottom-up layout for container groups (Issue #54, 方案 A). */
+	recursiveLayout?: boolean;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** When true, compute quality score after solving (Issue #54, 方案 E). */
@@ -203,13 +206,22 @@ export function solveDiagram(
 	);
 	const constraints = stableByConstraintId(diagram.constraints);
 	const initialLayoutMode = options.initialLayout ?? "dagre";
-	const layout = runInitialLayout({
-		mode: initialLayoutMode,
-		componentAware: options.maxStackDepth === undefined,
-		direction: diagram.direction,
-		nodes: styledNodes,
-		edges: styledEdges,
-	});
+	const useRecursive = options.recursiveLayout === true;
+	const layout = useRecursive
+		? runRecursiveContainerLayout({
+				direction: diagram.direction,
+				nodes: styledNodes,
+				groups: styledGroups,
+				edges: styledEdges,
+				constraints,
+			})
+		: runInitialLayout({
+				mode: initialLayoutMode,
+				componentAware: options.maxStackDepth === undefined,
+				direction: diagram.direction,
+				nodes: styledNodes,
+				edges: styledEdges,
+			});
 
 	diagnostics.push(...layout.diagnostics);
 	const initialNodeBoxes =
