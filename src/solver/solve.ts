@@ -47,12 +47,19 @@ import type {
 	TextSurfaceKind,
 } from "../ir/label-layout.js";
 import { fitLabel } from "../labels/index.js";
-import { runDagreInitialLayout } from "../layout/index.js";
+import {
+	type InitialLayoutResult,
+	runDagreInitialLayout,
+} from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 
+export type InitialLayoutMode = "dagre" | "positions";
+
 export interface SolveDiagramOptions {
+	/** Selects the seed coordinates before constraints, routing, and export. */
+	initialLayout?: InitialLayoutMode;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
@@ -186,25 +193,26 @@ export function solveDiagram(
 		enhanceSwimlaneCjkTypography(swimlane, cjkTypography, diagnostics),
 	);
 	const constraints = stableByConstraintId(diagram.constraints);
-	const layout = runDagreInitialLayout({
+	const initialLayoutMode = options.initialLayout ?? "dagre";
+	const layout = runInitialLayout({
+		mode: initialLayoutMode,
 		direction: diagram.direction,
-		nodes: styledNodes.map((node) => ({ id: node.id, size: node.size })),
-		edges: styledEdges.map((edge) => ({
-			id: edge.id,
-			sourceId: edge.source.nodeId,
-			targetId: edge.target.nodeId,
-		})),
+		nodes: styledNodes,
+		edges: styledEdges,
 	});
 
 	diagnostics.push(...layout.diagnostics);
-	const initialNodeBoxes = wrapVerticalStackIfNeeded(
-		layout.boxes,
-		styledNodes,
-		styledEdges,
-		diagram.direction,
-		options,
-		diagnostics,
-	);
+	const initialNodeBoxes =
+		initialLayoutMode === "positions"
+			? layout.boxes
+			: wrapVerticalStackIfNeeded(
+					layout.boxes,
+					styledNodes,
+					styledEdges,
+					diagram.direction,
+					options,
+					diagnostics,
+				);
 
 	// Expand node boxes for port capacity before constraint solving
 	// so containment, overlap repair, and swimlane contracts see the
@@ -524,6 +532,111 @@ export function solveDiagramSafe(
 	options: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
 	return solveDiagram(diagram, { ...options, prefitLabelSize: true });
+}
+
+function runInitialLayout(input: {
+	mode: InitialLayoutMode;
+	direction: NormalizedDiagram["direction"];
+	nodes: readonly NormalizedNode[];
+	edges: readonly NormalizedEdge[];
+}): InitialLayoutResult {
+	if (input.mode === "positions") {
+		return runPositionSeededInitialLayout(input);
+	}
+
+	return runDagreInitialLayout({
+		direction: input.direction,
+		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: input.edges.map((edge) => ({
+			id: edge.id,
+			sourceId: edge.source.nodeId,
+			targetId: edge.target.nodeId,
+		})),
+	});
+}
+
+function runPositionSeededInitialLayout(input: {
+	direction: NormalizedDiagram["direction"];
+	nodes: readonly NormalizedNode[];
+	edges: readonly NormalizedEdge[];
+}): InitialLayoutResult {
+	const diagnostics: Diagnostic[] = [];
+	const boxes = new Map<string, Box>();
+	const autoNodes: NormalizedNode[] = [];
+
+	for (const node of input.nodes) {
+		if (
+			!isValidInitialDimension(node.size.width) ||
+			!isValidInitialDimension(node.size.height)
+		) {
+			diagnostics.push({
+				severity: "error",
+				code: "layout.node-size.invalid",
+				message: `Node ${node.id} has invalid layout dimensions.`,
+				path: ["nodes", node.id, "size"],
+				detail: { nodeId: node.id },
+			});
+			continue;
+		}
+
+		if (node.position === undefined) {
+			autoNodes.push(node);
+			continue;
+		}
+
+		if (!isFiniteInitialPoint(node.position)) {
+			diagnostics.push({
+				severity: "error",
+				code: "layout.node-position.invalid",
+				message: `Node ${node.id} has an invalid seeded position.`,
+				path: ["nodes", node.id, "position"],
+				detail: { nodeId: node.id },
+			});
+			continue;
+		}
+
+		boxes.set(node.id, {
+			x: node.position.x,
+			y: node.position.y,
+			width: node.size.width,
+			height: node.size.height,
+		});
+	}
+
+	if (autoNodes.length === 0) {
+		return { boxes, diagnostics };
+	}
+
+	const autoNodeIds = new Set(autoNodes.map((node) => node.id));
+	const autoLayout = runDagreInitialLayout({
+		direction: input.direction,
+		nodes: autoNodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: input.edges
+			.filter(
+				(edge) =>
+					autoNodeIds.has(edge.source.nodeId) &&
+					autoNodeIds.has(edge.target.nodeId),
+			)
+			.map((edge) => ({
+				id: edge.id,
+				sourceId: edge.source.nodeId,
+				targetId: edge.target.nodeId,
+			})),
+	});
+	diagnostics.push(...autoLayout.diagnostics);
+	for (const [id, box] of autoLayout.boxes) {
+		boxes.set(id, box);
+	}
+
+	return { boxes, diagnostics };
+}
+
+function isValidInitialDimension(value: number): boolean {
+	return Number.isFinite(value) && value >= 0;
+}
+
+function isFiniteInitialPoint(point: Point): boolean {
+	return Number.isFinite(point.x) && Number.isFinite(point.y);
 }
 
 function prefitNodeLabelSize(

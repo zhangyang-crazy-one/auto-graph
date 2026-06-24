@@ -316,6 +316,43 @@ output:
 		);
 	});
 
+	it("passes positions layout mode through DSL render", () => {
+		const source = `
+title: Manual Canvas
+layout:
+  direction: LR
+  mode: positions
+nodes:
+  west: { label: West, position: { x: -320, y: -160 } }
+  east: { label: East, position: { x: 640, y: 100 } }
+output:
+  format: svg
+`;
+
+		const normalized = normalizeDiagramDsl(parseDiagramDsl(source).value);
+		const rendered = renderDiagramDsl(source, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		expect(normalized.diagram?.metadata?.initialLayout).toBe("positions");
+		expect(rendered.diagnostics).toEqual([]);
+		expect(rendered.content).toContain("<svg");
+		expect(
+			rendered.diagram?.nodes.find((node) => node.id === "west")?.box,
+		).toMatchObject({
+			x: -320,
+			y: -160,
+		});
+		expect(
+			rendered.diagram?.nodes.find((node) => node.id === "east")?.box,
+		).toMatchObject({
+			x: 640,
+			y: 100,
+		});
+		expect(rendered.diagram?.bounds.x).toBeLessThanOrEqual(-320);
+		expect(rendered.diagram?.bounds.y).toBeLessThanOrEqual(-160);
+	});
+
 	it("rejects negative object frame padding before normalization", () => {
 		const result = parseDiagramDsl(`
 nodes:
