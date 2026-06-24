@@ -1,4 +1,4 @@
-import { intersectsAabb, validateBox } from "../geometry/boxes.js";
+import { intersectsAabb, overlapArea, validateBox } from "../geometry/boxes.js";
 import {
 	createBoxSpatialIndex,
 	queryBoxSpatialIndex,
@@ -494,14 +494,14 @@ function repairOverlaps(
 	const ignoredPairs = containmentOverlapKeys(input.constraints);
 	const ids = [...boxes.keys()].sort();
 
+	const index = createBoxSpatialIndex(
+		ids.flatMap((id) => {
+			const box = boxes.get(id);
+			return box === undefined ? [] : [{ id, box }];
+		}),
+		spacing,
+	);
 	for (let pass = 0; pass < 2; pass += 1) {
-		const index = createBoxSpatialIndex(
-			ids.flatMap((id) => {
-				const box = boxes.get(id);
-				return box === undefined ? [] : [{ id, box }];
-			}),
-			spacing,
-		);
 		for (const firstId of ids) {
 			const first = boxes.get(firstId);
 			if (first === undefined) {
@@ -719,20 +719,6 @@ function reportOverlaps(
 			}
 		}
 	}
-}
-
-function overlapArea(first: Box, second: Box): number {
-	const x = Math.max(
-		0,
-		Math.min(first.x + first.width, second.x + second.width) -
-			Math.max(first.x, second.x),
-	);
-	const y = Math.max(
-		0,
-		Math.min(first.y + first.height, second.y + second.height) -
-			Math.max(first.y, second.y),
-	);
-	return x * y;
 }
 
 function reportIntraContainerOverflow(

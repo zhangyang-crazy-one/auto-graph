@@ -91,6 +91,24 @@ export function intersectsAabb(a: Box, b: Box): boolean {
 	);
 }
 
+/**
+ * Area of overlap between two boxes, in square pixels.
+ * Returns 0 when the boxes do not intersect.
+ */
+export function overlapArea(first: Box, second: Box): number {
+	const x = Math.max(
+		0,
+		Math.min(first.x + first.width, second.x + second.width) -
+			Math.max(first.x, second.x),
+	);
+	const y = Math.max(
+		0,
+		Math.min(first.y + first.height, second.y + second.height) -
+			Math.max(first.y, second.y),
+	);
+	return x * y;
+}
+
 function validateMargin(value: number, label: string): void {
 	validateFinite(value, label);
 
