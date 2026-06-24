@@ -1,4 +1,6 @@
 import { applyLayoutConstraints } from "../constraints/index.js";
+import { LayoutPipeline } from "./pipeline/pipeline.js";
+import type { LayoutState } from "./pipeline/types.js";
 import {
 	DEFAULT_FONT,
 	DEFAULT_LABEL_MAX_WIDTH,
@@ -4291,4 +4293,32 @@ function groupReferenceMissing(
 		path: ["groups", groupId],
 		detail: id === undefined ? { groupId } : { groupId, id },
 	};
+}
+
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Pipeline factory (Issue #54, 方案 D)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the default layout pipeline. Currently wraps `solveDiagram` in
+ * a single mega-phase so custom callers can replace individual phases
+ * (e.g. "initial-layout", "route-edges") without touching the rest.
+ *
+ * Individual phases will be extracted from the mega-phase in follow-up
+ * PRs for 方案 A (recursive layout) and 方案 B (corner-graph A*).
+ */
+export function createDefaultPipeline(): LayoutPipeline {
+	return new LayoutPipeline().addPhase({
+		name: "solve-diagram",
+		run(state: LayoutState): void {
+			const result = solveDiagram(state.diagram, state.options);
+			// Mirror the result back into the state so downstream
+			// consumers can inspect it after the pipeline runs.
+			state.diagnostics.push(...result.diagnostics);
+			state.bounds = result.bounds;
+			state.degraded = result.degraded ?? false;
+		},
+	});
 }
