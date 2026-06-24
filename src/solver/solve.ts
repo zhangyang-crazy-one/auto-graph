@@ -1,6 +1,4 @@
 import { applyLayoutConstraints } from "../constraints/index.js";
-import { LayoutPipeline } from "./pipeline/pipeline.js";
-import type { LayoutState } from "./pipeline/types.js";
 import {
 	DEFAULT_FONT,
 	DEFAULT_LABEL_MAX_WIDTH,
@@ -60,6 +58,8 @@ import {
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
+import { LayoutPipeline } from "./pipeline/pipeline.js";
+import type { LayoutState } from "./pipeline/types.js";
 
 export type InitialLayoutMode = "dagre" | "positions";
 
