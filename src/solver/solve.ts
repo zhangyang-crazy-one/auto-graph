@@ -9,9 +9,12 @@ import { computeArrowhead } from "../exporters/arrow.js";
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
+	createBoxSpatialIndex,
 	expandBox,
+	expandBoxForQuery,
 	intersectsAabb,
 	normalizeInsets,
+	queryBoxSpatialIndex,
 	unionBoxes,
 } from "../geometry/index.js";
 import type { Constraint } from "../ir/constraints.js";
@@ -47,12 +50,20 @@ import type {
 	TextSurfaceKind,
 } from "../ir/label-layout.js";
 import { fitLabel } from "../labels/index.js";
-import { runDagreInitialLayout } from "../layout/index.js";
+import {
+	type InitialLayoutResult,
+	runComponentAwareDagreInitialLayout,
+	runDagreInitialLayout,
+} from "../layout/index.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 
+export type InitialLayoutMode = "dagre" | "positions";
+
 export interface SolveDiagramOptions {
+	/** Selects the seed coordinates before constraints, routing, and export. */
+	initialLayout?: InitialLayoutMode;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
@@ -186,25 +197,27 @@ export function solveDiagram(
 		enhanceSwimlaneCjkTypography(swimlane, cjkTypography, diagnostics),
 	);
 	const constraints = stableByConstraintId(diagram.constraints);
-	const layout = runDagreInitialLayout({
+	const initialLayoutMode = options.initialLayout ?? "dagre";
+	const layout = runInitialLayout({
+		mode: initialLayoutMode,
+		componentAware: options.maxStackDepth === undefined,
 		direction: diagram.direction,
-		nodes: styledNodes.map((node) => ({ id: node.id, size: node.size })),
-		edges: styledEdges.map((edge) => ({
-			id: edge.id,
-			sourceId: edge.source.nodeId,
-			targetId: edge.target.nodeId,
-		})),
+		nodes: styledNodes,
+		edges: styledEdges,
 	});
 
 	diagnostics.push(...layout.diagnostics);
-	const initialNodeBoxes = wrapVerticalStackIfNeeded(
-		layout.boxes,
-		styledNodes,
-		styledEdges,
-		diagram.direction,
-		options,
-		diagnostics,
-	);
+	const initialNodeBoxes =
+		initialLayoutMode === "positions"
+			? layout.boxes
+			: wrapVerticalStackIfNeeded(
+					layout.boxes,
+					styledNodes,
+					styledEdges,
+					diagram.direction,
+					options,
+					diagnostics,
+				);
 
 	// Expand node boxes for port capacity before constraint solving
 	// so containment, overlap repair, and swimlane contracts see the
@@ -524,6 +537,115 @@ export function solveDiagramSafe(
 	options: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
 	return solveDiagram(diagram, { ...options, prefitLabelSize: true });
+}
+
+function runInitialLayout(input: {
+	mode: InitialLayoutMode;
+	componentAware: boolean;
+	direction: NormalizedDiagram["direction"];
+	nodes: readonly NormalizedNode[];
+	edges: readonly NormalizedEdge[];
+}): InitialLayoutResult {
+	if (input.mode === "positions") {
+		return runPositionSeededInitialLayout(input);
+	}
+
+	const runAutoLayout = input.componentAware
+		? runComponentAwareDagreInitialLayout
+		: runDagreInitialLayout;
+	return runAutoLayout({
+		direction: input.direction,
+		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: input.edges.map((edge) => ({
+			id: edge.id,
+			sourceId: edge.source.nodeId,
+			targetId: edge.target.nodeId,
+		})),
+	});
+}
+
+function runPositionSeededInitialLayout(input: {
+	direction: NormalizedDiagram["direction"];
+	nodes: readonly NormalizedNode[];
+	edges: readonly NormalizedEdge[];
+}): InitialLayoutResult {
+	const diagnostics: Diagnostic[] = [];
+	const boxes = new Map<string, Box>();
+	const autoNodes: NormalizedNode[] = [];
+
+	for (const node of input.nodes) {
+		if (
+			!isValidInitialDimension(node.size.width) ||
+			!isValidInitialDimension(node.size.height)
+		) {
+			diagnostics.push({
+				severity: "error",
+				code: "layout.node-size.invalid",
+				message: `Node ${node.id} has invalid layout dimensions.`,
+				path: ["nodes", node.id, "size"],
+				detail: { nodeId: node.id },
+			});
+			continue;
+		}
+
+		if (node.position === undefined) {
+			autoNodes.push(node);
+			continue;
+		}
+
+		if (!isFiniteInitialPoint(node.position)) {
+			diagnostics.push({
+				severity: "error",
+				code: "layout.node-position.invalid",
+				message: `Node ${node.id} has an invalid seeded position.`,
+				path: ["nodes", node.id, "position"],
+				detail: { nodeId: node.id },
+			});
+			continue;
+		}
+
+		boxes.set(node.id, {
+			x: node.position.x,
+			y: node.position.y,
+			width: node.size.width,
+			height: node.size.height,
+		});
+	}
+
+	if (autoNodes.length === 0) {
+		return { boxes, diagnostics };
+	}
+
+	const autoNodeIds = new Set(autoNodes.map((node) => node.id));
+	const autoLayout = runComponentAwareDagreInitialLayout({
+		direction: input.direction,
+		nodes: autoNodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: input.edges
+			.filter(
+				(edge) =>
+					autoNodeIds.has(edge.source.nodeId) &&
+					autoNodeIds.has(edge.target.nodeId),
+			)
+			.map((edge) => ({
+				id: edge.id,
+				sourceId: edge.source.nodeId,
+				targetId: edge.target.nodeId,
+			})),
+	});
+	diagnostics.push(...autoLayout.diagnostics);
+	for (const [id, box] of autoLayout.boxes) {
+		boxes.set(id, box);
+	}
+
+	return { boxes, diagnostics };
+}
+
+function isValidInitialDimension(value: number): boolean {
+	return Number.isFinite(value) && value >= 0;
+}
+
+function isFiniteInitialPoint(point: Point): boolean {
+	return Number.isFinite(point.x) && Number.isFinite(point.y);
 }
 
 function prefitNodeLabelSize(
@@ -2927,6 +3049,10 @@ function coordinateEdges(
 	const coordinatedNodeById = new Map(
 		coordinatedNodes.map((node) => [node.id, node]),
 	);
+	const nodeObstacleIndex = createBoxSpatialIndex(
+		obstacles.map((box, index) => ({ id: `node-obstacle:${index}`, box })),
+		options.routingGutter ?? 160,
+	);
 
 	for (const edge of edges) {
 		const source = nodes.get(edge.source.nodeId);
@@ -2954,6 +3080,18 @@ function coordinateEdges(
 		const routeTextObstacles = textObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => annotation.box);
+		const corridor = edgeCorridorBox(
+			source.box,
+			target.box,
+			options.routingGutter ?? 160,
+		);
+		const routeNodeObstacles = queryBoxSpatialIndex(nodeObstacleIndex, corridor)
+			.map((entry) => entry.box)
+			.filter(
+				(obstacle) =>
+					!sameBox(obstacle, source.obstacleBox) &&
+					!sameBox(obstacle, target.obstacleBox),
+			);
 
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
@@ -2967,10 +3105,7 @@ function coordinateEdges(
 				? {}
 				: { targetAnchor: edge.target.anchor }),
 			obstacles: [
-				...obstacles.filter(
-					(obstacle) =>
-						obstacle !== source.obstacleBox && obstacle !== target.obstacleBox,
-				),
+				...routeNodeObstacles,
 				...softObstacles,
 				...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
 				...routeTextObstacles,
@@ -2993,6 +3128,26 @@ function coordinateEdges(
 	}
 
 	return coordinated;
+}
+
+function edgeCorridorBox(source: Box, target: Box, margin: number): Box {
+	const minX = Math.min(source.x, target.x);
+	const minY = Math.min(source.y, target.y);
+	const maxX = Math.max(source.x + source.width, target.x + target.width);
+	const maxY = Math.max(source.y + source.height, target.y + target.height);
+	return expandBoxForQuery(
+		{ x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+		margin,
+	);
+}
+
+function sameBox(first: Box, second: Box): boolean {
+	return (
+		first.x === second.x &&
+		first.y === second.y &&
+		first.width === second.width &&
+		first.height === second.height
+	);
 }
 
 function isEdgeConnectedTextAnnotation(

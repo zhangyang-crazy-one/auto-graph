@@ -80,6 +80,126 @@ describe("solveDiagram", () => {
 		expect(result.bounds).toEqual(baseline.bounds);
 	});
 
+	it("seeds an explicit sparse infinite canvas from node positions", () => {
+		const result = solveDiagram(
+			{
+				id: "manual-canvas",
+				direction: "TB",
+				nodes: [
+					node("corner-a", { x: 0, y: 0 }),
+					node("corner-b", { x: 5_000, y: 0 }),
+					node("corner-c", { x: 0, y: 5_000 }),
+					node("corner-d", { x: 5_000, y: 5_000 }),
+					node("center", { x: 2_500, y: 2_500 }),
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions" },
+		);
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "constraints.overlap.unresolved" }),
+		);
+		expect(nodeBox(result, "corner-a")).toMatchObject({ x: 0, y: 0 });
+		expect(nodeBox(result, "corner-b")).toMatchObject({ x: 5_000, y: 0 });
+		expect(nodeBox(result, "corner-c")).toMatchObject({ x: 0, y: 5_000 });
+		expect(nodeBox(result, "corner-d")).toMatchObject({ x: 5_000, y: 5_000 });
+		expect(nodeBox(result, "center")).toMatchObject({ x: 2_500, y: 2_500 });
+		expect(result.bounds.x).toBe(0);
+		expect(result.bounds.y).toBe(0);
+		expect(result.bounds.x + result.bounds.width).toBeGreaterThanOrEqual(5_080);
+		expect(result.bounds.y + result.bounds.height).toBeGreaterThanOrEqual(
+			5_040,
+		);
+	});
+
+	it("keeps negative positioned nodes on the infinite canvas", () => {
+		const result = solveDiagram(
+			{
+				id: "negative-manual-canvas",
+				direction: "LR",
+				nodes: [
+					node("left", { x: -1_000, y: -500 }),
+					node("middle", { x: -200, y: -500 }),
+					node("right", { x: 800, y: 200 }),
+				],
+				edges: [
+					{
+						id: "left-middle",
+						source: { nodeId: "left" },
+						target: { nodeId: "middle" },
+					},
+					{
+						id: "middle-right",
+						source: { nodeId: "middle" },
+						target: { nodeId: "right" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", routeKind: "straight" },
+		);
+
+		expect(nodeBox(result, "left")).toMatchObject({ x: -1_000, y: -500 });
+		expect(result.bounds.x).toBeLessThanOrEqual(-1_000);
+		expect(result.bounds.y).toBeLessThanOrEqual(-500);
+		for (const edge of result.edges) {
+			expect(edge.points.length).toBe(2);
+			for (const point of edge.points) {
+				expect(Number.isFinite(point.x)).toBe(true);
+				expect(Number.isFinite(point.y)).toBe(true);
+			}
+		}
+	});
+
+	it("uses Dagre only for missing positions in positions mode", () => {
+		const result = solveDiagram(
+			{
+				id: "mixed-manual-auto-canvas",
+				direction: "LR",
+				nodes: [
+					node("fixed", { x: 10_000, y: -5_000 }),
+					node("auto-a"),
+					node("auto-b"),
+				],
+				edges: [
+					{
+						id: "auto-a-auto-b",
+						source: { nodeId: "auto-a" },
+						target: { nodeId: "auto-b" },
+					},
+					{
+						id: "fixed-auto-a",
+						source: { nodeId: "fixed" },
+						target: { nodeId: "auto-a" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", routeKind: "straight" },
+		);
+
+		const autoA = nodeBox(result, "auto-a");
+		const autoB = nodeBox(result, "auto-b");
+		expect(nodeBox(result, "fixed")).toMatchObject({ x: 10_000, y: -5_000 });
+		expect(Number.isFinite(autoA.x)).toBe(true);
+		expect(Number.isFinite(autoA.y)).toBe(true);
+		expect(Number.isFinite(autoB.x)).toBe(true);
+		expect(Number.isFinite(autoB.y)).toBe(true);
+		expect(autoA).not.toMatchObject({ x: 10_000, y: -5_000 });
+		expect(autoB).not.toMatchObject({ x: 10_000, y: -5_000 });
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "layout.edge-reference.missing" }),
+		);
+	});
+
 	it("includes edge arrowhead geometry in diagram bounds", () => {
 		const diagram = {
 			id: "arrowhead-bounds",
@@ -2465,6 +2585,7 @@ it("does not promote severity when strict is unset", () => {
 it("certifies the deliverability diagnostics strict mode gates on", () => {
 	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
 		"constraints.locked-target-not-moved",
+		"constraints.overlap.locked-conflict",
 		"route_obstacle_fallback",
 		"routing.evidence.crossing_forbidden",
 		"routing.obstacle.unavoidable",
@@ -2802,6 +2923,16 @@ function node(id: string, position?: { x: number; y: number }) {
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
 	};
+}
+
+function nodeBox(result: ReturnType<typeof solveDiagram>, id: string) {
+	const found = result.nodes.find(
+		(coordinatedNode) => coordinatedNode.id === id,
+	);
+	if (found === undefined) {
+		throw new Error(`Expected solved node ${id}`);
+	}
+	return found.box;
 }
 
 function createTestLabelLayout(

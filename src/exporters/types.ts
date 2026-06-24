@@ -9,4 +9,6 @@ export interface ExportResult {
 
 export interface ExportOptions {
 	title?: string;
+	/** Padding around diagram bounds for viewport metadata, in pixels. */
+	viewportPadding?: number;
 }

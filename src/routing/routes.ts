@@ -1,5 +1,10 @@
 import { intersectsAabb, validateBox } from "../geometry/boxes.js";
 import { getEdgePort } from "../geometry/shapes.js";
+import {
+	type BoxSpatialIndex,
+	createBoxSpatialIndex,
+	querySegmentSpatialIndex,
+} from "../geometry/spatial-index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type {
 	AnchorName,
@@ -48,6 +53,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
 	const hardObstacles = input.hardObstacles ?? [];
+	const softObstacleIndex =
+		input.obstacleIndex ?? createBoxSpatialIndex(indexedBoxes(softObstacles));
+	const hardObstacleIndex =
+		input.hardObstacleIndex ??
+		createBoxSpatialIndex(indexedBoxes(hardObstacles));
 	const maxAttempts = input.maxRoutingAttempts ?? 5;
 	const defaultAnchors = defaultAnchorsForGeometry(
 		input.source.box,
@@ -71,8 +81,10 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			softObstacles,
 			hardObstacles,
 			diagnostics,
+			softObstacleIndex,
+			hardObstacleIndex,
 		);
-		if (routeCrossesBoxes(points, hardObstacles)) {
+		if (routeCrossesBoxes(points, hardObstacles, hardObstacleIndex)) {
 			diagnostics.push({
 				severity: "error",
 				code: "routing.evidence.crossing_forbidden",
@@ -80,7 +92,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			});
 			return { points, diagnostics };
 		}
-		if (routeCrossesBoxes(points, softObstacles)) {
+		if (routeCrossesBoxes(points, softObstacles, softObstacleIndex)) {
 			diagnostics.push({
 				severity: "warning",
 				code: "routing.obstacle.unavoidable",
@@ -123,14 +135,20 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					softObstacles,
 					hardObstacles,
 					diagnostics,
+					softObstacleIndex,
+					hardObstacleIndex,
 				);
 				// Verify the A* path against the router.s AABB
 				// collision contract (segmentBox with 1 px floor)
 				// so we do not accept routes that the existing
 				// non-A* path would reject (Codex P2).
 				if (
-					!routeIntersectsObstacles(finalized, softObstacles) &&
-					!routeIntersectsObstacles(finalized, hardObstacles)
+					!routeIntersectsObstacles(
+						finalized,
+						softObstacles,
+						softObstacleIndex,
+					) &&
+					!routeIntersectsObstacles(finalized, hardObstacles, hardObstacleIndex)
 				) {
 					checkBacktracking(finalized, source, target, diagnostics);
 					return { points: finalized, diagnostics };
@@ -175,7 +193,16 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	for (const candidate of candidateRoutes) {
 		if (
 			!routeIntersectsObstacles(candidate.points, softObstacles) &&
-			!routeIntersectsObstacles(candidate.points, hardObstacles) &&
+			!routeIntersectsObstacles(
+				candidate.points,
+				softObstacles,
+				softObstacleIndex,
+			) &&
+			!routeIntersectsObstacles(
+				candidate.points,
+				hardObstacles,
+				hardObstacleIndex,
+			) &&
 			!routeIntersectsEndpointInteriors(
 				candidate.points,
 				candidate.endpointObstacles,
@@ -186,6 +213,8 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				softObstacles,
 				hardObstacles,
 				diagnostics,
+				softObstacleIndex,
+				hardObstacleIndex,
 			);
 			checkBacktracking(
 				finalizedClean,
@@ -199,7 +228,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 	const hardClearCandidate = candidateRoutes.find(
 		(candidate) =>
-			!routeIntersectsObstacles(candidate.points, hardObstacles) &&
+			!routeIntersectsObstacles(
+				candidate.points,
+				hardObstacles,
+				hardObstacleIndex,
+			) &&
 			!routeIntersectsEndpointInteriors(
 				candidate.points,
 				candidate.endpointObstacles,
@@ -382,13 +415,23 @@ function finalizeRoute(
 	softObstacles: readonly Box[],
 	hardObstacles: readonly Box[],
 	diagnostics: Diagnostic[],
+	softObstacleIndex?: BoxSpatialIndex,
+	hardObstacleIndex?: BoxSpatialIndex,
 ): Point[] {
 	const simplified = simplifyRoute(points);
 	if (simplified.length >= 3) {
 		return simplified;
 	}
-	const crossesHardObstacles = routeCrossesBoxes(simplified, hardObstacles);
-	const crossesSoftObstacles = routeCrossesBoxes(simplified, softObstacles);
+	const crossesHardObstacles = routeCrossesBoxes(
+		simplified,
+		hardObstacles,
+		hardObstacleIndex,
+	);
+	const crossesSoftObstacles = routeCrossesBoxes(
+		simplified,
+		softObstacles,
+		softObstacleIndex,
+	);
 	if (!crossesHardObstacles && !crossesSoftObstacles) {
 		return simplified;
 	}
@@ -396,8 +439,16 @@ function finalizeRoute(
 		...softObstacles,
 		...hardObstacles,
 	]);
-	const expandedCrossesHard = routeCrossesBoxes(expanded, hardObstacles);
-	const expandedCrossesSoft = routeCrossesBoxes(expanded, softObstacles);
+	const expandedCrossesHard = routeCrossesBoxes(
+		expanded,
+		hardObstacles,
+		hardObstacleIndex,
+	);
+	const expandedCrossesSoft = routeCrossesBoxes(
+		expanded,
+		softObstacles,
+		softObstacleIndex,
+	);
 	if (expandedCrossesHard || expandedCrossesSoft) {
 		diagnostics.push({
 			severity: expandedCrossesHard ? "error" : "warning",
@@ -999,16 +1050,22 @@ function sortedUniqueLanes(
 function routeIntersectsObstacles(
 	points: readonly Point[],
 	obstacles: readonly Box[],
+	spatialIndex?: BoxSpatialIndex,
 ): boolean {
-	for (let index = 0; index < points.length - 1; index += 1) {
-		const a = points[index];
-		const b = points[index + 1];
+	for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+		const a = points[pointIndex];
+		const b = points[pointIndex + 1];
 		if (a === undefined || b === undefined) {
 			continue;
 		}
 
 		const segment = segmentBox(a, b);
-		for (const obstacle of obstacles) {
+		for (const obstacle of candidateBoxesForSegment(
+			obstacles,
+			a,
+			b,
+			spatialIndex,
+		)) {
 			validateBox(obstacle);
 			if (intersectsAabb(segment, obstacle)) {
 				return true;
@@ -1045,14 +1102,20 @@ function routeIntersectsEndpointInteriors(
 function routeCrossesBoxes(
 	points: readonly Point[],
 	obstacles: readonly Box[],
+	spatialIndex?: BoxSpatialIndex,
 ): boolean {
-	for (let index = 0; index < points.length - 1; index += 1) {
-		const a = points[index];
-		const b = points[index + 1];
+	for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+		const a = points[pointIndex];
+		const b = points[pointIndex + 1];
 		if (a === undefined || b === undefined) {
 			continue;
 		}
-		for (const obstacle of obstacles) {
+		for (const obstacle of candidateBoxesForSegment(
+			obstacles,
+			a,
+			b,
+			spatialIndex,
+		)) {
 			validateBox(obstacle);
 			if (segmentIntersectsBox(a, b, obstacle)) {
 				return true;
@@ -1060,6 +1123,23 @@ function routeCrossesBoxes(
 		}
 	}
 	return false;
+}
+
+function candidateBoxesForSegment(
+	obstacles: readonly Box[],
+	start: Point,
+	end: Point,
+	index: BoxSpatialIndex | undefined,
+): readonly Box[] {
+	return index === undefined
+		? obstacles
+		: querySegmentSpatialIndex(index, start, end).map((entry) => entry.box);
+}
+
+function indexedBoxes(
+	obstacles: readonly Box[],
+): Array<{ id: string; box: Box }> {
+	return obstacles.map((box, index) => ({ id: `obstacle:${index}`, box }));
 }
 
 function segmentIntersectsBox(start: Point, end: Point, box: Box): boolean {

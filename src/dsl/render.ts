@@ -2,7 +2,10 @@ import { exportExcalidraw, exportSvg } from "../exporters/index.js";
 import type { ExportResult } from "../exporters/types.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
-import type { PortShiftingOptions } from "../solver/index.js";
+import type {
+	PortShiftingOptions,
+	SolveDiagramOptions,
+} from "../solver/index.js";
 import { solveDiagram } from "../solver/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import { normalizeDiagramDsl } from "./normalize.js";
@@ -79,6 +82,7 @@ export function renderDiagramDsl(
 	}
 
 	const solved = solveDiagram(normalized.diagram, {
+		...solveInitialLayoutOption(normalized.diagram.metadata?.initialLayout),
 		routeKind:
 			normalized.diagram.metadata?.routeKind === "straight"
 				? "straight"
@@ -130,6 +134,12 @@ function toSolveDiagnostic(
 	diagnostic: CoordinatedDiagram["diagnostics"][number],
 ): DslDiagnostic {
 	return { ...diagnostic, layer: "solve" };
+}
+
+function solveInitialLayoutOption(
+	value: unknown,
+): Pick<SolveDiagramOptions, "initialLayout"> {
+	return value === "positions" ? { initialLayout: "positions" } : {};
 }
 
 function solvePortShiftingOption(value: unknown):

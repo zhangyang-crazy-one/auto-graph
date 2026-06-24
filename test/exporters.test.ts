@@ -100,6 +100,19 @@ describe("exporters", () => {
 		expect(svg).toContain('<tspan x="-84" y="-23">Negative Text</tspan>');
 	});
 
+	it("emits opt-in SVG viewport metadata without changing solved coordinates", () => {
+		const diagram = createCoordinatedDiagram();
+		diagram.bounds = { x: -320, y: -160, width: 1_040, height: 302 };
+
+		const svg = exportSvg(diagram, { viewportPadding: 24 });
+
+		expect(svg).toContain('viewBox="-320 -160 1040 302"');
+		expect(svg).toContain("data-dge-viewport=");
+		expect(svg).toContain("&quot;x&quot;:-344");
+		expect(svg).toContain("&quot;y&quot;:-184");
+		expect(svg).toContain("&quot;padding&quot;:24");
+	});
+
 	it("keeps plain solveDiagram node labels centered without prepared label layout", () => {
 		const diagram = solveDiagram({
 			id: "plain-label",
@@ -266,6 +279,23 @@ constraints:
 			(element) => element.id === "node:ellipse",
 		);
 		expect(groupedNode).toMatchObject({ groupIds: ["group:group-a"] });
+	});
+
+	it("emits opt-in Excalidraw viewport appState for negative bounds", () => {
+		const diagram = createCoordinatedDiagram();
+		diagram.bounds = { x: -320, y: -160, width: 1_040, height: 302 };
+
+		const scene = JSON.parse(
+			exportExcalidraw(diagram, { viewportPadding: 24 }),
+		) as {
+			appState: Record<string, unknown>;
+		};
+
+		expect(scene.appState).toMatchObject({
+			scrollX: 344,
+			scrollY: 184,
+			zoom: { value: 1 },
+		});
 	});
 
 	it("exports Excalidraw edge style and arrowhead semantics", () => {

@@ -1,4 +1,8 @@
-import { intersectsAabb, validateBox } from "../geometry/boxes.js";
+import { intersectsAabb, overlapArea, validateBox } from "../geometry/boxes.js";
+import {
+	createBoxSpatialIndex,
+	queryBoxSpatialIndex,
+} from "../geometry/spatial-index.js";
 import type {
 	AlignConstraint,
 	Constraint,
@@ -64,7 +68,12 @@ export function applyLayoutConstraints(
 	// Clean up diagnostics that distribution may have resolved (Codex P2).
 	removeResolvedConstraintDiagnostics(input.constraints, boxes, diagnostics);
 
-	reportOverlaps(boxes, diagnostics, containmentOverlapKeys(input.constraints));
+	reportOverlaps(
+		boxes,
+		diagnostics,
+		containmentOverlapKeys(input.constraints),
+		locks,
+	);
 	reportIntraContainerOverflow(input, boxes, diagnostics);
 
 	return { boxes, locks, diagnostics };
@@ -311,14 +320,19 @@ function applyContainment(
 				continue;
 			}
 
-			if (locks.has(childId)) {
+			const lock = locks.get(childId);
+			if (lock !== undefined) {
 				if (!reportOverflow) {
 					diagnostics.push({
 						severity: "warning",
 						code: "constraints.locked-target-not-moved",
 						message: `Locked child ${childId} was not moved into containment.`,
 						path: ["constraints", constraint.id ?? constraint.containerId],
-						detail: { nodeId: childId, containerId: constraint.containerId },
+						detail: {
+							nodeId: childId,
+							containerId: constraint.containerId,
+							lockSource: lock.source,
+						},
 					});
 					if (!isInside(child, content)) {
 						diagnostics.push({
@@ -480,9 +494,24 @@ function repairOverlaps(
 	const ignoredPairs = containmentOverlapKeys(input.constraints);
 	const ids = [...boxes.keys()].sort();
 
+	const index = createBoxSpatialIndex(
+		ids.flatMap((id) => {
+			const box = boxes.get(id);
+			return box === undefined ? [] : [{ id, box }];
+		}),
+		spacing,
+	);
 	for (let pass = 0; pass < 2; pass += 1) {
 		for (const firstId of ids) {
-			for (const secondId of ids) {
+			const first = boxes.get(firstId);
+			if (first === undefined) {
+				continue;
+			}
+			const candidateIds = queryBoxSpatialIndex(index, first)
+				.map((candidate) => candidate.id)
+				.filter((id) => id > firstId)
+				.sort();
+			for (const secondId of candidateIds) {
 				if (firstId >= secondId) {
 					continue;
 				}
@@ -490,13 +519,8 @@ function repairOverlaps(
 					continue;
 				}
 
-				const first = boxes.get(firstId);
 				const second = boxes.get(secondId);
-				if (
-					first === undefined ||
-					second === undefined ||
-					!intersectsAabb(first, second)
-				) {
+				if (second === undefined || !intersectsAabb(first, second)) {
 					continue;
 				}
 
@@ -530,7 +554,7 @@ function repairOverlaps(
 		}
 	}
 
-	reportOverlaps(boxes, diagnostics, ignoredPairs);
+	reportOverlaps(boxes, diagnostics, ignoredPairs, locks);
 }
 
 function removeResolvedConstraintDiagnostics(
@@ -621,12 +645,15 @@ function reportOverlaps(
 	boxes: ReadonlyMap<string, Box>,
 	diagnostics: Diagnostic[],
 	ignoredPairs: ReadonlySet<string> = new Set(),
+	locks: ReadonlyMap<string, LayoutLock> = new Map(),
 ): void {
 	const ids = [...boxes.keys()].sort();
 	const reported = new Set(
 		diagnostics
 			.filter(
-				(diagnostic) => diagnostic.code === "constraints.overlap.unresolved",
+				(diagnostic) =>
+					diagnostic.code === "constraints.overlap.unresolved" ||
+					diagnostic.code === "constraints.overlap.locked-conflict",
 			)
 			.map((diagnostic) => {
 				const firstId = diagnostic.detail?.firstId;
@@ -637,24 +664,50 @@ function reportOverlaps(
 			})
 			.filter((key): key is string => key !== undefined),
 	);
+	const index = createBoxSpatialIndex(
+		ids.flatMap((id) => {
+			const box = boxes.get(id);
+			return box === undefined ? [] : [{ id, box }];
+		}),
+		40,
+	);
 
 	for (const firstId of ids) {
-		for (const secondId of ids) {
-			if (firstId >= secondId) {
-				continue;
-			}
+		const first = boxes.get(firstId);
+		if (first === undefined) {
+			continue;
+		}
+		const candidateIds = queryBoxSpatialIndex(index, first)
+			.map((candidate) => candidate.id)
+			.filter((id) => id > firstId)
+			.sort();
+		for (const secondId of candidateIds) {
 			const key = overlapKey(firstId, secondId);
 			if (reported.has(key) || ignoredPairs.has(key)) {
 				continue;
 			}
 
-			const first = boxes.get(firstId);
 			const second = boxes.get(secondId);
-			if (
-				first !== undefined &&
-				second !== undefined &&
-				intersectsAabb(first, second)
-			) {
+			if (second !== undefined && intersectsAabb(first, second)) {
+				const firstLock = locks.get(firstId);
+				const secondLock = locks.get(secondId);
+				if (firstLock !== undefined && secondLock !== undefined) {
+					diagnostics.push({
+						severity: "warning",
+						code: "constraints.overlap.locked-conflict",
+						message: `Locked boxes ${firstId} (${firstLock.source}) and ${secondId} (${secondLock.source}) overlap and cannot be repaired.`,
+						path: ["boxes"],
+						detail: {
+							firstId,
+							secondId,
+							firstLockSource: firstLock.source,
+							secondLockSource: secondLock.source,
+							overlapArea: overlapArea(first, second),
+						},
+					});
+					reported.add(key);
+					continue;
+				}
 				diagnostics.push({
 					severity: "warning",
 					code: "constraints.overlap.unresolved",
@@ -847,12 +900,17 @@ function setUnlockedBox(
 	}
 
 	if (locks.has(id) && !samePosition(current, next)) {
+		const lock = locks.get(id);
 		diagnostics.push({
 			severity: "warning",
 			code: "constraints.locked-target-not-moved",
 			message: `Locked target ${id} was not moved by ${constraint.kind}.`,
 			path: ["constraints", constraint.id ?? id],
-			detail: { nodeId: id, constraintKind: constraint.kind },
+			detail: {
+				nodeId: id,
+				constraintKind: constraint.kind,
+				...(lock === undefined ? {} : { lockSource: lock.source }),
+			},
 		});
 		return;
 	}

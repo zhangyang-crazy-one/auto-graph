@@ -68,6 +68,7 @@ export function normalizeDiagramDsl(
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
 	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
+	const initialLayout = dsl.layout?.mode;
 	const primaryReadingDirection = dsl.layout?.primaryReadingDirection;
 	const matrices = normalizeMatrices(dsl);
 	const tables = normalizeTables(dsl);
@@ -88,6 +89,7 @@ export function normalizeDiagramDsl(
 		...(dsl.frame === undefined ? {} : { frame: normalizeFrame(dsl.frame) }),
 		metadata: {
 			routeKind,
+			...(initialLayout === undefined ? {} : { initialLayout }),
 			...(primaryReadingDirection === undefined
 				? {}
 				: { primaryReadingDirection }),
