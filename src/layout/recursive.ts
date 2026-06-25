@@ -47,6 +47,7 @@ export function buildContainerTree(
 	childrenOf: Map<string, string[]>; // groupId → child node/group ids (leaf nodes + nested groups)
 	rootIds: Set<string>; // groups with no parent
 	edgesInGroup: Map<string, NormalizedEdge[]>; // groupId → edges internal to that group
+	diagnostics: Diagnostic[];
 } {
 	const childrenOf = new Map<string, string[]>();
 	const parentOf = new Map<string, string>(); // childId → parent groupId
@@ -72,7 +73,18 @@ export function buildContainerTree(
 			const existing = parentOf.get(childId);
 			if (existing !== undefined && existing !== c.containerId) {
 				// Already assigned to a different group — containment constraint
-				// takes precedence
+				// takes precedence.  Migrate the child to the new container.
+				const oldSiblings = childrenOf.get(existing) ?? [];
+				const pruned = oldSiblings.filter((id) => id !== childId);
+				if (pruned.length === 0) {
+					childrenOf.delete(existing);
+				} else {
+					childrenOf.set(existing, pruned);
+				}
+				const newSiblings = childrenOf.get(c.containerId) ?? [];
+				newSiblings.push(childId);
+				childrenOf.set(c.containerId, newSiblings);
+				parentOf.set(childId, c.containerId);
 			}
 			if (existing === undefined) {
 				const list = childrenOf.get(c.containerId) ?? [];
@@ -103,7 +115,8 @@ export function buildContainerTree(
 		}
 	}
 
-	return { childrenOf, rootIds, edgesInGroup };
+	const treeDiagnostics: Diagnostic[] = [];
+	return { childrenOf, rootIds, edgesInGroup, diagnostics: treeDiagnostics };
 }
 
 /**
@@ -120,11 +133,12 @@ export function runRecursiveContainerLayout(
 	const boxes = new Map<string, Box>();
 	const groupBoxes = new Map<string, Box>();
 
-	const { childrenOf, rootIds, edgesInGroup } = buildContainerTree(
+	const { childrenOf, rootIds, edgesInGroup, diagnostics: treeDiagnostics } = buildContainerTree(
 		input.groups,
 		input.constraints,
 		input.edges,
 	);
+	diagnostics.push(...treeDiagnostics);
 
 	// If no groups, fall through to flat layout
 	if (input.groups.length === 0) {
@@ -273,17 +287,16 @@ export function runRecursiveContainerLayout(
 	}
 
 	// Global layout for top-level entities:
-	// root groups (as atomic nodes) + uncontained leaf nodes + cross-group edges
+	// root groups (as atomic nodes) + uncontained leaf nodes + cross-group edges.
+	// Use childrenOf to determine containment (covers group.nodeIds,
+	// group.groupIds, and containment constraints).
+	const allContainedIds = new Set<string>();
+	for (const [, childIds] of childrenOf) {
+		for (const cid of childIds) allContainedIds.add(cid);
+	}
 	const topLevelNodeIds = new Set<string>();
 	for (const node of input.nodes) {
-		let contained = false;
-		for (const group of input.groups) {
-			if (group.nodeIds.includes(node.id)) {
-				contained = true;
-				break;
-			}
-		}
-		if (!contained) {
+		if (!allContainedIds.has(node.id)) {
 			topLevelNodeIds.add(node.id);
 		}
 	}
@@ -309,7 +322,18 @@ export function runRecursiveContainerLayout(
 		}
 	}
 
-	// Cross-group edges (not internal to any group)
+	// Map a node/group id to its outermost container root (if any).
+	function rootContainerOf(id: string): string | undefined {
+		for (const rootId of rootIds) {
+			const desc = collectDescendants(rootId);
+			if (desc.has(id)) return rootId;
+		}
+		return undefined;
+	}
+
+	// Cross-group edges (not internal to any group).
+	// Map internal endpoints to their containing root group so
+	// Dagre always references nodes that exist in globalNodes.
 	const globalEdges = input.edges
 		.filter((e) => {
 			for (const group of input.groups) {
@@ -322,8 +346,8 @@ export function runRecursiveContainerLayout(
 		})
 		.map((e) => ({
 			id: e.id,
-			sourceId: e.source.nodeId,
-			targetId: e.target.nodeId,
+			sourceId: rootContainerOf(e.source.nodeId) ?? e.source.nodeId,
+			targetId: rootContainerOf(e.target.nodeId) ?? e.target.nodeId,
 		}));
 
 	if (globalNodes.length > 0) {
