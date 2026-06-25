@@ -88,4 +88,51 @@ describe("quality scoring", () => {
 		const report = scoreLayoutQuality(nodes, edges);
 		expect(report.diagnostics.length).toBeGreaterThan(0);
 	});
+
+	it("detects backtracking edges (path > 3x direct)", () => {
+		const nodes = [node("a", 0, 0), node("b", 200, 0)];
+		// Direct distance ≈ 160, route length ≈ 760 (> 3×160) so it
+		// backtracks.
+		const edges = [
+			edge("a-b", [
+				{ x: 40, y: 20 },
+				{ x: 240, y: 20 },
+				{ x: 240, y: 200 },
+				{ x: 40, y: 200 },
+				{ x: 40, y: 20 },
+				{ x: 200, y: 20 },
+			]),
+		];
+		const report = scoreLayoutQuality(nodes, edges);
+		const backtrack = report.metrics.find((m) => m.kind === "route-backtrack");
+		expect(backtrack?.value).toBeGreaterThan(0);
+		expect(
+			report.diagnostics.some((d) => d.code === "quality.route_backtrack"),
+		).toBe(true);
+	});
+
+	it("counts label collisions when labels overlap node boxes", () => {
+		// Node "a" has a wide label whose box extends above the node
+		// and overlaps node "b"'s box.  Node "b" is iterated first so
+		// its box is already in the label-collision index when "a"'s
+		// label is checked.
+		const b = {
+			id: "b",
+			shape: "rectangle",
+			box: { x: 0, y: -20, width: 80, height: 40 },
+			anchors: [],
+		} as CoordinatedNode;
+		const a = {
+			id: "a",
+			shape: "rectangle",
+			box: { x: 0, y: 0, width: 80, height: 40 },
+			anchors: [],
+			label: { text: "LongLabelThatExtendsWide" },
+		} as CoordinatedNode;
+		const report = scoreLayoutQuality([b, a], []);
+		const labelMetric = report.metrics.find(
+			(m) => m.kind === "label-collision",
+		);
+		expect(labelMetric?.value).toBeGreaterThan(0);
+	});
 });

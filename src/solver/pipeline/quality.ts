@@ -183,9 +183,30 @@ function cross(o: Point, a: Point, b: Point): number {
 }
 
 function countTotalBends(edges: readonly CoordinatedEdge[]): number {
+	const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
 	let bends = 0;
 	for (const e of edges) {
-		bends += Math.max(0, e.points.length - 2);
+		if (e.points.length < 3) continue;
+		// Count direction changes between consecutive segments,
+		// not merely intermediate points — collinear redundant
+		// points (should not exist after simplifyRoute, but guard
+		// anyway) do not inflate the count.
+		for (let i = 1; i < e.points.length - 1; i++) {
+			const prev = e.points[i - 1]!;
+			const curr = e.points[i]!;
+			const next = e.points[i + 1]!;
+			const dx1 = curr.x - prev.x;
+			const dy1 = curr.y - prev.y;
+			const dx2 = next.x - curr.x;
+			const dy2 = next.y - curr.y;
+			// Direction changed if the sign of the segment vectors
+			// differs in either axis.  Cross-product alone misses
+			// 180° reversals (collinear opposite vectors have a
+			// zero cross-product), so compare signs instead.
+			if (sign(dx1) !== sign(dx2) || sign(dy1) !== sign(dy2)) {
+				bends++;
+			}
+		}
 	}
 	return bends;
 }
@@ -210,6 +231,14 @@ function countBacktrackingEdges(edges: readonly CoordinatedEdge[]): number {
 	return count;
 }
 
+/**
+ * Estimate label collision count using rough heuristics.
+ *
+ * Label boxes are approximated from `text.length * 8` × 14 px placed
+ * above the node center — NOT measured with Pretext.  This is a v1
+ * estimate; downstream consumers should treat it as a directional
+ * signal, not a pixel-accurate ground truth.
+ */
 function countLabelCollisions(
 	nodes: readonly CoordinatedNode[],
 	edges: readonly CoordinatedEdge[],

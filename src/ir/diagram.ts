@@ -81,4 +81,5 @@ export interface CoordinatedDiagram {
 	bounds: Box;
 	frame?: CoordinatedFrame;
 	metadata?: DiagramMetadata;
+	qualityReport?: import("../solver/pipeline/quality.js").QualityReport;
 }

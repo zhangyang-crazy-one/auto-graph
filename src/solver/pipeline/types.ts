@@ -19,6 +19,7 @@ import type {
 import type { Box } from "../../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../../ir/label-layout.js";
 import type { SolveDiagramOptions } from "../solve.js";
+import type { QualityReport } from "./quality.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline types (Issue #54 — Scheme D)
@@ -55,6 +56,7 @@ export interface LayoutState {
 	degraded: boolean;
 
 	diagnostics: Diagnostic[];
+	qualityReport?: QualityReport;
 	phaseTrace: PhaseTraceEntry[];
 }
 

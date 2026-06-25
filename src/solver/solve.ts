@@ -69,9 +69,9 @@ export interface SolveDiagramOptions {
 	initialLayout?: InitialLayoutMode;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
-	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
 	/** When true, compute quality score after solving (Issue #54, 方案 E). */
 	qualityScore?: boolean;
+	/** Extra horizontal/vertical clearance reserved around nodes for edge corridors. */
 	routingGutter?: number;
 	overlapSpacing?: number;
 	minLaneGutter?: number;
@@ -4331,11 +4331,11 @@ export function createDefaultPipeline(): LayoutPipeline {
 			name: "quality-score",
 			run(state: LayoutState): void {
 				if (!state.options.qualityScore) return;
-				const { scoreLayoutQuality } = require("./pipeline/quality.js");
 				const report = scoreLayoutQuality(
 					state.coordinatedNodes,
 					state.coordinatedEdges,
 				);
+				state.qualityReport = report;
 				state.diagnostics.push(...report.diagnostics);
 			},
 		});
