@@ -71,9 +71,10 @@ export function buildContainerTree(
 		if (c.kind !== "containment") continue;
 		for (const childId of c.childIds) {
 			const existing = parentOf.get(childId);
-			if (existing !== undefined && existing !== c.containerId) {
-				// Already assigned to a different group — containment constraint
-				// takes precedence.  Migrate the child to the new container.
+			if (existing !== undefined) {
+				// Already parented — containment constraint takes precedence.
+				// Migrate child from old parent to new container.
+				if (existing === c.containerId) continue;
 				const oldSiblings = childrenOf.get(existing) ?? [];
 				const pruned = oldSiblings.filter((id) => id !== childId);
 				if (pruned.length === 0) {
@@ -85,8 +86,7 @@ export function buildContainerTree(
 				newSiblings.push(childId);
 				childrenOf.set(c.containerId, newSiblings);
 				parentOf.set(childId, c.containerId);
-			}
-			if (existing === undefined) {
+			} else {
 				const list = childrenOf.get(c.containerId) ?? [];
 				list.push(childId);
 				childrenOf.set(c.containerId, list);
@@ -133,11 +133,17 @@ export function runRecursiveContainerLayout(
 	const boxes = new Map<string, Box>();
 	const groupBoxes = new Map<string, Box>();
 
-	const { childrenOf, rootIds, edgesInGroup, diagnostics: treeDiagnostics } = buildContainerTree(
-		input.groups,
-		input.constraints,
-		input.edges,
-	);
+	// Build O(1) lookup maps
+	const nodeById = new Map(input.nodes.map((n) => [n.id, n]));
+	const groupById = new Map(input.groups.map((g) => [g.id, g]));
+	const groupIdSet = new Set(input.groups.map((g) => g.id));
+
+	const {
+		childrenOf,
+		rootIds,
+		edgesInGroup,
+		diagnostics: treeDiagnostics,
+	} = buildContainerTree(input.groups, input.constraints, input.edges);
 	diagnostics.push(...treeDiagnostics);
 
 	// If no groups, fall through to flat layout
@@ -176,11 +182,10 @@ export function runRecursiveContainerLayout(
 	}
 
 	// DFS post-order: lay out each group from leaves to root
-	const laidOut = new Set<string>();
-	const groupOrder = topologicalSort(input.groups, childrenOf);
+	const groupOrder = topologicalSort(input.groups, childrenOf, groupIdSet);
 
 	for (const groupId of groupOrder) {
-		const group = input.groups.find((g) => g.id === groupId);
+		const group = groupById.get(groupId);
 		if (group === undefined) continue;
 
 		const children = childrenOf.get(groupId) ?? [];
@@ -194,7 +199,6 @@ export function runRecursiveContainerLayout(
 			};
 			groupBoxes.set(groupId, box);
 			boxes.set(groupId, box);
-			laidOut.add(groupId);
 			continue;
 		}
 
@@ -202,7 +206,7 @@ export function runRecursiveContainerLayout(
 		const leafNodeIds: string[] = [];
 		const nestedGroupIds: string[] = [];
 		for (const childId of children) {
-			if (input.groups.some((g) => g.id === childId)) {
+			if (groupIdSet.has(childId)) {
 				nestedGroupIds.push(childId);
 			} else {
 				leafNodeIds.push(childId);
@@ -213,7 +217,7 @@ export function runRecursiveContainerLayout(
 		// nested groups use their already-computed box
 		const childSizes = new Map<string, { width: number; height: number }>();
 		for (const nodeId of leafNodeIds) {
-			const node = input.nodes.find((n) => n.id === nodeId);
+			const node = nodeById.get(nodeId);
 			if (node !== undefined) {
 				childSizes.set(nodeId, {
 					width: node.size.width,
@@ -283,7 +287,6 @@ export function runRecursiveContainerLayout(
 
 		groupBoxes.set(groupId, containerBox);
 		boxes.set(groupId, containerBox);
-		laidOut.add(groupId);
 	}
 
 	// Global layout for top-level entities:
@@ -307,7 +310,7 @@ export function runRecursiveContainerLayout(
 		size: { width: number; height: number };
 	}> = [];
 	for (const nodeId of topLevelNodeIds) {
-		const node = input.nodes.find((n) => n.id === nodeId);
+		const node = nodeById.get(nodeId);
 		if (node !== undefined) {
 			globalNodes.push({ id: nodeId, size: node.size });
 		}
@@ -417,6 +420,7 @@ function translateDescendants(
 function topologicalSort(
 	groups: readonly NormalizedGroup[],
 	childrenOf: Map<string, string[]>,
+	groupIdSet: Set<string>,
 ): string[] {
 	const visited = new Set<string>();
 	const result: string[] = [];
@@ -426,7 +430,7 @@ function topologicalSort(
 		visited.add(id);
 		const children = childrenOf.get(id) ?? [];
 		for (const childId of children) {
-			if (groups.some((g) => g.id === childId)) {
+			if (groupIdSet.has(childId)) {
 				visit(childId);
 			}
 		}

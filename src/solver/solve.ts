@@ -211,7 +211,8 @@ export function solveDiagram(
 		diagnostics.push({
 			severity: "warning",
 			code: "layout.recursive-ignores-positions",
-			message: "recursiveLayout overrides initialLayout \"positions\" — seed positions are ignored for bottom-up container layout.",
+			message:
+				'recursiveLayout overrides initialLayout "positions" — seed positions are ignored for bottom-up container layout.',
 		});
 	}
 	const layout = useRecursive
@@ -243,15 +244,16 @@ export function solveDiagram(
 					diagnostics,
 				);
 
-		// When using recursive layout, pre-populate group boxes from
-		// bottom-up layout so downstream coordinateGroups does not
-		// recompute them from scratch.
-		if (useRecursive && "groupBoxes" in layout) {
-			const recursiveLayout = layout as import("../layout/recursive.js").RecursiveLayoutResult;
-			for (const [groupId, groupBox] of recursiveLayout.groupBoxes) {
-				initialNodeBoxes.set(groupId, groupBox);
-			}
+	// When using recursive layout, pre-populate group boxes from
+	// bottom-up layout so downstream coordinateGroups does not
+	// recompute them from scratch.
+	if (useRecursive && "groupBoxes" in layout) {
+		const recursiveLayout =
+			layout as import("../layout/recursive.js").RecursiveLayoutResult;
+		for (const [groupId, groupBox] of recursiveLayout.groupBoxes) {
+			initialNodeBoxes.set(groupId, groupBox);
 		}
+	}
 
 	// Expand node boxes for port capacity before constraint solving
 	// so containment, overlap repair, and swimlane contracts see the
