@@ -1,4 +1,4 @@
-import type { Point } from "../ir/geometry.js";
+import type { Box, Point } from "../ir/geometry.js";
 
 // ---------------------------------------------------------------------------
 // Bus routing — shared-corridor edge bundling (Issue #54, 方案 C)
@@ -41,7 +41,7 @@ export interface PortFanOut {
  */
 export function computeFanOutPorts(
 	edgeIds: readonly string[],
-	nodeBox: { x: number; y: number; width: number; height: number },
+	nodeBox: Box,
 	side: "top" | "right" | "bottom" | "left",
 	spacing = 8,
 ): Map<string, PortFanOut> {
@@ -63,7 +63,7 @@ export function computeFanOutPorts(
 	const start = -totalSpan / 2;
 
 	for (let i = 0; i < edgeIds.length; i++) {
-		const id = edgeIds[i] as string;
+		const id = edgeIds[i]!;
 		const offset = start + i * spacing;
 		const center = nodeSideCenter(nodeBox, side);
 		let anchor: Point = isHorizontal
@@ -91,7 +91,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function nodeSideCenter(
-	box: { x: number; y: number; width: number; height: number },
+	box: Box,
 	side: string,
 ): Point {
 	switch (side) {
