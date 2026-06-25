@@ -262,15 +262,15 @@ function segmentCrossesBox(start: Point, end: Point, box: Box): boolean {
 
 	if (start.x === end.x) {
 		return (
-			start.x > left &&
-			start.x < right &&
+			start.x >= left &&
+			start.x <= right &&
 			rangesOverlap(start.y, end.y, top, bottom)
 		);
 	}
 	if (start.y === end.y) {
 		return (
-			start.y > top &&
-			start.y < bottom &&
+			start.y >= top &&
+			start.y <= bottom &&
 			rangesOverlap(start.x, end.x, left, right)
 		);
 	}

@@ -126,7 +126,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				source,
 				target,
 				[...softObstacles, ...hardObstacles],
-				{ endpointObstacles },
+				{ endpointObstacles, margin: 0 },
 				diagnostics,
 			);
 			// Fall back to grid A* if corner graph fails.
@@ -136,7 +136,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					source,
 					target,
 					[...softObstacles, ...hardObstacles],
-					{ endpointObstacles },
+					{ endpointObstacles, margin: 0 },
 					diagnostics,
 				);
 			if (path !== null && path.length >= 2) {
