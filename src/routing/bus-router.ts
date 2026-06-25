@@ -73,9 +73,15 @@ export function computeFanOutPorts(
 		// outside the node box when the fan-out span exceeds the
 		// edge length.
 		if (isHorizontal) {
-			anchor = { ...anchor, x: clamp(anchor.x, nodeBox.x, nodeBox.x + nodeBox.width) };
+			anchor = {
+				...anchor,
+				x: clamp(anchor.x, nodeBox.x, nodeBox.x + nodeBox.width),
+			};
 		} else {
-			anchor = { ...anchor, y: clamp(anchor.y, nodeBox.y, nodeBox.y + nodeBox.height) };
+			anchor = {
+				...anchor,
+				y: clamp(anchor.y, nodeBox.y, nodeBox.y + nodeBox.height),
+			};
 		}
 		result.set(id, { anchor, index: i, total });
 	}
@@ -83,17 +89,13 @@ export function computeFanOutPorts(
 	return result;
 }
 
-
 function clamp(value: number, min: number, max: number): number {
 	if (value < min) return min;
 	if (value > max) return max;
 	return value;
 }
 
-function nodeSideCenter(
-	box: Box,
-	side: string,
-): Point {
+function nodeSideCenter(box: Box, side: string): Point {
 	switch (side) {
 		case "top":
 			return { x: box.x + box.width / 2, y: box.y };

@@ -63,8 +63,8 @@ describe("bus-router", () => {
 		expect(a2!.y).toBe(20);
 		expect(a3!.y).toBe(20);
 		// Spread horizontally
-		expect(a1!.x).toBeLessThan(a2!.x);
-		expect(a2!.x).toBeLessThan(a3!.x);
+		expect(a1?.x).toBeLessThan(a2!.x);
+		expect(a2?.x).toBeLessThan(a3!.x);
 		expect(a2!.x - a1!.x).toBe(10);
 	});
 
@@ -95,7 +95,18 @@ describe("bus-router", () => {
 		);
 		const minX = nodeBox.x;
 		const maxX = nodeBox.x + nodeBox.width;
-		for (const id of ["e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "e10"]) {
+		for (const id of [
+			"e1",
+			"e2",
+			"e3",
+			"e4",
+			"e5",
+			"e6",
+			"e7",
+			"e8",
+			"e9",
+			"e10",
+		]) {
 			const anchor = result.get(id)?.anchor;
 			expect(anchor).toBeDefined();
 			expect(anchor!.x).toBeGreaterThanOrEqual(minX);
