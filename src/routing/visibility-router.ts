@@ -42,11 +42,11 @@ export function findCornerGraphPath(
 	const maxCorners = options.maxCorners ?? 300;
 
 	// Collect vertices
-	const vertices = collectCornerVertices(source, target, obstacles);
+	const vertices = collectCornerVertices(source, target, obstacles, margin);
 	if (vertices.length > maxCorners) {
 		diagnostics?.push({
 			severity: "warning",
-			code: "routing.astar.corner_overflow",
+			code: "routing.visibility.corner_overflow",
 			message: `Corner graph overflow: ${vertices.length} vertices > ${maxCorners}. Falling back to grid A*.`,
 			detail: { vertexCount: vertices.length, maxCorners },
 		});
@@ -77,7 +77,7 @@ export function findCornerGraphPath(
 	);
 	if (path === null) return null;
 
-	return simplifyRoute(path);
+	return simplifyRoute(path, expandedObstacles);
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,7 @@ function collectCornerVertices(
 	source: Point,
 	target: Point,
 	obstacles: readonly Box[],
+	margin: number = 0,
 ): CornerVertex[] {
 	const vertices: CornerVertex[] = [
 		{ point: { x: source.x, y: source.y }, obstacleIndex: -1 },
@@ -98,19 +99,54 @@ function collectCornerVertices(
 	seen.add(`${source.x},${source.y}`);
 	seen.add(`${target.x},${target.y}`);
 
+	const addVertex = (p: Point, obstacleIndex: number): void => {
+		const key = `${p.x},${p.y}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		vertices.push({ point: p, obstacleIndex });
+	};
+
 	for (let i = 0; i < obstacles.length; i++) {
 		const obs = obstacles[i] as Box;
-		const corners: Point[] = [
-			{ x: obs.x, y: obs.y },
-			{ x: obs.x + obs.width, y: obs.y },
-			{ x: obs.x + obs.width, y: obs.y + obs.height },
-			{ x: obs.x, y: obs.y + obs.height },
-		];
-		for (const c of corners) {
-			const key = `${c.x},${c.y}`;
-			if (!seen.has(key)) {
-				seen.add(key);
-				vertices.push({ point: c, obstacleIndex: i });
+		// When margin > 0, corners are also offset outward so the
+		// resulting path doesn't tangent-touch the obstacle edge
+		// (which the loose AABB intersection check would reject).
+		const c0: Point = { x: obs.x - margin, y: obs.y - margin };
+		const c1: Point = { x: obs.x + obs.width + margin, y: obs.y - margin };
+		const c2: Point = {
+			x: obs.x + obs.width + margin,
+			y: obs.y + obs.height + margin,
+		};
+		const c3: Point = { x: obs.x - margin, y: obs.y + obs.height + margin };
+		for (const c of [c0, c1, c2, c3]) {
+			addVertex(c, i);
+		}
+	}
+
+	// Steiner points: axis-aligned projections where source/target
+	// coordinates project onto obstacle edges. These create waypoints
+	// so the router can leave source/target perpendicular to an
+	// obstacle edge before routing along it (corner-astar review fix).
+	// With margin > 0, projections are offset outward so the path
+	// stays outside the expanded obstacle and avoids tangent touches.
+	for (const p of [source, target]) {
+		for (let i = 0; i < obstacles.length; i++) {
+			const obs = obstacles[i] as Box;
+			// Project p.x onto left/right edges (offset outward by margin).
+			addVertex({ x: obs.x - margin, y: p.y }, i);
+			addVertex({ x: obs.x + obs.width + margin, y: p.y }, i);
+			// Project p.y onto top/bottom edges (offset outward by margin).
+			addVertex({ x: p.x, y: obs.y - margin }, i);
+			addVertex({ x: p.x, y: obs.y + obs.height + margin }, i);
+			// Also project the source/target coordinate lines onto the
+			// edges they intersect (interior projections).
+			if (p.x > obs.x && p.x < obs.x + obs.width) {
+				addVertex({ x: p.x, y: obs.y - margin }, i);
+				addVertex({ x: p.x, y: obs.y + obs.height + margin }, i);
+			}
+			if (p.y > obs.y && p.y < obs.y + obs.height) {
+				addVertex({ x: obs.x - margin, y: p.y }, i);
+				addVertex({ x: obs.x + obs.width + margin, y: p.y }, i);
 			}
 		}
 	}
@@ -239,85 +275,53 @@ function isSegmentVisible(
 	b: Point,
 	obstacles: readonly Box[],
 	endpointObstacles: readonly Box[],
-	aObsIdx: number,
-	bObsIdx: number,
+	_aObsIdx: number,
+	_bObsIdx: number,
 ): boolean {
+	// Use strict interior check for ALL obstacles. The strict check
+	// treats endpoints on the boundary as not "inside", so Steiner
+	// points on obstacle edges can still leave the edge without
+	// being falsely rejected. This also correctly rejects segments
+	// that re-enter an obstacle after leaving from an edge.
 	for (let i = 0; i < obstacles.length; i++) {
-		if (i === aObsIdx || i === bObsIdx) continue;
-		if (segmentCrossesBox(a, b, obstacles[i] as Box)) return false;
+		if (segmentEntersBox(a, b, obstacles[i] as Box)) return false;
 	}
 	for (const ep of endpointObstacles) {
-		if (segmentCrossesBox(a, b, ep)) return false;
+		if (segmentEntersBox(a, b, ep)) return false;
 	}
 	return true;
 }
 
-function segmentCrossesBox(start: Point, end: Point, box: Box): boolean {
+/**
+ * Returns true if the segment enters the INTERIOR of the box
+ * (strict). Endpoints on the boundary and segments tangent to the
+ * boundary are NOT considered entering.
+ */
+function segmentEntersBox(start: Point, end: Point, box: Box): boolean {
 	const left = box.x;
 	const right = box.x + box.width;
 	const top = box.y;
 	const bottom = box.y + box.height;
-
-	if (pointInside(start, box) || pointInside(end, box)) return true;
-
+	const inside = (p: Point): boolean =>
+		p.x > left && p.x < right && p.y > top && p.y < bottom;
+	if (inside(start) || inside(end)) return true;
 	if (start.x === end.x) {
 		return (
-			start.x >= left &&
-			start.x <= right &&
-			rangesOverlap(start.y, end.y, top, bottom)
+			start.x > left &&
+			start.x < right &&
+			Math.max(start.y, end.y) > top &&
+			Math.min(start.y, end.y) < bottom
 		);
 	}
 	if (start.y === end.y) {
 		return (
-			start.y >= top &&
-			start.y <= bottom &&
-			rangesOverlap(start.x, end.x, left, right)
+			start.y > top &&
+			start.y < bottom &&
+			Math.max(start.x, end.x) > left &&
+			Math.min(start.x, end.x) < right
 		);
 	}
-
-	return (
-		edgeIntersect(start, end, left, top, right, top) ||
-		edgeIntersect(start, end, right, top, right, bottom) ||
-		edgeIntersect(start, end, right, bottom, left, bottom) ||
-		edgeIntersect(start, end, left, bottom, left, top)
-	);
-}
-
-function pointInside(p: Point, box: Box): boolean {
-	return (
-		p.x > box.x &&
-		p.x < box.x + box.width &&
-		p.y > box.y &&
-		p.y < box.y + box.height
-	);
-}
-
-function rangesOverlap(
-	a: number,
-	b: number,
-	min: number,
-	max: number,
-): boolean {
-	const low = Math.min(a, b);
-	const high = Math.max(a, b);
-	return high > min && low < max;
-}
-
-function edgeIntersect(
-	start: Point,
-	end: Point,
-	x1: number,
-	y1: number,
-	x2: number,
-	y2: number,
-): boolean {
-	const denom = (end.x - start.x) * (y2 - y1) - (end.y - start.y) * (x2 - x1);
-	if (denom === 0) return false;
-	const t = ((start.x - x1) * (y2 - y1) - (start.y - y1) * (x2 - x1)) / denom;
-	const u =
-		((start.x - x1) * (end.y - start.y) - (start.y - y1) * (end.x - start.x)) /
-		denom;
-	return t > 0 && t < 1 && u > 0 && u < 1;
+	return false;
 }
 
 function expandBox(box: Box, margin: number): Box {
@@ -436,22 +440,42 @@ function reconstructPath(
 // Route simplification
 // ---------------------------------------------------------------------------
 
-function simplifyRoute(points: readonly Point[]): Point[] {
+function simplifyRoute(
+	points: readonly Point[],
+	obstacles: readonly Box[] = [],
+): Point[] {
 	if (points.length <= 2) return [...points];
 	const result: Point[] = [points[0] as Point];
 	for (let i = 1; i < points.length - 1; i++) {
 		const prev = result[result.length - 1] as Point;
 		const curr = points[i] as Point;
 		const next = points[i + 1] as Point;
-		if (
-			!(
-				(prev.x === curr.x && curr.x === next.x) ||
-				(prev.y === curr.y && curr.y === next.y)
-			)
-		) {
+		const collinear =
+			(prev.x === curr.x && curr.x === next.x) ||
+			(prev.y === curr.y && curr.y === next.y);
+		if (!collinear) {
+			result.push(curr);
+			continue;
+		}
+		// Only collapse if the resulting direct segment is still
+		// obstacle-free. Otherwise keep the intermediate waypoint
+		// so the route hugs the obstacle boundary instead of cutting
+		// through it (corner-astar review fix).
+		if (segmentCrossesAnyObstacle(prev, next, obstacles)) {
 			result.push(curr);
 		}
 	}
 	result.push(points[points.length - 1] as Point);
 	return result;
+}
+
+function segmentCrossesAnyObstacle(
+	a: Point,
+	b: Point,
+	obstacles: readonly Box[],
+): boolean {
+	for (const obs of obstacles) {
+		if (segmentEntersBox(a, b, obs)) return true;
+	}
+	return false;
 }

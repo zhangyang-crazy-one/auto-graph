@@ -122,11 +122,14 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				targetAnchor,
 			);
 			// Try corner visibility graph first (Issue #54, 方案 B).
+			// Use margin 2 so the resulting path stays outside the
+			// obstacle boundary and avoids tangent-touch rejections
+			// by the loose AABB intersection check.
 			const cornerPath = findCornerGraphPath(
 				source,
 				target,
 				[...softObstacles, ...hardObstacles],
-				{ endpointObstacles, margin: 0 },
+				{ endpointObstacles, margin: 2 },
 				diagnostics,
 			);
 			// Fall back to grid A* if corner graph fails.
