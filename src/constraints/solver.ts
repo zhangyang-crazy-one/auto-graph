@@ -38,6 +38,28 @@ export function applyLayoutConstraints(
 		yieldFixedPositionLocks(input, boxes, locks);
 	}
 
+	// Drop fixed-position locks for non-contract swimlane children
+	// before overlap repair so they are treated as movable instead
+	// of emitting stale locked-conflict diagnostics (Issue #61 codex P2).
+	if (
+		input.swimlanes !== undefined &&
+		input.swimlanes.length > 0 &&
+		input.distributeSwimlaneChildren
+	) {
+		for (const swimlane of input.swimlanes) {
+			if (swimlane.layout === "contract") continue;
+			for (const lane of swimlane.lanes) {
+				if (lane.children.length < 2) continue;
+				for (const childId of lane.children) {
+					const lock = locks.get(childId);
+					if (lock?.source === "fixed-position") {
+						locks.delete(childId);
+					}
+				}
+			}
+		}
+	}
+
 	applyContainment(input.constraints, boxes, locks, diagnostics, false);
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
@@ -63,6 +85,19 @@ export function applyLayoutConstraints(
 		// containers that were already handled in the first pass
 		// (Codex P3: avoid re-emitting distribution diagnostics).
 		dedupReplayDiagnostics(diagnostics, diagBefore);
+	}
+
+	// Swimlane distribution (Issue #60): non-contract swimlanes are
+	// NOT modeled as containment constraints, so distribute children
+	// inside each lane content box separately.  Moved outside
+	// applyDistributeContained so it runs independently of the
+	// distributeContainedChildren flag (Issue #61 codex P2).
+	if (
+		input.swimlanes !== undefined &&
+		input.swimlanes.length > 0 &&
+		input.distributeSwimlaneChildren
+	) {
+		distributeSwimlaneChildren(input, boxes, locks, diagnostics);
 	}
 
 	// Clean up diagnostics that distribution may have resolved (Codex P2).
@@ -1195,6 +1230,96 @@ function applyDistributeContained(
 				axis,
 			},
 		});
+	}
+}
+
+/**
+ * Distribute children of non-contract swimlanes inside their lane
+ * content box (Issue #60).  Similar to applyDistributeContained but
+ * operates on swimlane lanes instead of containment constraints.
+ */
+function distributeSwimlaneChildren(
+	input: ConstraintSolverInput,
+	boxes: Map<string, Box>,
+	locks: Map<string, LayoutLock>,
+	diagnostics: Diagnostic[],
+): void {
+	const spread = input.distributeSwimlaneChildren === "spread";
+	const minGap = input.minSiblingGap ?? 8;
+
+	for (const swimlane of input.swimlanes!) {
+		if (swimlane.layout === "contract") continue;
+		const isVertical = swimlane.orientation !== "horizontal";
+		const axis = isVertical ? ("x" as const) : ("y" as const);
+		const mainSize = isVertical ? ("width" as const) : ("height" as const);
+
+		for (const lane of swimlane.lanes) {
+			if (lane.children.length < 2) continue;
+
+			const unlocked: { id: string; box: Box }[] = [];
+			const reserved: ReservedInterval[] = [];
+
+			for (const childId of lane.children) {
+				const box = boxes.get(childId);
+				if (box === undefined) continue;
+				if (locks.has(childId)) {
+					const lock = locks.get(childId)!;
+					if (lock.source === "fixed-position") {
+						unlocked.push({ id: childId, box });
+						continue;
+					}
+					reserved.push(intervalForBox(box, axis, mainSize));
+					continue;
+				}
+				unlocked.push({ id: childId, box });
+			}
+
+			if (unlocked.length < 2) continue;
+
+			const contentStart = isVertical
+				? Math.min(...unlocked.map((c) => c.box.x))
+				: Math.min(...unlocked.map((c) => c.box.y));
+			const contentEnd = isVertical
+				? Math.max(...unlocked.map((c) => c.box.x + c.box.width))
+				: Math.max(...unlocked.map((c) => c.box.y + c.box.height));
+			const contentSpan = contentEnd - contentStart;
+
+			const totalChildSpan = unlocked.reduce((s, c) => s + c.box[mainSize], 0);
+			const reservedSpan = reserved.reduce((s, r) => s + (r.end - r.start), 0);
+			let effectiveGap = minGap;
+			const remaining =
+				contentSpan -
+				totalChildSpan -
+				reservedSpan -
+				minGap * (unlocked.length - 1);
+			if (spread && remaining > 0) {
+				effectiveGap = minGap + remaining / (unlocked.length - 1);
+			}
+
+			unlocked.sort((a, b) => a.box[axis] - b.box[axis]);
+
+			reserved.sort((a, b) => a.start - b.start);
+			let pos = contentStart;
+			for (const child of unlocked) {
+				pos = advancePastReserved(pos, child.box[mainSize], reserved, minGap);
+				const newBox = { ...child.box };
+				if (axis === "x") {
+					newBox.x = pos;
+				} else {
+					newBox.y = pos;
+				}
+				boxes.set(child.id, newBox);
+				locks.delete(child.id);
+				pos += child.box[mainSize] + effectiveGap;
+			}
+
+			diagnostics.push({
+				severity: "info",
+				code: "intra_container_distributed",
+				message: `Distributed ${unlocked.length} children in swimlane ${lane.id} along ${axis}.`,
+				detail: { containerId: lane.id, count: unlocked.length, axis },
+			});
+		}
 	}
 }
 
