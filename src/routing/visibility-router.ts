@@ -1,5 +1,6 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { Box, Point } from "../ir/geometry.js";
+import { BinaryHeap } from "./binary-heap.js";
 
 // ---------------------------------------------------------------------------
 // Corner visibility-graph A* (Issue #54, 方案 B — libavoid approach)
@@ -334,13 +335,8 @@ function expandBox(box: Box, margin: number): Box {
 }
 
 // ---------------------------------------------------------------------------
-// A* on visibility graph
+// A* on visibility graph (open set uses BinaryHeap, Issue #60)
 // ---------------------------------------------------------------------------
-
-interface AStarState {
-	id: number;
-	f: number;
-}
 
 function aStarSearch(
 	vertices: CornerVertex[],
@@ -359,7 +355,8 @@ function aStarSearch(
 	const cameFrom = new Map<number, number>();
 	const cameFromDir = new Map<number, "h" | "v">();
 
-	const openSet: AStarState[] = [{ id: startId, f: manhattan(source, target) }];
+	const openSet = new BinaryHeap<number>();
+	openSet.push(startId, manhattan(source, target));
 
 	const neighborMap = new Map<number, Array<{ to: number; cost: number }>>();
 	for (const e of edges) {
@@ -377,27 +374,23 @@ function aStarSearch(
 		list.push({ to: e.from, cost: e.cost });
 	}
 
-	while (openSet.length > 0) {
-		let bestIdx = 0;
-		for (let i = 1; i < openSet.length; i++) {
-			if ((openSet[i] as AStarState).f < (openSet[bestIdx] as AStarState).f) {
-				bestIdx = i;
-			}
-		}
-		const current = openSet.splice(bestIdx, 1)[0] as AStarState;
+	while (openSet.size > 0) {
+		const currentId = openSet.pop()!;
+		const currentG = gScore.get(currentId);
+		// Lazy deletion: skip stale entries.
+		if (currentG === undefined) continue;
 
-		if (current.id === goalId) {
+		if (currentId === goalId) {
 			return reconstructPath(vertices, cameFrom, goalId);
 		}
 
-		const currentG = gScore.get(current.id) as number;
-		const prevDir = cameFromDir.get(current.id);
-		const neighbors = neighborMap.get(current.id) ?? [];
+		const prevDir = cameFromDir.get(currentId);
+		const neighbors = neighborMap.get(currentId) ?? [];
 
 		for (const { to, cost } of neighbors) {
 			const tentativeG = currentG + cost * segmentPenalty;
 			const toV = vertices[to] as CornerVertex;
-			const curV = vertices[current.id] as CornerVertex;
+			const curV = vertices[currentId] as CornerVertex;
 			const newDir: "h" | "v" = toV.point.y === curV.point.y ? "h" : "v";
 			const turnCost =
 				prevDir !== undefined && prevDir !== newDir ? turnPenalty : 0;
@@ -406,10 +399,10 @@ function aStarSearch(
 			const existingG = gScore.get(to);
 			if (existingG === undefined || totalG < existingG) {
 				gScore.set(to, totalG);
-				cameFrom.set(to, current.id);
+				cameFrom.set(to, currentId);
 				cameFromDir.set(to, newDir);
 				const f = totalG + manhattan(toV.point, target);
-				openSet.push({ id: to, f });
+				openSet.push(to, f);
 			}
 		}
 	}

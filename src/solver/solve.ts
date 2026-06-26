@@ -81,9 +81,17 @@ export interface SolveDiagramOptions {
 	prefitLabelSize?: boolean;
 	minSiblingGap?: number;
 	distributeContainedChildren?: boolean | "spread";
+	/** When "spread", distribute children within non-contract swimlane
+	 * lanes (Issue #60). Default "spread". */
+	distributeSwimlaneChildren?: boolean | "spread";
 	pageBounds?: { width: number; height: number };
 	maxStackDepth?: number;
 	preferredAspectRatio?: number;
+	/** Target aspect ratio (width/height). When bounds exceed
+	 * target*3, nodes are rewrapped (Issue #60). */
+	targetAspectRatio?: number;
+	/** Max nodes per row for TB/BT horizontal-rewrap (Issue #60). */
+	maxRowDepth?: number;
 	portShifting?: PortShiftingOptions;
 	cjkFontFamily?: string | false;
 	minCjkFontSize?: number | false;
@@ -244,6 +252,22 @@ export function solveDiagram(
 					diagnostics,
 				);
 
+	// Horizontal rewrap for TB/BT layouts (Issue #60).
+	if (
+		(diagram.direction === "TB" || diagram.direction === "BT") &&
+		options.maxRowDepth !== undefined
+	) {
+		const rewrapped = wrapHorizontalStackIfNeeded(
+			initialNodeBoxes,
+			styledNodes,
+			diagram.direction,
+			options,
+			diagnostics,
+		);
+		for (const [id, box] of rewrapped) {
+			initialNodeBoxes.set(id, box);
+		}
+	}
 	// When using recursive layout, pre-populate group boxes from
 	// bottom-up layout so downstream coordinateGroups does not
 	// recompute them from scratch.
@@ -267,6 +291,8 @@ export function solveDiagram(
 			? {}
 			: { minSiblingGap: options.minSiblingGap }),
 		distributeContainedChildren: options.distributeContainedChildren ?? true,
+		distributeSwimlaneChildren: options.distributeSwimlaneChildren ?? "spread",
+		swimlanes: styledSwimlanes,
 		boxes: initialNodeBoxes,
 		nodes: styledNodes,
 		groups: styledGroups,
@@ -1184,10 +1210,7 @@ function wrapVerticalStackIfNeeded(
 		);
 		return wrapped;
 	}
-	if (
-		edges.length > 0 ||
-		!isVerticalRunaway(wrapped, nodes, direction, options)
-	) {
+	if (edges.length > 0 || !isStackRunaway(wrapped, nodes, direction, options)) {
 		reportVerticalRunaway(
 			wrapped,
 			nodes,
@@ -1245,6 +1268,67 @@ function wrapVerticalStackIfNeeded(
 	return wrapped;
 }
 
+/**
+ * Wrap a TB/BT single horizontal row into multiple rows when
+ * the layout exceeds maxRowDepth or targetAspectRatio (Issue #60).
+ * Mirror of wrapVerticalStackIfNeeded for vertical layouts.
+ */
+function wrapHorizontalStackIfNeeded(
+	boxes: ReadonlyMap<string, Box>,
+	nodes: readonly NormalizedNode[],
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[],
+): Map<string, Box> {
+	if (!isStackRunaway(boxes, nodes, direction, options)) {
+		return new Map(boxes);
+	}
+	const maxRowDepth = options.maxRowDepth;
+	if (maxRowDepth === undefined || nodes.length <= maxRowDepth) {
+		return new Map(boxes);
+	}
+	const ordered = [...nodes].sort((a, b) => {
+		const ba = boxes.get(a.id);
+		const bb = boxes.get(b.id);
+		if (ba === undefined || bb === undefined) return 0;
+		const dx = ba.x - bb.x;
+		return dx !== 0 ? dx : ba.y - bb.y;
+	});
+	const rows = Math.ceil(ordered.length / maxRowDepth);
+	const wrapped = new Map(boxes);
+	const rowSpacing = options.overlapSpacing ?? 40;
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxH = 0;
+	for (const n of ordered) {
+		const b = boxes.get(n.id);
+		if (b !== undefined) {
+			minX = Math.min(minX, b.x);
+			minY = Math.min(minY, b.y);
+			maxH = Math.max(maxH, b.height);
+		}
+	}
+	for (let ri = 0; ri < rows; ri++) {
+		const rowNodes = ordered.slice(ri * maxRowDepth, (ri + 1) * maxRowDepth);
+		let x = minX;
+		const y = minY + ri * (maxH + rowSpacing);
+		for (const node of rowNodes) {
+			const box = boxes.get(node.id);
+			if (box === undefined) continue;
+			wrapped.set(node.id, { ...box, x, y });
+			x += box.width + rowSpacing;
+		}
+	}
+	diagnostics.push({
+		severity: "warning",
+		code: "horizontal_runaway",
+		message: `Single-row layout exceeded maxRowDepth ${maxRowDepth}; wrapped into ${rows} rows.`,
+		path: ["nodes"],
+		detail: { nodeCount: ordered.length, maxRowDepth, rows },
+	});
+	return wrapped;
+}
+
 function reportVerticalRunaway(
 	boxes: ReadonlyMap<string, Box>,
 	nodes: readonly NormalizedNode[],
@@ -1253,7 +1337,7 @@ function reportVerticalRunaway(
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
 ): void {
-	if (!isVerticalRunaway(boxes, nodes, direction, options)) {
+	if (!isStackRunaway(boxes, nodes, direction, options)) {
 		return;
 	}
 	diagnostics.push({
@@ -1275,7 +1359,12 @@ function reportVerticalRunaway(
 	});
 }
 
-function isVerticalRunaway(
+/**
+ * Detect stack runaway in either direction.
+ * For LR/RL: height/width > preferred (vertical runaway).
+ * For TB/BT: width/height > preferred (horizontal runaway, Issue #60).
+ */
+function isStackRunaway(
 	boxes: ReadonlyMap<string, Box>,
 	nodes: readonly NormalizedNode[],
 	direction: NormalizedDiagram["direction"],
@@ -2085,7 +2174,7 @@ function coordinateNodes(
 		const ports =
 			node.ports === undefined
 				? undefined
-				: coordinatePorts(node, box, options.portShifting);
+				: coordinatePorts(node, box, options.portShifting, diagnostics);
 
 		const geometry = computeShapeGeometry({
 			shape: node.shape,
@@ -2220,6 +2309,7 @@ function coordinatePorts(
 	node: NormalizedNode,
 	nodeBox: Box,
 	portShifting: PortShiftingOptions | undefined,
+	diagnostics?: Diagnostic[],
 ): CoordinatedPort[] {
 	const portsBySide = new Map<string, NormalizedNode["ports"]>();
 	for (const port of node.ports ?? []) {
@@ -2245,6 +2335,8 @@ function coordinatePorts(
 				index,
 				sorted.length,
 				portShifting,
+				diagnostics,
+				node.id,
 			);
 			const box = portBox(anchor);
 			coordinated.push({ ...port, box, anchor });
@@ -2260,6 +2352,8 @@ function portAnchor(
 	index: number,
 	count: number,
 	portShifting: PortShiftingOptions | undefined,
+	diagnostics?: Diagnostic[],
+	nodeId?: string,
 ): Point {
 	const shiftingEnabled = portShifting?.enabled ?? true;
 	const requestedSpacing = portShifting?.spacing ?? 24;
@@ -2273,13 +2367,36 @@ function portAnchor(
 	// same endpoint.
 	const availableSpan = 2 * maxOffset;
 	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
-	const spacing =
+	const effectiveSpacing =
 		shiftingEnabled && count > 1
 			? Math.max(
 					Math.min(requestedSpacing, availableSpan / (count - 1)),
 					minSpacing,
 				)
 			: requestedSpacing;
+	// Emit diagnostic when port spacing was compressed (Issue #60).
+	if (
+		shiftingEnabled &&
+		count > 1 &&
+		effectiveSpacing < requestedSpacing &&
+		diagnostics !== undefined &&
+		nodeId !== undefined
+	) {
+		diagnostics.push({
+			severity: "warning",
+			code: "port_constraint_overlap",
+			message: `Port spacing on ${nodeId} ${side} compressed from ${requestedSpacing}px to ${Math.round(effectiveSpacing)}px for ${count} ports.`,
+			path: ["nodes", nodeId, "ports"],
+			detail: {
+				nodeId,
+				side,
+				requestedSpacing,
+				effectiveSpacing: Math.round(effectiveSpacing),
+				portCount: count,
+			},
+		});
+	}
+	const spacing = effectiveSpacing;
 	const centeredOffset = shiftingEnabled
 		? (index - (count - 1) / 2) * spacing
 		: 0;
