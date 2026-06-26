@@ -1,15 +1,8 @@
-import type { Diagnostic } from "../../ir/diagnostics.js";
-import type { Constraint } from "../../ir/constraints.js";
-import type { Box } from "../../ir/geometry.js";
-import type { SolvedTextAnnotation } from "../../ir/label-layout.js";
+import type { LayoutLock } from "../../constraints/types.js";
 import type { ShapeGeometry } from "../../geometry/shapes.js";
+import type { Constraint } from "../../ir/constraints.js";
+import type { Diagnostic } from "../../ir/diagnostics.js";
 import type { NormalizedDiagram } from "../../ir/diagram.js";
-import type {
-	NormalizedEdge,
-	NormalizedGroup,
-	NormalizedNode,
-	Swimlane,
-} from "../../ir/elements.js";
 import type {
 	CoordinatedEdge,
 	CoordinatedEvidencePanel,
@@ -18,8 +11,13 @@ import type {
 	CoordinatedMatrixBlock,
 	CoordinatedNode,
 	CoordinatedTableBlock,
+	NormalizedEdge,
+	NormalizedGroup,
+	NormalizedNode,
+	Swimlane,
 } from "../../ir/elements.js";
-import type { LayoutLock } from "../../constraints/types.js";
+import type { Box } from "../../ir/geometry.js";
+import type { SolvedTextAnnotation } from "../../ir/label-layout.js";
 import type { SolveDiagramOptions } from "../solve.js";
 
 // ---------------------------------------------------------------------------
