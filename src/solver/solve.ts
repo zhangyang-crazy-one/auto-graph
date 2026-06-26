@@ -276,7 +276,15 @@ export function solveDiagram(
 			for (const node of styledNodes) {
 				if (node.position !== undefined && rewrapped.has(node.id)) {
 					const rwBox = rewrapped.get(node.id)!;
-					(node as NormalizedNode).position = { x: rwBox.x, y: rwBox.y };
+					// Clone node before setting position to avoid mutating
+					// caller diagram.nodes (Issue #61 codex P2).
+					const idx = styledNodes.indexOf(node);
+					if (idx !== -1) {
+						styledNodes[idx] = {
+							...node,
+							position: { x: rwBox.x, y: rwBox.y },
+						};
+					}
 				}
 			}
 		}
@@ -1296,13 +1304,21 @@ function wrapHorizontalStackIfNeeded(
 	if (!isStackRunaway(boxes, nodes, direction, options)) {
 		return new Map(boxes);
 	}
-	const maxRowDepth = options.maxRowDepth;
+	let maxRowDepth = options.maxRowDepth;
 	if (
 		maxRowDepth === undefined ||
 		maxRowDepth <= 0 ||
 		nodes.length <= maxRowDepth
 	) {
-		return new Map(boxes);
+		// When called with only targetAspectRatio (no maxRowDepth),
+		// derive a row depth so the rewrap is not silently skipped
+		// (Issue #61 codex P2).
+		if (maxRowDepth === undefined && options.targetAspectRatio !== undefined) {
+			maxRowDepth = Math.ceil(Math.sqrt(nodes.length));
+			if (nodes.length <= maxRowDepth) return new Map(boxes);
+		} else {
+			return new Map(boxes);
+		}
 	}
 	const ordered = [...nodes].sort((a, b) => {
 		const ba = boxes.get(a.id);

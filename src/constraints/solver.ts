@@ -41,10 +41,15 @@ export function applyLayoutConstraints(
 	// Drop fixed-position locks for non-contract swimlane children
 	// before overlap repair so they are treated as movable instead
 	// of emitting stale locked-conflict diagnostics (Issue #61 codex P2).
-	if (input.swimlanes !== undefined && input.swimlanes.length > 0) {
+	if (
+		input.swimlanes !== undefined &&
+		input.swimlanes.length > 0 &&
+		input.distributeSwimlaneChildren
+	) {
 		for (const swimlane of input.swimlanes) {
 			if (swimlane.layout === "contract") continue;
 			for (const lane of swimlane.lanes) {
+				if (lane.children.length < 2) continue;
 				for (const childId of lane.children) {
 					const lock = locks.get(childId);
 					if (lock?.source === "fixed-position") {
@@ -1293,6 +1298,7 @@ function distributeSwimlaneChildren(
 
 			unlocked.sort((a, b) => a.box[axis] - b.box[axis]);
 
+			reserved.sort((a, b) => a.start - b.start);
 			let pos = contentStart;
 			for (const child of unlocked) {
 				pos = advancePastReserved(pos, child.box[mainSize], reserved, minGap);
