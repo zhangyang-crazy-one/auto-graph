@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.4 (2026-06-26)
+
+### Issue #54 布局与路由引擎
+
+- **递归容器布局 (方案 A)**: `runRecursiveContainerLayout` — DFS post-order 自底向上布局，叶容器先布局（尺寸 = unionBoxes + padding），父布局中视为原子节点。通过 `recursiveLayout: true` 启用。 (#56)
+- **角点可见图 A* 路由 (方案 B)**: `findCornerGraphPath` — libavoid 风格的正交路由，基于角点可见度图 + Steiner 投影点，带 turn penalty 的 A* 搜索。`routeEdge` 中透明 fallback 到 grid A*。 (#57)
+- **边总线端口分散 (方案 C)**: `computeFanOutPorts` — 同源同向边沿节点边均匀分散，避免端口堆叠。clamp 溢出锚点到节点边界内。 (#58)
+- **5 维度布局质量评分 (方案 E)**: `scoreLayoutQuality` — node-overlap、edge-crossing、bend-count、route-backtrack、label-collision 各 20 分，总分 0–100。通过 `qualityScore: true` 启用。 (#59)
+
+### 🏗️ 基础设施
+
+- **LayoutPipeline**: 可替换 phase 的阶段管线，`createDefaultPipeline()` 提供 solve-diagram → quality-score 两阶段。 (#55)
+
 ## 0.1.0
 
 ### Layout & Routing
