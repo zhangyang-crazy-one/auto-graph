@@ -257,7 +257,7 @@ export function solveDiagram(
 		(diagram.direction === "TB" || diagram.direction === "BT") &&
 		options.maxRowDepth !== undefined
 	) {
-			const diagCountBefore = diagnostics.length;
+		const diagCountBefore = diagnostics.length;
 		const rewrapped = wrapHorizontalStackIfNeeded(
 			initialNodeBoxes,
 			styledNodes,

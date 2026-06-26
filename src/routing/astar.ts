@@ -132,7 +132,13 @@ export function findObstacleFreePath(
 	}
 
 	const { nodes: nodesFull, nodeIndex: idxFull } = buildGraph(xsFull, ysFull);
-	connectHorizontalEdges(nodesFull, ysFull, obstacles, endpointObstacles, margin);
+	connectHorizontalEdges(
+		nodesFull,
+		ysFull,
+		obstacles,
+		endpointObstacles,
+		margin,
+	);
 	connectVerticalEdges(nodesFull, xsFull, obstacles, endpointObstacles, margin);
 
 	const pathFull = aStarSearch(
