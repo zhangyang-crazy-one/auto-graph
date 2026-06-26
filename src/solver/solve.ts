@@ -55,6 +55,7 @@ import {
 	runComponentAwareDagreInitialLayout,
 	runDagreInitialLayout,
 } from "../layout/index.js";
+import { runRecursiveContainerLayout } from "../layout/recursive.js";
 import { type RouteKind, routeEdge } from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
@@ -67,6 +68,8 @@ export type InitialLayoutMode = "dagre" | "positions";
 export interface SolveDiagramOptions {
 	/** Selects the seed coordinates before constraints, routing, and export. */
 	initialLayout?: InitialLayoutMode;
+	/** When true, use recursive bottom-up layout for container groups (Issue #54, 方案 A). */
+	recursiveLayout?: boolean;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** When true, compute quality score after solving (Issue #54, 方案 E). */
@@ -203,13 +206,30 @@ export function solveDiagram(
 	);
 	const constraints = stableByConstraintId(diagram.constraints);
 	const initialLayoutMode = options.initialLayout ?? "dagre";
-	const layout = runInitialLayout({
-		mode: initialLayoutMode,
-		componentAware: options.maxStackDepth === undefined,
-		direction: diagram.direction,
-		nodes: styledNodes,
-		edges: styledEdges,
-	});
+	const useRecursive = options.recursiveLayout === true;
+	if (useRecursive && initialLayoutMode === "positions") {
+		diagnostics.push({
+			severity: "warning",
+			code: "layout.recursive-ignores-positions",
+			message:
+				'recursiveLayout overrides initialLayout "positions" — seed positions are ignored for bottom-up container layout.',
+		});
+	}
+	const layout = useRecursive
+		? runRecursiveContainerLayout({
+				direction: diagram.direction,
+				nodes: styledNodes,
+				groups: styledGroups,
+				edges: styledEdges,
+				constraints,
+			})
+		: runInitialLayout({
+				mode: initialLayoutMode,
+				componentAware: options.maxStackDepth === undefined,
+				direction: diagram.direction,
+				nodes: styledNodes,
+				edges: styledEdges,
+			});
 
 	diagnostics.push(...layout.diagnostics);
 	const initialNodeBoxes =
@@ -223,6 +243,17 @@ export function solveDiagram(
 					options,
 					diagnostics,
 				);
+
+	// When using recursive layout, pre-populate group boxes from
+	// bottom-up layout so downstream coordinateGroups does not
+	// recompute them from scratch.
+	if (useRecursive && "groupBoxes" in layout) {
+		const recursiveLayout =
+			layout as import("../layout/recursive.js").RecursiveLayoutResult;
+		for (const [groupId, groupBox] of recursiveLayout.groupBoxes) {
+			initialNodeBoxes.set(groupId, groupBox);
+		}
+	}
 
 	// Expand node boxes for port capacity before constraint solving
 	// so containment, overlap repair, and swimlane contracts see the
