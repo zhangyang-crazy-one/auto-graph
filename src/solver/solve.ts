@@ -241,7 +241,8 @@ export function solveDiagram(
 
 	diagnostics.push(...layout.diagnostics);
 	const initialNodeBoxes =
-		initialLayoutMode === "positions"
+		initialLayoutMode === "positions" ||
+		(diagram.direction !== "LR" && diagram.direction !== "RL")
 			? layout.boxes
 			: wrapVerticalStackIfNeeded(
 					layout.boxes,
@@ -255,7 +256,8 @@ export function solveDiagram(
 	// Horizontal rewrap for TB/BT layouts (Issue #60).
 	if (
 		(diagram.direction === "TB" || diagram.direction === "BT") &&
-		options.maxRowDepth !== undefined
+		(options.maxRowDepth !== undefined ||
+			options.targetAspectRatio !== undefined)
 	) {
 		const diagCountBefore = diagnostics.length;
 		const rewrapped = wrapHorizontalStackIfNeeded(
@@ -273,7 +275,8 @@ export function solveDiagram(
 		if (diagnostics.length > diagCountBefore) {
 			for (const node of styledNodes) {
 				if (node.position !== undefined && rewrapped.has(node.id)) {
-					(node as unknown as Record<string, unknown>).position = undefined;
+					const rwBox = rewrapped.get(node.id)!;
+					(node as NormalizedNode).position = { x: rwBox.x, y: rwBox.y };
 				}
 			}
 		}
@@ -1294,7 +1297,11 @@ function wrapHorizontalStackIfNeeded(
 		return new Map(boxes);
 	}
 	const maxRowDepth = options.maxRowDepth;
-	if (maxRowDepth === undefined || nodes.length <= maxRowDepth) {
+	if (
+		maxRowDepth === undefined ||
+		maxRowDepth <= 0 ||
+		nodes.length <= maxRowDepth
+	) {
 		return new Map(boxes);
 	}
 	const ordered = [...nodes].sort((a, b) => {
@@ -1410,7 +1417,11 @@ function isStackRunaway(
 	const preferred = isHorizontal
 		? (options.targetAspectRatio ?? options.preferredAspectRatio ?? 3)
 		: (options.preferredAspectRatio ?? 3);
-	if (aspectRatio < preferred) {
+	if (
+		(options.preferredAspectRatio !== undefined ||
+			options.targetAspectRatio !== undefined) &&
+		aspectRatio < preferred
+	) {
 		return false;
 	}
 

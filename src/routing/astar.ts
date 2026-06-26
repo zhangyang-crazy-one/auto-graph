@@ -116,7 +116,31 @@ export function findObstacleFreePath(
 
 	if (path !== null) {
 		// 5. Simplify.
-		return simplifyRoute(path);
+		const simplified = simplifyRoute(path);
+
+		// Validate the simplified path against obstacles that were
+		// filtered out by the corridor prefilter (Issue #61 codex P2).
+		// If the path crosses any excluded obstacle, retry with the
+		// full obstacle set to avoid routes that pass through obstacles.
+		if (useCorridor && filtered.length < obstacles.length) {
+			let crossesExcluded = false;
+			for (let i = 0; i < simplified.length - 1; i++) {
+				const a = simplified[i] as Point;
+				const b = simplified[i + 1] as Point;
+				for (const obs of obstacles) {
+					if (filtered.includes(obs)) continue;
+					if (segmentCrossesBoxStrict(a, b, obs, margin)) {
+						crossesExcluded = true;
+						break;
+					}
+				}
+				if (crossesExcluded) break;
+			}
+			if (!crossesExcluded) return simplified;
+			// Fall through to full-obstacle retry below.
+		} else {
+			return simplified;
+		}
 	}
 
 	// If the corridor-prefiltered search failed, retry with the full
