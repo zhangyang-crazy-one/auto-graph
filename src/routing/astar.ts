@@ -152,6 +152,12 @@ export function findObstacleFreePath(
 	const ysFull = collectYs(source, target, obstacles, margin);
 
 	if (xsFull.length * ysFull.length > maxNodes) {
+		diagnostics?.push({
+			severity: "warning",
+			code: "routing.astar.grid_overflow",
+			message: `A* full-retry grid overflow: ${xsFull.length * ysFull.length} nodes > ${maxNodes} limit. Falling back to heuristic routing.`,
+			detail: { xsCount: xsFull.length, ysCount: ysFull.length, maxNodes },
+		});
 		return null;
 	}
 
