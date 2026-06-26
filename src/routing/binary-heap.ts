@@ -68,12 +68,13 @@ export class BinaryHeap<T> {
 			let smallestIdx = idx;
 			const leftIdx = (idx << 1) + 1;
 			const rightIdx = leftIdx + 1;
+			// Compare children against entry (the held element being
+			// sifted down), not this._data[smallestIdx], because after
+			// an earlier swap this._data[idx] holds a child that was
+			// moved up, not entry.
 			if (
 				leftIdx < size &&
-				this._less(
-					this._data[leftIdx] as HeapEntry<T>,
-					this._data[smallestIdx] as HeapEntry<T>,
-				)
+				this._less(this._data[leftIdx] as HeapEntry<T>, entry)
 			) {
 				smallestIdx = leftIdx;
 			}
@@ -81,7 +82,9 @@ export class BinaryHeap<T> {
 				rightIdx < size &&
 				this._less(
 					this._data[rightIdx] as HeapEntry<T>,
-					this._data[smallestIdx] as HeapEntry<T>,
+					smallestIdx === leftIdx
+						? (this._data[leftIdx] as HeapEntry<T>)
+						: entry,
 				)
 			) {
 				smallestIdx = rightIdx;

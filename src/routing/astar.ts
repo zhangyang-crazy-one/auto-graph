@@ -21,6 +21,12 @@ export interface AstarOptions {
 	 * Pre-filter obstacles to those whose AABB intersects the
 	 * source→target corridor (libavoid-style local routing).
 	 * Reduces grid size 50–80% on typical topologies (default true).
+	 *
+	 * The corridor is conservative: obstacles within `corridorMargin`
+	 * pixels of the source→target AABB are retained.  For unusually
+	 * wide detours (U-shaped paths around a single obstacle), increase
+	 * `corridorMargin` or set `corridorPrefilter: false` to search
+	 * against the full obstacle set.
 	 */
 	readonly corridorPrefilter?: boolean;
 	/** Corridor expansion margin in px (default 32). */
@@ -108,10 +114,38 @@ export function findObstacleFreePath(
 		segmentPenalty,
 	);
 
-	if (path === null) return null;
+	if (path !== null) {
+		// 5. Simplify.
+		return simplifyRoute(path);
+	}
 
-	// 5. Simplify.
-	return simplifyRoute(path);
+	// If the corridor-prefiltered search failed, retry with the full
+	// obstacle set (Issue #60 review): an obstacle inside the corridor
+	// may have forced a detour outside it, where obstacles were omitted.
+	if (!useCorridor) return null;
+
+	const xsFull = collectXs(source, target, obstacles, margin);
+	const ysFull = collectYs(source, target, obstacles, margin);
+
+	if (xsFull.length * ysFull.length > maxNodes) {
+		return null;
+	}
+
+	const { nodes: nodesFull, nodeIndex: idxFull } = buildGraph(xsFull, ysFull);
+	connectHorizontalEdges(nodesFull, ysFull, obstacles, endpointObstacles, margin);
+	connectVerticalEdges(nodesFull, xsFull, obstacles, endpointObstacles, margin);
+
+	const pathFull = aStarSearch(
+		nodesFull,
+		idxFull,
+		source,
+		target,
+		turnPenalty,
+		segmentPenalty,
+	);
+
+	if (pathFull === null) return null;
+	return simplifyRoute(pathFull);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +158,11 @@ export function findObstacleFreePath(
  * this bounding box cannot possibly block a path between source and
  * target, so excluding them reduces grid size 50–80% on typical
  * topologies (libavoid local-corridor approach, Issue #60).
+ *
+ * The corridor is conservative: obstacles within `margin` pixels of
+ * the source→target AABB are always retained.  For very wide detours,
+ * callers should pass `corridorPrefilter: false` to search against the
+ * full obstacle set.
  */
 function filterObstaclesByCorridor(
 	source: Point,

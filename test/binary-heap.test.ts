@@ -60,6 +60,29 @@ describe("BinaryHeap", () => {
 		expect(result).toEqual([4, 2, 5, 1, 3]);
 	});
 
+	it("pops in correct order when root replacement must descend multiple levels", () => {
+		// Regression test for _siftDown comparing against the moved-up
+		// child instead of the held entry (Issue #61 codex P1).
+		// With 7 elements the heap has depth 3, so the last element
+		// pulled to the root on pop() must descend 2+ levels.
+		// Priority order: 10, 20, 30, 40, 50, 60, 70.
+		const heap = new BinaryHeap<number>();
+		heap.push(1, 10);
+		heap.push(2, 20);
+		heap.push(3, 30);
+		heap.push(4, 40);
+		heap.push(5, 50);
+		heap.push(6, 60);
+		heap.push(7, 70);
+
+		const result: number[] = [];
+		while (heap.size > 0) result.push(heap.pop()!);
+		expect(result).toEqual([1, 2, 3, 4, 5, 6, 7]);
+		// Verify heap property was maintained throughout by checking
+		// that priorities were strictly non-decreasing.
+		// Priorities: 10,20,30,40,50,60,70 → values: 1,2,3,4,5,6,7.
+	});
+
 	it("handles large input efficiently", () => {
 		const heap = new BinaryHeap<number>();
 		const N = 1000;

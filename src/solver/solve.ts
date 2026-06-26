@@ -257,6 +257,7 @@ export function solveDiagram(
 		(diagram.direction === "TB" || diagram.direction === "BT") &&
 		options.maxRowDepth !== undefined
 	) {
+			const diagCountBefore = diagnostics.length;
 		const rewrapped = wrapHorizontalStackIfNeeded(
 			initialNodeBoxes,
 			styledNodes,
@@ -266,6 +267,15 @@ export function solveDiagram(
 		);
 		for (const [id, box] of rewrapped) {
 			initialNodeBoxes.set(id, box);
+		}
+		// Only clear position fields when the rewrap actually executed
+		// (horizontal_runaway diagnostic was emitted).
+		if (diagnostics.length > diagCountBefore) {
+			for (const node of styledNodes) {
+				if (node.position !== undefined && rewrapped.has(node.id)) {
+					(node as unknown as Record<string, unknown>).position = undefined;
+				}
+			}
 		}
 	}
 	// When using recursive layout, pre-populate group boxes from
@@ -1372,11 +1382,13 @@ function isStackRunaway(
 ): boolean {
 	if (
 		options.maxStackDepth === undefined &&
-		options.preferredAspectRatio === undefined
+		options.preferredAspectRatio === undefined &&
+		options.targetAspectRatio === undefined &&
+		options.maxRowDepth === undefined
 	) {
 		return false;
 	}
-	if (nodes.length < 2 || (direction !== "LR" && direction !== "RL")) {
+	if (nodes.length < 2) {
 		return false;
 	}
 	const nodeBoxes = nodes
@@ -1386,12 +1398,31 @@ function isStackRunaway(
 		return false;
 	}
 	const bounds = unionBoxes(nodeBoxes);
-	const aspectRatio =
-		bounds.width <= 0 ? Number.POSITIVE_INFINITY : bounds.height / bounds.width;
-	const preferred = options.preferredAspectRatio ?? 3;
+
+	const isHorizontal = direction === "TB" || direction === "BT";
+	const aspectRatio = isHorizontal
+		? bounds.height <= 0
+			? Number.POSITIVE_INFINITY
+			: bounds.width / bounds.height
+		: bounds.width <= 0
+			? Number.POSITIVE_INFINITY
+			: bounds.height / bounds.width;
+	const preferred = isHorizontal
+		? (options.targetAspectRatio ?? options.preferredAspectRatio ?? 3)
+		: (options.preferredAspectRatio ?? 3);
 	if (aspectRatio < preferred) {
 		return false;
 	}
+
+	if (isHorizontal) {
+		// TB/BT: check y-spread vs maxHeight (single row runaway).
+		const yCenters = nodeBoxes.map((box) => box.y + box.height / 2);
+		const ySpread = Math.max(...yCenters) - Math.min(...yCenters);
+		const maxHeight = Math.max(...nodeBoxes.map((box) => box.height));
+		return ySpread <= Math.max(maxHeight, options.overlapSpacing ?? 40);
+	}
+
+	// LR/RL: check x-spread vs maxWidth (single column runaway).
 	const xCenters = nodeBoxes.map((box) => box.x + box.width / 2);
 	const xSpread = Math.max(...xCenters) - Math.min(...xCenters);
 	const maxWidth = Math.max(...nodeBoxes.map((box) => box.width));
@@ -2174,7 +2205,7 @@ function coordinateNodes(
 		const ports =
 			node.ports === undefined
 				? undefined
-				: coordinatePorts(node, box, options.portShifting, diagnostics);
+				: coordinatePorts(node, box, options.portShifting);
 
 		const geometry = computeShapeGeometry({
 			shape: node.shape,
@@ -2309,7 +2340,6 @@ function coordinatePorts(
 	node: NormalizedNode,
 	nodeBox: Box,
 	portShifting: PortShiftingOptions | undefined,
-	diagnostics?: Diagnostic[],
 ): CoordinatedPort[] {
 	const portsBySide = new Map<string, NormalizedNode["ports"]>();
 	for (const port of node.ports ?? []) {
@@ -2335,8 +2365,6 @@ function coordinatePorts(
 				index,
 				sorted.length,
 				portShifting,
-				diagnostics,
-				node.id,
 			);
 			const box = portBox(anchor);
 			coordinated.push({ ...port, box, anchor });
@@ -2352,8 +2380,6 @@ function portAnchor(
 	index: number,
 	count: number,
 	portShifting: PortShiftingOptions | undefined,
-	diagnostics?: Diagnostic[],
-	nodeId?: string,
 ): Point {
 	const shiftingEnabled = portShifting?.enabled ?? true;
 	const requestedSpacing = portShifting?.spacing ?? 24;
@@ -2374,28 +2400,6 @@ function portAnchor(
 					minSpacing,
 				)
 			: requestedSpacing;
-	// Emit diagnostic when port spacing was compressed (Issue #60).
-	if (
-		shiftingEnabled &&
-		count > 1 &&
-		effectiveSpacing < requestedSpacing &&
-		diagnostics !== undefined &&
-		nodeId !== undefined
-	) {
-		diagnostics.push({
-			severity: "warning",
-			code: "port_constraint_overlap",
-			message: `Port spacing on ${nodeId} ${side} compressed from ${requestedSpacing}px to ${Math.round(effectiveSpacing)}px for ${count} ports.`,
-			path: ["nodes", nodeId, "ports"],
-			detail: {
-				nodeId,
-				side,
-				requestedSpacing,
-				effectiveSpacing: Math.round(effectiveSpacing),
-				portCount: count,
-			},
-		});
-	}
 	const spacing = effectiveSpacing;
 	const centeredOffset = shiftingEnabled
 		? (index - (count - 1) / 2) * spacing

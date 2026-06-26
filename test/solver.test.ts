@@ -469,6 +469,216 @@ describe("solveDiagram", () => {
 			}),
 		);
 	});
+		it("wraps a TB horizontal runaway row when maxRowDepth is configured", () => {
+			const result = solveDiagram(
+				{
+					id: "test-tb-row",
+					direction: "TB",
+					nodes: Array.from({ length: 7 }, (_, index) =>
+						node(`n-${index}`, { x: index * 88, y: 0 }),
+					),
+					edges: [],
+					groups: [],
+					constraints: [],
+					diagnostics: [],
+				},
+				{ maxRowDepth: 3, initialLayout: "positions" },
+			);
+
+			const uniqueYPositions = new Set(result.nodes.map((item) => item.box.y));
+			expect(uniqueYPositions.size).toBeGreaterThan(1);
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({
+					severity: "warning",
+					code: "horizontal_runaway",
+					detail: expect.objectContaining({ maxRowDepth: 3 }),
+				}),
+			);
+		});
+
+		it("wraps a BT horizontal runaway row when maxRowDepth is configured", () => {
+			const result = solveDiagram(
+				{
+					id: "test-bt-row",
+					direction: "BT",
+					nodes: Array.from({ length: 7 }, (_, index) =>
+						node(`n-${index}`, { x: index * 88, y: 0 }),
+					),
+					edges: [],
+					groups: [],
+					constraints: [],
+					diagnostics: [],
+				},
+				{ maxRowDepth: 3, initialLayout: "positions" },
+			);
+
+			const uniqueYPositions = new Set(result.nodes.map((item) => item.box.y));
+			expect(uniqueYPositions.size).toBeGreaterThan(1);
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({
+					severity: "warning",
+					code: "horizontal_runaway",
+					detail: expect.objectContaining({ maxRowDepth: 3 }),
+				}),
+			);
+		});
+
+		it("does not trigger horizontal runaway when maxRowDepth is unset", () => {
+			const result = solveDiagram(
+				{
+					id: "test-tb-row-no-rewrap",
+					direction: "TB",
+					nodes: Array.from({ length: 7 }, (_, index) =>
+						node(`n-${index}`, { x: index * 88, y: 0 }),
+					),
+					edges: [],
+					groups: [],
+					constraints: [],
+					diagnostics: [],
+				},
+				{ initialLayout: "positions" },
+			);
+
+			expect(result.diagnostics).not.toContainEqual(
+				expect.objectContaining({ code: "horizontal_runaway" }),
+			);
+		});
+
+		it("targetAspectRatio gates horizontal rewrap threshold", () => {
+			// Low threshold: rewrap fires.
+			const low = solveDiagram(
+				{
+					id: "test-tb-aspect-low",
+					direction: "TB",
+					nodes: Array.from({ length: 7 }, (_, index) =>
+						node(`n-${index}`, { x: index * 88, y: 0 }),
+					),
+					edges: [],
+					groups: [],
+					constraints: [],
+					diagnostics: [],
+				},
+				{
+					maxRowDepth: 3,
+					targetAspectRatio: 1,
+					initialLayout: "positions",
+				},
+			);
+			const uniqueY = new Set(low.nodes.map((item) => item.box.y));
+			expect(uniqueY.size).toBeGreaterThan(1);
+			expect(low.diagnostics).toContainEqual(
+				expect.objectContaining({
+					severity: "warning",
+					code: "horizontal_runaway",
+				}),
+			);
+
+			// High threshold: no rewrap.
+			const high = solveDiagram(
+				{
+					id: "test-tb-aspect-high",
+					direction: "TB",
+					nodes: Array.from({ length: 7 }, (_, index) =>
+						node(`n-${index}`, { x: index * 88, y: 0 }),
+					),
+					edges: [],
+					groups: [],
+					constraints: [],
+					diagnostics: [],
+				},
+				{
+					maxRowDepth: 3,
+					targetAspectRatio: 100,
+					initialLayout: "positions",
+				},
+			);
+			expect(high.diagnostics).not.toContainEqual(
+				expect.objectContaining({ code: "horizontal_runaway" }),
+			);
+		});
+
+		it("distributes children in non-contract swimlane lanes", () => {
+			const result = solveDiagram(
+				{
+					id: "swimlane-distribute",
+					direction: "TB",
+					nodes: [
+						node("lane1-child1"),
+						node("lane1-child2"),
+						node("lane1-child3"),
+					],
+					edges: [],
+					groups: [],
+					swimlanes: [
+						{
+							id: "sw",
+							orientation: "vertical",
+							lanes: [
+								{
+									id: "lane1",
+									label: { text: "Lane 1" },
+									children: [
+										"lane1-child1",
+										"lane1-child2",
+										"lane1-child3",
+									],
+								},
+							],
+						},
+					],
+					constraints: [],
+					diagnostics: [],
+				},
+				{ distributeSwimlaneChildren: "spread" },
+			);
+
+			const childXs = result.nodes.map((n) => n.box.x);
+			const uniqueXPositions = new Set(childXs);
+			expect(uniqueXPositions.size).toBe(3);
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({
+					code: "intra_container_distributed",
+					detail: expect.objectContaining({ containerId: "lane1" }),
+				}),
+			);
+		});
+
+		it("emits port_capacity_overflow when node is too small for port spacing", () => {
+			const result = solveDiagram(
+				{
+					...sampleDiagram(),
+					direction: "TB",
+					nodes: [
+						{
+							...node("many-ports"),
+							size: { width: 100, height: 40 },
+							ports: Array.from({ length: 6 }, (_, i) => ({
+								id: `p${i}`,
+								side: "right" as const,
+								kind: "flow" as const,
+							})),
+						},
+					],
+					edges: [],
+					groups: [],
+					constraints: [],
+				},
+				{ portShifting: { spacing: 200 } },
+			);
+
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({
+					severity: "info",
+					code: "port_capacity_overflow",
+					detail: expect.objectContaining({
+						nodeId: "many-ports",
+						side: "right",
+						portCount: 6,
+					}),
+				}),
+			);
+		});
+
 
 	it("re-clamps containment after later constraints push a child outside", () => {
 		const result = solveDiagram({
