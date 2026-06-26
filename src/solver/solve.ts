@@ -82,7 +82,7 @@ export interface SolveDiagramOptions {
 	minSiblingGap?: number;
 	distributeContainedChildren?: boolean | "spread";
 	/** When "spread", distribute children within non-contract swimlane
-	 * lanes (Issue #60). Default "spread". */
+	 * lanes (Issue #60). Opt-in: no redistribution occurs unless explicitly set. */
 	distributeSwimlaneChildren?: boolean | "spread";
 	pageBounds?: { width: number; height: number };
 	maxStackDepth?: number;
@@ -312,7 +312,9 @@ export function solveDiagram(
 			? {}
 			: { minSiblingGap: options.minSiblingGap }),
 		distributeContainedChildren: options.distributeContainedChildren ?? true,
-		distributeSwimlaneChildren: options.distributeSwimlaneChildren ?? "spread",
+		...(options.distributeSwimlaneChildren !== undefined
+			? { distributeSwimlaneChildren: options.distributeSwimlaneChildren }
+			: {}),
 		swimlanes: styledSwimlanes,
 		boxes: initialNodeBoxes,
 		nodes: styledNodes,
