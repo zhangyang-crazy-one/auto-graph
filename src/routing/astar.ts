@@ -122,7 +122,7 @@ export function findObstacleFreePath(
 		// filtered out by the corridor prefilter (Issue #61 codex P2).
 		// If the path crosses any excluded obstacle, retry with the
 		// full obstacle set to avoid routes that pass through obstacles.
-		if (useCorridor && filtered.length < obstacles.length) {
+		if (useCorridor && !obstacles.every((o) => filtered.includes(o))) {
 			let crossesExcluded = false;
 			for (let i = 0; i < simplified.length - 1; i++) {
 				const a = simplified[i] as Point;

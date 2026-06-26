@@ -38,6 +38,23 @@ export function applyLayoutConstraints(
 		yieldFixedPositionLocks(input, boxes, locks);
 	}
 
+	// Drop fixed-position locks for non-contract swimlane children
+	// before overlap repair so they are treated as movable instead
+	// of emitting stale locked-conflict diagnostics (Issue #61 codex P2).
+	if (input.swimlanes !== undefined && input.swimlanes.length > 0) {
+		for (const swimlane of input.swimlanes) {
+			if (swimlane.layout === "contract") continue;
+			for (const lane of swimlane.lanes) {
+				for (const childId of lane.children) {
+					const lock = locks.get(childId);
+					if (lock?.source === "fixed-position") {
+						locks.delete(childId);
+					}
+				}
+			}
+		}
+	}
+
 	applyContainment(input.constraints, boxes, locks, diagnostics, false);
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
@@ -63,6 +80,19 @@ export function applyLayoutConstraints(
 		// containers that were already handled in the first pass
 		// (Codex P3: avoid re-emitting distribution diagnostics).
 		dedupReplayDiagnostics(diagnostics, diagBefore);
+	}
+
+	// Swimlane distribution (Issue #60): non-contract swimlanes are
+	// NOT modeled as containment constraints, so distribute children
+	// inside each lane content box separately.  Moved outside
+	// applyDistributeContained so it runs independently of the
+	// distributeContainedChildren flag (Issue #61 codex P2).
+	if (
+		input.swimlanes !== undefined &&
+		input.swimlanes.length > 0 &&
+		input.distributeSwimlaneChildren
+	) {
+		distributeSwimlaneChildren(input, boxes, locks, diagnostics);
 	}
 
 	// Clean up diagnostics that distribution may have resolved (Codex P2).
@@ -1195,17 +1225,6 @@ function applyDistributeContained(
 				axis,
 			},
 		});
-	}
-
-	// Swimlane distribution (Issue #60): non-contract swimlanes are
-	// NOT modeled as containment constraints, so distribute children
-	// inside each lane's content box separately.
-	if (
-		input.swimlanes !== undefined &&
-		input.swimlanes.length > 0 &&
-		input.distributeSwimlaneChildren
-	) {
-		distributeSwimlaneChildren(input, boxes, locks, diagnostics);
 	}
 }
 
