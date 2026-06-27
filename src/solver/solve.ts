@@ -2341,7 +2341,6 @@ function expandNodeBoxesForPorts(
 			box.width += widthExpansion;
 		}
 		// Recenter the label layout to match the expanded box.
-		// Recenter the label layout to match the expanded box.
 		// Only shift layout.box — lines and contentBox stay
 		// relative to the label area so the SVG renderer's
 		// annotation.box + line.box addition is not doubled
@@ -2422,14 +2421,13 @@ function portAnchor(
 	// same endpoint.
 	const availableSpan = 2 * maxOffset;
 	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
-	const effectiveSpacing =
+	const spacing =
 		shiftingEnabled && count > 1
 			? Math.max(
 					Math.min(requestedSpacing, availableSpan / (count - 1)),
 					minSpacing,
 				)
 			: requestedSpacing;
-	const spacing = effectiveSpacing;
 	const centeredOffset = shiftingEnabled
 		? (index - (count - 1) / 2) * spacing
 		: 0;

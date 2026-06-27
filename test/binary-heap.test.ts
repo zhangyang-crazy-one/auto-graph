@@ -91,7 +91,6 @@ describe("BinaryHeap", () => {
 		}
 		expect(heap.size).toBe(N);
 
-		const prev = -Infinity;
 		while (heap.size > 0) {
 			heap.pop();
 		}
