@@ -12,7 +12,7 @@ import type {
 	DiagramDirection,
 	Point,
 } from "../ir/geometry.js";
-import { findObstacleFreePath } from "./astar.js";
+import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 import { findCornerGraphPath } from "./visibility-router.js";
 
@@ -125,20 +125,41 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			// Use margin 2 so the resulting path stays outside the
 			// obstacle boundary and avoids tangent-touch rejections
 			// by the loose AABB intersection check.
-			const cornerPath = findCornerGraphPath(
+			// Corridor prefilter reduces obstacle count for the corner
+			// graph, preventing maxCorners overflow (Issue #62).
+			const allObstacles = [...softObstacles, ...hardObstacles];
+			const corridorObstacles = filterObstaclesByCorridor(
 				source,
 				target,
-				[...softObstacles, ...hardObstacles],
+				allObstacles,
+				endpointObstacles,
+				32,
+			);
+			let cornerPath = findCornerGraphPath(
+				source,
+				target,
+				corridorObstacles,
 				{ endpointObstacles, margin: 2 },
 				diagnostics,
 			);
+			// If corridor-filtered call failed and excluded some obstacles,
+			// retry with the full set (mirrors grid A* full-retry pattern).
+			if (cornerPath === null && corridorObstacles.length < allObstacles.length) {
+				cornerPath = findCornerGraphPath(
+					source,
+					target,
+					allObstacles,
+					{ endpointObstacles, margin: 2 },
+					diagnostics,
+				);
+			}
 			// Fall back to grid A* if corner graph fails.
 			const path =
 				cornerPath ??
 				findObstacleFreePath(
 					source,
 					target,
-					[...softObstacles, ...hardObstacles],
+					allObstacles,
 					{ endpointObstacles, margin: 0 },
 					diagnostics,
 				);

@@ -1587,6 +1587,7 @@ function applyVerticalSwimlaneContract(
 				x: target.x - bounds.x,
 				y: laneContentTop,
 			},
+			slotWidth,
 		);
 	}
 
@@ -1734,31 +1735,91 @@ function moveRankedVerticalLaneChildren(
 	rankSpacing: number,
 	rankStackGap: number,
 	target: Point,
+	slotWidth: number,
 ): void {
 	for (const [rank, stack] of rankStacks(childIds, nodeBoxes, flowRanks)) {
-		let yOffset = 0;
+		// Filter out locked children for layout purposes.
+		// fixed-position locks are overridden by contract placement
+		// (the contract swimlane is authoritative, Issue #62).
+		const unlocked: Array<{ childId: string; box: Box }> = [];
 		for (const item of stack) {
-			const { childId, box } = item;
-			if (locks.has(childId)) {
+			const lock = locks.get(item.childId);
+			if (lock !== undefined && lock.source !== "fixed-position") {
 				diagnostics.push({
 					severity: "warning",
 					code: "constraints.locked-target-not-moved",
-					message: `Locked child ${childId} was not moved into contract swimlane slot.`,
+					message: `Locked child ${item.childId} was not moved into contract swimlane slot.`,
 					path: ["swimlanes"],
-					detail: { nodeId: childId },
+					detail: { nodeId: item.childId },
 				});
-				continue;
+			} else {
+				unlocked.push(item);
 			}
+		}
+		if (unlocked.length === 0) continue;
+
+		if (unlocked.length === 1) {
+			// Single child: center within slot.
+			const { childId, box } = unlocked[0]!;
 			const next = {
 				...box,
-				x: box.x + target.x,
-				y: target.y + rank * rankSpacing + yOffset,
+				x: target.x + (slotWidth - box.width) / 2,
+				y: target.y + rank * rankSpacing,
 			};
 			if (next.x !== box.x || next.y !== box.y) {
 				movedChildIds.add(childId);
 			}
 			nodeBoxes.set(childId, next);
-			yOffset += box.height + rankStackGap;
+		} else {
+			// Determine whether to spread horizontally or stack vertically.
+			// When 3+ children share a rank, horizontal distribution avoids
+			// vertical overflow that causes sibling_overlap_collapse (Issue #62).
+			// For 2 children, vertical stacking is acceptable.
+			const shouldSpread = unlocked.length >= 3;
+
+			if (!shouldSpread) {
+				// Normal vertical stacking (2 children fit within rank).
+				let yOffset = 0;
+				for (const { childId, box } of unlocked) {
+					const next = {
+						...box,
+						x: target.x + (slotWidth - box.width) / 2,
+						y: target.y + rank * rankSpacing + yOffset,
+					};
+					if (next.x !== box.x || next.y !== box.y) {
+						movedChildIds.add(childId);
+					}
+					nodeBoxes.set(childId, next);
+					yOffset += box.height + rankStackGap;
+				}
+			} else {
+				// Cross-axis (horizontal) distribution: vertical stack would
+				// overflow rankSpacing, so spread children across the slot
+				// width (Issue #62).
+				const subSlotWidth = slotWidth / unlocked.length;
+				let yOffset = 0;
+				for (let i = 0; i < unlocked.length; i++) {
+					const { childId, box } = unlocked[i]!;
+					const subSlotX = target.x + subSlotWidth * i;
+					const next = {
+						...box,
+						x: subSlotX + (subSlotWidth - box.width) / 2,
+						y: target.y + rank * rankSpacing + yOffset,
+					};
+					if (next.x !== box.x || next.y !== box.y) {
+						movedChildIds.add(childId);
+					}
+					nodeBoxes.set(childId, next);
+					yOffset += box.height + rankStackGap;
+				}
+				diagnostics.push({
+					severity: "info",
+					code: "swimlane_contract.cross_axis_distributed",
+					message: `Spread ${unlocked.length} same-rank children horizontally in contract lane (rank ${rank}).`,
+					path: ["swimlanes"],
+					detail: { rank, childCount: unlocked.length, slotWidth },
+				});
+			}
 		}
 	}
 }

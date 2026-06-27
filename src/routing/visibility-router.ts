@@ -40,7 +40,7 @@ export function findCornerGraphPath(
 	const turnPenalty = options.turnPenalty ?? 50;
 	const segmentPenalty = options.segmentPenalty ?? 1;
 	const endpointObstacles = options.endpointObstacles ?? [];
-	const maxCorners = options.maxCorners ?? 300;
+	const maxCorners = options.maxCorners ?? 600;
 
 	// Collect vertices
 	const vertices = collectCornerVertices(source, target, obstacles, margin);
