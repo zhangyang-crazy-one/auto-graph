@@ -201,7 +201,7 @@ export function findObstacleFreePath(
  * callers should pass `corridorPrefilter: false` to search against the
  * full obstacle set.
  */
-function filterObstaclesByCorridor(
+export function filterObstaclesByCorridor(
 	source: Point,
 	target: Point,
 	obstacles: readonly Box[],

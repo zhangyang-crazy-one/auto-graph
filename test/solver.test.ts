@@ -639,6 +639,111 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("distributes same-rank children horizontally in contract swimlane", () => {
+		// 5 children all at rank 0 (no outbound edges from them), plus
+		// one edge between other nodes to force flow-rank computation.
+		// Total stack height (5×80 + 4×8 = 432) exceeds rankSpacing (~96),
+		// triggering cross-axis distribution.
+		const result = solveDiagram(
+			{
+				id: "contract-cross-axis",
+				direction: "TB",
+				nodes: [
+					{ ...node("c1", { x: 0, y: 0 }), size: { width: 80, height: 80 } },
+					{ ...node("c2", { x: 0, y: 90 }), size: { width: 80, height: 80 } },
+					{ ...node("c3", { x: 0, y: 180 }), size: { width: 80, height: 80 } },
+					{ ...node("c4", { x: 0, y: 270 }), size: { width: 80, height: 80 } },
+					{ ...node("c5", { x: 0, y: 360 }), size: { width: 80, height: 80 } },
+					node("trigger-src", { x: 200, y: 0 }),
+					node("trigger-tgt", { x: 200, y: 100 }),
+				],
+				edges: [
+					{
+						id: "trigger-edge",
+						source: { nodeId: "trigger-src" },
+						target: { nodeId: "trigger-tgt" },
+					},
+				],
+				groups: [],
+				swimlanes: [
+					{
+						id: "sw-contract",
+						orientation: "vertical",
+						layout: "contract",
+						lanes: [
+							{
+								id: "lane-a",
+								label: { text: "Lane A" },
+								children: ["c1", "c2", "c3", "c4", "c5"],
+							},
+							{
+								id: "lane-b",
+								label: { text: "Lane B" },
+								children: ["trigger-src", "trigger-tgt"],
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+				metadata: { primaryReadingDirection: "top_to_bottom" },
+			},
+			{ initialLayout: "positions" },
+		);
+
+		// The 5 same-rank children should be spread horizontally.
+		const laneAChildren = result.nodes.filter((n) =>
+			["c1", "c2", "c3", "c4", "c5"].includes(n.id),
+		);
+		const xs = laneAChildren.map((n) => n.box.x);
+		const uniqueXPositions = new Set(xs);
+		expect(uniqueXPositions.size).toBeGreaterThan(1);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "swimlane_contract.cross_axis_distributed",
+				detail: expect.objectContaining({ childCount: 5 }),
+			}),
+		);
+	});
+
+	it("centers a single-child rank within contract swimlane slot", () => {
+		const result = solveDiagram(
+			{
+				id: "contract-single-center",
+				direction: "TB",
+				nodes: [node("only-child", { x: 0, y: 0 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "sw-center",
+						orientation: "vertical",
+						layout: "contract",
+						lanes: [
+							{
+								id: "lane-b",
+								label: { text: "Lane B" },
+								children: ["only-child"],
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions" },
+		);
+
+		// Single child should not emit cross_axis_distributed diagnostic.
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "swimlane_contract.cross_axis_distributed",
+			}),
+		);
+		// Node should still get a valid box.
+		expect(Number.isFinite(result.nodes[0]?.box.x)).toBe(true);
+	});
+
 	it("emits port_capacity_overflow when node is too small for port spacing", () => {
 		const result = solveDiagram(
 			{
