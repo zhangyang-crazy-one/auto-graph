@@ -20,7 +20,8 @@ export interface ConstraintSolverInput {
 	minSiblingGap?: number;
 	distributeContainedChildren?: boolean | "spread";
 	/** When "spread" or true, distribute children inside non-contract
-	 * swimlane lane content boxes (Issue #60). Default "spread". */
+	 * swimlane lane content boxes (Issue #60). Opt-in: no redistribution
+	 * occurs unless explicitly set. */
 	distributeSwimlaneChildren?: boolean | "spread";
 	boxes: ReadonlyMap<string, Box>;
 	/** Swimlanes for lane-aware child distribution (Issue #60). */
