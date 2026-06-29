@@ -689,42 +689,40 @@ describe("solveDiagram", () => {
 	});
 
 	it("distributes same-rank children horizontally in contract swimlane", () => {
-		// 5 independent children with NO edges (all rank 0). The fix must
-		// still spread them horizontally — no unrelated trigger edge needed
+		// 5 independent auto-laid-out children with NO edges (all rank 0)
+		// and NO fixed positions (so no fixed-position locks). The fix must
+		// spread them horizontally — no unrelated trigger edge needed
 		// (Codex P2: rank-zero lanes spread without requiring an edge).
-		const result = solveDiagram(
-			{
-				id: "contract-cross-axis",
-				direction: "TB",
-				nodes: [
-					{ ...node("c1", { x: 0, y: 0 }), size: { width: 80, height: 80 } },
-					{ ...node("c2", { x: 0, y: 90 }), size: { width: 80, height: 80 } },
-					{ ...node("c3", { x: 0, y: 180 }), size: { width: 80, height: 80 } },
-					{ ...node("c4", { x: 0, y: 270 }), size: { width: 80, height: 80 } },
-					{ ...node("c5", { x: 0, y: 360 }), size: { width: 80, height: 80 } },
-				],
-				edges: [],
-				groups: [],
-				swimlanes: [
-					{
-						id: "sw-contract",
-						orientation: "vertical",
-						layout: "contract",
-						lanes: [
-							{
-								id: "lane-a",
-								label: { text: "Lane A" },
-								children: ["c1", "c2", "c3", "c4", "c5"],
-							},
-						],
-					},
-				],
-				constraints: [],
-				diagnostics: [],
-				metadata: { primaryReadingDirection: "top_to_bottom" },
-			},
-			{ initialLayout: "positions" },
-		);
+		const result = solveDiagram({
+			id: "contract-cross-axis",
+			direction: "TB",
+			nodes: [
+				{ ...node("c1"), size: { width: 80, height: 80 } },
+				{ ...node("c2"), size: { width: 80, height: 80 } },
+				{ ...node("c3"), size: { width: 80, height: 80 } },
+				{ ...node("c4"), size: { width: 80, height: 80 } },
+				{ ...node("c5"), size: { width: 80, height: 80 } },
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "sw-contract",
+					orientation: "vertical",
+					layout: "contract",
+					lanes: [
+						{
+							id: "lane-a",
+							label: { text: "Lane A" },
+							children: ["c1", "c2", "c3", "c4", "c5"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
 
 		// The 5 same-rank children should be spread horizontally.
 		const laneAChildren = result.nodes.filter((n) =>
@@ -742,6 +740,65 @@ describe("solveDiagram", () => {
 				detail: expect.objectContaining({ childCount: 5 }),
 			}),
 		);
+	});
+
+	it("packs unequal-width same-rank children without overlap or lane overflow", () => {
+		// Children of very different widths (300, 10, 10) must NOT be placed
+		// in equal subslots (the 300px child would overlap its neighbors).
+		// They are packed by their own widths + gaps, and the lane slot is
+		// pre-sized to contain them (Codex P2).
+		const result = solveDiagram({
+			id: "contract-unequal-widths",
+			direction: "TB",
+			nodes: [
+				{ ...node("wide"), size: { width: 300, height: 40 } },
+				{ ...node("narrow1"), size: { width: 10, height: 40 } },
+				{ ...node("narrow2"), size: { width: 10, height: 40 } },
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "sw",
+					orientation: "vertical",
+					layout: "contract",
+					lanes: [
+						{
+							id: "lane-a",
+							label: { text: "Lane A" },
+							children: ["wide", "narrow1", "narrow2"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+
+		const boxesById = new Map(result.nodes.map((n) => [n.id, n.box]));
+		const wide = boxesById.get("wide")!;
+		const n1 = boxesById.get("narrow1")!;
+		const n2 = boxesById.get("narrow2")!;
+
+		// Sort children by x and assert no horizontal overlap between
+		// consecutive boxes.
+		const ordered = [wide, n1, n2].sort((a, b) => a.x - b.x);
+		for (let i = 0; i < ordered.length - 1; i++) {
+			const cur = ordered[i]!;
+			const nxt = ordered[i + 1]!;
+			expect(cur.x + cur.width).toBeLessThanOrEqual(nxt.x);
+		}
+
+		// All children stay within the lane box (no overflow past lane bounds).
+		const laneBox = result.swimlanes?.[0]?.lanes[0]?.box;
+		expect(laneBox).toBeDefined();
+		if (laneBox !== undefined) {
+			for (const b of [wide, n1, n2]) {
+				expect(b.x).toBeGreaterThanOrEqual(laneBox.x);
+				expect(b.x + b.width).toBeLessThanOrEqual(laneBox.x + laneBox.width);
+			}
+		}
 	});
 
 	it("centers a single-child rank within contract swimlane slot", () => {
@@ -2464,6 +2521,44 @@ describe("solveDiagram", () => {
 			expect.objectContaining({
 				code: "constraints.locked-target-not-moved",
 				detail: expect.objectContaining({ nodeId: "locked" }),
+			}),
+		);
+	});
+
+	it("preserves fixed-position locks in ranked contract lanes (flow edges present)", () => {
+		// A flow edge between lane children creates ranks, routing through
+		// the ranked placement path. A fixed-position child must still be
+		// left in place and emit locked-target-not-moved — lock behavior must
+		// not depend on the presence of unrelated flow edges (Codex P2).
+		const result = solveDiagram({
+			id: "ranked-fixed-lock",
+			direction: "TB",
+			nodes: [node("a", { x: 30, y: 200 }), node("b")],
+			edges: [{ id: "e", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			swimlanes: [
+				{
+					id: "sw",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [{ id: "lane", children: ["a", "b"] }],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+
+		// Fixed-position node "a" stays at its declared position.
+		expect(
+			result.nodes.find((coordinatedNode) => coordinatedNode.id === "a")?.box,
+		).toMatchObject({ x: 30, y: 200 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.locked-target-not-moved",
+				detail: expect.objectContaining({ nodeId: "a" }),
 			}),
 		);
 	});

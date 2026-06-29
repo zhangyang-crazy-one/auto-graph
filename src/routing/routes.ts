@@ -135,19 +135,26 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				[], // endpointObstacles passed separately via options
 				32,
 			);
+			// When the corridor filter removes every obstacle but the
+			// diagram still has obstacles, an empty set makes the corner
+			// router take its no-obstacle fast path (a diagonal source→
+			// target segment), regressing orthogonality. Use the full set
+			// in that case so projection vertices still yield an orthogonal
+			// path (Codex P2).
+			const cornerObstacles =
+				corridorObstacles.length === 0 && allObstacles.length > 0
+					? allObstacles
+					: corridorObstacles;
 			let cornerPath = findCornerGraphPath(
 				source,
 				target,
-				corridorObstacles,
+				cornerObstacles,
 				{ endpointObstacles, margin: 2 },
 				diagnostics,
 			);
 			// If corridor-filtered call failed and excluded some obstacles,
 			// retry with the full set (mirrors grid A* full-retry pattern).
-			if (
-				cornerPath === null &&
-				corridorObstacles.length < allObstacles.length
-			) {
+			if (cornerPath === null && cornerObstacles.length < allObstacles.length) {
 				cornerPath = findCornerGraphPath(
 					source,
 					target,
