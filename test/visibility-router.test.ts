@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/ir/diagnostics.js";
 import type { Box, Point } from "../src/ir/index.js";
+import { filterObstaclesByCorridor } from "../src/routing/astar.js";
 import { findCornerGraphPath } from "../src/routing/visibility-router.js";
 
 /**
@@ -126,5 +127,85 @@ describe("findCornerGraphPath", () => {
 		expect(
 			diagnostics.some((d) => d.code === "routing.visibility.corner_overflow"),
 		).toBe(true);
+	});
+
+	it("succeeds with corridor prefilter on dense obstacle sets that would otherwise overflow", () => {
+		// 30 obstacles spread across a wide area — without corridor filter
+		// the vertex count would exceed maxCorners=300.
+		const obstacles: Box[] = [];
+		for (let i = 0; i < 30; i++) {
+			obstacles.push({
+				x: 50 + (i % 6) * 150,
+				y: 50 + Math.floor(i / 6) * 150,
+				width: 60,
+				height: 60,
+			});
+		}
+		const source: Point = { x: 0, y: 400 };
+		const target: Point = { x: 200, y: 400 };
+
+		// Without corridor filter: likely overflow at maxCorners=300.
+		const diagsRaw: Diagnostic[] = [];
+		findCornerGraphPath(
+			source,
+			target,
+			obstacles,
+			{ maxCorners: 300 },
+			diagsRaw,
+		);
+
+		// With corridor filter: only local obstacles remain.
+		const filtered = filterObstaclesByCorridor(
+			source,
+			target,
+			obstacles,
+			[],
+			32,
+		);
+		const diagsFiltered: Diagnostic[] = [];
+		const filteredPath = findCornerGraphPath(
+			source,
+			target,
+			filtered,
+			{ maxCorners: 300 },
+			diagsFiltered,
+		);
+
+		// Corridor filter should reduce obstacle count significantly.
+		expect(filtered.length).toBeLessThan(obstacles.length);
+		// The filtered route must NOT overflow — that is the whole point of
+		// corridor prefiltering. Assert it directly so a regression that
+		// reintroduces overflow fails here instead of silently skipping the
+		// path assertions below (Codex P3).
+		const overflowed = diagsFiltered.some(
+			(d) => d.code === "routing.visibility.corner_overflow",
+		);
+		expect(overflowed).toBe(false);
+		expect(filteredPath).not.toBeNull();
+		if (filteredPath === null) return;
+		expect(filteredPath[0]).toEqual(source);
+		expect(filteredPath[filteredPath.length - 1]).toEqual(target);
+	});
+
+	it("filterObstaclesByCorridor retains only obstacles intersecting the corridor", () => {
+		const source: Point = { x: 0, y: 100 };
+		const target: Point = { x: 200, y: 100 };
+		const margin = 32;
+
+		const inside: Box = { x: 80, y: 80, width: 40, height: 40 };
+		const outside: Box = { x: 500, y: 500, width: 40, height: 40 };
+		const edgeCase: Box = { x: 190, y: 60, width: 50, height: 50 }; // overlaps corridor
+
+		const result = filterObstaclesByCorridor(
+			source,
+			target,
+			[inside, outside, edgeCase],
+			[],
+			margin,
+		);
+
+		expect(result).toContain(inside);
+		expect(result).not.toContain(outside);
+		expect(result).toContain(edgeCase);
 	});
 });

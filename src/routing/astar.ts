@@ -122,13 +122,14 @@ export function findObstacleFreePath(
 		// filtered out by the corridor prefilter (Issue #61 codex P2).
 		// If the path crosses any excluded obstacle, retry with the
 		// full obstacle set to avoid routes that pass through obstacles.
-		if (useCorridor && !obstacles.every((o) => filtered.includes(o))) {
+		const filteredSet = new Set<Box>(filtered);
+		if (useCorridor && obstacles.some((o) => !filteredSet.has(o))) {
 			let crossesExcluded = false;
 			for (let i = 0; i < simplified.length - 1; i++) {
 				const a = simplified[i] as Point;
 				const b = simplified[i + 1] as Point;
 				for (const obs of obstacles) {
-					if (filtered.includes(obs)) continue;
+					if (filteredSet.has(obs)) continue;
 					if (segmentCrossesBoxStrict(a, b, obs, margin)) {
 						crossesExcluded = true;
 						break;
@@ -200,7 +201,7 @@ export function findObstacleFreePath(
  * callers should pass `corridorPrefilter: false` to search against the
  * full obstacle set.
  */
-function filterObstaclesByCorridor(
+export function filterObstaclesByCorridor(
 	source: Point,
 	target: Point,
 	obstacles: readonly Box[],

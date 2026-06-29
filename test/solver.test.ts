@@ -639,6 +639,216 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("keeps a fixed-position lock when distribution cannot run (single participant)", () => {
+		// Lane has one fixed-position child + one exact-position child.
+		// Distribution requires ≥2 participants (fixed-position counts,
+		// exact-position is reserved), so it must NOT run here. The
+		// fixed-position lock must be preserved — otherwise overlap repair
+		// would relocate the fixed node (Codex review P2). The exact-position
+		// child is placed to overlap the fixed child so that, without the
+		// fix, repair visibly moves the (wrongly) unlocked fixed node.
+		const result = solveDiagram(
+			{
+				id: "swimlane-single-participant",
+				direction: "TB",
+				nodes: [node("fixed-child", { x: 30, y: 200 }), node("exact-child")],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "sw",
+						orientation: "vertical",
+						lanes: [
+							{
+								id: "lane1",
+								label: { text: "Lane 1" },
+								children: ["fixed-child", "exact-child"],
+							},
+						],
+					},
+				],
+				constraints: [
+					{
+						kind: "exact-position",
+						targetId: "exact-child",
+						position: { x: 30, y: 210 },
+					},
+				],
+				diagnostics: [],
+			},
+			{ distributeSwimlaneChildren: "spread" },
+		);
+
+		// fixed-child keeps its fixed position (lock not dropped).
+		const fixed = result.nodes.find((n) => n.id === "fixed-child");
+		expect(fixed?.box).toMatchObject({ x: 30, y: 200 });
+		// No distribution diagnostic emitted.
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "intra_container_distributed" }),
+		);
+	});
+
+	it("distributes same-rank children horizontally in contract swimlane", () => {
+		// 5 independent auto-laid-out children with NO edges (all rank 0)
+		// and NO fixed positions (so no fixed-position locks). The fix must
+		// spread them horizontally — no unrelated trigger edge needed
+		// (Codex P2: rank-zero lanes spread without requiring an edge).
+		const result = solveDiagram({
+			id: "contract-cross-axis",
+			direction: "TB",
+			nodes: [
+				{ ...node("c1"), size: { width: 80, height: 80 } },
+				{ ...node("c2"), size: { width: 80, height: 80 } },
+				{ ...node("c3"), size: { width: 80, height: 80 } },
+				{ ...node("c4"), size: { width: 80, height: 80 } },
+				{ ...node("c5"), size: { width: 80, height: 80 } },
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "sw-contract",
+					orientation: "vertical",
+					layout: "contract",
+					lanes: [
+						{
+							id: "lane-a",
+							label: { text: "Lane A" },
+							children: ["c1", "c2", "c3", "c4", "c5"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+
+		// The 5 same-rank children should be spread horizontally.
+		const laneAChildren = result.nodes.filter((n) =>
+			["c1", "c2", "c3", "c4", "c5"].includes(n.id),
+		);
+		const xs = laneAChildren.map((n) => n.box.x);
+		const uniqueXPositions = new Set(xs);
+		expect(uniqueXPositions.size).toBeGreaterThan(1);
+		// All 5 share the same y (same rank → no vertical stagger).
+		const ys = new Set(laneAChildren.map((n) => n.box.y));
+		expect(ys.size).toBe(1);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "swimlane_contract.cross_axis_distributed",
+				detail: expect.objectContaining({ childCount: 5 }),
+			}),
+		);
+	});
+
+	it("packs unequal-width same-rank children without overlap or lane overflow", () => {
+		// Children of very different widths (300, 10, 10) must NOT be placed
+		// in equal subslots (the 300px child would overlap its neighbors).
+		// They are packed by their own widths + gaps, and the lane slot is
+		// pre-sized to contain them (Codex P2).
+		const result = solveDiagram({
+			id: "contract-unequal-widths",
+			direction: "TB",
+			nodes: [
+				{ ...node("wide"), size: { width: 300, height: 40 } },
+				{ ...node("narrow1"), size: { width: 10, height: 40 } },
+				{ ...node("narrow2"), size: { width: 10, height: 40 } },
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "sw",
+					orientation: "vertical",
+					layout: "contract",
+					lanes: [
+						{
+							id: "lane-a",
+							label: { text: "Lane A" },
+							children: ["wide", "narrow1", "narrow2"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+
+		const boxesById = new Map(result.nodes.map((n) => [n.id, n.box]));
+		const wide = boxesById.get("wide")!;
+		const n1 = boxesById.get("narrow1")!;
+		const n2 = boxesById.get("narrow2")!;
+
+		// Sort children by x and assert no horizontal overlap between
+		// consecutive boxes.
+		const ordered = [wide, n1, n2].sort((a, b) => a.x - b.x);
+		for (let i = 0; i < ordered.length - 1; i++) {
+			const cur = ordered[i]!;
+			const nxt = ordered[i + 1]!;
+			expect(cur.x + cur.width).toBeLessThanOrEqual(nxt.x);
+		}
+
+		// All children stay within the lane box (no overflow past lane bounds).
+		const laneBox = result.swimlanes?.[0]?.lanes[0]?.box;
+		expect(laneBox).toBeDefined();
+		if (laneBox !== undefined) {
+			for (const b of [wide, n1, n2]) {
+				expect(b.x).toBeGreaterThanOrEqual(laneBox.x);
+				expect(b.x + b.width).toBeLessThanOrEqual(laneBox.x + laneBox.width);
+			}
+			// The packed row is centered within the lane: the left gap (lane
+			// left → first child) must equal the right gap (last child → lane
+			// right). A one-padding offset bug would break this symmetry
+			// (Codex P2).
+			const leftmost = ordered[0]!;
+			const rightmost = ordered[ordered.length - 1]!;
+			const leftGap = leftmost.x - laneBox.x;
+			const rightGap =
+				laneBox.x + laneBox.width - (rightmost.x + rightmost.width);
+			expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1);
+		}
+	});
+
+	it("centers a single-child rank within contract swimlane slot", () => {
+		const result = solveDiagram(
+			{
+				id: "contract-single-center",
+				direction: "TB",
+				nodes: [node("only-child", { x: 0, y: 0 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "sw-center",
+						orientation: "vertical",
+						layout: "contract",
+						lanes: [
+							{
+								id: "lane-b",
+								label: { text: "Lane B" },
+								children: ["only-child"],
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions" },
+		);
+
+		// Single child should not emit cross_axis_distributed diagnostic.
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "swimlane_contract.cross_axis_distributed",
+			}),
+		);
+		// Node should still get a valid box.
+		expect(Number.isFinite(result.nodes[0]?.box.x)).toBe(true);
+	});
+
 	it("emits port_capacity_overflow when node is too small for port spacing", () => {
 		const result = solveDiagram(
 			{
@@ -2321,6 +2531,44 @@ describe("solveDiagram", () => {
 			expect.objectContaining({
 				code: "constraints.locked-target-not-moved",
 				detail: expect.objectContaining({ nodeId: "locked" }),
+			}),
+		);
+	});
+
+	it("preserves fixed-position locks in ranked contract lanes (flow edges present)", () => {
+		// A flow edge between lane children creates ranks, routing through
+		// the ranked placement path. A fixed-position child must still be
+		// left in place and emit locked-target-not-moved — lock behavior must
+		// not depend on the presence of unrelated flow edges (Codex P2).
+		const result = solveDiagram({
+			id: "ranked-fixed-lock",
+			direction: "TB",
+			nodes: [node("a", { x: 30, y: 200 }), node("b")],
+			edges: [{ id: "e", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			swimlanes: [
+				{
+					id: "sw",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [{ id: "lane", children: ["a", "b"] }],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			metadata: { primaryReadingDirection: "top_to_bottom" },
+		});
+
+		// Fixed-position node "a" stays at its declared position.
+		expect(
+			result.nodes.find((coordinatedNode) => coordinatedNode.id === "a")?.box,
+		).toMatchObject({ x: 30, y: 200 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "constraints.locked-target-not-moved",
+				detail: expect.objectContaining({ nodeId: "a" }),
 			}),
 		);
 	});

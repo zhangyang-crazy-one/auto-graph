@@ -1545,8 +1545,24 @@ function applyVerticalSwimlaneContract(
 	const rankSpacing = Math.max(96, maxRankStackHeight + padding);
 	const contentHeight =
 		maxRank === 0 ? maxChildHeight : maxRankStackHeight + maxRank * rankSpacing;
+	// Base slot width fits the widest single child plus padding. When a rank
+	// will be spread horizontally, the slot must also fit the full spread
+	// width so children stay inside lane bounds and laneStep/swimlane box
+	// (returned below and consumed by coordinateSwimlanes) stay consistent
+	// (Codex P2).
+	const spreadWidth = maxCrossAxisSpreadWidth(
+		swimlane,
+		nodeBoxes,
+		flowRanks,
+		locks,
+		rankStackGap,
+	);
 	const slotWidth =
-		Math.max(...populatedBounds.map((box) => box.width)) + padding * 2;
+		Math.max(
+			Math.max(...populatedBounds.map((box) => box.width)),
+			spreadWidth,
+		) +
+		padding * 2;
 	const laneStep = slotWidth + laneGutter;
 	const laneContentTop = top + headerHeight + padding;
 
@@ -1561,6 +1577,28 @@ function applyVerticalSwimlaneContract(
 			y: laneContentTop,
 		};
 		if (maxRank === 0) {
+			// When ≥3 unlocked children could participate in distribution
+			// but there are no flow edges (maxRank=0), route through the
+			// ranked function which applies cross-axis spread (Issue #62,
+			// Codex P2). Locked children never participate.
+			const distributable = lane.children.filter(
+				(childId) => !locks.has(childId),
+			);
+			if (distributable.length >= CROSS_AXIS_SPREAD_THRESHOLD) {
+				moveRankedVerticalLaneChildren(
+					lane.children,
+					nodeBoxes,
+					locks,
+					diagnostics,
+					movedChildIds,
+					flowRanks,
+					rankSpacing,
+					rankStackGap,
+					{ x: target.x, y: laneContentTop },
+					slotWidth - padding * 2,
+				);
+				continue;
+			}
 			moveLaneChildren(
 				lane.children,
 				nodeBoxes,
@@ -1583,10 +1621,8 @@ function applyVerticalSwimlaneContract(
 			flowRanks,
 			rankSpacing,
 			rankStackGap,
-			{
-				x: target.x - bounds.x,
-				y: laneContentTop,
-			},
+			{ x: target.x, y: laneContentTop },
+			slotWidth - padding * 2,
 		);
 	}
 
@@ -1724,6 +1760,48 @@ function maxVerticalRankStackHeight(
 	return maxHeight;
 }
 
+// Minimum unlocked same-rank children that trigger cross-axis spread
+// instead of vertical stacking (Issue #62).
+const CROSS_AXIS_SPREAD_THRESHOLD = 3;
+
+// Width a single rank's children occupy when spread horizontally: sum of
+// widths plus inter-child gaps. Used both to pre-size the lane slot and to
+// lay the children out, so geometry stays consistent (Codex P2).
+function crossAxisSpreadWidth(
+	items: ReadonlyArray<{ box: Box }>,
+	gap: number,
+): number {
+	return items.reduce(
+		(sum, item, index) => sum + item.box.width + (index === 0 ? 0 : gap),
+		0,
+	);
+}
+
+// Largest cross-axis spread width across all lanes/ranks of a swimlane.
+// Returns 0 when no rank meets the spread threshold. Locked children are
+// excluded (they never participate in distribution).
+function maxCrossAxisSpreadWidth(
+	swimlane: Swimlane,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	flowRanks: ReadonlyMap<string, number>,
+	locks: ReadonlyMap<string, LayoutLockLike>,
+	gap: number,
+): number {
+	let maxWidth = 0;
+	for (const lane of swimlane.lanes) {
+		for (const stack of rankStacks(
+			lane.children,
+			nodeBoxes,
+			flowRanks,
+		).values()) {
+			const unlocked = stack.filter((item) => !locks.has(item.childId));
+			if (unlocked.length < CROSS_AXIS_SPREAD_THRESHOLD) continue;
+			maxWidth = Math.max(maxWidth, crossAxisSpreadWidth(unlocked, gap));
+		}
+	}
+	return maxWidth;
+}
+
 function moveRankedVerticalLaneChildren(
 	childIds: readonly string[],
 	nodeBoxes: Map<string, Box>,
@@ -1734,31 +1812,99 @@ function moveRankedVerticalLaneChildren(
 	rankSpacing: number,
 	rankStackGap: number,
 	target: Point,
+	contentWidth: number,
 ): void {
 	for (const [rank, stack] of rankStacks(childIds, nodeBoxes, flowRanks)) {
-		let yOffset = 0;
+		// Filter out locked children for layout purposes. All locks are
+		// respected (fixed-position and exact-position alike) so lock
+		// behavior is consistent across ranked/unranked/horizontal contract
+		// paths and does not depend on unrelated flow edges (Codex P2).
+		const unlocked: Array<{ childId: string; box: Box }> = [];
 		for (const item of stack) {
-			const { childId, box } = item;
-			if (locks.has(childId)) {
+			if (locks.has(item.childId)) {
 				diagnostics.push({
 					severity: "warning",
 					code: "constraints.locked-target-not-moved",
-					message: `Locked child ${childId} was not moved into contract swimlane slot.`,
+					message: `Locked child ${item.childId} was not moved into contract swimlane slot.`,
 					path: ["swimlanes"],
-					detail: { nodeId: childId },
+					detail: { nodeId: item.childId },
 				});
-				continue;
+			} else {
+				unlocked.push(item);
 			}
+		}
+		if (unlocked.length === 0) continue;
+
+		if (unlocked.length === 1) {
+			// Single child: center within the lane content width (target.x is
+			// already the content-left edge, i.e. lane-left + padding).
+			const { childId, box } = unlocked[0]!;
 			const next = {
 				...box,
-				x: box.x + target.x,
-				y: target.y + rank * rankSpacing + yOffset,
+				x: target.x + (contentWidth - box.width) / 2,
+				y: target.y + rank * rankSpacing,
 			};
 			if (next.x !== box.x || next.y !== box.y) {
 				movedChildIds.add(childId);
 			}
 			nodeBoxes.set(childId, next);
-			yOffset += box.height + rankStackGap;
+		} else {
+			// Determine whether to spread horizontally or stack vertically.
+			// When 3+ children share a rank, horizontal distribution avoids
+			// vertical overflow that causes sibling_overlap_collapse (Issue #62).
+			// For 2 children, vertical stacking is acceptable.
+			const shouldSpread = unlocked.length >= CROSS_AXIS_SPREAD_THRESHOLD;
+
+			if (!shouldSpread) {
+				// Normal vertical stacking (2 children fit within rank).
+				let yOffset = 0;
+				for (const { childId, box } of unlocked) {
+					const next = {
+						...box,
+						x: target.x + (contentWidth - box.width) / 2,
+						y: target.y + rank * rankSpacing + yOffset,
+					};
+					if (next.x !== box.x || next.y !== box.y) {
+						movedChildIds.add(childId);
+					}
+					nodeBoxes.set(childId, next);
+					yOffset += box.height + rankStackGap;
+				}
+			} else {
+				// Cross-axis (horizontal) distribution: pack children left to
+				// right by their own widths plus gaps (NOT equal subslots — a
+				// child wider than the average subslot would overlap neighbors),
+				// then center the whole packed row within the lane content width.
+				// contentWidth was pre-sized to fit this row (see
+				// maxCrossAxisSpreadWidth), so the row stays within lane bounds,
+				// and target.x is already the content-left edge (Codex P2). All
+				// children share the same y (same rank → no vertical stagger).
+				const packedWidth = crossAxisSpreadWidth(unlocked, rankStackGap);
+				let xCursor = target.x + Math.max(0, (contentWidth - packedWidth) / 2);
+				for (const { childId, box } of unlocked) {
+					const next = {
+						...box,
+						x: xCursor,
+						y: target.y + rank * rankSpacing,
+					};
+					if (next.x !== box.x || next.y !== box.y) {
+						movedChildIds.add(childId);
+					}
+					nodeBoxes.set(childId, next);
+					xCursor += box.width + rankStackGap;
+				}
+				diagnostics.push({
+					severity: "info",
+					code: "swimlane_contract.cross_axis_distributed",
+					message: `Spread ${unlocked.length} same-rank children horizontally in contract lane (rank ${rank}).`,
+					path: ["swimlanes"],
+					detail: {
+						rank,
+						childCount: unlocked.length,
+						contentWidth,
+					},
+				});
+			}
 		}
 	}
 }
@@ -2341,7 +2487,6 @@ function expandNodeBoxesForPorts(
 			box.width += widthExpansion;
 		}
 		// Recenter the label layout to match the expanded box.
-		// Recenter the label layout to match the expanded box.
 		// Only shift layout.box — lines and contentBox stay
 		// relative to the label area so the SVG renderer's
 		// annotation.box + line.box addition is not doubled
@@ -2422,14 +2567,13 @@ function portAnchor(
 	// same endpoint.
 	const availableSpan = 2 * maxOffset;
 	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
-	const effectiveSpacing =
+	const spacing =
 		shiftingEnabled && count > 1
 			? Math.max(
 					Math.min(requestedSpacing, availableSpan / (count - 1)),
 					minSpacing,
 				)
 			: requestedSpacing;
-	const spacing = effectiveSpacing;
 	const centeredOffset = shiftingEnabled
 		? (index - (count - 1) / 2) * spacing
 		: 0;
