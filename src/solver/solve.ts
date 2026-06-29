@@ -1595,7 +1595,7 @@ function applyVerticalSwimlaneContract(
 					rankSpacing,
 					rankStackGap,
 					{ x: target.x, y: laneContentTop },
-					slotWidth,
+					slotWidth - padding * 2,
 				);
 				continue;
 			}
@@ -1622,7 +1622,7 @@ function applyVerticalSwimlaneContract(
 			rankSpacing,
 			rankStackGap,
 			{ x: target.x, y: laneContentTop },
-			slotWidth,
+			slotWidth - padding * 2,
 		);
 	}
 
@@ -1812,7 +1812,7 @@ function moveRankedVerticalLaneChildren(
 	rankSpacing: number,
 	rankStackGap: number,
 	target: Point,
-	slotWidth: number,
+	contentWidth: number,
 ): void {
 	for (const [rank, stack] of rankStacks(childIds, nodeBoxes, flowRanks)) {
 		// Filter out locked children for layout purposes. All locks are
@@ -1836,11 +1836,12 @@ function moveRankedVerticalLaneChildren(
 		if (unlocked.length === 0) continue;
 
 		if (unlocked.length === 1) {
-			// Single child: center within slot.
+			// Single child: center within the lane content width (target.x is
+			// already the content-left edge, i.e. lane-left + padding).
 			const { childId, box } = unlocked[0]!;
 			const next = {
 				...box,
-				x: target.x + (slotWidth - box.width) / 2,
+				x: target.x + (contentWidth - box.width) / 2,
 				y: target.y + rank * rankSpacing,
 			};
 			if (next.x !== box.x || next.y !== box.y) {
@@ -1860,7 +1861,7 @@ function moveRankedVerticalLaneChildren(
 				for (const { childId, box } of unlocked) {
 					const next = {
 						...box,
-						x: target.x + (slotWidth - box.width) / 2,
+						x: target.x + (contentWidth - box.width) / 2,
 						y: target.y + rank * rankSpacing + yOffset,
 					};
 					if (next.x !== box.x || next.y !== box.y) {
@@ -1873,12 +1874,13 @@ function moveRankedVerticalLaneChildren(
 				// Cross-axis (horizontal) distribution: pack children left to
 				// right by their own widths plus gaps (NOT equal subslots — a
 				// child wider than the average subslot would overlap neighbors),
-				// then center the whole packed row inside the slot. slotWidth was
-				// pre-sized to fit this row (see maxCrossAxisSpreadWidth), so the
-				// row stays within lane bounds (Codex P2). All children share the
-				// same y (same rank → no vertical stagger).
+				// then center the whole packed row within the lane content width.
+				// contentWidth was pre-sized to fit this row (see
+				// maxCrossAxisSpreadWidth), so the row stays within lane bounds,
+				// and target.x is already the content-left edge (Codex P2). All
+				// children share the same y (same rank → no vertical stagger).
 				const packedWidth = crossAxisSpreadWidth(unlocked, rankStackGap);
-				let xCursor = target.x + Math.max(0, (slotWidth - packedWidth) / 2);
+				let xCursor = target.x + Math.max(0, (contentWidth - packedWidth) / 2);
 				for (const { childId, box } of unlocked) {
 					const next = {
 						...box,
@@ -1899,7 +1901,7 @@ function moveRankedVerticalLaneChildren(
 					detail: {
 						rank,
 						childCount: unlocked.length,
-						slotWidth,
+						contentWidth,
 					},
 				});
 			}

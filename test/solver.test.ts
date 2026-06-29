@@ -798,6 +798,16 @@ describe("solveDiagram", () => {
 				expect(b.x).toBeGreaterThanOrEqual(laneBox.x);
 				expect(b.x + b.width).toBeLessThanOrEqual(laneBox.x + laneBox.width);
 			}
+			// The packed row is centered within the lane: the left gap (lane
+			// left → first child) must equal the right gap (last child → lane
+			// right). A one-padding offset bug would break this symmetry
+			// (Codex P2).
+			const leftmost = ordered[0]!;
+			const rightmost = ordered[ordered.length - 1]!;
+			const leftGap = leftmost.x - laneBox.x;
+			const rightGap =
+				laneBox.x + laneBox.width - (rightmost.x + rightmost.width);
+			expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1);
 		}
 	});
 

@@ -173,16 +173,18 @@ describe("findCornerGraphPath", () => {
 
 		// Corridor filter should reduce obstacle count significantly.
 		expect(filtered.length).toBeLessThan(obstacles.length);
-		// Filtered path should succeed (or at least not overflow).
+		// The filtered route must NOT overflow — that is the whole point of
+		// corridor prefiltering. Assert it directly so a regression that
+		// reintroduces overflow fails here instead of silently skipping the
+		// path assertions below (Codex P3).
 		const overflowed = diagsFiltered.some(
 			(d) => d.code === "routing.visibility.corner_overflow",
 		);
-		if (!overflowed) {
-			expect(filteredPath).not.toBeNull();
-			if (filteredPath === null) return;
-			expect(filteredPath[0]).toEqual(source);
-			expect(filteredPath[filteredPath.length - 1]).toEqual(target);
-		}
+		expect(overflowed).toBe(false);
+		expect(filteredPath).not.toBeNull();
+		if (filteredPath === null) return;
+		expect(filteredPath[0]).toEqual(source);
+		expect(filteredPath[filteredPath.length - 1]).toEqual(target);
 	});
 
 	it("filterObstaclesByCorridor retains only obstacles intersecting the corridor", () => {
