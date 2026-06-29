@@ -689,10 +689,9 @@ describe("solveDiagram", () => {
 	});
 
 	it("distributes same-rank children horizontally in contract swimlane", () => {
-		// 5 children all at rank 0 (no outbound edges from them), plus
-		// one edge between other nodes to force flow-rank computation.
-		// Total stack height (5×80 + 4×8 = 432) exceeds rankSpacing (~96),
-		// triggering cross-axis distribution.
+		// 5 independent children with NO edges (all rank 0). The fix must
+		// still spread them horizontally — no unrelated trigger edge needed
+		// (Codex P2: rank-zero lanes spread without requiring an edge).
 		const result = solveDiagram(
 			{
 				id: "contract-cross-axis",
@@ -703,16 +702,8 @@ describe("solveDiagram", () => {
 					{ ...node("c3", { x: 0, y: 180 }), size: { width: 80, height: 80 } },
 					{ ...node("c4", { x: 0, y: 270 }), size: { width: 80, height: 80 } },
 					{ ...node("c5", { x: 0, y: 360 }), size: { width: 80, height: 80 } },
-					node("trigger-src", { x: 200, y: 0 }),
-					node("trigger-tgt", { x: 200, y: 100 }),
 				],
-				edges: [
-					{
-						id: "trigger-edge",
-						source: { nodeId: "trigger-src" },
-						target: { nodeId: "trigger-tgt" },
-					},
-				],
+				edges: [],
 				groups: [],
 				swimlanes: [
 					{
@@ -724,11 +715,6 @@ describe("solveDiagram", () => {
 								id: "lane-a",
 								label: { text: "Lane A" },
 								children: ["c1", "c2", "c3", "c4", "c5"],
-							},
-							{
-								id: "lane-b",
-								label: { text: "Lane B" },
-								children: ["trigger-src", "trigger-tgt"],
 							},
 						],
 					},
@@ -747,6 +733,9 @@ describe("solveDiagram", () => {
 		const xs = laneAChildren.map((n) => n.box.x);
 		const uniqueXPositions = new Set(xs);
 		expect(uniqueXPositions.size).toBeGreaterThan(1);
+		// All 5 share the same y (same rank → no vertical stagger).
+		const ys = new Set(laneAChildren.map((n) => n.box.y));
+		expect(ys.size).toBe(1);
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
 				code: "swimlane_contract.cross_axis_distributed",

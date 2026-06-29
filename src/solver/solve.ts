@@ -1561,6 +1561,28 @@ function applyVerticalSwimlaneContract(
 			y: laneContentTop,
 		};
 		if (maxRank === 0) {
+			// When ≥3 children could participate in distribution but there
+			// are no flow edges (maxRank=0), route through the ranked function
+			// which applies cross-axis spread (Issue #62, Codex P2).
+			const distributable = lane.children.filter((childId) => {
+				const lock = locks.get(childId);
+				return lock === undefined || lock.source === "fixed-position";
+			});
+			if (distributable.length >= 3) {
+				moveRankedVerticalLaneChildren(
+					lane.children,
+					nodeBoxes,
+					locks,
+					diagnostics,
+					movedChildIds,
+					flowRanks,
+					rankSpacing,
+					rankStackGap,
+					{ x: target.x, y: laneContentTop },
+					slotWidth,
+				);
+				continue;
+			}
 			moveLaneChildren(
 				lane.children,
 				nodeBoxes,
