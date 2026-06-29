@@ -639,6 +639,55 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("keeps a fixed-position lock when distribution cannot run (single participant)", () => {
+		// Lane has one fixed-position child + one exact-position child.
+		// Distribution requires ≥2 participants (fixed-position counts,
+		// exact-position is reserved), so it must NOT run here. The
+		// fixed-position lock must be preserved — otherwise overlap repair
+		// would relocate the fixed node (Codex review P2). The exact-position
+		// child is placed to overlap the fixed child so that, without the
+		// fix, repair visibly moves the (wrongly) unlocked fixed node.
+		const result = solveDiagram(
+			{
+				id: "swimlane-single-participant",
+				direction: "TB",
+				nodes: [node("fixed-child", { x: 30, y: 200 }), node("exact-child")],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "sw",
+						orientation: "vertical",
+						lanes: [
+							{
+								id: "lane1",
+								label: { text: "Lane 1" },
+								children: ["fixed-child", "exact-child"],
+							},
+						],
+					},
+				],
+				constraints: [
+					{
+						kind: "exact-position",
+						targetId: "exact-child",
+						position: { x: 30, y: 210 },
+					},
+				],
+				diagnostics: [],
+			},
+			{ distributeSwimlaneChildren: "spread" },
+		);
+
+		// fixed-child keeps its fixed position (lock not dropped).
+		const fixed = result.nodes.find((n) => n.id === "fixed-child");
+		expect(fixed?.box).toMatchObject({ x: 30, y: 200 });
+		// No distribution diagnostic emitted.
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({ code: "intra_container_distributed" }),
+		);
+	});
+
 	it("distributes same-rank children horizontally in contract swimlane", () => {
 		// 5 children all at rank 0 (no outbound edges from them), plus
 		// one edge between other nodes to force flow-rank computation.

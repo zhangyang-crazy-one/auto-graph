@@ -41,6 +41,10 @@ export function applyLayoutConstraints(
 	// Drop fixed-position locks for non-contract swimlane children
 	// before overlap repair so they are treated as movable instead
 	// of emitting stale locked-conflict diagnostics (Issue #61 codex P2).
+	// Only drop locks when distribution will actually run for the lane —
+	// i.e. ≥2 children would participate (no-lock or fixed-position;
+	// exact-position children are reserved, not distributed). Matches the
+	// participant count in distributeSwimlaneChildren (Codex review P2).
 	if (
 		input.swimlanes !== undefined &&
 		input.swimlanes.length > 0 &&
@@ -49,12 +53,20 @@ export function applyLayoutConstraints(
 		for (const swimlane of input.swimlanes) {
 			if (swimlane.layout === "contract") continue;
 			for (const lane of swimlane.lanes) {
-				if (lane.children.length < 2) continue;
+				const fixedChildren: string[] = [];
+				let participantCount = 0;
 				for (const childId of lane.children) {
 					const lock = locks.get(childId);
-					if (lock?.source === "fixed-position") {
-						locks.delete(childId);
+					if (lock === undefined) {
+						participantCount += 1;
+					} else if (lock.source === "fixed-position") {
+						participantCount += 1;
+						fixedChildren.push(childId);
 					}
+				}
+				if (participantCount < 2) continue;
+				for (const childId of fixedChildren) {
+					locks.delete(childId);
 				}
 			}
 		}
