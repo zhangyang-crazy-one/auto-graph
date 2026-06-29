@@ -197,8 +197,45 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					checkBacktracking(finalized, source, target, diagnostics);
 					return { points: finalized, diagnostics };
 				}
-				// Corner path was rejected — retry with grid A* (Codex P2).
+				// Corner path was rejected — retry full-obstacle corner graph
+				// first (it may still be under maxCorners and can route around
+				// the excluded obstacle), then fall back to grid A* (Codex P2).
 				if (cornerPath !== null) {
+					const fullCornerPath =
+						cornerObstacles.length < allObstacles.length
+							? findCornerGraphPath(
+									source,
+									target,
+									allObstacles,
+									{ endpointObstacles, margin: 2 },
+									diagnostics,
+								)
+							: null;
+					if (fullCornerPath !== null && fullCornerPath.length >= 2) {
+						const fullFinalized = finalizeRoute(
+							fullCornerPath,
+							softObstacles,
+							hardObstacles,
+							diagnostics,
+							softObstacleIndex,
+							hardObstacleIndex,
+						);
+						if (
+							!routeIntersectsObstacles(
+								fullFinalized,
+								softObstacles,
+								softObstacleIndex,
+							) &&
+							!routeIntersectsObstacles(
+								fullFinalized,
+								hardObstacles,
+								hardObstacleIndex,
+							)
+						) {
+							checkBacktracking(fullFinalized, source, target, diagnostics);
+							return { points: fullFinalized, diagnostics };
+						}
+					}
 					const gridPath = findObstacleFreePath(
 						source,
 						target,
