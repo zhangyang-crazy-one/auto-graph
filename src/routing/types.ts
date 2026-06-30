@@ -23,6 +23,12 @@ export interface RouteEdgeInput {
 	hardObstacleIndex?: BoxSpatialIndex;
 	/** Maximum greedy rerouting iterations (default 5). */
 	maxRoutingAttempts?: number;
+	/** Corridor expansion margin in px for corner-graph prefilter (default 32).
+	 * Larger values include more obstacles in the local routing window. */
+	corridorMargin?: number;
+	/** Route-length / direct-distance ratio above which a backtracking
+	 * warning is emitted (default 20). */
+	maxBacktrackingRatio?: number;
 }
 
 export interface RouteEdgeResult {
