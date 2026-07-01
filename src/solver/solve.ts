@@ -104,6 +104,15 @@ export interface SolveDiagramOptions {
 	labelPlacement?: "beside" | "on-path";
 	/** Pixels to offset edge labels from the edge path when labelPlacement is "beside". */
 	labelOffset?: number;
+	/** Corridor expansion margin for corner-graph prefilter.
+	 * - number: fixed px margin
+	 * - "auto" (default): max(200, contentDiagonal * 0.3)
+	 * Larger margins include more obstacles in the local routing window,
+	 * improving path quality on dense diagrams at the cost of more vertices. */
+	corridorMargin?: number | "auto";
+	/** Route-length / direct-distance ratio above which a backtracking
+	 * warning is emitted (default 20). */
+	maxBacktrackingRatio?: number;
 }
 
 export interface PortShiftingOptions {
@@ -332,6 +341,7 @@ export function solveDiagram(
 		constrained.locks,
 		options?.overlapSpacing ?? 40,
 		Math.max(0, options?.minLaneGutter ?? 0),
+		options.distributeContainedChildren ?? true,
 	);
 	// Distribution may resolve overlaps that were reported earlier
 	// by repairOverlaps — clean those up before continuing.
@@ -532,6 +542,7 @@ export function solveDiagram(
 		options,
 		diagnostics,
 		coordinatedGroups,
+		contentBounds,
 	);
 	const edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
@@ -1161,6 +1172,7 @@ function applySwimlaneLayoutContracts(
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	overlapSpacing: number,
 	laneGutter: number,
+	distributeContainedChildren: boolean | "spread",
 ): SwimlaneContractResult {
 	const layouts = new Map<string, SwimlaneContractLayout>();
 	const diagnostics: Diagnostic[] = [];
@@ -1181,6 +1193,8 @@ function applySwimlaneLayoutContracts(
 			diagnostics,
 			movedChildIds,
 			laneGutter,
+			constraints,
+			distributeContainedChildren,
 		);
 		if (layout !== undefined) {
 			layouts.set(swimlane.id, layout);
@@ -1467,6 +1481,8 @@ function applySingleSwimlaneContract(
 	diagnostics: Diagnostic[],
 	movedChildIds: Set<string>,
 	laneGutter: number,
+	constraints: readonly Constraint[],
+	distributeContainedChildren: boolean | "spread",
 ): SwimlaneContractLayout | undefined {
 	const headerHeight = swimlane.headerHeight ?? 28;
 	const padding = swimlane.padding ?? 16;
@@ -1496,6 +1512,8 @@ function applySingleSwimlaneContract(
 			diagnostics,
 			movedChildIds,
 			laneGutter,
+			constraints,
+			distributeContainedChildren,
 		);
 	}
 	return applyHorizontalSwimlaneContract(
@@ -1523,6 +1541,8 @@ function applyVerticalSwimlaneContract(
 	diagnostics: Diagnostic[],
 	movedChildIds: Set<string>,
 	laneGutter: number,
+	constraints: readonly Constraint[],
+	distributeContainedChildren: boolean | "spread",
 ): SwimlaneContractLayout {
 	const populatedBounds = laneBounds.filter(
 		(box): box is Box => box !== undefined,
@@ -1530,6 +1550,41 @@ function applyVerticalSwimlaneContract(
 	const top = Math.min(...populatedBounds.map((box) => box.y));
 	const left = Math.min(...populatedBounds.map((box) => box.x));
 	const maxChildHeight = Math.max(...populatedBounds.map((box) => box.height));
+
+	// Build a set of child IDs that were placed as a UNIT by containment
+	// distribution — cross-axis spread must be skipped for them to avoid
+	// conflicting with that distribution (Issue #66, root cause 2). Only
+	// suppress spread for constraints the distributor actually ran:
+	// distributeContainedChildren enabled AND ≥2 children that would be
+	// distributed. A child is distributable only if it has a box and is not
+	// exact-position locked (fixed-position yields to the distributor). This
+	// mirrors applyDistributeContained's `distributable.length < 2` guard so
+	// single-child, all-locked, or missing-box containments do NOT suppress
+	// spread (Codex P2).
+	const containedChildIds = new Set<string>();
+	if (distributeContainedChildren) {
+		for (const c of constraints) {
+			if (c.kind !== "containment") continue;
+			// Skip if the container itself has no box — applyDistributeContained
+			// skips missing containers (Codex P2).
+			if (nodeBoxes.get(c.containerId) === undefined) continue;
+			const distributable = c.childIds.filter((childId) => {
+				if (nodeBoxes.get(childId) === undefined) return false;
+				const lock = locks.get(childId);
+				// exact-position (and other non-fixed) locks are reserved, not
+				// distributed; fixed-position yields to the distributor.
+				return lock === undefined || lock.source === "fixed-position";
+			});
+			if (distributable.length < 2) continue;
+			// Only mark actually distributable children — locked/oversized
+			// children that the distributor skips should NOT suppress spread
+			// for lanes they happen to be in (Codex P2).
+			for (const childId of distributable) {
+				containedChildIds.add(childId);
+			}
+		}
+	}
+
 	const flowRanks = topToBottomFlow
 		? rankVerticalSwimlaneChildren(swimlane, edges)
 		: new Map<string, number>();
@@ -1556,6 +1611,7 @@ function applyVerticalSwimlaneContract(
 		flowRanks,
 		locks,
 		rankStackGap,
+		containedChildIds,
 	);
 	const slotWidth =
 		Math.max(
@@ -1581,10 +1637,19 @@ function applyVerticalSwimlaneContract(
 			// but there are no flow edges (maxRank=0), route through the
 			// ranked function which applies cross-axis spread (Issue #62,
 			// Codex P2). Locked children never participate.
+			// Skip cross-axis spread if ANY lane child is already covered by
+			// a containment constraint — the containment distribution already
+			// placed them and cross-axis would conflict (Issue #66).
 			const distributable = lane.children.filter(
 				(childId) => !locks.has(childId),
 			);
-			if (distributable.length >= CROSS_AXIS_SPREAD_THRESHOLD) {
+			const coveredByContainment = lane.children.some((childId) =>
+				containedChildIds.has(childId),
+			);
+			if (
+				!coveredByContainment &&
+				distributable.length >= CROSS_AXIS_SPREAD_THRESHOLD
+			) {
 				moveRankedVerticalLaneChildren(
 					lane.children,
 					nodeBoxes,
@@ -1612,6 +1677,13 @@ function applyVerticalSwimlaneContract(
 			);
 			continue;
 		}
+		// Skip cross-axis spread for ranked lanes when children are already
+		// covered by a containment constraint (Issue #66). Keep ranked
+		// placement (rank spacing / flow order) but suppress horizontal
+		// spread so it doesn't conflict with containment distribution (Codex P2).
+		const rankedCoveredByContainment = lane.children.some((childId) =>
+			containedChildIds.has(childId),
+		);
 		moveRankedVerticalLaneChildren(
 			lane.children,
 			nodeBoxes,
@@ -1623,6 +1695,7 @@ function applyVerticalSwimlaneContract(
 			rankStackGap,
 			{ x: target.x, y: laneContentTop },
 			slotWidth - padding * 2,
+			rankedCoveredByContainment,
 		);
 	}
 
@@ -1779,16 +1852,26 @@ function crossAxisSpreadWidth(
 
 // Largest cross-axis spread width across all lanes/ranks of a swimlane.
 // Returns 0 when no rank meets the spread threshold. Locked children are
-// excluded (they never participate in distribution).
+// excluded (they never participate in distribution). Lanes whose children
+// are covered by a containment constraint are also excluded — they will use
+// moveLaneChildren (pure offset) instead of cross-axis spread (Issue #66).
 function maxCrossAxisSpreadWidth(
 	swimlane: Swimlane,
 	nodeBoxes: ReadonlyMap<string, Box>,
 	flowRanks: ReadonlyMap<string, number>,
 	locks: ReadonlyMap<string, LayoutLockLike>,
 	gap: number,
+	containedChildIds?: ReadonlySet<string>,
 ): number {
 	let maxWidth = 0;
 	for (const lane of swimlane.lanes) {
+		// Skip lanes covered by containment constraints — they won't spread.
+		if (
+			containedChildIds !== undefined &&
+			lane.children.some((childId) => containedChildIds.has(childId))
+		) {
+			continue;
+		}
 		for (const stack of rankStacks(
 			lane.children,
 			nodeBoxes,
@@ -1813,6 +1896,7 @@ function moveRankedVerticalLaneChildren(
 	rankStackGap: number,
 	target: Point,
 	contentWidth: number,
+	suppressSpread?: boolean,
 ): void {
 	for (const [rank, stack] of rankStacks(childIds, nodeBoxes, flowRanks)) {
 		// Filter out locked children for layout purposes. All locks are
@@ -1853,7 +1937,8 @@ function moveRankedVerticalLaneChildren(
 			// When 3+ children share a rank, horizontal distribution avoids
 			// vertical overflow that causes sibling_overlap_collapse (Issue #62).
 			// For 2 children, vertical stacking is acceptable.
-			const shouldSpread = unlocked.length >= CROSS_AXIS_SPREAD_THRESHOLD;
+			const shouldSpread =
+				!suppressSpread && unlocked.length >= CROSS_AXIS_SPREAD_THRESHOLD;
 
 			if (!shouldSpread) {
 				// Normal vertical stacking (2 children fit within rank).
@@ -3374,14 +3459,36 @@ function coordinateEdges(
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
 	groups: readonly CoordinatedGroup[],
+	contentBounds: Box,
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
 		coordinatedNodes.map((node) => [node.id, node]),
 	);
+	// Compute adaptive corridor margin for corner-graph prefilter (Issue #66).
+	// "auto" uses 30% of the content diagonal (min 200 px) so the corridor
+	// covers ~60% of the page on dense diagrams instead of the old fixed 32 px.
+	const corridorMarginOption = options.corridorMargin ?? "auto";
+	const corridorMargin: number =
+		typeof corridorMarginOption === "number"
+			? corridorMarginOption
+			: Math.max(
+					200,
+					Math.hypot(contentBounds.width, contentBounds.height) * 0.3,
+				);
+
+	// Effective query gutter for node-obstacle prefilter. Only widen for
+	// obstacle-avoiding routes that actually use the adaptive corridor —
+	// other route kinds should respect the caller's routingGutter as-is to
+	// avoid unnecessary detours from over-including nodes (Codex P2).
+	const routingGutter = options.routingGutter ?? 160;
+	const queryGutter =
+		(options.routeKind ?? "orthogonal") === "obstacle-avoiding"
+			? Math.max(routingGutter, corridorMargin)
+			: routingGutter;
 	const nodeObstacleIndex = createBoxSpatialIndex(
 		obstacles.map((box, index) => ({ id: `node-obstacle:${index}`, box })),
-		options.routingGutter ?? 160,
+		queryGutter,
 	);
 
 	for (const edge of edges) {
@@ -3410,11 +3517,7 @@ function coordinateEdges(
 		const routeTextObstacles = textObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => annotation.box);
-		const corridor = edgeCorridorBox(
-			source.box,
-			target.box,
-			options.routingGutter ?? 160,
-		);
+		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
 		const routeNodeObstacles = queryBoxSpatialIndex(nodeObstacleIndex, corridor)
 			.map((entry) => entry.box)
 			.filter(
@@ -3441,9 +3544,13 @@ function coordinateEdges(
 				...routeTextObstacles,
 			],
 			hardObstacles,
+			corridorMargin,
 			...(options.maxRoutingAttempts === undefined
 				? {}
 				: { maxRoutingAttempts: options.maxRoutingAttempts }),
+			...(options.maxBacktrackingRatio === undefined
+				? {}
+				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
 		});
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({

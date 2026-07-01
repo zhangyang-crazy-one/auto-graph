@@ -25,6 +25,7 @@ function checkBacktracking(
 	source: Point,
 	target: Point,
 	diagnostics: Diagnostic[],
+	maxRatio?: number,
 ): void {
 	if (points.length < 2) return;
 	const direct = Math.hypot(target.x - source.x, target.y - source.y);
@@ -35,7 +36,7 @@ function checkBacktracking(
 		const b = points[i + 1] as Point;
 		routeLen += Math.hypot(b.x - a.x, b.y - a.y);
 	}
-	const threshold = 10;
+	const threshold = maxRatio ?? 20;
 	if (routeLen > direct * threshold) {
 		diagnostics.push({
 			severity: "warning",
@@ -54,11 +55,31 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
 	const hardObstacles = input.hardObstacles ?? [];
+	// Best rejected path from A* routing — used as fallback when all
+	// heuristic candidates also fail, to avoid returning a 2-point
+	// direct connection that is always worse than a path with minor
+	// crossings (Issue #66, root cause 3). Only hard-clear paths are stored,
+	// and among those the one with the fewest soft-obstacle crossings wins
+	// (Codex P2: compare across corridor/full/grid attempts, not fill-once).
+	let bestRejectedPath: Point[] | undefined;
+	let bestRejectedCrossings = Number.POSITIVE_INFINITY;
 	const softObstacleIndex =
 		input.obstacleIndex ?? createBoxSpatialIndex(indexedBoxes(softObstacles));
 	const hardObstacleIndex =
 		input.hardObstacleIndex ??
 		createBoxSpatialIndex(indexedBoxes(hardObstacles));
+	// Record a rejected but hard-clear finalized path, keeping the one with
+	// the fewest soft-obstacle crossings (Issue #66, Codex P2).
+	const recordRejected = (candidate: Point[]): void => {
+		if (routeIntersectsObstacles(candidate, hardObstacles, hardObstacleIndex)) {
+			return;
+		}
+		const crossings = countObstacleCrossings(candidate, softObstacles);
+		if (crossings < bestRejectedCrossings) {
+			bestRejectedCrossings = crossings;
+			bestRejectedPath = candidate;
+		}
+	};
 	const maxAttempts = input.maxRoutingAttempts ?? 5;
 	const defaultAnchors = defaultAnchorsForGeometry(
 		input.source.box,
@@ -128,12 +149,13 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			// Corridor prefilter reduces obstacle count for the corner
 			// graph, preventing maxCorners overflow (Issue #62).
 			const allObstacles = [...softObstacles, ...hardObstacles];
+			const corridorMargin = input.corridorMargin ?? 32;
 			const corridorObstacles = filterObstaclesByCorridor(
 				source,
 				target,
 				allObstacles,
 				[], // endpointObstacles passed separately via options
-				32,
+				corridorMargin,
 			);
 			// When the corridor filter removes every obstacle but the
 			// diagram still has obstacles, an empty set makes the corner
@@ -170,7 +192,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					source,
 					target,
 					allObstacles,
-					{ endpointObstacles, margin: 0 },
+					{ endpointObstacles, margin: 0, corridorMargin },
 					diagnostics,
 				);
 			if (path !== null && path.length >= 2) {
@@ -194,9 +216,20 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					) &&
 					!routeIntersectsObstacles(finalized, hardObstacles, hardObstacleIndex)
 				) {
-					checkBacktracking(finalized, source, target, diagnostics);
+					checkBacktracking(
+						finalized,
+						source,
+						target,
+						diagnostics,
+						input.maxBacktrackingRatio,
+					);
 					return { points: finalized, diagnostics };
 				}
+				// Save rejected finalized path as best-effort fallback —
+				// it has minor crossings but is far better than a 2-point
+				// direct connection (Issue #66). Only hard-clear paths are
+				// kept, and the fewest-crossings one wins (Codex P1/P2).
+				recordRejected(finalized);
 				// Corner path was rejected — retry full-obstacle corner graph
 				// first (it may still be under maxCorners and can route around
 				// the excluded obstacle), then fall back to grid A* (Codex P2).
@@ -232,15 +265,23 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 								hardObstacleIndex,
 							)
 						) {
-							checkBacktracking(fullFinalized, source, target, diagnostics);
+							checkBacktracking(
+								fullFinalized,
+								source,
+								target,
+								diagnostics,
+								input.maxBacktrackingRatio,
+							);
 							return { points: fullFinalized, diagnostics };
 						}
+						// Record hard-clear full-retry path as fallback (Codex P2).
+						recordRejected(fullFinalized);
 					}
 					const gridPath = findObstacleFreePath(
 						source,
 						target,
 						allObstacles,
-						{ endpointObstacles, margin: 0 },
+						{ endpointObstacles, margin: 0, corridorMargin },
 						diagnostics,
 					);
 					if (gridPath !== null && gridPath.length >= 2) {
@@ -264,9 +305,17 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 								hardObstacleIndex,
 							)
 						) {
-							checkBacktracking(gridFinalized, source, target, diagnostics);
+							checkBacktracking(
+								gridFinalized,
+								source,
+								target,
+								diagnostics,
+								input.maxBacktrackingRatio,
+							);
 							return { points: gridFinalized, diagnostics };
 						}
+						// Record hard-clear grid-retry path as fallback (Codex P2).
+						recordRejected(gridFinalized);
 					}
 				}
 			}
@@ -337,6 +386,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				candidate.points[0] as Point,
 				candidate.points[candidate.points.length - 1] as Point,
 				diagnostics,
+				input.maxBacktrackingRatio,
 			);
 			return { points: finalizedClean, diagnostics };
 		}
@@ -420,13 +470,46 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				"No bounded orthogonal route candidate avoided all soft obstacles.",
 		});
 
-		return {
-			points: finalizeRoute(
-				bestPoints,
+		// Prefer the path with fewer soft-obstacle crossings between the A*
+		// rejected path and the heuristic candidate (Codex P2). Compare AFTER
+		// finalization — only prefer rejected when strictly better.
+		const finalizedSoftBest = finalizeRoute(
+			bestPoints,
+			softObstacles,
+			hardObstacles,
+			diagnostics,
+		);
+		let softFallback = finalizedSoftBest;
+		if (bestRejectedPath !== undefined) {
+			const finalizedRejected = finalizeRoute(
+				bestRejectedPath,
 				softObstacles,
 				hardObstacles,
 				diagnostics,
-			),
+			);
+			const rejectedCrossings = countObstacleCrossings(
+				finalizedRejected,
+				softObstacles,
+			);
+			const heuristicCrossings = countObstacleCrossings(
+				finalizedSoftBest,
+				softObstacles,
+			);
+			if (rejectedCrossings < heuristicCrossings) {
+				softFallback = finalizedRejected;
+			}
+		}
+
+		// Run backtracking check on the chosen fallback too (Codex P2).
+		checkBacktracking(
+			softFallback,
+			softFallback[0] as Point,
+			softFallback[softFallback.length - 1] as Point,
+			diagnostics,
+			input.maxBacktrackingRatio,
+		);
+		return {
+			points: softFallback,
 			diagnostics,
 		};
 	}
@@ -460,6 +543,26 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				allObstacles,
 				maxAttempts,
 			);
+		}
+		// If A* found a hard-clear path (bestRejectedPath is only ever set
+		// to hard-clear routes), prefer it over a heuristic candidate that
+		// crosses hard evidence obstacles (Issue #66, Codex P1).
+		if (bestRejectedPath !== undefined) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.obstacle.unavoidable",
+				message:
+					"Using A* route with minor soft-obstacle crossings to avoid hard evidence obstacles.",
+			});
+			return {
+				points: finalizeRoute(
+					bestRejectedPath,
+					softObstacles,
+					hardObstacles,
+					diagnostics,
+				),
+				diagnostics,
+			};
 		}
 		diagnostics.push({
 			severity: "error",
@@ -515,13 +618,48 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		message: "No bounded orthogonal route candidate avoided all obstacles.",
 	});
 
-	return {
-		points: finalizeRoute(
-			bestPoints,
+	// Prefer the path with fewer soft-obstacle crossings between the A*
+	// rejected path and the heuristic fallback (Codex P2). Compare AFTER
+	// finalization — finalizeRoute can expand/simplify routes to avoid
+	// obstacles, so raw crossing counts on unfinalized paths are misleading.
+	// Only prefer the A* path when it is strictly better after finalization.
+	const finalizedBestPoints = finalizeRoute(
+		bestPoints,
+		softObstacles,
+		hardObstacles,
+		diagnostics,
+	);
+	let fallbackPoints = finalizedBestPoints;
+	if (bestRejectedPath !== undefined) {
+		const finalizedRejected = finalizeRoute(
+			bestRejectedPath,
 			softObstacles,
 			hardObstacles,
 			diagnostics,
-		),
+		);
+		const rejectedCrossings = countObstacleCrossings(
+			finalizedRejected,
+			softObstacles,
+		);
+		const heuristicCrossings = countObstacleCrossings(
+			finalizedBestPoints,
+			softObstacles,
+		);
+		if (rejectedCrossings < heuristicCrossings) {
+			fallbackPoints = finalizedRejected;
+		}
+	}
+
+	// Run backtracking check on the chosen fallback too (Codex P2).
+	checkBacktracking(
+		fallbackPoints,
+		fallbackPoints[0] as Point,
+		fallbackPoints[fallbackPoints.length - 1] as Point,
+		diagnostics,
+		input.maxBacktrackingRatio,
+	);
+	return {
+		points: fallbackPoints,
 		diagnostics,
 	};
 }
@@ -1190,6 +1328,31 @@ function routeIntersectsObstacles(
 	}
 
 	return false;
+}
+
+// Count how many distinct obstacles a route crosses — used to compare
+// rejected A* fallback paths and keep the one with the fewest crossings
+// (Issue #66, Codex P2).
+function countObstacleCrossings(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): number {
+	let count = 0;
+	for (const obstacle of obstacles) {
+		validateBox(obstacle);
+		for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+			const a = points[pointIndex];
+			const b = points[pointIndex + 1];
+			if (a === undefined || b === undefined) {
+				continue;
+			}
+			if (intersectsAabb(segmentBox(a, b), obstacle)) {
+				count += 1;
+				break;
+			}
+		}
+	}
+	return count;
 }
 
 function routeIntersectsEndpointInteriors(
