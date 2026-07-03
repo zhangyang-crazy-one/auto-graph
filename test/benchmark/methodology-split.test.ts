@@ -1,12 +1,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../../src/dsl/index.js";
 import type { Box } from "../../src/ir/index.js";
 import { DeterministicTextMeasurer } from "../../src/text/index.js";
 
-const FIXTURE_DIR = new URL("../fixtures/evidence-blocks/", import.meta.url);
-const BASELINE_DIR = new URL("../fixtures/phase-07/", import.meta.url);
+const FIXTURE_DIR = fileURLToPath(
+	new URL("../fixtures/evidence-blocks/", import.meta.url),
+);
+const BASELINE_DIR = fileURLToPath(
+	new URL("../fixtures/phase-07/", import.meta.url),
+);
 const textMeasurer = new DeterministicTextMeasurer();
 
 describe("methodology-split benchmark", () => {
@@ -141,10 +146,7 @@ describe("methodology-split benchmark", () => {
 		],
 	])("baseline SVG for %s is byte-stable", (fixtureName, baselineName) => {
 		const result = renderFixture(fixtureName);
-		const baseline = readFileSync(
-			join(BASELINE_DIR.pathname, baselineName),
-			"utf8",
-		);
+		const baseline = readFileSync(join(BASELINE_DIR, baselineName), "utf8");
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.content).toBe(baseline);
@@ -164,7 +166,7 @@ function readFixture(name: string): string {
 }
 
 function fixturePath(name: string): string {
-	return join(FIXTURE_DIR.pathname, name);
+	return join(FIXTURE_DIR, name);
 }
 
 function segments(points: readonly { x: number; y: number }[]): Array<{

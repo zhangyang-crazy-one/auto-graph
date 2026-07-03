@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import {
@@ -857,10 +858,12 @@ evidencePanels:
 			"computeShapeGeometry",
 			"computeContainerGeometry",
 		];
-		const exporterDir = new URL("../src/exporters", import.meta.url);
+		const exporterDir = fileURLToPath(
+			new URL("../src/exporters", import.meta.url),
+		);
 		const sourceFiles = readdirSync(exporterDir)
 			.filter((fileName) => fileName.endsWith(".ts"))
-			.map((fileName) => join(exporterDir.pathname, fileName));
+			.map((fileName) => join(exporterDir, fileName));
 
 		for (const filePath of sourceFiles) {
 			const content = readFileSync(filePath, "utf8");
@@ -908,12 +911,12 @@ evidencePanels:
 	});
 
 	it("runs the built agh binary against the architecture example", () => {
-		const binaryPath = new URL("../dist/cli/index.js", import.meta.url)
-			.pathname;
-		const examplePath = new URL(
-			"../examples/architecture.yaml",
-			import.meta.url,
-		).pathname;
+		const binaryPath = fileURLToPath(
+			new URL("../dist/cli/index.js", import.meta.url),
+		);
+		const examplePath = fileURLToPath(
+			new URL("../examples/architecture.yaml", import.meta.url),
+		);
 
 		expect(existsSync(binaryPath)).toBe(true);
 		const output = execFileSync(process.execPath, [
@@ -930,9 +933,10 @@ evidencePanels:
 });
 
 function sourceFilesIn(directory: URL): string[] {
-	return readdirSync(directory)
+	const directoryPath = fileURLToPath(directory);
+	return readdirSync(directoryPath)
 		.filter((fileName) => fileName.endsWith(".ts"))
-		.map((fileName) => join(directory.pathname, fileName));
+		.map((fileName) => join(directoryPath, fileName));
 }
 
 function readEvidenceFixture(name: string): string {
@@ -940,8 +944,9 @@ function readEvidenceFixture(name: string): string {
 }
 
 function evidenceFixturePath(name: string): string {
-	return new URL(`./fixtures/evidence-blocks/${name}`, import.meta.url)
-		.pathname;
+	return fileURLToPath(
+		new URL(`./fixtures/evidence-blocks/${name}`, import.meta.url),
+	);
 }
 
 function countOccurrences(value: string, token: string): number {

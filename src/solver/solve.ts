@@ -110,6 +110,14 @@ export interface SolveDiagramOptions {
 	 * Larger margins include more obstacles in the local routing window,
 	 * improving path quality on dense diagrams at the cost of more vertices. */
 	corridorMargin?: number | "auto";
+	/** Maximum corner-graph vertices before falling back.
+	 * - number: caller-specified cap
+	 * - "auto" or undefined: scale with corridor margin and obstacle count */
+	maxCorners?: number | "auto";
+	/** Maximum grid A* nodes before falling back.
+	 * - number: caller-specified cap
+	 * - "auto" or undefined: scale with corridor margin and obstacle count */
+	maxNodes?: number | "auto";
 	/** Route-length / direct-distance ratio above which a backtracking
 	 * warning is emitted (default 20). */
 	maxBacktrackingRatio?: number;
@@ -3545,6 +3553,10 @@ function coordinateEdges(
 			],
 			hardObstacles,
 			corridorMargin,
+			...(options.maxCorners === undefined
+				? {}
+				: { maxCorners: options.maxCorners }),
+			...(options.maxNodes === undefined ? {} : { maxNodes: options.maxNodes }),
 			...(options.maxRoutingAttempts === undefined
 				? {}
 				: { maxRoutingAttempts: options.maxRoutingAttempts }),
