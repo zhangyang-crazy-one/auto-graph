@@ -16,11 +16,17 @@ describe("routing budget", () => {
 			resolveMaxCorners("auto", { corridorMargin: 600, obstacleCount: 300 }),
 		).toBe(3000);
 		expect(
+			resolveMaxCorners("auto", { corridorMargin: 600, obstacleCount: 50 }),
+		).toBeGreaterThanOrEqual(602);
+		expect(
 			resolveMaxNodes(undefined, { corridorMargin: 32, obstacleCount: 10 }),
 		).toBe(4000);
 		expect(
 			resolveMaxNodes("auto", { corridorMargin: 600, obstacleCount: 40 }),
-		).toBe(48000);
+		).toBe(64000);
+		expect(
+			resolveMaxNodes("auto", { corridorMargin: 200, obstacleCount: 40 }),
+		).toBeGreaterThanOrEqual(161 * 161);
 	});
 
 	it("respects explicit routeEdge corner and grid budgets", () => {

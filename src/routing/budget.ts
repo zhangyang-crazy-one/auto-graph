@@ -11,6 +11,9 @@ const SMALL_GRID_BUDGET = 4000;
 const LARGE_GRID_BUDGET = 16000;
 const MAX_GRID_BUDGET = 64000;
 const BASE_CORRIDOR_MARGIN = 200;
+const CORNER_VERTICES_PER_OBSTACLE = 12;
+const GRID_COORDINATES_PER_AXIS_PER_OBSTACLE = 4;
+const ENDPOINT_COUNT = 2;
 
 export function resolveMaxCorners(
 	value: RoutingBudgetValue | undefined,
@@ -19,7 +22,8 @@ export function resolveMaxCorners(
 	if (typeof value === "number") {
 		return value;
 	}
-	const baseCorners = context.obstacleCount * 4;
+	const baseCorners =
+		context.obstacleCount * CORNER_VERTICES_PER_OBSTACLE + ENDPOINT_COUNT;
 	const expandedCorners = Math.ceil(
 		baseCorners * corridorScale(context.corridorMargin),
 	);
@@ -33,10 +37,17 @@ export function resolveMaxNodes(
 	if (typeof value === "number") {
 		return value;
 	}
-	const baseNodes =
+	const thresholdNodes =
 		context.obstacleCount > 30 ? LARGE_GRID_BUDGET : SMALL_GRID_BUDGET;
+	const coordinateCount =
+		context.obstacleCount * GRID_COORDINATES_PER_AXIS_PER_OBSTACLE +
+		ENDPOINT_COUNT;
+	const estimatedGridNodes = coordinateCount * coordinateCount;
 	return Math.min(
-		Math.ceil(baseNodes * corridorScale(context.corridorMargin)),
+		Math.ceil(
+			Math.max(thresholdNodes, estimatedGridNodes) *
+				corridorScale(context.corridorMargin),
+		),
 		MAX_GRID_BUDGET,
 	);
 }
