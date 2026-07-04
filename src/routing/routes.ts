@@ -175,7 +175,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				});
 			const gridBudget = resolveMaxNodes(input.maxNodes, {
 				corridorMargin,
-				obstacleCount: allObstacles.length,
+				obstacleCount: allObstacles.length + endpointObstacles.length,
 			});
 			let cornerPath = findCornerGraphPath(
 				source,

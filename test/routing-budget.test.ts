@@ -27,6 +27,9 @@ describe("routing budget", () => {
 		expect(
 			resolveMaxNodes("auto", { corridorMargin: 200, obstacleCount: 40 }),
 		).toBeGreaterThanOrEqual(161 * 161);
+		expect(
+			resolveMaxNodes("auto", { corridorMargin: 200, obstacleCount: 42 }),
+		).toBeGreaterThanOrEqual(169 * 169);
 	});
 
 	it("respects explicit routeEdge corner and grid budgets", () => {
