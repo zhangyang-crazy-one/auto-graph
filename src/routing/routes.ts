@@ -13,6 +13,7 @@ import type {
 	Point,
 } from "../ir/geometry.js";
 import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
+import { resolveMaxCorners, resolveMaxNodes } from "./budget.js";
 import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
 import { findCornerGraphPath } from "./visibility-router.js";
 
@@ -167,11 +168,24 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				corridorObstacles.length === 0 && allObstacles.length > 0
 					? allObstacles
 					: corridorObstacles;
+			const cornerBudget = (obstacleCount: number): number =>
+				resolveMaxCorners(input.maxCorners, {
+					corridorMargin,
+					obstacleCount,
+				});
+			const gridBudget = resolveMaxNodes(input.maxNodes, {
+				corridorMargin,
+				obstacleCount: allObstacles.length + endpointObstacles.length,
+			});
 			let cornerPath = findCornerGraphPath(
 				source,
 				target,
 				cornerObstacles,
-				{ endpointObstacles, margin: 2 },
+				{
+					endpointObstacles,
+					margin: 2,
+					maxCorners: cornerBudget(cornerObstacles.length),
+				},
 				diagnostics,
 			);
 			// If corridor-filtered call failed and excluded some obstacles,
@@ -181,7 +195,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					source,
 					target,
 					allObstacles,
-					{ endpointObstacles, margin: 2 },
+					{
+						endpointObstacles,
+						margin: 2,
+						maxCorners: cornerBudget(allObstacles.length),
+					},
 					diagnostics,
 				);
 			}
@@ -192,7 +210,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					source,
 					target,
 					allObstacles,
-					{ endpointObstacles, margin: 0, corridorMargin },
+					{
+						endpointObstacles,
+						margin: 0,
+						corridorMargin,
+						maxNodes: gridBudget,
+					},
 					diagnostics,
 				);
 			if (path !== null && path.length >= 2) {
@@ -240,7 +263,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 									source,
 									target,
 									allObstacles,
-									{ endpointObstacles, margin: 2 },
+									{
+										endpointObstacles,
+										margin: 2,
+										maxCorners: cornerBudget(allObstacles.length),
+									},
 									diagnostics,
 								)
 							: null;
@@ -281,7 +308,12 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						source,
 						target,
 						allObstacles,
-						{ endpointObstacles, margin: 0, corridorMargin },
+						{
+							endpointObstacles,
+							margin: 0,
+							corridorMargin,
+							maxNodes: gridBudget,
+						},
 						diagnostics,
 					);
 					if (gridPath !== null && gridPath.length >= 2) {

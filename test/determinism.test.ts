@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
 	normalizeDiagramDsl,
@@ -90,10 +91,9 @@ describe("solver determinism", () => {
 	});
 
 	it("renders the Phase 5 architecture fixture deterministically", () => {
-		const sourcePath = new URL(
-			"./fixtures/phase-05/architecture.yaml",
-			import.meta.url,
-		).pathname;
+		const sourcePath = fileURLToPath(
+			new URL("./fixtures/phase-05/architecture.yaml", import.meta.url),
+		);
 		const source = readFileSync(sourcePath, "utf8");
 		const parsedA = parseDiagramDsl(source, { sourcePath });
 		const parsedB = parseDiagramDsl(source, { sourcePath });

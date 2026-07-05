@@ -7,6 +7,7 @@ import type {
 	DiagramDirection,
 	Point,
 } from "../ir/geometry.js";
+import type { RoutingBudgetValue } from "./budget.js";
 
 export type RouteKind = "orthogonal" | "straight" | "obstacle-avoiding";
 
@@ -26,6 +27,14 @@ export interface RouteEdgeInput {
 	/** Corridor expansion margin in px for corner-graph prefilter (default 32).
 	 * Larger values include more obstacles in the local routing window. */
 	corridorMargin?: number;
+	/** Maximum corner-graph vertices before falling back.
+	 * - number: caller-specified cap
+	 * - "auto" or undefined: scale with corridor margin and obstacle count */
+	maxCorners?: RoutingBudgetValue;
+	/** Maximum grid A* nodes before falling back.
+	 * - number: caller-specified cap
+	 * - "auto" or undefined: scale with corridor margin and obstacle count */
+	maxNodes?: RoutingBudgetValue;
 	/** Route-length / direct-distance ratio above which a backtracking
 	 * warning is emitted (default 20). */
 	maxBacktrackingRatio?: number;
