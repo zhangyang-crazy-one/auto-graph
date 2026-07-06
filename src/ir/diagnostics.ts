@@ -24,6 +24,11 @@ export const DELIVERABILITY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"constraints.overlap.locked-conflict",
 	"routing.evidence.crossing_forbidden",
 	"routing.obstacle.unavoidable",
+	"routing.label-congestion.unresolved",
+	"routing.rail-capacity.exceeded",
+	"routing.anchor-capacity.requires-resize",
+	"routing.container-fixed-bounds-overflow",
+	"layout.container-fixed-bounds-overflow",
 	"route_obstacle_fallback",
 	"routing.text-clearance.unresolved",
 ]);

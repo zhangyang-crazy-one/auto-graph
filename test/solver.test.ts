@@ -195,6 +195,18 @@ describe("solveDiagram", () => {
 		expect(Number.isFinite(autoB.y)).toBe(true);
 		expect(autoA).not.toMatchObject({ x: 10_000, y: -5_000 });
 		expect(autoB).not.toMatchObject({ x: 10_000, y: -5_000 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "layout.positions.missing",
+				detail: expect.objectContaining({ nodeId: "auto-a" }),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "layout.positions.missing",
+				detail: expect.objectContaining({ nodeId: "auto-b" }),
+			}),
+		);
 		expect(result.diagnostics).not.toContainEqual(
 			expect.objectContaining({ code: "layout.edge-reference.missing" }),
 		);
@@ -2018,6 +2030,67 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("groups residual dense label clearance failures into congestion diagnostics", () => {
+		const diagram: NormalizedDiagram = {
+			id: "route-label-congestion",
+			direction: "LR",
+			nodes: [
+				node("source", { x: 0, y: 0 }),
+				node("target", { x: 240, y: 0 }),
+				{
+					id: "label_owner",
+					shape: "rectangle",
+					size: { width: 0, height: 0 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 120, y: 0 },
+					label: { text: "huge label" },
+					labelLayout: createTestLabelLayout("huge label", {
+						x: -1_000,
+						y: -1_000,
+						width: 3_000,
+						height: 3_000,
+					}),
+				},
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+
+		const result = solveDiagram(diagram, {
+			routeKind: "straight",
+			textIntersectionTolerance: 0,
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-congestion.unresolved",
+				detail: expect.objectContaining({
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
@@ -2042,6 +2115,104 @@ describe("solveDiagram", () => {
 		expect(result.diagnostics).toEqual([]);
 		expect(result.swimlanes?.[0]?.box?.x).toBeGreaterThan(200);
 		expect(result.swimlanes?.[0]?.box?.y).toBeGreaterThan(100);
+	});
+
+	it("preserves fixed swimlane and lane geometry in fixed mode", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane",
+				direction: "LR",
+				nodes: [node("a", { x: 150, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 100, y: 40, width: 220, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.swimlanes?.[0]?.box).toEqual({
+			x: 100,
+			y: 40,
+			width: 220,
+			height: 160,
+		});
+		expect(result.swimlanes?.[0]?.lanes[0]?.box).toEqual({
+			x: 100,
+			y: 40,
+			width: 220,
+			height: 160,
+		});
+		expect(result.swimlanes?.[0]?.lanes[0]?.headerBox).toEqual({
+			x: 100,
+			y: 40,
+			width: 220,
+			height: 20,
+		});
+		expect(result.swimlanes?.[0]?.lanes[0]?.contentBox).toEqual({
+			x: 100,
+			y: 60,
+			width: 220,
+			height: 140,
+		});
+	});
+
+	it("diagnoses children outside fixed swimlane content bounds", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane-overflow",
+				direction: "LR",
+				nodes: [node("a", { x: 500, y: 500 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 100, y: 40, width: 220, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.container-fixed-bounds-overflow",
+				detail: expect.objectContaining({
+					swimlaneId: "lanes",
+					laneId: "fixed",
+					childId: "a",
+				}),
+			}),
+		);
 	});
 
 	it("treats contract swimlanes as physical lane regions with reserved headers", () => {
@@ -3035,9 +3206,14 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
 		"constraints.locked-target-not-moved",
 		"constraints.overlap.locked-conflict",
+		"layout.container-fixed-bounds-overflow",
 		"route_obstacle_fallback",
+		"routing.anchor-capacity.requires-resize",
+		"routing.container-fixed-bounds-overflow",
 		"routing.evidence.crossing_forbidden",
+		"routing.label-congestion.unresolved",
 		"routing.obstacle.unavoidable",
+		"routing.rail-capacity.exceeded",
 		"routing.text-clearance.unresolved",
 	]);
 });
