@@ -403,6 +403,8 @@ export function solveDiagram(
 		styledEdges,
 		nodeGeometryById,
 		options.textMeasurer,
+		options.labelPlacement,
+		options.labelOffset,
 	);
 	const layoutBoxes = [
 		...coordinatedNodes.map((node) => node.box),
@@ -3917,9 +3919,13 @@ function estimateEdgeLabelAnnotations(
 	edges: readonly NormalizedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	textMeasurer: TextMeasurer | undefined,
+	labelPlacement?: "beside" | "on-path",
+	labelOffset?: number,
 ): SolvedTextAnnotation[] {
 	const measurer = textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];
+	const labelBaseOffset =
+		labelPlacement === "beside" ? (labelOffset ?? 16) : 10;
 
 	for (const edge of edges) {
 		if (edge.label?.text === undefined) {
@@ -3944,29 +3950,50 @@ function estimateEdgeLabelAnnotations(
 			},
 			measurer,
 		);
-		// Straight-line midpoint between node centers.
-		const cx = (sourceGeom.center.x + targetGeom.center.x) / 2;
-		const cy = (sourceGeom.center.y + targetGeom.center.y) / 2;
-		const box: Box = {
-			x: cx - layout.box.width / 2,
-			y: cy - layout.box.height / 2,
-			width: layout.box.width,
-			height: layout.box.height,
-		};
-		annotations.push({
-			text: layout.text,
-			ownerId: edge.id,
-			surfaceKind: "edge-label",
-			box,
-			anchor: { x: cx, y: cy },
-			paddings: layout.padding,
-			lines: layout.lines,
-			fontFamily: normalizeOutputFontFamily(layout.font),
-			fontSize: layout.font.fontSize,
-			textBackend: layout.textBackend,
-		});
+		const paths = edgeLabelEstimatePaths(sourceGeom.center, targetGeom.center);
+		const seen = new Set<string>();
+		let surfaceIndex = 0;
+		for (const path of paths) {
+			const placement = labelPlacementOnPolyline(path, labelBaseOffset);
+			if (placement === undefined) {
+				continue;
+			}
+			const candidates = edgeLabelAnchorCandidates(
+				path,
+				placement,
+				layout,
+				labelBaseOffset,
+			).slice(0, 9);
+			for (const candidate of candidates) {
+				const key = `${Math.round(candidate.x * 10) / 10},${
+					Math.round(candidate.y * 10) / 10
+				}`;
+				if (seen.has(key)) {
+					continue;
+				}
+				seen.add(key);
+				annotations.push(
+					buildCenteredTextAnnotation({
+						ownerId: edge.id,
+						surfaceKind: "edge-label",
+						surfaceIndex,
+						layout,
+						center: candidate,
+					}),
+				);
+				surfaceIndex += 1;
+			}
+		}
 	}
 	return annotations;
+}
+
+function edgeLabelEstimatePaths(source: Point, target: Point): Point[][] {
+	return [
+		[source, target],
+		[source, { x: target.x, y: source.y }, target],
+		[source, { x: source.x, y: target.y }, target],
+	];
 }
 
 function coordinateFrameTextAnnotation(

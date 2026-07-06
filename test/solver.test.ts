@@ -1934,7 +1934,7 @@ describe("solveDiagram", () => {
 		);
 	});
 
-	it("reports edge-label clearance conflicts after route placement (may be resolved by pre-estimation #41)", () => {
+	it("routes around edge-label estimate corridors before final label placement", () => {
 		const result = solveDiagram({
 			id: "edge-label-clearance",
 			direction: "LR",
@@ -1962,16 +1962,12 @@ describe("solveDiagram", () => {
 			diagnostics: [],
 		});
 
-		// With pre-estimation (#41), edge labels are estimated before
-		// routing so the crossing edge can avoid the labeled edge's label
-		// area.  The diagnostic may or may not appear depending on the
-		// effectiveness of the estimate.
 		const clearanceDiags = result.diagnostics.filter(
 			(d) =>
 				d.code === "routing.text-clearance.unresolved" &&
 				d.detail?.textSurfaceKind === "edge-label",
 		);
-		expect(clearanceDiags.length).toBeLessThanOrEqual(1);
+		expect(clearanceDiags).toEqual([]);
 	});
 
 	it("does not report straight-route text clearance when only segment AABB overlaps", () => {
