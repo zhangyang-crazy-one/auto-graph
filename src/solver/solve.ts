@@ -17,6 +17,7 @@ import {
 	queryBoxSpatialIndex,
 	unionBoxes,
 } from "../geometry/index.js";
+import { getEdgePort } from "../geometry/shapes.js";
 import type { Constraint } from "../ir/constraints.js";
 import {
 	DELIVERABILITY_DIAGNOSTIC_CODES,
@@ -43,7 +44,7 @@ import type {
 	TableBlock,
 	VisualStyle,
 } from "../ir/elements.js";
-import type { Box, Insets, Point, Size } from "../ir/geometry.js";
+import type { AnchorName, Box, Insets, Point, Size } from "../ir/geometry.js";
 import type {
 	LabelLayout,
 	SolvedTextAnnotation,
@@ -361,17 +362,27 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
-	const swimlaneContracts = applySwimlaneLayoutContracts(
-		styledSwimlanes,
-		constraints,
-		styledEdges,
-		isTopToBottomReadingDirection(diagram.metadata?.primaryReadingDirection),
-		constrained.boxes,
-		constrained.locks,
-		options?.overlapSpacing ?? 40,
-		Math.max(0, options?.minLaneGutter ?? 0),
-		options.distributeContainedChildren ?? true,
-	);
+	const swimlaneContracts =
+		options.fixedSwimlaneGeometry === true ||
+		options.fixedSwimlaneGeometry === "diagnose-overflow"
+			? {
+					layouts: new Map<string, SwimlaneContractLayout>(),
+					diagnostics: [] as Diagnostic[],
+					movedChildIds: new Set<string>(),
+				}
+			: applySwimlaneLayoutContracts(
+					styledSwimlanes,
+					constraints,
+					styledEdges,
+					isTopToBottomReadingDirection(
+						diagram.metadata?.primaryReadingDirection,
+					),
+					constrained.boxes,
+					constrained.locks,
+					options?.overlapSpacing ?? 40,
+					Math.max(0, options?.minLaneGutter ?? 0),
+					options.distributeContainedChildren ?? true,
+				);
 	// Distribution may resolve overlaps that were reported earlier
 	// by repairOverlaps — clean those up before continuing.
 	removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
@@ -559,6 +570,7 @@ export function solveDiagram(
 		}
 	}
 
+	const edgeRoutingDiagnostics: Diagnostic[] = [];
 	let coordinatedEdges = coordinateEdges(
 		styledEdges,
 		nodeGeometryById,
@@ -573,7 +585,7 @@ export function solveDiagram(
 		hardObstacles,
 		diagram.direction,
 		options,
-		diagnostics,
+		edgeRoutingDiagnostics,
 		coordinatedGroups,
 		contentBounds,
 	);
@@ -602,7 +614,8 @@ export function solveDiagram(
 		if (edgeLabelConflicts.length === 0) {
 			break;
 		}
-		coordinatedEdges = coordinateEdges(
+		const rerouteDiagnostics: Diagnostic[] = [];
+		const reroutedEdges = coordinateEdges(
 			styledEdges,
 			nodeGeometryById,
 			coordinatedNodes,
@@ -620,9 +633,15 @@ export function solveDiagram(
 			hardObstacles,
 			diagram.direction,
 			options,
-			diagnostics,
+			rerouteDiagnostics,
 			coordinatedGroups,
 			contentBounds,
+		);
+		coordinatedEdges = reroutedEdges;
+		edgeRoutingDiagnostics.splice(
+			0,
+			edgeRoutingDiagnostics.length,
+			...rerouteDiagnostics,
 		);
 		edgeTextAnnotations = coordinateEdgeTextAnnotations(
 			coordinatedEdges,
@@ -636,6 +655,7 @@ export function solveDiagram(
 			options.labelOffset,
 		);
 	}
+	diagnostics.push(...edgeRoutingDiagnostics);
 	const textAnnotations = [
 		...baseTextAnnotations,
 		...frameTextAnnotation,
@@ -2690,6 +2710,12 @@ function expandNodeBoxesForPorts(
 }
 
 type AnchorSide = "top" | "right" | "bottom" | "left";
+type EndpointRole = "source" | "target";
+
+interface DistributedAnchor {
+	anchor: AnchorSide;
+	point: Point;
+}
 
 function expandNodeBoxesForAnchorCapacity(
 	edges: readonly NormalizedEdge[],
@@ -2833,6 +2859,171 @@ function boxCenter(box: Box): Point {
 	return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
+function distributedAnchorPointsByEndpoint(
+	edges: readonly NormalizedEdge[],
+	boxes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+): Map<string, DistributedAnchor> {
+	const enabled =
+		options.anchorCapacity !== false &&
+		(options.anchorCapacity !== undefined ||
+			(options.routeKind ?? "orthogonal") === "obstacle-avoiding");
+	if (!enabled) return new Map();
+
+	const config =
+		typeof options.anchorCapacity === "object" ? options.anchorCapacity : {};
+	const minSpacing = Math.max(1, config.minSpacing ?? 16);
+	const endpointsByNodeSide = new Map<
+		string,
+		{
+			edgeId: string;
+			role: EndpointRole;
+			nodeId: string;
+			side: AnchorSide;
+		}[]
+	>();
+
+	for (const edge of edges) {
+		const sourceBox = boxes.get(edge.source.nodeId)?.box;
+		const targetBox = boxes.get(edge.target.nodeId)?.box;
+		if (sourceBox === undefined || targetBox === undefined) {
+			continue;
+		}
+		if (edge.source.portId === undefined) {
+			const sourceSide = distributableAnchorSide(
+				edge.source.anchor,
+				sourceBox,
+				targetBox,
+				direction,
+			);
+			if (sourceSide !== undefined) {
+				const key = `${edge.source.nodeId}:${sourceSide}`;
+				const endpoints = endpointsByNodeSide.get(key) ?? [];
+				endpoints.push({
+					edgeId: edge.id,
+					role: "source",
+					nodeId: edge.source.nodeId,
+					side: sourceSide,
+				});
+				endpointsByNodeSide.set(key, endpoints);
+			}
+		}
+		if (edge.target.portId === undefined) {
+			const targetSide = distributableAnchorSide(
+				edge.target.anchor,
+				targetBox,
+				sourceBox,
+				direction,
+			);
+			if (targetSide !== undefined) {
+				const key = `${edge.target.nodeId}:${targetSide}`;
+				const endpoints = endpointsByNodeSide.get(key) ?? [];
+				endpoints.push({
+					edgeId: edge.id,
+					role: "target",
+					nodeId: edge.target.nodeId,
+					side: targetSide,
+				});
+				endpointsByNodeSide.set(key, endpoints);
+			}
+		}
+	}
+
+	const distributed = new Map<string, DistributedAnchor>();
+	for (const endpoints of endpointsByNodeSide.values()) {
+		if (endpoints.length <= 1) continue;
+		const sorted = [...endpoints].sort((a, b) => {
+			const byEdge = a.edgeId.localeCompare(b.edgeId);
+			return byEdge === 0 ? a.role.localeCompare(b.role) : byEdge;
+		});
+		const first = sorted[0];
+		if (first === undefined) continue;
+		const box = boxes.get(first.nodeId)?.box;
+		if (box === undefined) continue;
+		for (let index = 0; index < sorted.length; index += 1) {
+			const endpoint = sorted[index];
+			if (endpoint === undefined) continue;
+			distributed.set(endpointDistributionKey(endpoint.edgeId, endpoint.role), {
+				anchor: endpoint.side,
+				point: distributedAnchorPoint(
+					box,
+					endpoint.side,
+					index,
+					sorted.length,
+					minSpacing,
+				),
+			});
+		}
+	}
+	return distributed;
+}
+
+function distributableAnchorSide(
+	anchor: NormalizedEdge["source"]["anchor"] | undefined,
+	ownBox: Box,
+	otherBox: Box,
+	direction: NormalizedDiagram["direction"],
+): AnchorSide | undefined {
+	if (anchor === undefined) {
+		return anchorSideForEndpoint(anchor, ownBox, otherBox, direction);
+	}
+	if (
+		anchor === "top" ||
+		anchor === "right" ||
+		anchor === "bottom" ||
+		anchor === "left"
+	) {
+		return anchor;
+	}
+	return undefined;
+}
+
+function distributedAnchorPoint(
+	box: Box,
+	side: AnchorSide,
+	index: number,
+	count: number,
+	minSpacing: number,
+): Point {
+	const center = boxCenter(box);
+	const vertical = side === "left" || side === "right";
+	const span = vertical ? box.height : box.width;
+	const usableSpan = Math.max(0, span - PORT_BOX_SIZE);
+	const spacing =
+		count <= 1 ? 0 : Math.min(minSpacing, usableSpan / Math.max(1, count - 1));
+	const offset = (index - (count - 1) / 2) * spacing;
+	switch (side) {
+		case "left":
+			return { x: box.x, y: center.y + offset };
+		case "right":
+			return { x: box.x + box.width, y: center.y + offset };
+		case "top":
+			return { x: center.x + offset, y: box.y };
+		case "bottom":
+			return { x: center.x + offset, y: box.y + box.height };
+	}
+}
+
+function endpointDistributionKey(edgeId: string, role: EndpointRole): string {
+	return `${edgeId}:${role}`;
+}
+
+function withDistributedAnchor(
+	geometry: ReturnType<typeof computeShapeGeometry>,
+	distributed: DistributedAnchor | undefined,
+): ReturnType<typeof computeShapeGeometry> {
+	if (distributed === undefined) return geometry;
+	return {
+		...geometry,
+		anchors: geometry.anchors.map((anchor) =>
+			anchor.name === distributed.anchor
+				? { ...anchor, point: distributed.point }
+				: anchor,
+		),
+	};
+}
+
 function coordinatePorts(
 	node: NormalizedNode,
 	nodeBox: Box,
@@ -2963,8 +3154,17 @@ function coordinateSwimlanes(
 		const padding = swimlane.padding ?? 16;
 		const contractLayout = layouts.get(swimlane.id);
 		if (options.fixedSwimlaneGeometry && hasFixedSwimlaneGeometry(swimlane)) {
-			const fixedLanes = swimlane.lanes.map((lane) => {
-				const box = lane.box ?? fixedLaneBoxFromChildren(lane, nodeBoxes);
+			const fixedLanes = swimlane.lanes.map((lane, index) => {
+				const box =
+					lane.box ??
+					(swimlane.box === undefined
+						? fixedLaneBoxFromChildren(lane, nodeBoxes)
+						: fixedLaneBoxFromSwimlaneBox(
+								swimlane.box,
+								swimlane.orientation,
+								index,
+								Math.max(1, swimlane.lanes.length),
+							));
 				if (box === undefined) {
 					return lane;
 				}
@@ -2978,13 +3178,24 @@ function coordinateSwimlanes(
 					swimlane.orientation,
 					headerHeight,
 				);
-				reportFixedSwimlaneOverflow(
-					swimlane.id,
-					lane,
-					contentBox,
-					nodeBoxes,
-					diagnostics,
-				);
+				if (swimlane.box !== undefined && !containsBox(swimlane.box, box)) {
+					reportFixedLaneBoxOverflow(
+						swimlane.id,
+						lane.id,
+						swimlane.box,
+						box,
+						diagnostics,
+					);
+				}
+				if (lane.box !== undefined || swimlane.box !== undefined) {
+					reportFixedSwimlaneOverflow(
+						swimlane.id,
+						lane,
+						contentBox,
+						nodeBoxes,
+						diagnostics,
+					);
+				}
 				return {
 					...lane,
 					box,
@@ -3161,6 +3372,30 @@ function fixedLaneBoxFromChildren(
 	return childBoxes.length === 0 ? undefined : unionBoxes(childBoxes);
 }
 
+function fixedLaneBoxFromSwimlaneBox(
+	box: Box,
+	orientation: Swimlane["orientation"],
+	index: number,
+	count: number,
+): Box {
+	if (orientation === "vertical") {
+		const width = box.width / count;
+		return {
+			x: box.x + width * index,
+			y: box.y,
+			width,
+			height: box.height,
+		};
+	}
+	const height = box.height / count;
+	return {
+		x: box.x,
+		y: box.y + height * index,
+		width: box.width,
+		height,
+	};
+}
+
 function fixedLaneHeaderBox(
 	box: Box,
 	orientation: Swimlane["orientation"],
@@ -3189,6 +3424,35 @@ function fixedLaneContentBox(
 				width: Math.max(0, box.width - headerHeight),
 				height: box.height,
 			};
+}
+
+function reportFixedLaneBoxOverflow(
+	swimlaneId: string,
+	laneId: string,
+	swimlaneBox: Box,
+	laneBox: Box,
+	diagnostics: Diagnostic[],
+): void {
+	diagnostics.push({
+		severity: "warning",
+		code: "layout.container-fixed-bounds-overflow",
+		message: `Fixed swimlane ${swimlaneId} does not contain fixed lane ${laneId}.`,
+		path: ["swimlanes", swimlaneId, "lanes", laneId],
+		detail: compactDetail({
+			swimlaneId,
+			laneId,
+			containerX: Math.round(swimlaneBox.x),
+			containerY: Math.round(swimlaneBox.y),
+			containerWidth: Math.round(swimlaneBox.width),
+			containerHeight: Math.round(swimlaneBox.height),
+			laneX: Math.round(laneBox.x),
+			laneY: Math.round(laneBox.y),
+			laneWidth: Math.round(laneBox.width),
+			laneHeight: Math.round(laneBox.height),
+			suggestedRemedy:
+				"Move the fixed lane inside the swimlane box or increase the fixed swimlane bounds.",
+		}),
+	});
 }
 
 function reportFixedSwimlaneOverflow(
@@ -3869,6 +4133,12 @@ function coordinateEdges(
 		direction,
 		options,
 	);
+	const distributedAnchors = distributedAnchorPointsByEndpoint(
+		edges,
+		nodes,
+		direction,
+		options,
+	);
 
 	for (const edge of edges) {
 		const source = nodes.get(edge.source.nodeId);
@@ -3893,9 +4163,41 @@ function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
+		const sourceDistributedAnchor = distributedAnchors.get(
+			endpointDistributionKey(edge.id, "source"),
+		);
+		const targetDistributedAnchor = distributedAnchors.get(
+			endpointDistributionKey(edge.id, "target"),
+		);
+		const sourceGeometry = withDistributedAnchor(
+			portGeometry(source, sourcePort),
+			sourceDistributedAnchor,
+		);
+		const targetGeometry = withDistributedAnchor(
+			portGeometry(target, targetPort),
+			targetDistributedAnchor,
+		);
+		const sourceAnchor = edge.source.anchor ?? sourceDistributedAnchor?.anchor;
+		const targetAnchor = edge.target.anchor ?? targetDistributedAnchor?.anchor;
+		const routeTextObstacles = textObstacles
+			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
+			.map((annotation) => textObstacleBox(annotation, options));
+		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
+		const routeNodeObstacles = queryBoxSpatialIndex(nodeObstacleIndex, corridor)
+			.map((entry) => entry.box)
+			.filter(
+				(obstacle) =>
+					!sameBox(obstacle, source.obstacleBox) &&
+					!sameBox(obstacle, target.obstacleBox),
+			);
+		const routeGroupObstacles = groupObstaclesForEdge(
+			edge,
+			groups,
+			options.obstacleMargin ?? 0,
+		);
 		const railIndex = railIndexByEdgeId.get(edge.id);
 		if (railIndex !== undefined) {
-			if (railIndex > 24) {
+			if (railIndex >= 24) {
 				diagnostics.push({
 					severity: "warning",
 					code: "routing.rail-capacity.exceeded",
@@ -3909,47 +4211,44 @@ function coordinateEdges(
 					},
 				});
 			}
-			coordinated.push({
-				...edge,
-				points: railRoutePoints(
-					portGeometry(source, sourcePort),
-					portGeometry(target, targetPort),
-					edge.source.anchor,
-					edge.target.anchor,
-					direction,
-					contentBounds,
-					railIndex,
-				),
-			});
-			continue;
-		}
-		const routeTextObstacles = textObstacles
-			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
-			.map((annotation) => textObstacleBox(annotation, options));
-		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
-		const routeNodeObstacles = queryBoxSpatialIndex(nodeObstacleIndex, corridor)
-			.map((entry) => entry.box)
-			.filter(
-				(obstacle) =>
-					!sameBox(obstacle, source.obstacleBox) &&
-					!sameBox(obstacle, target.obstacleBox),
+			const railPoints = railRoutePoints(
+				sourceGeometry,
+				targetGeometry,
+				sourceAnchor,
+				targetAnchor,
+				direction,
+				contentBounds,
+				railIndex,
 			);
+			const railSoftObstacles = [
+				...routeNodeObstacles,
+				...softObstacles,
+				...routeGroupObstacles,
+				...routeTextObstacles,
+			];
+			if (
+				!routeCrossesBoxes(railPoints, railSoftObstacles) &&
+				!routeCrossesBoxes(railPoints, hardObstacles)
+			) {
+				coordinated.push({
+					...edge,
+					points: railPoints,
+				});
+				continue;
+			}
+		}
 
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
 			direction,
-			source: portGeometry(source, sourcePort),
-			target: portGeometry(target, targetPort),
-			...(edge.source.anchor === undefined
-				? {}
-				: { sourceAnchor: edge.source.anchor }),
-			...(edge.target.anchor === undefined
-				? {}
-				: { targetAnchor: edge.target.anchor }),
+			source: sourceGeometry,
+			target: targetGeometry,
+			...(sourceAnchor === undefined ? {} : { sourceAnchor }),
+			...(targetAnchor === undefined ? {} : { targetAnchor }),
 			obstacles: [
 				...routeNodeObstacles,
 				...softObstacles,
-				...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+				...routeGroupObstacles,
 				...routeTextObstacles,
 			],
 			hardObstacles,
@@ -4022,8 +4321,8 @@ function railRouteIndexByEdgeId(
 function railRoutePoints(
 	source: ReturnType<typeof computeShapeGeometry>,
 	target: ReturnType<typeof computeShapeGeometry>,
-	sourceAnchor: NormalizedEdge["source"]["anchor"] | undefined,
-	targetAnchor: NormalizedEdge["target"]["anchor"] | undefined,
+	sourceAnchor: AnchorName | undefined,
+	targetAnchor: AnchorName | undefined,
 	direction: NormalizedDiagram["direction"],
 	contentBounds: Box,
 	railIndex: number,
@@ -4052,8 +4351,12 @@ function railRoutePoints(
 						source.box,
 						direction,
 					);
-		const start = sidePoint(source.box, sourceSide);
-		const end = sidePoint(target.box, targetSide);
+		const start = getEdgePort(
+			source,
+			target.center,
+			sourceAnchor ?? sourceSide,
+		);
+		const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
 		const sourceJogX = sourceSide === "left" ? start.x - gap : start.x + gap;
 		const targetJogX = targetSide === "left" ? end.x - gap : end.x + gap;
 		const railY = contentBounds.y - 32 - railIndex * gap;
@@ -4078,8 +4381,8 @@ function railRoutePoints(
 				? "bottom"
 				: "top"
 			: anchorSideForEndpoint(targetAnchor, target.box, source.box, direction);
-	const start = sidePoint(source.box, sourceSide);
-	const end = sidePoint(target.box, targetSide);
+	const start = getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
+	const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
 	const sourceJogY = sourceSide === "top" ? start.y - gap : start.y + gap;
 	const targetJogY = targetSide === "top" ? end.y - gap : end.y + gap;
 	const railX = contentBounds.x - 32 - railIndex * gap;
@@ -4091,19 +4394,6 @@ function railRoutePoints(
 		{ x: end.x, y: targetJogY },
 		end,
 	]);
-}
-
-function sidePoint(box: Box, side: AnchorSide): Point {
-	switch (side) {
-		case "top":
-			return { x: box.x + box.width / 2, y: box.y };
-		case "right":
-			return { x: box.x + box.width, y: box.y + box.height / 2 };
-		case "bottom":
-			return { x: box.x + box.width / 2, y: box.y + box.height };
-		case "left":
-			return { x: box.x, y: box.y + box.height / 2 };
-	}
 }
 
 function compactRoutePoints(points: readonly Point[]): Point[] {
@@ -4119,6 +4409,35 @@ function compactRoutePoints(points: readonly Point[]): Point[] {
 		}
 	}
 	return compacted;
+}
+
+function routeCrossesBoxes(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): boolean {
+	for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+		const start = points[pointIndex];
+		const end = points[pointIndex + 1];
+		if (start === undefined || end === undefined) {
+			continue;
+		}
+		const segment = segmentBox(start, end);
+		for (const obstacle of obstacles) {
+			if (intersectsAabb(segment, obstacle)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+function segmentBox(start: Point, end: Point): Box {
+	return {
+		x: Math.min(start.x, end.x),
+		y: Math.min(start.y, end.y),
+		width: Math.abs(end.x - start.x),
+		height: Math.abs(end.y - start.y),
+	};
 }
 
 function edgeCorridorBox(source: Box, target: Box, margin: number): Box {
@@ -4503,25 +4822,34 @@ function estimateEdgeLabelAnnotations(
 				placement,
 				layout,
 				labelBaseOffset,
-			).slice(0, 9);
-			for (const candidate of candidates) {
+			);
+			const candidate =
+				candidates.find((candidate) => {
+					const labelBox = {
+						x: candidate.x - layout.box.width / 2,
+						y: candidate.y - layout.box.height / 2,
+						width: layout.box.width,
+						height: layout.box.height,
+					};
+					return !routeIntersectsTextBox(path, labelBox);
+				}) ?? candidates[0];
+			if (candidate !== undefined) {
 				const key = `${Math.round(candidate.x * 10) / 10},${
 					Math.round(candidate.y * 10) / 10
 				}`;
-				if (seen.has(key)) {
-					continue;
+				if (!seen.has(key)) {
+					seen.add(key);
+					annotations.push(
+						buildCenteredTextAnnotation({
+							ownerId: edge.id,
+							surfaceKind: "edge-label",
+							surfaceIndex,
+							layout,
+							center: candidate,
+						}),
+					);
+					surfaceIndex += 1;
 				}
-				seen.add(key);
-				annotations.push(
-					buildCenteredTextAnnotation({
-						ownerId: edge.id,
-						surfaceKind: "edge-label",
-						surfaceIndex,
-						layout,
-						center: candidate,
-					}),
-				);
-				surfaceIndex += 1;
 			}
 		}
 	}

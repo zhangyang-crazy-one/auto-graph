@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import { computeArrowhead } from "../src/exporters/arrow.js";
 import {
+	type Box,
 	DELIVERABILITY_DIAGNOSTIC_CODES,
 	type Diagnostic,
 	type LabelLayout,
@@ -2173,6 +2174,93 @@ describe("solveDiagram", () => {
 		});
 	});
 
+	it("derives missing fixed lane boxes from the authored swimlane box", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane-parent-derived-lanes",
+				direction: "LR",
+				nodes: [node("a", { x: 120, y: 80 }), node("b", { x: 230, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{ id: "left", children: ["a"] },
+							{ id: "right", children: ["b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.swimlanes?.[0]?.lanes[0]?.box).toEqual({
+			x: 100,
+			y: 40,
+			width: 110,
+			height: 160,
+		});
+		expect(result.swimlanes?.[0]?.lanes[1]?.box).toEqual({
+			x: 210,
+			y: 40,
+			width: 110,
+			height: 160,
+		});
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.container-fixed-bounds-overflow",
+			}),
+		);
+	});
+
+	it("diagnoses fixed lane boxes outside an authored swimlane box", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-lane-outside-parent",
+				direction: "LR",
+				nodes: [node("a", { x: 150, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "outside",
+								children: ["a"],
+								box: { x: 340, y: 40, width: 120, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "layout.container-fixed-bounds-overflow",
+				detail: expect.objectContaining({
+					swimlaneId: "lanes",
+					laneId: "outside",
+				}),
+			}),
+		);
+	});
+
 	it("diagnoses children outside fixed swimlane content bounds", () => {
 		const result = solveDiagram(
 			{
@@ -3355,6 +3443,9 @@ it("grows overloaded implicit anchor sides before routing", () => {
 	);
 
 	expect(nodeBox(result, "source").height).toBeGreaterThanOrEqual(106);
+	expect(new Set(result.edges.map((edge) => edge.points[0]?.y)).size).toBe(
+		targets.length,
+	);
 	expect(result.diagnostics).not.toContainEqual(
 		expect.objectContaining({
 			code: "routing.anchor-capacity.requires-resize",
@@ -3455,6 +3546,114 @@ it("routes dense same-rank dependencies through deterministic rails", () => {
 	for (const railY of railYs) {
 		expect(railY).toBeLessThan(minNodeY);
 	}
+});
+
+it("falls back from dependency rails that would cross hard obstacles", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `rail-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `rail-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-routing-hard-obstacle",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `rail-edge-${index}`,
+				source: { nodeId: `rail-source-${index}` },
+				target: { nodeId: `rail-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			matrices: [
+				{
+					id: "rail-hard-block",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 90, y: -70 },
+					size: { width: 48, height: 64 },
+				},
+			],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	const block = result.matrices?.[0]?.box;
+	expect(block).toBeDefined();
+	if (block !== undefined) {
+		for (const edge of result.edges) {
+			expect(routeCrossesBox(edge.points, block)).toBe(false);
+		}
+	}
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.evidence.crossing_forbidden" }),
+	);
+});
+
+it("reports the twenty-fifth dependency rail as over capacity", () => {
+	const pairCount = 25;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `capacity-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `capacity-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-capacity",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `capacity-edge-${index}`,
+				source: { nodeId: `capacity-source-${index}` },
+				target: { nodeId: `capacity-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.rail-capacity.exceeded",
+			detail: expect.objectContaining({ railIndex: 24 }),
+		}),
+	);
 });
 
 it("applies routingGutter to expand node obstacle clearance", () => {
@@ -3699,6 +3898,32 @@ function nodeBox(result: ReturnType<typeof solveDiagram>, id: string) {
 		throw new Error(`Expected solved node ${id}`);
 	}
 	return found.box;
+}
+
+function routeCrossesBox(
+	points: readonly { x: number; y: number }[],
+	box: Box,
+) {
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) continue;
+		const segment = {
+			x: Math.min(start.x, end.x),
+			y: Math.min(start.y, end.y),
+			width: Math.abs(end.x - start.x),
+			height: Math.abs(end.y - start.y),
+		};
+		if (
+			segment.x < box.x + box.width &&
+			segment.x + segment.width > box.x &&
+			segment.y < box.y + box.height &&
+			segment.y + segment.height > box.y
+		) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function createTestLabelLayout(

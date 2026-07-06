@@ -114,10 +114,10 @@ constraints:
 
 ```yaml
 layout:
-  initialLayout: positions
+  mode: positions
   direction: LR
 routing:
-  routeKind: obstacle-avoiding
+  kind: obstacle-avoiding
   edgeLabelRerouting: { maxIterations: 2 }
   compactTextObstacles: labels-only
   textIntersectionTolerance: 2
