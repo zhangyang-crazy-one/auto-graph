@@ -338,6 +338,7 @@ export function solveDiagram(
 	expandNodeBoxesForPorts(styledNodes, initialNodeBoxes, options, diagnostics);
 	expandNodeBoxesForAnchorCapacity(
 		styledEdges,
+		styledNodes,
 		initialNodeBoxes,
 		diagram.direction,
 		options,
@@ -362,16 +363,22 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
-	const swimlaneContracts =
+	const contractSwimlanes =
 		options.fixedSwimlaneGeometry === true ||
 		options.fixedSwimlaneGeometry === "diagnose-overflow"
+			? styledSwimlanes.filter(
+					(swimlane) => !hasFixedSwimlaneGeometry(swimlane),
+				)
+			: styledSwimlanes;
+	const swimlaneContracts =
+		contractSwimlanes.length === 0
 			? {
 					layouts: new Map<string, SwimlaneContractLayout>(),
 					diagnostics: [] as Diagnostic[],
 					movedChildIds: new Set<string>(),
 				}
 			: applySwimlaneLayoutContracts(
-					styledSwimlanes,
+					contractSwimlanes,
 					constraints,
 					styledEdges,
 					isTopToBottomReadingDirection(
@@ -526,11 +533,11 @@ export function solveDiagram(
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(allBoxes);
-	const frame =
+	let frame =
 		diagram.frame === undefined
 			? undefined
 			: coordinateFrame(diagram.frame, contentBounds);
-	const frameTextAnnotation =
+	let frameTextAnnotation =
 		frame === undefined
 			? []
 			: [coordinateFrameTextAnnotation(frame, options.textMeasurer)];
@@ -614,9 +621,20 @@ export function solveDiagram(
 		if (edgeLabelConflicts.length === 0) {
 			break;
 		}
+		const conflictingEdgeIds = new Set(
+			edgeLabelConflicts
+				.map((diagnostic) => diagnostic.detail?.edgeId)
+				.filter((edgeId): edgeId is string => typeof edgeId === "string"),
+		);
+		const conflictingStyledEdges = styledEdges.filter((edge) =>
+			conflictingEdgeIds.has(edge.id),
+		);
+		if (conflictingStyledEdges.length === 0) {
+			break;
+		}
 		const rerouteDiagnostics: Diagnostic[] = [];
 		const reroutedEdges = coordinateEdges(
-			styledEdges,
+			conflictingStyledEdges,
 			nodeGeometryById,
 			coordinatedNodes,
 			[...nodeGeometryById.values()].map((geometry) =>
@@ -637,10 +655,19 @@ export function solveDiagram(
 			coordinatedGroups,
 			contentBounds,
 		);
-		coordinatedEdges = reroutedEdges;
+		const reroutedById = new Map(
+			reroutedEdges.map((edge) => [edge.id, edge] as const),
+		);
+		coordinatedEdges = coordinatedEdges.map(
+			(edge) => reroutedById.get(edge.id) ?? edge,
+		);
 		edgeRoutingDiagnostics.splice(
 			0,
 			edgeRoutingDiagnostics.length,
+			...edgeRoutingDiagnostics.filter((diagnostic) => {
+				const edgeId = diagnostic.detail?.edgeId;
+				return typeof edgeId !== "string" || !conflictingEdgeIds.has(edgeId);
+			}),
 			...rerouteDiagnostics,
 		);
 		edgeTextAnnotations = coordinateEdgeTextAnnotations(
@@ -656,6 +683,18 @@ export function solveDiagram(
 		);
 	}
 	diagnostics.push(...edgeRoutingDiagnostics);
+	const edgePointBounds = edgeBounds(coordinatedEdges);
+	const boundsBase = [
+		contentBounds,
+		...edgePointBounds,
+		...edgeTextAnnotations.map((annotation) => annotation.box),
+	];
+	if (diagram.frame !== undefined && frame !== undefined) {
+		frame = coordinateFrame(diagram.frame, unionBoxes(boundsBase));
+		frameTextAnnotation = [
+			coordinateFrameTextAnnotation(frame, options.textMeasurer),
+		];
+	}
 	const textAnnotations = [
 		...baseTextAnnotations,
 		...frameTextAnnotation,
@@ -671,12 +710,6 @@ export function solveDiagram(
 	diagnostics.push(
 		...reportLabelCongestionDiagnostics(routeTextDiagnostics, coordinatedEdges),
 	);
-	const edgePointBounds = edgeBounds(coordinatedEdges);
-	const boundsBase = [
-		contentBounds,
-		...edgePointBounds,
-		...edgeTextAnnotations.map((annotation) => annotation.box),
-	];
 	diagnostics.push(
 		...reportPageOverflow(
 			frame === undefined
@@ -2685,26 +2718,8 @@ function expandNodeBoxesForPorts(
 			box.x -= widthExpansion / 2;
 			box.width += widthExpansion;
 		}
-		// Recenter the label layout to match the expanded box.
-		// Only shift layout.box — lines and contentBox stay
-		// relative to the label area so the SVG renderer's
-		// annotation.box + line.box addition is not doubled
-		// (Codex P2: multiline labels on port-expanded nodes).
-		if (
-			(heightExpansion > 0 || widthExpansion > 0) &&
-			node.labelLayout !== undefined
-		) {
-			const layout = node.labelLayout;
-			const newOffsetX = Math.max(0, (box.width - layout.box.width) / 2);
-			const newOffsetY = Math.max(0, (box.height - layout.box.height) / 2);
-			(node as NormalizedNode).labelLayout = {
-				...layout,
-				box: {
-					...layout.box,
-					x: newOffsetX,
-					y: newOffsetY,
-				},
-			};
+		if (heightExpansion > 0 || widthExpansion > 0) {
+			recenterNodeLabelLayout(node, box);
 		}
 	}
 }
@@ -2719,6 +2734,7 @@ interface DistributedAnchor {
 
 function expandNodeBoxesForAnchorCapacity(
 	edges: readonly NormalizedEdge[],
+	nodes: readonly NormalizedNode[],
 	boxes: Map<string, Box>,
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
@@ -2734,6 +2750,7 @@ function expandNodeBoxesForAnchorCapacity(
 	const minSpacing = Math.max(1, config.minSpacing ?? 16);
 	const grow = config.grow ?? true;
 	const counts = new Map<string, Map<AnchorSide, number>>();
+	const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
 
 	for (const edge of edges) {
 		const sourceBox = boxes.get(edge.source.nodeId);
@@ -2741,26 +2758,28 @@ function expandNodeBoxesForAnchorCapacity(
 		if (sourceBox === undefined || targetBox === undefined) {
 			continue;
 		}
-		incrementAnchorCount(
-			counts,
-			edge.source.nodeId,
-			anchorSideForEndpoint(
+		if (edge.source.portId === undefined) {
+			const sourceSide = distributableAnchorSide(
 				edge.source.anchor,
 				sourceBox,
 				targetBox,
 				direction,
-			),
-		);
-		incrementAnchorCount(
-			counts,
-			edge.target.nodeId,
-			anchorSideForEndpoint(
+			);
+			if (sourceSide !== undefined) {
+				incrementAnchorCount(counts, edge.source.nodeId, sourceSide);
+			}
+		}
+		if (edge.target.portId === undefined) {
+			const targetSide = distributableAnchorSide(
 				edge.target.anchor,
 				targetBox,
 				sourceBox,
 				direction,
-			),
-		);
+			);
+			if (targetSide !== undefined) {
+				incrementAnchorCount(counts, edge.target.nodeId, targetSide);
+			}
+		}
 	}
 
 	for (const [nodeId, sideCounts] of [...counts.entries()].sort((a, b) =>
@@ -2812,7 +2831,28 @@ function expandNodeBoxesForAnchorCapacity(
 			box.y -= heightExpansion / 2;
 			box.height += heightExpansion;
 		}
+		if (heightExpansion > 0 || widthExpansion > 0) {
+			const node = nodesById.get(nodeId);
+			if (node !== undefined) {
+				recenterNodeLabelLayout(node, box);
+			}
+		}
 	}
+}
+
+function recenterNodeLabelLayout(node: NormalizedNode, box: Box): void {
+	if (node.labelLayout === undefined) return;
+	const layout = node.labelLayout;
+	const newOffsetX = Math.max(0, (box.width - layout.box.width) / 2);
+	const newOffsetY = Math.max(0, (box.height - layout.box.height) / 2);
+	(node as NormalizedNode).labelLayout = {
+		...layout,
+		box: {
+			...layout.box,
+			x: newOffsetX,
+			y: newOffsetY,
+		},
+	};
 }
 
 function incrementAnchorCount(

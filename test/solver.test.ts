@@ -2174,6 +2174,75 @@ describe("solveDiagram", () => {
 		});
 	});
 
+	it("keeps contract layout for non-fixed swimlanes in fixed mode", () => {
+		const result = solveDiagram(
+			{
+				id: "mixed-fixed-and-contract-swimlanes",
+				direction: "LR",
+				nodes: [
+					node("fixed_child", { x: 130, y: 80 }),
+					node("source_a", { x: 400, y: 0 }),
+					node("source_b", { x: 400, y: 120 }),
+					node("target_a", { x: 520, y: 0 }),
+					node("target_b", { x: 520, y: 120 }),
+				],
+				edges: [
+					{
+						id: "source_a-target_a",
+						source: { nodeId: "source_a" },
+						target: { nodeId: "target_a" },
+					},
+					{
+						id: "source_b-target_b",
+						source: { nodeId: "source_b" },
+						target: { nodeId: "target_b" },
+					},
+				],
+				groups: [],
+				swimlanes: [
+					{
+						id: "fixed",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [{ id: "fixed_lane", children: ["fixed_child"] }],
+					},
+					{
+						id: "contract",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 24,
+						padding: 16,
+						lanes: [
+							{ id: "sources", children: ["source_a", "source_b"] },
+							{ id: "targets", children: ["target_a", "target_b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		const fixed = result.swimlanes?.find((swimlane) => swimlane.id === "fixed");
+		const contract = result.swimlanes?.find(
+			(swimlane) => swimlane.id === "contract",
+		);
+		expect(fixed?.box).toEqual({ x: 100, y: 40, width: 220, height: 160 });
+		expect(contract?.lanes[0]?.headerBox?.height).toBe(24);
+		expect(contract?.lanes[1]?.headerBox?.height).toBe(24);
+		expect(contract?.lanes[0]?.contentBox?.y).toBeGreaterThan(
+			contract?.lanes[0]?.headerBox?.y ?? 0,
+		);
+		expect(
+			result.nodes.find((n) => n.id === "target_a")?.box.x,
+		).toBeGreaterThan(
+			result.nodes.find((n) => n.id === "source_a")?.box.x ?? 0,
+		);
+	});
+
 	it("derives missing fixed lane boxes from the authored swimlane box", () => {
 		const result = solveDiagram(
 			{
@@ -3453,6 +3522,58 @@ it("grows overloaded implicit anchor sides before routing", () => {
 	);
 });
 
+it("recenters node labels after implicit anchor capacity growth", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `label-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-label-recenter",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+					label: { text: "source" },
+					labelLayout: createTestLabelLayout("source", {
+						x: 20,
+						y: 13,
+						width: 40,
+						height: 14,
+					}),
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+		},
+	);
+
+	const source = result.nodes.find((node) => node.id === "source");
+	expect(source?.labelLayout?.box.y).toBeCloseTo(
+		((source?.box.height ?? 0) - (source?.labelLayout?.box.height ?? 0)) / 2,
+		5,
+	);
+});
+
 it("diagnoses overloaded anchor sides when growth is disabled", () => {
 	const targets = Array.from({ length: 5 }, (_, index) => ({
 		id: `fixed-target-${index}`,
@@ -3492,6 +3613,58 @@ it("diagnoses overloaded anchor sides when growth is disabled", () => {
 	);
 
 	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.anchor-capacity.requires-resize",
+			path: ["nodes", "source"],
+		}),
+	);
+});
+
+it("ignores explicit corner anchors during implicit anchor capacity checks", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `corner-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-explicit-corners",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source", anchor: "top-left" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24, grow: false },
+		},
+	);
+
+	expect(nodeBox(result, "source")).toEqual({
+		x: 0,
+		y: 140,
+		width: 80,
+		height: 40,
+	});
+	expect(result.diagnostics).not.toContainEqual(
 		expect.objectContaining({
 			code: "routing.anchor-capacity.requires-resize",
 			path: ["nodes", "source"],
@@ -3545,6 +3718,63 @@ it("routes dense same-rank dependencies through deterministic rails", () => {
 	expect(new Set(railYs).size).toBe(pairCount);
 	for (const railY of railYs) {
 		expect(railY).toBeLessThan(minNodeY);
+	}
+});
+
+it("expands diagram frames to enclose dependency rails", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `framed-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `framed-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "framed-rail-routing",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `framed-edge-${index}`,
+				source: { nodeId: `framed-source-${index}` },
+				target: { nodeId: `framed-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			frame: {
+				kind: "sysml",
+				titleTab: "System",
+			},
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	const frame = result.frame?.box;
+	expect(frame).toBeDefined();
+	if (frame !== undefined) {
+		for (const edge of result.edges) {
+			for (const point of edge.points) {
+				expect(point.x).toBeGreaterThanOrEqual(frame.x);
+				expect(point.x).toBeLessThanOrEqual(frame.x + frame.width);
+				expect(point.y).toBeGreaterThanOrEqual(frame.y);
+				expect(point.y).toBeLessThanOrEqual(frame.y + frame.height);
+			}
+		}
 	}
 });
 
