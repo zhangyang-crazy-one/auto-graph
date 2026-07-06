@@ -2289,6 +2289,62 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("wraps child-derived fixed lane boxes with header and padding", () => {
+		const result = solveDiagram(
+			{
+				id: "partial-fixed-swimlane-derived-lane",
+				direction: "LR",
+				nodes: [node("a", { x: 100, y: 80 }), node("b", { x: 260, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						padding: 12,
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 80, y: 40, width: 120, height: 120 },
+							},
+							{ id: "derived", children: ["b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		const derived = result.swimlanes?.[0]?.lanes.find(
+			(lane) => lane.id === "derived",
+		);
+		const child = nodeBox(result, "b");
+		expect(derived?.box).toEqual({
+			x: child.x - 12,
+			y: child.y - 32,
+			width: child.width + 24,
+			height: child.height + 44,
+		});
+		expect(derived?.contentBox).toBeDefined();
+		if (derived?.contentBox !== undefined) {
+			expect(derived.contentBox.y).toBe(child.y - 12);
+			expect(derived.contentBox.height).toBe(child.height + 24);
+			expect(child.x).toBeGreaterThanOrEqual(derived.contentBox.x);
+			expect(child.y).toBeGreaterThanOrEqual(derived.contentBox.y);
+			expect(child.x + child.width).toBeLessThanOrEqual(
+				derived.contentBox.x + derived.contentBox.width,
+			);
+			expect(child.y + child.height).toBeLessThanOrEqual(
+				derived.contentBox.y + derived.contentBox.height,
+			);
+		}
+	});
+
 	it("diagnoses fixed lane boxes outside an authored swimlane box", () => {
 		const result = solveDiagram(
 			{
@@ -3574,6 +3630,55 @@ it("recenters node labels after implicit anchor capacity growth", () => {
 	);
 });
 
+it("sizes implicit anchor capacity after constraints move endpoint sides", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `moved-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-after-constraints",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: targets.map((target, index) => ({
+				kind: "relative-position" as const,
+				sourceId: target.id,
+				referenceId: "source",
+				relation: "right-of" as const,
+				offset: { x: 220, y: (index - 2) * 70 },
+			})),
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+		},
+	);
+
+	expect(nodeBox(result, "source").height).toBeGreaterThan(40);
+	expect(new Set(result.edges.map((edge) => edge.points[0]?.y)).size).toBe(
+		targets.length,
+	);
+});
+
 it("diagnoses overloaded anchor sides when growth is disabled", () => {
 	const targets = Array.from({ length: 5 }, (_, index) => ({
 		id: `fixed-target-${index}`,
@@ -3718,6 +3823,60 @@ it("routes dense same-rank dependencies through deterministic rails", () => {
 	expect(new Set(railYs).size).toBe(pairCount);
 	for (const railY of railYs) {
 		expect(railY).toBeLessThan(minNodeY);
+	}
+});
+
+it("falls back from rails that cross off-corridor node obstacles", () => {
+	const pairCount = 6;
+	const nodes = [
+		{
+			id: "rail-blocker",
+			shape: "rectangle" as const,
+			size: { width: 20, height: 60 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 90, y: -250 },
+		},
+		...Array.from({ length: pairCount }, (_, index) => [
+			{
+				id: `blocked-source-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: index * 70 },
+			},
+			{
+				id: `blocked-target-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 240, y: index * 70 },
+			},
+		]).flat(),
+	];
+	const result = solveDiagram(
+		{
+			id: "rail-routing-off-corridor-obstacle",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `blocked-edge-${index}`,
+				source: { nodeId: `blocked-source-${index}` },
+				target: { nodeId: `blocked-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	const blocker = nodeBox(result, "rail-blocker");
+	for (const edge of result.edges) {
+		expect(routeCrossesBox(edge.points, blocker)).toBe(false);
 	}
 });
 
@@ -3883,6 +4042,59 @@ it("reports the twenty-fifth dependency rail as over capacity", () => {
 			code: "routing.rail-capacity.exceeded",
 			detail: expect.objectContaining({ railIndex: 24 }),
 		}),
+	);
+});
+
+it("does not report rail capacity for rail candidates that fall back", () => {
+	const pairCount = 25;
+	const nodes = [
+		{
+			id: "capacity-blocker",
+			shape: "rectangle" as const,
+			size: { width: 20, height: 120 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 90, y: -450 },
+		},
+		...Array.from({ length: pairCount }, (_, index) => [
+			{
+				id: `fallback-capacity-source-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: index * 70 },
+			},
+			{
+				id: `fallback-capacity-target-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 240, y: index * 70 },
+			},
+		]).flat(),
+	];
+	const result = solveDiagram(
+		{
+			id: "rail-capacity-fallback",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `fallback-capacity-edge-${index}`,
+				source: { nodeId: `fallback-capacity-source-${index}` },
+				target: { nodeId: `fallback-capacity-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.rail-capacity.exceeded" }),
 	);
 });
 

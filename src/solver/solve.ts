@@ -336,14 +336,6 @@ export function solveDiagram(
 	// so containment, overlap repair, and swimlane contracts see the
 	// final sizes (Codex P2: avoid post-hoc expansion issues).
 	expandNodeBoxesForPorts(styledNodes, initialNodeBoxes, options, diagnostics);
-	expandNodeBoxesForAnchorCapacity(
-		styledEdges,
-		styledNodes,
-		initialNodeBoxes,
-		diagram.direction,
-		options,
-		diagnostics,
-	);
 
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
@@ -363,6 +355,14 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
+	expandNodeBoxesForAnchorCapacity(
+		styledEdges,
+		styledNodes,
+		constrained.boxes,
+		diagram.direction,
+		options,
+		diagnostics,
+	);
 	const contractSwimlanes =
 		options.fixedSwimlaneGeometry === true ||
 		options.fixedSwimlaneGeometry === "diagnose-overflow"
@@ -654,6 +654,7 @@ export function solveDiagram(
 			rerouteDiagnostics,
 			coordinatedGroups,
 			contentBounds,
+			styledEdges,
 		);
 		const reroutedById = new Map(
 			reroutedEdges.map((edge) => [edge.id, edge] as const),
@@ -3198,7 +3199,13 @@ function coordinateSwimlanes(
 				const box =
 					lane.box ??
 					(swimlane.box === undefined
-						? fixedLaneBoxFromChildren(lane, nodeBoxes)
+						? fixedLaneBoxFromChildren(
+								lane,
+								nodeBoxes,
+								swimlane.orientation,
+								headerHeight,
+								padding,
+							)
 						: fixedLaneBoxFromSwimlaneBox(
 								swimlane.box,
 								swimlane.orientation,
@@ -3405,11 +3412,41 @@ function hasFixedSwimlaneGeometry(swimlane: Swimlane): boolean {
 function fixedLaneBoxFromChildren(
 	lane: SwimlaneLane,
 	nodeBoxes: ReadonlyMap<string, Box>,
+	orientation: Swimlane["orientation"],
+	headerHeight: number,
+	padding: number,
 ): Box | undefined {
 	const childBoxes = lane.children
 		.map((child) => nodeBoxes.get(child))
 		.filter((box): box is Box => box !== undefined);
-	return childBoxes.length === 0 ? undefined : unionBoxes(childBoxes);
+	if (childBoxes.length === 0) return undefined;
+	return wrapFixedLaneContentBox(
+		unionBoxes(childBoxes),
+		orientation,
+		headerHeight,
+		padding,
+	);
+}
+
+function wrapFixedLaneContentBox(
+	contentBox: Box,
+	orientation: Swimlane["orientation"],
+	headerHeight: number,
+	padding: number,
+): Box {
+	return orientation === "vertical"
+		? {
+				x: contentBox.x - padding,
+				y: contentBox.y - padding - headerHeight,
+				width: contentBox.width + padding * 2,
+				height: contentBox.height + padding * 2 + headerHeight,
+			}
+		: {
+				x: contentBox.x - padding - headerHeight,
+				y: contentBox.y - padding,
+				width: contentBox.width + padding * 2 + headerHeight,
+				height: contentBox.height + padding * 2,
+			};
 }
 
 function fixedLaneBoxFromSwimlaneBox(
@@ -4137,6 +4174,7 @@ function coordinateEdges(
 	diagnostics: Diagnostic[],
 	groups: readonly CoordinatedGroup[],
 	contentBounds: Box,
+	allocationEdges: readonly NormalizedEdge[] = edges,
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
@@ -4168,13 +4206,13 @@ function coordinateEdges(
 		queryGutter,
 	);
 	const railIndexByEdgeId = railRouteIndexByEdgeId(
-		edges,
+		allocationEdges,
 		nodes,
 		direction,
 		options,
 	);
 	const distributedAnchors = distributedAnchorPointsByEndpoint(
-		edges,
+		allocationEdges,
 		nodes,
 		direction,
 		options,
@@ -4237,20 +4275,6 @@ function coordinateEdges(
 		);
 		const railIndex = railIndexByEdgeId.get(edge.id);
 		if (railIndex !== undefined) {
-			if (railIndex >= 24) {
-				diagnostics.push({
-					severity: "warning",
-					code: "routing.rail-capacity.exceeded",
-					message: `Rail routing for edge ${edge.id} exceeded the recommended 24-lane budget.`,
-					path: ["edges", edge.id],
-					detail: {
-						edgeId: edge.id,
-						railIndex,
-						suggestedRemedy:
-							"Split the dependency group, increase page bounds, or use explicit constraints.",
-					},
-				});
-			}
 			const railPoints = railRoutePoints(
 				sourceGeometry,
 				targetGeometry,
@@ -4260,8 +4284,13 @@ function coordinateEdges(
 				contentBounds,
 				railIndex,
 			);
+			const railNodeObstacles = obstacles.filter(
+				(obstacle) =>
+					!intersectsAabb(obstacle, source.box) &&
+					!intersectsAabb(obstacle, target.box),
+			);
 			const railSoftObstacles = [
-				...routeNodeObstacles,
+				...railNodeObstacles,
 				...softObstacles,
 				...routeGroupObstacles,
 				...routeTextObstacles,
@@ -4270,6 +4299,9 @@ function coordinateEdges(
 				!routeCrossesBoxes(railPoints, railSoftObstacles) &&
 				!routeCrossesBoxes(railPoints, hardObstacles)
 			) {
+				if (railIndex >= 24) {
+					diagnostics.push(railCapacityDiagnostic(edge.id, railIndex));
+				}
 				coordinated.push({
 					...edge,
 					points: railPoints,
@@ -4320,6 +4352,21 @@ function coordinateEdges(
 	}
 
 	return coordinated;
+}
+
+function railCapacityDiagnostic(edgeId: string, railIndex: number): Diagnostic {
+	return {
+		severity: "warning",
+		code: "routing.rail-capacity.exceeded",
+		message: `Rail routing for edge ${edgeId} exceeded the recommended 24-lane budget.`,
+		path: ["edges", edgeId],
+		detail: {
+			edgeId,
+			railIndex,
+			suggestedRemedy:
+				"Split the dependency group, increase page bounds, or use explicit constraints.",
+		},
+	};
 }
 
 function railRouteIndexByEdgeId(
