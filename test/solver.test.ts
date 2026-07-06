@@ -3316,6 +3316,147 @@ it("uses obstacle-avoiding routing to dodge nodes", () => {
 	expect(result.edges[0]?.points.length).toBeGreaterThanOrEqual(2);
 });
 
+it("grows overloaded implicit anchor sides before routing", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-grow",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+		},
+	);
+
+	expect(nodeBox(result, "source").height).toBeGreaterThanOrEqual(106);
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({
+			code: "routing.anchor-capacity.requires-resize",
+		}),
+	);
+});
+
+it("diagnoses overloaded anchor sides when growth is disabled", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `fixed-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-diagnose",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24, grow: false },
+		},
+	);
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.anchor-capacity.requires-resize",
+			path: ["nodes", "source"],
+		}),
+	);
+});
+
+it("routes dense same-rank dependencies through deterministic rails", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-routing",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `edge-${index}`,
+				source: { nodeId: `source-${index}` },
+				target: { nodeId: `target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+	const minNodeY = Math.min(...result.nodes.map((node) => node.box.y));
+	const railYs = result.edges.map((edge) =>
+		Math.min(...edge.points.map((point) => point.y)),
+	);
+
+	expect(new Set(railYs).size).toBe(pairCount);
+	for (const railY of railYs) {
+		expect(railY).toBeLessThan(minNodeY);
+	}
+});
+
 it("applies routingGutter to expand node obstacle clearance", () => {
 	const without = solveDiagram({
 		id: "gutter-test",

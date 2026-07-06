@@ -12,6 +12,7 @@ export interface VisibilityRouterOptions {
 	readonly margin?: number;
 	readonly endpointObstacles?: readonly Box[];
 	readonly maxCorners?: number;
+	readonly textObstacleVertices?: boolean;
 }
 
 interface CornerVertex {
@@ -43,7 +44,13 @@ export function findCornerGraphPath(
 	const maxCorners = options.maxCorners ?? 600;
 
 	// Collect vertices
-	const vertices = collectCornerVertices(source, target, obstacles, margin);
+	const vertices = collectCornerVertices(
+		source,
+		target,
+		obstacles,
+		margin,
+		options.textObstacleVertices === true,
+	);
 	if (vertices.length > maxCorners) {
 		diagnostics?.push({
 			severity: "warning",
@@ -90,6 +97,7 @@ function collectCornerVertices(
 	target: Point,
 	obstacles: readonly Box[],
 	margin: number = 0,
+	textObstacleVertices = false,
 ): CornerVertex[] {
 	const vertices: CornerVertex[] = [
 		{ point: { x: source.x, y: source.y }, obstacleIndex: -1 },
@@ -122,6 +130,11 @@ function collectCornerVertices(
 		for (const c of [c0, c1, c2, c3]) {
 			addVertex(c, i);
 		}
+		if (textObstacleVertices && isCompactTextObstacle(obs)) {
+			for (const midpoint of compactObstacleMidpoints(obs, margin)) {
+				addVertex(midpoint, i);
+			}
+		}
 	}
 
 	// Steiner points: axis-aligned projections where source/target
@@ -153,6 +166,21 @@ function collectCornerVertices(
 	}
 
 	return vertices;
+}
+
+function isCompactTextObstacle(box: Box): boolean {
+	return box.width <= 160 || box.height <= 40;
+}
+
+function compactObstacleMidpoints(box: Box, margin: number): Point[] {
+	const midX = box.x + box.width / 2;
+	const midY = box.y + box.height / 2;
+	return [
+		{ x: midX, y: box.y - margin },
+		{ x: box.x + box.width + margin, y: midY },
+		{ x: midX, y: box.y + box.height + margin },
+		{ x: box.x - margin, y: midY },
+	];
 }
 
 // ---------------------------------------------------------------------------

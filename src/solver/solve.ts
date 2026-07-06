@@ -335,6 +335,13 @@ export function solveDiagram(
 	// so containment, overlap repair, and swimlane contracts see the
 	// final sizes (Codex P2: avoid post-hoc expansion issues).
 	expandNodeBoxesForPorts(styledNodes, initialNodeBoxes, options, diagnostics);
+	expandNodeBoxesForAnchorCapacity(
+		styledEdges,
+		initialNodeBoxes,
+		diagram.direction,
+		options,
+		diagnostics,
+	);
 
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
@@ -2682,6 +2689,150 @@ function expandNodeBoxesForPorts(
 	}
 }
 
+type AnchorSide = "top" | "right" | "bottom" | "left";
+
+function expandNodeBoxesForAnchorCapacity(
+	edges: readonly NormalizedEdge[],
+	boxes: Map<string, Box>,
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[],
+): void {
+	const enabled =
+		options.anchorCapacity !== false &&
+		(options.anchorCapacity !== undefined ||
+			(options.routeKind ?? "orthogonal") === "obstacle-avoiding");
+	if (!enabled) return;
+	const config =
+		typeof options.anchorCapacity === "object" ? options.anchorCapacity : {};
+	const minSpacing = Math.max(1, config.minSpacing ?? 16);
+	const grow = config.grow ?? true;
+	const counts = new Map<string, Map<AnchorSide, number>>();
+
+	for (const edge of edges) {
+		const sourceBox = boxes.get(edge.source.nodeId);
+		const targetBox = boxes.get(edge.target.nodeId);
+		if (sourceBox === undefined || targetBox === undefined) {
+			continue;
+		}
+		incrementAnchorCount(
+			counts,
+			edge.source.nodeId,
+			anchorSideForEndpoint(
+				edge.source.anchor,
+				sourceBox,
+				targetBox,
+				direction,
+			),
+		);
+		incrementAnchorCount(
+			counts,
+			edge.target.nodeId,
+			anchorSideForEndpoint(
+				edge.target.anchor,
+				targetBox,
+				sourceBox,
+				direction,
+			),
+		);
+	}
+
+	for (const [nodeId, sideCounts] of [...counts.entries()].sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	)) {
+		const box = boxes.get(nodeId);
+		if (box === undefined) continue;
+		let widthExpansion = 0;
+		let heightExpansion = 0;
+		for (const [side, count] of [...sideCounts.entries()].sort((a, b) =>
+			a[0].localeCompare(b[0]),
+		)) {
+			if (count <= 1) continue;
+			const vertical = side === "left" || side === "right";
+			const availableSpan = vertical ? box.height : box.width;
+			const requiredSpan = (count - 1) * minSpacing + PORT_BOX_SIZE;
+			if (requiredSpan <= availableSpan) continue;
+			const expansion = requiredSpan - availableSpan;
+			if (grow) {
+				if (vertical) {
+					heightExpansion = Math.max(heightExpansion, expansion);
+				} else {
+					widthExpansion = Math.max(widthExpansion, expansion);
+				}
+			} else {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.anchor-capacity.requires-resize",
+					message: `Node ${nodeId} needs ${Math.ceil(requiredSpan)} px on ${side} side to fit ${count} edge anchor(s).`,
+					path: ["nodes", nodeId],
+					detail: {
+						nodeId,
+						side,
+						edgeCount: count,
+						availableSpan: Math.round(availableSpan),
+						requiredSpan: Math.ceil(requiredSpan),
+						minSpacing,
+						suggestedRemedy:
+							"Increase node size, reduce same-side fanout, or enable anchorCapacity.grow.",
+					},
+				});
+			}
+		}
+		if (widthExpansion > 0) {
+			box.x -= widthExpansion / 2;
+			box.width += widthExpansion;
+		}
+		if (heightExpansion > 0) {
+			box.y -= heightExpansion / 2;
+			box.height += heightExpansion;
+		}
+	}
+}
+
+function incrementAnchorCount(
+	counts: Map<string, Map<AnchorSide, number>>,
+	nodeId: string,
+	side: AnchorSide,
+): void {
+	const sideCounts = counts.get(nodeId) ?? new Map<AnchorSide, number>();
+	sideCounts.set(side, (sideCounts.get(side) ?? 0) + 1);
+	counts.set(nodeId, sideCounts);
+}
+
+function anchorSideForEndpoint(
+	anchor: NormalizedEdge["source"]["anchor"] | undefined,
+	ownBox: Box,
+	otherBox: Box,
+	direction: NormalizedDiagram["direction"],
+): AnchorSide {
+	if (
+		anchor === "top" ||
+		anchor === "right" ||
+		anchor === "bottom" ||
+		anchor === "left"
+	) {
+		return anchor;
+	}
+	const ownCenter = boxCenter(ownBox);
+	const otherCenter = boxCenter(otherBox);
+	const dx = otherCenter.x - ownCenter.x;
+	const dy = otherCenter.y - ownCenter.y;
+	if (Math.abs(dx) >= Math.abs(dy)) {
+		if (dx !== 0) {
+			return dx > 0 ? "right" : "left";
+		}
+		return direction === "RL" ? "left" : "right";
+	}
+	if (dy !== 0) {
+		return dy > 0 ? "bottom" : "top";
+	}
+	return direction === "BT" ? "top" : "bottom";
+}
+
+function boxCenter(box: Box): Point {
+	return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
 function coordinatePorts(
 	node: NormalizedNode,
 	nodeBox: Box,
@@ -3712,6 +3863,12 @@ function coordinateEdges(
 		obstacles.map((box, index) => ({ id: `node-obstacle:${index}`, box })),
 		queryGutter,
 	);
+	const railIndexByEdgeId = railRouteIndexByEdgeId(
+		edges,
+		nodes,
+		direction,
+		options,
+	);
 
 	for (const edge of edges) {
 		const source = nodes.get(edge.source.nodeId);
@@ -3736,6 +3893,36 @@ function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
+		const railIndex = railIndexByEdgeId.get(edge.id);
+		if (railIndex !== undefined) {
+			if (railIndex > 24) {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.rail-capacity.exceeded",
+					message: `Rail routing for edge ${edge.id} exceeded the recommended 24-lane budget.`,
+					path: ["edges", edge.id],
+					detail: {
+						edgeId: edge.id,
+						railIndex,
+						suggestedRemedy:
+							"Split the dependency group, increase page bounds, or use explicit constraints.",
+					},
+				});
+			}
+			coordinated.push({
+				...edge,
+				points: railRoutePoints(
+					portGeometry(source, sourcePort),
+					portGeometry(target, targetPort),
+					edge.source.anchor,
+					edge.target.anchor,
+					direction,
+					contentBounds,
+					railIndex,
+				),
+			});
+			continue;
+		}
 		const routeTextObstacles = textObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => textObstacleBox(annotation, options));
@@ -3777,6 +3964,9 @@ function coordinateEdges(
 			...(options.maxBacktrackingRatio === undefined
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
+			...(options.textObstacleVertices === undefined
+				? {}
+				: { textObstacleVertices: options.textObstacleVertices }),
 		});
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
@@ -3791,6 +3981,144 @@ function coordinateEdges(
 	}
 
 	return coordinated;
+}
+
+function railRouteIndexByEdgeId(
+	edges: readonly NormalizedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+): Map<string, number> {
+	if (options.railRouting === false || options.railRouting === undefined) {
+		return new Map();
+	}
+	if (
+		options.railRouting === "auto" &&
+		(options.routeKind ?? "orthogonal") !== "obstacle-avoiding"
+	) {
+		return new Map();
+	}
+	const candidates = edges
+		.filter((edge) => {
+			const source = nodes.get(edge.source.nodeId);
+			const target = nodes.get(edge.target.nodeId);
+			if (source === undefined || target === undefined) return false;
+			if (source.box === target.box) return false;
+			const dx = Math.abs(target.center.x - source.center.x);
+			const dy = Math.abs(target.center.y - source.center.y);
+			const maxHeight = Math.max(source.box.height, target.box.height);
+			const maxWidth = Math.max(source.box.width, target.box.width);
+			return direction === "LR" || direction === "RL"
+				? dx >= maxWidth && dy <= maxHeight * 1.5
+				: dy >= maxHeight && dx <= maxWidth * 1.5;
+		})
+		.sort((a, b) => a.id.localeCompare(b.id));
+	if (options.railRouting === "auto" && candidates.length < 6) {
+		return new Map();
+	}
+	return new Map(candidates.map((edge, index) => [edge.id, index]));
+}
+
+function railRoutePoints(
+	source: ReturnType<typeof computeShapeGeometry>,
+	target: ReturnType<typeof computeShapeGeometry>,
+	sourceAnchor: NormalizedEdge["source"]["anchor"] | undefined,
+	targetAnchor: NormalizedEdge["target"]["anchor"] | undefined,
+	direction: NormalizedDiagram["direction"],
+	contentBounds: Box,
+	railIndex: number,
+): Point[] {
+	const gap = 18;
+	if (direction === "LR" || direction === "RL") {
+		const sourceSide =
+			sourceAnchor === undefined
+				? direction === "RL"
+					? "left"
+					: "right"
+				: anchorSideForEndpoint(
+						sourceAnchor,
+						source.box,
+						target.box,
+						direction,
+					);
+		const targetSide =
+			targetAnchor === undefined
+				? direction === "RL"
+					? "right"
+					: "left"
+				: anchorSideForEndpoint(
+						targetAnchor,
+						target.box,
+						source.box,
+						direction,
+					);
+		const start = sidePoint(source.box, sourceSide);
+		const end = sidePoint(target.box, targetSide);
+		const sourceJogX = sourceSide === "left" ? start.x - gap : start.x + gap;
+		const targetJogX = targetSide === "left" ? end.x - gap : end.x + gap;
+		const railY = contentBounds.y - 32 - railIndex * gap;
+		return compactRoutePoints([
+			start,
+			{ x: sourceJogX, y: start.y },
+			{ x: sourceJogX, y: railY },
+			{ x: targetJogX, y: railY },
+			{ x: targetJogX, y: end.y },
+			end,
+		]);
+	}
+	const sourceSide =
+		sourceAnchor === undefined
+			? direction === "BT"
+				? "top"
+				: "bottom"
+			: anchorSideForEndpoint(sourceAnchor, source.box, target.box, direction);
+	const targetSide =
+		targetAnchor === undefined
+			? direction === "BT"
+				? "bottom"
+				: "top"
+			: anchorSideForEndpoint(targetAnchor, target.box, source.box, direction);
+	const start = sidePoint(source.box, sourceSide);
+	const end = sidePoint(target.box, targetSide);
+	const sourceJogY = sourceSide === "top" ? start.y - gap : start.y + gap;
+	const targetJogY = targetSide === "top" ? end.y - gap : end.y + gap;
+	const railX = contentBounds.x - 32 - railIndex * gap;
+	return compactRoutePoints([
+		start,
+		{ x: start.x, y: sourceJogY },
+		{ x: railX, y: sourceJogY },
+		{ x: railX, y: targetJogY },
+		{ x: end.x, y: targetJogY },
+		end,
+	]);
+}
+
+function sidePoint(box: Box, side: AnchorSide): Point {
+	switch (side) {
+		case "top":
+			return { x: box.x + box.width / 2, y: box.y };
+		case "right":
+			return { x: box.x + box.width, y: box.y + box.height / 2 };
+		case "bottom":
+			return { x: box.x + box.width / 2, y: box.y + box.height };
+		case "left":
+			return { x: box.x, y: box.y + box.height / 2 };
+	}
+}
+
+function compactRoutePoints(points: readonly Point[]): Point[] {
+	const compacted: Point[] = [];
+	for (const point of points) {
+		const previous = compacted[compacted.length - 1];
+		if (
+			previous === undefined ||
+			previous.x !== point.x ||
+			previous.y !== point.y
+		) {
+			compacted.push(point);
+		}
+	}
+	return compacted;
 }
 
 function edgeCorridorBox(source: Box, target: Box, margin: number): Box {

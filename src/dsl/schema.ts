@@ -30,6 +30,13 @@ const pointSchema = z.object({
 	y: finiteNumberSchema,
 });
 
+const boxSchema = z.object({
+	x: finiteNumberSchema,
+	y: finiteNumberSchema,
+	width: nonNegativeNumberSchema,
+	height: nonNegativeNumberSchema,
+});
+
 const insetsSchema = z.object({
 	top: finiteNumberSchema,
 	right: finiteNumberSchema,
@@ -150,12 +157,14 @@ const swimlaneSchema = z.object({
 	label: labelSchema.optional(),
 	orientation: z.enum(["vertical", "horizontal"]).optional(),
 	layout: z.enum(["overlay", "contract"]).optional(),
+	box: boxSchema.optional(),
 	headerHeight: nonNegativeNumberSchema.optional(),
 	padding: nonNegativeNumberSchema.optional(),
 	lanes: z.record(
 		z.string(),
 		z.object({
 			label: labelSchema.optional(),
+			box: boxSchema.optional(),
 			children: z.array(z.string()).optional(),
 		}),
 	),
@@ -368,6 +377,34 @@ export const diagramDslSchema = z
 		routing: z
 			.object({
 				kind: routeKindSchema.optional(),
+				textIntersectionTolerance: nonNegativeNumberSchema.optional(),
+				compactTextObstacles: z
+					.union([z.boolean(), z.literal("labels-only")])
+					.optional(),
+				edgeLabelRerouting: z
+					.union([
+						z.boolean(),
+						z.object({
+							maxIterations: nonNegativeNumberSchema.optional(),
+						}),
+					])
+					.optional(),
+				textObstacleVertices: z.boolean().optional(),
+				fixedSwimlaneGeometry: z
+					.union([z.boolean(), z.literal("diagnose-overflow")])
+					.optional(),
+				anchorCapacity: z
+					.union([
+						z.boolean(),
+						z.object({
+							minSpacing: nonNegativeNumberSchema.optional(),
+							grow: z.boolean().optional(),
+						}),
+					])
+					.optional(),
+				railRouting: z
+					.union([z.literal(false), z.literal("auto"), z.literal("dependency")])
+					.optional(),
 				portShifting: z
 					.object({
 						enabled: z.boolean().optional(),

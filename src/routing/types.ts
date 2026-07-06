@@ -38,6 +38,8 @@ export interface RouteEdgeInput {
 	/** Route-length / direct-distance ratio above which a backtracking
 	 * warning is emitted (default 20). */
 	maxBacktrackingRatio?: number;
+	/** Add mid-edge vertices around compact text obstacles to improve clearance. */
+	textObstacleVertices?: boolean;
 }
 
 export interface RouteEdgeResult {

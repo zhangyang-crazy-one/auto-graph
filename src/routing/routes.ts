@@ -185,6 +185,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					endpointObstacles,
 					margin: 2,
 					maxCorners: cornerBudget(cornerObstacles.length),
+					textObstacleVertices: input.textObstacleVertices === true,
 				},
 				diagnostics,
 			);
@@ -199,6 +200,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						endpointObstacles,
 						margin: 2,
 						maxCorners: cornerBudget(allObstacles.length),
+						textObstacleVertices: input.textObstacleVertices === true,
 					},
 					diagnostics,
 				);
@@ -215,6 +217,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						margin: 0,
 						corridorMargin,
 						maxNodes: gridBudget,
+						textObstacleVertices: input.textObstacleVertices === true,
 					},
 					diagnostics,
 				);
@@ -267,6 +270,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 										endpointObstacles,
 										margin: 2,
 										maxCorners: cornerBudget(allObstacles.length),
+										textObstacleVertices: input.textObstacleVertices === true,
 									},
 									diagnostics,
 								)
@@ -313,6 +317,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 							margin: 0,
 							corridorMargin,
 							maxNodes: gridBudget,
+							textObstacleVertices: input.textObstacleVertices === true,
 						},
 						diagnostics,
 					);

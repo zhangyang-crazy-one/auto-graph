@@ -108,6 +108,27 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## 密集走线控制
+
+需要保留坐标的密集图可以通过 YAML `routing` 元数据启用避障走线控制。这些控制保持确定性和无头运行；如果布局无法满足约束，会返回结构化诊断，而不是依赖人工看图判断。
+
+```yaml
+layout:
+  initialLayout: positions
+  direction: LR
+routing:
+  routeKind: obstacle-avoiding
+  edgeLabelRerouting: { maxIterations: 2 }
+  compactTextObstacles: labels-only
+  textIntersectionTolerance: 2
+  textObstacleVertices: true
+  fixedSwimlaneGeometry: diagnose-overflow
+  anchorCapacity: { minSpacing: 16, grow: true }
+  railRouting: dependency
+```
+
+当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`。
+
 ## CLI
 
 ```bash
@@ -134,7 +155,8 @@ auto-graph v0.0.1 包含：
 - 标签适配、形状几何、AABB 避碰工具和连接端口
 - Dagre 初始有向布局
 - exact、relative、align、distribute、containment 约束
-- 直线和正交连接线
+- 直线、正交、避障和密集依赖 rail 走线
+- 文本感知走线避让、边标签重路由、固定泳道几何和结构化拥堵诊断
 - SVG 和 Excalidraw 导出
 - Golden fixture 与确定性测试
 
@@ -144,7 +166,6 @@ auto-graph v0.0.1 包含：
 - draw.io XML 导出
 - Mermaid 导入/导出
 - 完整样式系统
-- CAD 级密集走线
 
 ## 验证
 

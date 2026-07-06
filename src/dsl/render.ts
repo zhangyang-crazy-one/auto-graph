@@ -90,6 +90,7 @@ export function renderDiagramDsl(
 					? "obstacle-avoiding"
 					: "orthogonal",
 		...solvePortShiftingOption(normalized.diagram.metadata?.portShifting),
+		...solveDenseRoutingOptions(normalized.diagram.metadata),
 		...(options.textMeasurer === undefined
 			? {}
 			: { textMeasurer: options.textMeasurer }),
@@ -158,6 +159,93 @@ function solvePortShiftingOption(value: unknown):
 		portShifting.spacing = value.spacing;
 	}
 	return { portShifting };
+}
+
+function solveDenseRoutingOptions(
+	metadata: JsonObject | undefined,
+):
+	| Pick<
+			SolveDiagramOptions,
+			| "textIntersectionTolerance"
+			| "compactTextObstacles"
+			| "edgeLabelRerouting"
+			| "textObstacleVertices"
+			| "fixedSwimlaneGeometry"
+			| "anchorCapacity"
+			| "railRouting"
+	  >
+	| Record<string, never> {
+	if (metadata === undefined) {
+		return {};
+	}
+	const options: Pick<
+		SolveDiagramOptions,
+		| "textIntersectionTolerance"
+		| "compactTextObstacles"
+		| "edgeLabelRerouting"
+		| "textObstacleVertices"
+		| "fixedSwimlaneGeometry"
+		| "anchorCapacity"
+		| "railRouting"
+	> = {};
+	if (typeof metadata.textIntersectionTolerance === "number") {
+		options.textIntersectionTolerance = metadata.textIntersectionTolerance;
+	}
+	if (
+		typeof metadata.compactTextObstacles === "boolean" ||
+		metadata.compactTextObstacles === "labels-only"
+	) {
+		options.compactTextObstacles = metadata.compactTextObstacles;
+	}
+	if (
+		typeof metadata.edgeLabelRerouting === "boolean" ||
+		isEdgeLabelReroutingOptions(metadata.edgeLabelRerouting)
+	) {
+		options.edgeLabelRerouting = metadata.edgeLabelRerouting;
+	}
+	if (typeof metadata.textObstacleVertices === "boolean") {
+		options.textObstacleVertices = metadata.textObstacleVertices;
+	}
+	if (
+		typeof metadata.fixedSwimlaneGeometry === "boolean" ||
+		metadata.fixedSwimlaneGeometry === "diagnose-overflow"
+	) {
+		options.fixedSwimlaneGeometry = metadata.fixedSwimlaneGeometry;
+	}
+	if (
+		typeof metadata.anchorCapacity === "boolean" ||
+		isAnchorCapacityOptions(metadata.anchorCapacity)
+	) {
+		options.anchorCapacity = metadata.anchorCapacity;
+	}
+	if (
+		metadata.railRouting === false ||
+		metadata.railRouting === "auto" ||
+		metadata.railRouting === "dependency"
+	) {
+		options.railRouting = metadata.railRouting;
+	}
+	return options;
+}
+
+function isEdgeLabelReroutingOptions(
+	value: unknown,
+): value is { maxIterations?: number } {
+	return (
+		isJsonObject(value) &&
+		(value.maxIterations === undefined ||
+			typeof value.maxIterations === "number")
+	);
+}
+
+function isAnchorCapacityOptions(
+	value: unknown,
+): value is { minSpacing?: number; grow?: boolean } {
+	return (
+		isJsonObject(value) &&
+		(value.minSpacing === undefined || typeof value.minSpacing === "number") &&
+		(value.grow === undefined || typeof value.grow === "boolean")
+	);
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

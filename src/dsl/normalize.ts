@@ -17,7 +17,7 @@ import type {
 	TableRow,
 	VisualStyle,
 } from "../ir/elements.js";
-import type { Insets, Point, Size } from "../ir/geometry.js";
+import type { Insets, JsonObject, Point, Size } from "../ir/geometry.js";
 import { fitLabel } from "../labels/index.js";
 import { createDefaultTextMeasurer, type TextMeasurer } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
@@ -68,6 +68,7 @@ export function normalizeDiagramDsl(
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
 	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
+	const routingOptions = normalizeDenseRoutingOptions(dsl.routing);
 	const initialLayout = dsl.layout?.mode;
 	const primaryReadingDirection = dsl.layout?.primaryReadingDirection;
 	const matrices = normalizeMatrices(dsl);
@@ -94,6 +95,7 @@ export function normalizeDiagramDsl(
 				? {}
 				: { primaryReadingDirection }),
 			...(portShifting === undefined ? {} : { portShifting }),
+			...routingOptions,
 		},
 	};
 
@@ -102,6 +104,56 @@ export function normalizeDiagramDsl(
 		diagnostics: [],
 		...outputResult(dsl),
 	};
+}
+
+function normalizeDenseRoutingOptions(
+	routing: DiagramDsl["routing"] | undefined,
+): JsonObject {
+	if (routing === undefined) {
+		return {};
+	}
+	const options: JsonObject = {};
+	if (routing.textIntersectionTolerance !== undefined) {
+		options.textIntersectionTolerance = routing.textIntersectionTolerance;
+	}
+	if (routing.compactTextObstacles !== undefined) {
+		options.compactTextObstacles = routing.compactTextObstacles;
+	}
+	if (routing.edgeLabelRerouting !== undefined) {
+		options.edgeLabelRerouting =
+			typeof routing.edgeLabelRerouting === "boolean"
+				? routing.edgeLabelRerouting
+				: objectWithoutUndefined({
+						maxIterations: routing.edgeLabelRerouting.maxIterations,
+					});
+	}
+	if (routing.textObstacleVertices !== undefined) {
+		options.textObstacleVertices = routing.textObstacleVertices;
+	}
+	if (routing.fixedSwimlaneGeometry !== undefined) {
+		options.fixedSwimlaneGeometry = routing.fixedSwimlaneGeometry;
+	}
+	if (routing.anchorCapacity !== undefined) {
+		options.anchorCapacity =
+			typeof routing.anchorCapacity === "boolean"
+				? routing.anchorCapacity
+				: objectWithoutUndefined({
+						minSpacing: routing.anchorCapacity.minSpacing,
+						grow: routing.anchorCapacity.grow,
+					});
+	}
+	if (routing.railRouting !== undefined) {
+		options.railRouting = routing.railRouting;
+	}
+	return options;
+}
+
+function objectWithoutUndefined(
+	value: Record<string, string | number | boolean | undefined>,
+): JsonObject {
+	return Object.fromEntries(
+		Object.entries(value).filter(([, entry]) => entry !== undefined),
+	) as JsonObject;
 }
 
 function normalizePortShifting(
@@ -397,12 +449,14 @@ function normalizeSwimlanes(dsl: DiagramDsl): Swimlane[] {
 				? {}
 				: { headerHeight: swimlane.headerHeight }),
 			...(swimlane?.padding === undefined ? {} : { padding: swimlane.padding }),
+			...(swimlane?.box === undefined ? {} : { box: box(swimlane.box) }),
 			lanes: Object.keys(swimlane?.lanes ?? {}).map((laneId) => {
 				const lane = swimlane?.lanes[laneId];
 				const laneLabel = toLabel(lane?.label);
 				return {
 					id: laneId,
 					...(laneLabel === undefined ? {} : { label: laneLabel }),
+					...(lane?.box === undefined ? {} : { box: box(lane.box) }),
 					children: [...(lane?.children ?? [])],
 				};
 			}),
@@ -887,4 +941,8 @@ function fitDslLabel(label: Label, measurer: TextMeasurer) {
 
 function point(value: Point): Point {
 	return { x: value.x, y: value.y };
+}
+
+function box(value: Point & Size): Point & Size {
+	return { x: value.x, y: value.y, width: value.width, height: value.height };
 }

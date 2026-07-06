@@ -108,6 +108,27 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## Dense Routing Controls
+
+Dense, position-preserving diagrams can opt into obstacle-aware routing controls through YAML `routing` metadata. These controls are deterministic and headless; impossible layouts return structured diagnostics instead of relying on visual inspection.
+
+```yaml
+layout:
+  initialLayout: positions
+  direction: LR
+routing:
+  routeKind: obstacle-avoiding
+  edgeLabelRerouting: { maxIterations: 2 }
+  compactTextObstacles: labels-only
+  textIntersectionTolerance: 2
+  textObstacleVertices: true
+  fixedSwimlaneGeometry: diagnose-overflow
+  anchorCapacity: { minSpacing: 16, grow: true }
+  railRouting: dependency
+```
+
+Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, and `railRouting: dependency` for dense same-rank dependency pages.
+
 ## CLI
 
 ```bash
@@ -134,7 +155,8 @@ auto-graph v0.0.1 includes:
 - Label fitting, shape geometry, AABB collision utilities, and edge ports
 - Dagre-backed initial layout
 - Exact, relative, align, distribute, and containment constraints
-- Straight and orthogonal routing
+- Straight, orthogonal, obstacle-avoiding, and dense dependency rail routing
+- Text-aware route clearance, edge-label rerouting, fixed swimlane geometry, and structured congestion diagnostics
 - SVG and Excalidraw exporters
 - Golden and determinism tests
 
@@ -144,7 +166,6 @@ Out of scope for this first release:
 - draw.io XML export
 - Mermaid import/export
 - Full styling engine
-- CAD-grade dense routing
 
 ## Verification
 
