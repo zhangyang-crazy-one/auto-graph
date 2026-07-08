@@ -7,7 +7,11 @@ import {
 	renderDiagramDsl,
 } from "../src/dsl/index.js";
 import { exportExcalidraw, exportSvg } from "../src/exporters/index.js";
-import type { CoordinatedDiagram, NormalizedDiagram } from "../src/ir/index.js";
+import type {
+	CoordinatedDiagram,
+	LabelLayout,
+	NormalizedDiagram,
+} from "../src/ir/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
 import { solveDiagram } from "../src/solver/index.js";
 
@@ -43,6 +47,32 @@ describe("solver determinism", () => {
 
 		expect(stringifyCanonical(solveDiagram(input))).toBe(
 			stringifyCanonical(solveDiagram(input)),
+		);
+	});
+
+	it("serializes repeated route-label feedback output byte-identically", () => {
+		const input = routeLabelFeedbackDiagram();
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "orthogonal" as const,
+			edgeLabelRerouting: { maxIterations: 2 },
+			textIntersectionTolerance: 0,
+		};
+		const first = solveDiagram(input, options);
+
+		expect(first.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					maxIterations: 2,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+		expect(stringifyCanonical(first)).toBe(
+			stringifyCanonical(solveDiagram(input, options)),
 		);
 	});
 
@@ -219,6 +249,41 @@ function routingDiagram(): NormalizedDiagram {
 	};
 }
 
+function routeLabelFeedbackDiagram(): NormalizedDiagram {
+	return {
+		id: "route-label-feedback-determinism",
+		direction: "LR",
+		nodes: [
+			node("source", { x: 0, y: 0 }),
+			node("target", { x: 240, y: 0 }),
+			{
+				id: "label_owner",
+				shape: "rectangle" as const,
+				size: { width: 0, height: 0 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 120, y: 0 },
+				label: { text: "huge label" },
+				labelLayout: testLabelLayout("huge label", {
+					x: -1_000,
+					y: -1_000,
+					width: 3_000,
+					height: 3_000,
+				}),
+			},
+		],
+		edges: [
+			{
+				id: "source-target",
+				source: { nodeId: "source" },
+				target: { nodeId: "target" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
 function node(id: string, position?: { x: number; y: number }) {
 	return {
 		id,
@@ -226,5 +291,29 @@ function node(id: string, position?: { x: number; y: number }) {
 		size: { width: 80, height: 40 },
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
+	};
+}
+
+function testLabelLayout(text: string, box: LabelLayout["box"]): LabelLayout {
+	return {
+		text,
+		box,
+		contentBox: box,
+		naturalSize: { width: box.width, height: box.height },
+		fittedSize: { width: box.width, height: box.height },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+		lineHeight: 14,
+		lines: [
+			{
+				text,
+				box,
+				baselineY: box.y + 11.2,
+				width: box.width,
+				lineIndex: 0,
+			},
+		],
+		overflow: { horizontal: false, vertical: false, truncated: false },
+		diagnostics: [],
 	};
 }
