@@ -5226,6 +5226,144 @@ function reportLabelCongestionDiagnostics(
 	];
 }
 
+interface RouteLabelFeedbackState {
+	readonly edges: readonly CoordinatedEdge[];
+	readonly edgeTextAnnotations: readonly SolvedTextAnnotation[];
+	readonly edgeRoutingDiagnostics: readonly Diagnostic[];
+	readonly conflicts: readonly Diagnostic[];
+	readonly iteration: number;
+	readonly changedEdgeIds: ReadonlySet<string>;
+	readonly acceptedReroutes: number;
+	readonly rejectedReroutes: number;
+}
+
+interface RouteLabelFeedbackScore {
+	readonly routeTextConflicts: number;
+	readonly edgeRouteTextConflicts: number;
+	readonly hardRouteDiagnostics: number;
+	readonly softRouteDiagnostics: number;
+	readonly backtrackingDiagnostics: number;
+	readonly routeLength: number;
+	readonly bendCount: number;
+}
+
+function routeLabelFeedbackTextAnnotations(
+	baseTextAnnotations: readonly SolvedTextAnnotation[],
+	frameTextAnnotations: readonly SolvedTextAnnotation[],
+	edgeTextAnnotations: readonly SolvedTextAnnotation[],
+): SolvedTextAnnotation[] {
+	return [
+		...baseTextAnnotations,
+		...frameTextAnnotations,
+		...edgeTextAnnotations,
+	];
+}
+
+function routeLabelFeedbackConflicts(
+	edges: readonly CoordinatedEdge[],
+	textAnnotations: readonly SolvedTextAnnotation[],
+	options: SolveDiagramOptions,
+): Diagnostic[] {
+	return reportRouteTextClearance(edges, textAnnotations, options);
+}
+
+function edgeIdsFromRouteTextDiagnostics(
+	diagnostics: readonly Diagnostic[],
+): string[] {
+	return stableStrings(
+		diagnostics
+			.map((diagnostic) => diagnostic.detail?.edgeId)
+			.filter((edgeId): edgeId is string => typeof edgeId === "string"),
+	);
+}
+
+function scoreRouteLabelFeedbackCandidate(
+	edgeId: string,
+	edges: readonly CoordinatedEdge[],
+	textAnnotations: readonly SolvedTextAnnotation[],
+	edgeRoutingDiagnostics: readonly Diagnostic[],
+	options: SolveDiagramOptions,
+): RouteLabelFeedbackScore {
+	const routeTextDiagnostics = routeLabelFeedbackConflicts(
+		edges,
+		textAnnotations,
+		options,
+	);
+	const edgeRouteTextConflicts = routeTextDiagnostics.filter(
+		(diagnostic) => diagnostic.detail?.edgeId === edgeId,
+	).length;
+	const routeDiagnostics = edgeRoutingDiagnostics.filter(
+		(diagnostic) => diagnostic.detail?.edgeId === edgeId,
+	);
+	const edge = edges.find((candidate) => candidate.id === edgeId);
+	return {
+		routeTextConflicts: routeTextDiagnostics.length,
+		edgeRouteTextConflicts,
+		hardRouteDiagnostics: routeDiagnostics.filter(
+			(diagnostic) => diagnostic.code === "routing.evidence.crossing_forbidden",
+		).length,
+		softRouteDiagnostics: routeDiagnostics.filter(
+			(diagnostic) => diagnostic.code === "routing.obstacle.unavoidable",
+		).length,
+		backtrackingDiagnostics: routeDiagnostics.filter(
+			(diagnostic) => diagnostic.code === "routing.backtracking_excessive",
+		).length,
+		routeLength: edge === undefined ? 0 : routePointLength(edge.points),
+		bendCount: edge === undefined ? 0 : routeBendCount(edge.points),
+	};
+}
+
+function compareRouteLabelFeedbackScore(
+	left: RouteLabelFeedbackScore,
+	right: RouteLabelFeedbackScore,
+): number {
+	return (
+		left.routeTextConflicts - right.routeTextConflicts ||
+		left.edgeRouteTextConflicts - right.edgeRouteTextConflicts ||
+		left.hardRouteDiagnostics - right.hardRouteDiagnostics ||
+		left.softRouteDiagnostics - right.softRouteDiagnostics ||
+		left.backtrackingDiagnostics - right.backtrackingDiagnostics ||
+		left.routeLength - right.routeLength ||
+		left.bendCount - right.bendCount
+	);
+}
+
+function routePointLength(points: readonly Point[]): number {
+	let length = 0;
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) {
+			continue;
+		}
+		length += Math.hypot(end.x - start.x, end.y - start.y);
+	}
+	return length;
+}
+
+function routeBendCount(points: readonly Point[]): number {
+	let count = 0;
+	let previousDirection: "horizontal" | "vertical" | "diagonal" | undefined;
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) {
+			continue;
+		}
+		const direction =
+			start.y === end.y
+				? "horizontal"
+				: start.x === end.x
+					? "vertical"
+					: "diagonal";
+		if (previousDirection !== undefined && previousDirection !== direction) {
+			count += 1;
+		}
+		previousDirection = direction;
+	}
+	return count;
+}
+
 function stableStrings(values: readonly string[]): string[] {
 	return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
