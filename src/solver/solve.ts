@@ -681,7 +681,14 @@ export function solveDiagram(
 				routeObstacleBoxes,
 				[...softObstacles, ...titleBarObstacles],
 				baselineTextAnnotations,
-				hardObstacles,
+				[
+					...hardObstacles,
+					...routeLabelFeedbackHardTextObstacles(
+						styledEdge,
+						baselineTextAnnotations,
+						options,
+					),
+				],
 				diagram.direction,
 				options,
 				rerouteDiagnostics,
@@ -5370,6 +5377,17 @@ function routeLabelFeedbackConflicts(
 	options: SolveDiagramOptions,
 ): Diagnostic[] {
 	return reportRouteTextClearance(edges, textAnnotations, options);
+}
+
+function routeLabelFeedbackHardTextObstacles(
+	edge: NormalizedEdge,
+	textAnnotations: readonly SolvedTextAnnotation[],
+	options: SolveDiagramOptions,
+): Box[] {
+	return textAnnotations
+		.filter(isRouteClearanceText)
+		.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
+		.map((annotation) => textObstacleBox(annotation, options));
 }
 
 function edgeIdsFromRouteTextDiagnostics(
