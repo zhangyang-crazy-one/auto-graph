@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closed-loop Route/Label Clearance
 status: milestone_complete
-last_updated: 2026-07-08T18:05:00+08:00
-last_activity: 2026-07-08 -- Phases 09-12 implemented and verified locally
+last_updated: 2026-07-08T20:30:00+08:00
+last_activity: 2026-07-08 -- Quick fix 260708-s5e completed for Issue #74 route-label feedback regression
 progress:
   total_phases: 5
   completed_phases: 5
@@ -21,7 +21,7 @@ stopped_at: Milestone v1.1 complete — ready for final audit/ship
 Phase: 12
 Plan: Complete
 Status: Milestone complete
-Last activity: 2026-07-08
+Last activity: 2026-07-08 - Completed quick task 260708-s5e: Fix issue #74 route-label feedback hard-obstacle regression
 
 ## Project Reference
 
@@ -40,6 +40,7 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 - Phase 10 added edge-label external callout semantics and `routing.externalLabels` DSL forwarding.
 - Phase 11 added page-level rail/gutter allocations, identity-based rail validation, framed rail title avoidance, post-growth overlap reporting, and route fallback fixes.
 - Phase 12 added dense MBSE Stage 5-style acceptance tests for CV dependency and OV/SV resource-flow pages.
+- Quick task 260708-s5e fixed Issue #74: route-label feedback text obstacles no longer surface as fatal evidence-crossing diagnostics, and non-strict downstream consumers can continue to resolved-layout artifacts with structured text-clearance diagnostics.
 
 ## Blockers/Concerns
 
@@ -51,6 +52,7 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260708-hz4 | Issue #71 dense routing algorithm follow-up | 2026-07-08 | 7c99e51 | [260708-hz4-issue-bug](./quick/260708-hz4-issue-bug/) |
+| 260708-s5e | Fix issue #74 route-label feedback hard-obstacle regression | 2026-07-08 | 7ac272c | [260708-s5e-fix-issue-74-route-label-feedback-hard-o](./quick/260708-s5e-fix-issue-74-route-label-feedback-hard-o/) |
 
 ## Next Action
 
