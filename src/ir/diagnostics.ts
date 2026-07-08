@@ -25,6 +25,7 @@ export const DELIVERABILITY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"routing.evidence.crossing_forbidden",
 	"routing.obstacle.unavoidable",
 	"routing.label-congestion.unresolved",
+	"routing.route-label-loop.exhausted",
 	"routing.rail-capacity.exceeded",
 	"routing.anchor-capacity.requires-resize",
 	"routing.container-fixed-bounds-overflow",

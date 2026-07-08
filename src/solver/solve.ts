@@ -577,16 +577,17 @@ export function solveDiagram(
 		}
 	}
 
+	const routeObstacleBoxes = [...nodeGeometryById.values()].map((geometry) =>
+		options.routingGutter === undefined
+			? geometry.obstacleBox
+			: expandBox(geometry.obstacleBox, options.routingGutter),
+	);
 	const edgeRoutingDiagnostics: Diagnostic[] = [];
 	let coordinatedEdges = coordinateEdges(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
-		[...nodeGeometryById.values()].map((geometry) =>
-			options.routingGutter === undefined
-				? geometry.obstacleBox
-				: expandBox(geometry.obstacleBox, options.routingGutter),
-		),
+		routeObstacleBoxes,
 		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
 		hardObstacles,
@@ -608,81 +609,175 @@ export function solveDiagram(
 		options.labelOffset,
 	);
 	const maxEdgeLabelReroutes = edgeLabelRerouteIterations(options);
-	for (let iteration = 0; iteration < maxEdgeLabelReroutes; iteration += 1) {
-		const edgeLabelConflicts = reportRouteTextClearance(
+	let routeLabelFeedbackState: RouteLabelFeedbackState = {
+		edges: coordinatedEdges,
+		edgeTextAnnotations,
+		edgeRoutingDiagnostics,
+		conflicts: routeLabelFeedbackConflicts(
 			coordinatedEdges,
-			edgeTextAnnotations,
-			options,
-		).filter(
-			(diagnostic) =>
-				diagnostic.detail?.textSurfaceKind === "edge-label" &&
-				typeof diagnostic.detail.edgeId === "string",
-		);
-		if (edgeLabelConflicts.length === 0) {
-			break;
-		}
-		const conflictingEdgeIds = new Set(
-			edgeLabelConflicts
-				.map((diagnostic) => diagnostic.detail?.edgeId)
-				.filter((edgeId): edgeId is string => typeof edgeId === "string"),
-		);
-		const conflictingStyledEdges = styledEdges.filter((edge) =>
-			conflictingEdgeIds.has(edge.id),
-		);
-		if (conflictingStyledEdges.length === 0) {
-			break;
-		}
-		const rerouteDiagnostics: Diagnostic[] = [];
-		const reroutedEdges = coordinateEdges(
-			conflictingStyledEdges,
-			nodeGeometryById,
-			coordinatedNodes,
-			[...nodeGeometryById.values()].map((geometry) =>
-				options.routingGutter === undefined
-					? geometry.obstacleBox
-					: expandBox(geometry.obstacleBox, options.routingGutter),
+			routeLabelFeedbackTextAnnotations(
+				baseTextAnnotations,
+				frameTextAnnotation,
+				edgeTextAnnotations,
 			),
-			[...softObstacles, ...titleBarObstacles],
-			[
-				...baseTextAnnotations.filter(isPreRouteTextObstacle),
-				...frameTextAnnotation.filter(isPreRouteTextObstacle),
-				...edgeTextAnnotations,
-			],
-			hardObstacles,
-			diagram.direction,
 			options,
-			rerouteDiagnostics,
-			coordinatedGroups,
-			contentBounds,
-			styledEdges,
+		),
+		iteration: 0,
+		changedEdgeIds: new Set<string>(),
+		acceptedReroutes: 0,
+		rejectedReroutes: 0,
+	};
+	for (let iteration = 0; iteration < maxEdgeLabelReroutes; iteration += 1) {
+		const currentTextAnnotations = routeLabelFeedbackTextAnnotations(
+			baseTextAnnotations,
+			frameTextAnnotation,
+			routeLabelFeedbackState.edgeTextAnnotations,
 		);
-		const reroutedById = new Map(
-			reroutedEdges.map((edge) => [edge.id, edge] as const),
+		const currentConflicts = routeLabelFeedbackConflicts(
+			routeLabelFeedbackState.edges,
+			currentTextAnnotations,
+			options,
 		);
-		coordinatedEdges = coordinatedEdges.map(
-			(edge) => reroutedById.get(edge.id) ?? edge,
-		);
-		edgeRoutingDiagnostics.splice(
-			0,
-			edgeRoutingDiagnostics.length,
-			...edgeRoutingDiagnostics.filter((diagnostic) => {
-				const edgeId = diagnostic.detail?.edgeId;
-				return typeof edgeId !== "string" || !conflictingEdgeIds.has(edgeId);
-			}),
-			...rerouteDiagnostics,
-		);
-		edgeTextAnnotations = coordinateEdgeTextAnnotations(
-			coordinatedEdges,
-			[
-				...coordinatedNodes.map((node) => node.box),
-				...baseTextAnnotations.map((annotation) => annotation.box),
-				...frameTextAnnotation.map((annotation) => annotation.box),
-			],
-			options.textMeasurer,
-			options.labelPlacement,
-			options.labelOffset,
-		);
+		if (currentConflicts.length === 0) {
+			routeLabelFeedbackState = {
+				...routeLabelFeedbackState,
+				conflicts: currentConflicts,
+				iteration,
+			};
+			break;
+		}
+		let iterationState: RouteLabelFeedbackState = {
+			...routeLabelFeedbackState,
+			conflicts: currentConflicts,
+			iteration: iteration + 1,
+		};
+		let acceptedThisIteration = 0;
+		for (const edgeId of edgeIdsFromRouteTextDiagnostics(currentConflicts)) {
+			const styledEdge = styledEdges.find((edge) => edge.id === edgeId);
+			if (styledEdge === undefined) {
+				iterationState = {
+					...iterationState,
+					rejectedReroutes: iterationState.rejectedReroutes + 1,
+				};
+				continue;
+			}
+			const baselineTextAnnotations = routeLabelFeedbackTextAnnotations(
+				baseTextAnnotations,
+				frameTextAnnotation,
+				iterationState.edgeTextAnnotations,
+			);
+			const baselineScore = scoreRouteLabelFeedbackCandidate(
+				edgeId,
+				iterationState.edges,
+				baselineTextAnnotations,
+				iterationState.edgeRoutingDiagnostics,
+				options,
+			);
+			const rerouteDiagnostics: Diagnostic[] = [];
+			const reroutedEdge = coordinateEdges(
+				[styledEdge],
+				nodeGeometryById,
+				coordinatedNodes,
+				routeObstacleBoxes,
+				[...softObstacles, ...titleBarObstacles],
+				baselineTextAnnotations,
+				hardObstacles,
+				diagram.direction,
+				options,
+				rerouteDiagnostics,
+				coordinatedGroups,
+				contentBounds,
+				styledEdges,
+			).find((edge) => edge.id === edgeId);
+			if (reroutedEdge === undefined) {
+				iterationState = {
+					...iterationState,
+					rejectedReroutes: iterationState.rejectedReroutes + 1,
+				};
+				continue;
+			}
+			const candidateEdges = iterationState.edges.map((edge) =>
+				edge.id === edgeId ? reroutedEdge : edge,
+			);
+			const candidateEdgeTextAnnotations = coordinateEdgeTextAnnotations(
+				candidateEdges,
+				[
+					...coordinatedNodes.map((node) => node.box),
+					...baseTextAnnotations.map((annotation) => annotation.box),
+					...frameTextAnnotation.map((annotation) => annotation.box),
+				],
+				options.textMeasurer,
+				options.labelPlacement,
+				options.labelOffset,
+			);
+			const candidateTextAnnotations = routeLabelFeedbackTextAnnotations(
+				baseTextAnnotations,
+				frameTextAnnotation,
+				candidateEdgeTextAnnotations,
+			);
+			const candidateRoutingDiagnostics = replaceRouteDiagnosticsForEdge(
+				iterationState.edgeRoutingDiagnostics,
+				edgeId,
+				rerouteDiagnostics,
+			);
+			const candidateScore = scoreRouteLabelFeedbackCandidate(
+				edgeId,
+				candidateEdges,
+				candidateTextAnnotations,
+				candidateRoutingDiagnostics,
+				options,
+			);
+			if (compareRouteLabelFeedbackScore(candidateScore, baselineScore) >= 0) {
+				iterationState = {
+					...iterationState,
+					rejectedReroutes: iterationState.rejectedReroutes + 1,
+				};
+				continue;
+			}
+			const changedEdgeIds = new Set(iterationState.changedEdgeIds);
+			changedEdgeIds.add(edgeId);
+			iterationState = {
+				edges: candidateEdges,
+				edgeTextAnnotations: candidateEdgeTextAnnotations,
+				edgeRoutingDiagnostics: candidateRoutingDiagnostics,
+				conflicts: routeLabelFeedbackConflicts(
+					candidateEdges,
+					candidateTextAnnotations,
+					options,
+				),
+				iteration: iteration + 1,
+				changedEdgeIds,
+				acceptedReroutes: iterationState.acceptedReroutes + 1,
+				rejectedReroutes: iterationState.rejectedReroutes,
+			};
+			acceptedThisIteration += 1;
+		}
+		routeLabelFeedbackState = {
+			...iterationState,
+			conflicts: routeLabelFeedbackConflicts(
+				iterationState.edges,
+				routeLabelFeedbackTextAnnotations(
+					baseTextAnnotations,
+					frameTextAnnotation,
+					iterationState.edgeTextAnnotations,
+				),
+				options,
+			),
+		};
+		if (
+			acceptedThisIteration === 0 ||
+			routeLabelFeedbackState.conflicts.length === 0
+		) {
+			break;
+		}
 	}
+	coordinatedEdges = [...routeLabelFeedbackState.edges];
+	edgeTextAnnotations = [...routeLabelFeedbackState.edgeTextAnnotations];
+	edgeRoutingDiagnostics.splice(
+		0,
+		edgeRoutingDiagnostics.length,
+		...routeLabelFeedbackState.edgeRoutingDiagnostics,
+	);
 	diagnostics.push(...edgeRoutingDiagnostics);
 	const edgePointBounds = edgeBounds(coordinatedEdges);
 	const boundsBase = [
@@ -708,6 +803,15 @@ export function solveDiagram(
 		options,
 	);
 	diagnostics.push(...routeTextDiagnostics);
+	if (maxEdgeLabelReroutes > 0 && routeTextDiagnostics.length > 0) {
+		diagnostics.push(
+			routeLabelLoopExhaustedDiagnostic(
+				routeTextDiagnostics,
+				routeLabelFeedbackState,
+				maxEdgeLabelReroutes,
+			),
+		);
+	}
 	diagnostics.push(
 		...reportLabelCongestionDiagnostics(routeTextDiagnostics, coordinatedEdges),
 	);
@@ -5326,6 +5430,56 @@ function compareRouteLabelFeedbackScore(
 		left.routeLength - right.routeLength ||
 		left.bendCount - right.bendCount
 	);
+}
+
+function replaceRouteDiagnosticsForEdge(
+	diagnostics: readonly Diagnostic[],
+	edgeId: string,
+	replacements: readonly Diagnostic[],
+): Diagnostic[] {
+	return [
+		...diagnostics.filter((diagnostic) => diagnostic.detail?.edgeId !== edgeId),
+		...replacements,
+	];
+}
+
+function routeLabelLoopExhaustedDiagnostic(
+	routeTextDiagnostics: readonly Diagnostic[],
+	state: RouteLabelFeedbackState,
+	maxIterations: number,
+): Diagnostic {
+	const edgeIds = edgeIdsFromRouteTextDiagnostics(routeTextDiagnostics);
+	const ownerIds = stableStrings(
+		routeTextDiagnostics
+			.map((diagnostic) => diagnostic.detail?.conflictingObjectId)
+			.filter((ownerId): ownerId is string => typeof ownerId === "string"),
+	);
+	const surfaceKinds = stableStrings(
+		routeTextDiagnostics
+			.map((diagnostic) => diagnostic.detail?.textSurfaceKind)
+			.filter(
+				(surfaceKind): surfaceKind is string => typeof surfaceKind === "string",
+			),
+	);
+	return {
+		severity: "warning",
+		code: "routing.route-label-loop.exhausted",
+		message: `Route/label feedback loop stopped with ${routeTextDiagnostics.length} route/text clearance conflict(s).`,
+		path: ["edges"],
+		detail: compactDetail({
+			conflictCount: routeTextDiagnostics.length,
+			iterations: state.iteration,
+			maxIterations,
+			acceptedReroutes: state.acceptedReroutes,
+			rejectedReroutes: state.rejectedReroutes,
+			changedEdgeIds: stableStrings([...state.changedEdgeIds]).join(","),
+			edgeIds: edgeIds.join(","),
+			ownerIds: ownerIds.join(","),
+			textSurfaceKinds: surfaceKinds.join(","),
+			suggestedRemedy:
+				"Increase route clearance, grow label/node spacing, split the dense view, or reduce label area near routed edges.",
+		}),
+	};
 }
 
 function routePointLength(points: readonly Point[]): number {
