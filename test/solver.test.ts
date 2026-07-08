@@ -2104,38 +2104,7 @@ describe("solveDiagram", () => {
 
 	it("reports route-label feedback exhaustion for impossible node-label clearance", () => {
 		const result = solveDiagram(
-			{
-				id: "route-label-node-exhaustion",
-				direction: "LR",
-				nodes: [
-					node("source", { x: 0, y: 0 }),
-					node("target", { x: 240, y: 0 }),
-					{
-						id: "label_owner",
-						shape: "rectangle",
-						size: { width: 0, height: 0 },
-						padding: { top: 0, right: 0, bottom: 0, left: 0 },
-						position: { x: 120, y: 0 },
-						label: { text: "huge label" },
-						labelLayout: createTestLabelLayout("huge label", {
-							x: -1_000,
-							y: -1_000,
-							width: 3_000,
-							height: 3_000,
-						}),
-					},
-				],
-				edges: [
-					{
-						id: "source-target",
-						source: { nodeId: "source" },
-						target: { nodeId: "target" },
-					},
-				],
-				groups: [],
-				constraints: [],
-				diagnostics: [],
-			},
+			hugeNodeLabelClearanceDiagram("route-label-node-exhaustion"),
 			{
 				initialLayout: "positions",
 				routeKind: "obstacle-avoiding",
@@ -2162,6 +2131,73 @@ describe("solveDiagram", () => {
 					conflictCount: 1,
 					iterations: 1,
 					maxIterations: 1,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+	});
+
+	it("honors explicit orthogonal edgeLabelRerouting for discussion_r3541568275", () => {
+		const baseline = solveDiagram(
+			hugeNodeLabelClearanceDiagram("orthogonal-route-label-baseline"),
+			{
+				initialLayout: "positions",
+				routeKind: "orthogonal",
+				textIntersectionTolerance: 0,
+			},
+		);
+		const explicitTrue = solveDiagram(
+			hugeNodeLabelClearanceDiagram("orthogonal-route-label-true"),
+			{
+				initialLayout: "positions",
+				routeKind: "orthogonal",
+				edgeLabelRerouting: true,
+				textIntersectionTolerance: 0,
+			},
+		);
+		const explicitObject = solveDiagram(
+			hugeNodeLabelClearanceDiagram("orthogonal-route-label-object"),
+			{
+				initialLayout: "positions",
+				routeKind: "orthogonal",
+				edgeLabelRerouting: { maxIterations: 2 },
+				textIntersectionTolerance: 0,
+			},
+		);
+
+		expect(baseline.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(baseline.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+			}),
+		);
+		expect(explicitTrue.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					maxIterations: 4,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+		expect(explicitObject.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					maxIterations: 2,
 					edgeIds: "source-target",
 					ownerIds: "label_owner",
 					textSurfaceKinds: "node-label",
@@ -4469,6 +4505,41 @@ function node(id: string, position?: { x: number; y: number }) {
 		size: { width: 80, height: 40 },
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
+	};
+}
+
+function hugeNodeLabelClearanceDiagram(id: string): NormalizedDiagram {
+	return {
+		id,
+		direction: "LR",
+		nodes: [
+			node("source", { x: 0, y: 0 }),
+			node("target", { x: 240, y: 0 }),
+			{
+				id: "label_owner",
+				shape: "rectangle",
+				size: { width: 0, height: 0 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 120, y: 0 },
+				label: { text: "huge label" },
+				labelLayout: createTestLabelLayout("huge label", {
+					x: -1_000,
+					y: -1_000,
+					width: 3_000,
+					height: 3_000,
+				}),
+			},
+		],
+		edges: [
+			{
+				id: "source-target",
+				source: { nodeId: "source" },
+				target: { nodeId: "target" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
 	};
 }
 

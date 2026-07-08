@@ -5564,17 +5564,21 @@ function isPreRouteTextObstacle(annotation: SolvedTextAnnotation): boolean {
 }
 
 function edgeLabelRerouteIterations(options: SolveDiagramOptions): number {
-	if ((options.routeKind ?? "orthogonal") !== "obstacle-avoiding") {
-		return 0;
-	}
 	const setting = options.edgeLabelRerouting;
 	if (setting === false) {
+		return 0;
+	}
+	const routeKind = options.routeKind ?? "orthogonal";
+	if (routeKind !== "orthogonal" && routeKind !== "obstacle-avoiding") {
 		return 0;
 	}
 	if (typeof setting === "object") {
 		return Math.max(0, Math.floor(setting.maxIterations ?? 4));
 	}
-	return 4;
+	if (setting === true || routeKind === "obstacle-avoiding") {
+		return 4;
+	}
+	return 0;
 }
 
 function textObstacleBox(
