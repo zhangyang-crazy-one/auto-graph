@@ -28,6 +28,7 @@ import type {
 	DeliverabilityReport,
 	NormalizedDiagram,
 	RoutingAllocationReport,
+	RoutingRailAllocation,
 } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -456,13 +457,16 @@ export function solveDiagram(
 			? {}
 			: { textMeasurer: options.textMeasurer }),
 	});
-	const edgeLabelEstimates = estimateEdgeLabelAnnotations(
-		styledEdges,
-		nodeGeometryById,
-		options.textMeasurer,
-		options.labelPlacement,
-		options.labelOffset,
-	);
+	const edgeLabelEstimates =
+		edgeLabelExternalizationPolicy(options) === "force"
+			? []
+			: estimateEdgeLabelAnnotations(
+					styledEdges,
+					nodeGeometryById,
+					options.textMeasurer,
+					options.labelPlacement,
+					options.labelOffset,
+				);
 	const layoutBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
@@ -603,6 +607,7 @@ export function solveDiagram(
 		}),
 	);
 	const edgeRoutingDiagnostics: Diagnostic[] = [];
+	const acceptedRailAllocations = new Map<string, RoutingRailAllocation>();
 	let coordinatedEdges = coordinateEdges(
 		styledEdges,
 		nodeGeometryById,
@@ -618,6 +623,8 @@ export function solveDiagram(
 		contentBounds,
 		styledEdges,
 		frame !== undefined,
+		undefined,
+		acceptedRailAllocations,
 	);
 	let edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
@@ -707,6 +714,7 @@ export function solveDiagram(
 				...hardObstacles.map(() => ({ kind: "evidence" as const })),
 				...hardTextObstacleEntries.map((entry) => entry.metadata),
 			];
+			const candidateRailAllocations = new Map(acceptedRailAllocations);
 			const reroutedEdge = coordinateEdges(
 				[styledEdge],
 				nodeGeometryById,
@@ -723,6 +731,7 @@ export function solveDiagram(
 				styledEdges,
 				frame !== undefined,
 				rerouteHardObstacleMetadata,
+				candidateRailAllocations,
 			).find((edge) => edge.id === edgeId);
 			if (reroutedEdge === undefined) {
 				iterationState = {
@@ -766,6 +775,10 @@ export function solveDiagram(
 					rejectedReroutes: iterationState.rejectedReroutes + 1,
 				};
 				continue;
+			}
+			acceptedRailAllocations.clear();
+			for (const [railEdgeId, allocation] of candidateRailAllocations) {
+				acceptedRailAllocations.set(railEdgeId, allocation);
 			}
 			const changedEdgeIds = new Set(iterationState.changedEdgeIds);
 			changedEdgeIds.add(edgeId);
@@ -884,9 +897,8 @@ export function solveDiagram(
 		return diagnostic;
 	});
 	const routingAllocations = buildRoutingAllocationReport(
-		coordinatedEdges,
+		[...acceptedRailAllocations.values()],
 		contentBounds,
-		diagram.direction,
 	);
 
 	return {
@@ -1031,65 +1043,104 @@ function reportPostGrowthOverlaps(
 }
 
 function buildRoutingAllocationReport(
-	edges: readonly CoordinatedEdge[],
+	acceptedRails: readonly RoutingRailAllocation[],
 	contentBounds: Box,
-	direction: NormalizedDiagram["direction"],
 ): RoutingAllocationReport | undefined {
-	const horizontal = direction === "LR" || direction === "RL";
-	const railCandidates = edges.flatMap((edge) => {
-		if (edge.points.length === 0) return [];
-		const coordinate = horizontal
-			? Math.min(...edge.points.map((point) => point.y))
-			: Math.min(...edge.points.map((point) => point.x));
-		const threshold = horizontal ? contentBounds.y : contentBounds.x;
-		if (!(coordinate < threshold - 1)) {
-			return [];
-		}
-		return [
-			{
-				edgeId: edge.id,
-				axis: horizontal ? ("y" as const) : ("x" as const),
-				side: horizontal ? ("top" as const) : ("left" as const),
-				coordinate,
-			},
-		];
-	});
-	if (railCandidates.length === 0) {
+	if (acceptedRails.length === 0) {
 		return undefined;
 	}
-	const sortedRails = [...railCandidates].sort(
-		(left, right) =>
-			left.coordinate - right.coordinate ||
-			left.edgeId.localeCompare(right.edgeId),
-	);
-	const rails = sortedRails.map((rail, index) => ({
-		...rail,
-		coordinate: Math.round(rail.coordinate),
-		index,
-	}));
-	const minCoordinate = Math.min(...rails.map((rail) => rail.coordinate));
-	const gutter = horizontal
-		? {
-				side: "top" as const,
-				box: {
-					x: contentBounds.x,
-					y: minCoordinate,
-					width: contentBounds.width,
-					height: contentBounds.y - minCoordinate,
-				},
-				railCount: rails.length,
-			}
-		: {
-				side: "left" as const,
-				box: {
-					x: minCoordinate,
-					y: contentBounds.y,
-					width: contentBounds.x - minCoordinate,
-					height: contentBounds.height,
-				},
-				railCount: rails.length,
-			};
-	return { rails, gutters: [gutter] };
+	const rails = [...acceptedRails]
+		.map((rail) => ({ ...rail, coordinate: Math.round(rail.coordinate) }))
+		.sort(
+			(left, right) =>
+				left.index - right.index ||
+				left.coordinate - right.coordinate ||
+				left.edgeId.localeCompare(right.edgeId),
+		);
+	const sides = stableStrings(rails.map((rail) => rail.side)) as Array<
+		RoutingRailAllocation["side"]
+	>;
+	const gutters: RoutingAllocationReport["gutters"] = [];
+	for (const side of sides) {
+		const sideRails = rails.filter((rail) => rail.side === side);
+		if (sideRails.length === 0) {
+			continue;
+		}
+		const minCoordinate = Math.min(...sideRails.map((rail) => rail.coordinate));
+		const maxCoordinate = Math.max(...sideRails.map((rail) => rail.coordinate));
+		switch (side) {
+			case "top":
+				gutters.push({
+					side,
+					box: {
+						x: contentBounds.x,
+						y: minCoordinate,
+						width: contentBounds.width,
+						height: contentBounds.y - minCoordinate,
+					},
+					railCount: sideRails.length,
+				});
+				break;
+			case "left":
+				gutters.push({
+					side,
+					box: {
+						x: minCoordinate,
+						y: contentBounds.y,
+						width: contentBounds.x - minCoordinate,
+						height: contentBounds.height,
+					},
+					railCount: sideRails.length,
+				});
+				break;
+			case "bottom":
+				gutters.push({
+					side,
+					box: {
+						x: contentBounds.x,
+						y: contentBounds.y + contentBounds.height,
+						width: contentBounds.width,
+						height: maxCoordinate - (contentBounds.y + contentBounds.height),
+					},
+					railCount: sideRails.length,
+				});
+				break;
+			case "right":
+				gutters.push({
+					side,
+					box: {
+						x: contentBounds.x + contentBounds.width,
+						y: contentBounds.y,
+						width: maxCoordinate - (contentBounds.x + contentBounds.width),
+						height: contentBounds.height,
+					},
+					railCount: sideRails.length,
+				});
+				break;
+		}
+	}
+	if (gutters.length === 0) {
+		return undefined;
+	}
+	return { rails, gutters };
+}
+
+function railAllocationForRoute(
+	edgeId: string,
+	points: readonly Point[],
+	direction: NormalizedDiagram["direction"],
+	railIndex: number,
+): RoutingRailAllocation {
+	const horizontal = direction === "LR" || direction === "RL";
+	return {
+		edgeId,
+		axis: horizontal ? "y" : "x",
+		side: horizontal ? "top" : "left",
+		coordinate: horizontal
+			? Math.min(...points.map((point) => point.y))
+			: Math.min(...points.map((point) => point.x)),
+		index: railIndex,
+	};
 }
 
 function buildDeliverabilityReport(
@@ -1188,6 +1239,7 @@ function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
 		case "routing.label-externalization.required":
 			return "external-label";
 		case "routing.obstacle.unavoidable":
+		case "routing.endpoint-interior.unavoidable":
 		case "routing.evidence.crossing_forbidden":
 		case "route_obstacle_fallback":
 			return "route-rail-or-page-split";
@@ -4614,6 +4666,7 @@ function coordinateEdges(
 	allocationEdges: readonly NormalizedEdge[] = edges,
 	avoidFrameTitleRails = false,
 	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[],
+	railAllocations?: Map<string, RoutingRailAllocation>,
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
@@ -4661,6 +4714,7 @@ function coordinateEdges(
 		hardObstacles.map(() => ({ kind: "evidence" as const }));
 
 	for (const edge of edges) {
+		railAllocations?.delete(edge.id);
 		const source = nodes.get(edge.source.nodeId);
 		const target = nodes.get(edge.target.nodeId);
 		if (source === undefined || target === undefined) {
@@ -4700,10 +4754,11 @@ function coordinateEdges(
 		const sourceAnchor = edge.source.anchor ?? sourceDistributedAnchor?.anchor;
 		const targetAnchor = edge.target.anchor ?? targetDistributedAnchor?.anchor;
 		const routeTextObstacles = textObstacles
+			.filter(isLocalRouteClearanceText)
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => textObstacleBox(annotation, options));
 		const railTextObstacles = textObstacles
-			.filter((annotation) => annotation.surfaceKind !== "edge-label")
+			.filter(isLocalRouteClearanceText)
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => textObstacleBox(annotation, options));
 		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
@@ -4748,6 +4803,10 @@ function coordinateEdges(
 				!routeCrossesBoxes(railPoints, railSoftObstacles) &&
 				!routeCrossesBoxes(railPoints, hardObstacles)
 			) {
+				railAllocations?.set(
+					edge.id,
+					railAllocationForRoute(edge.id, railPoints, direction, railIndex),
+				);
 				if (railIndex >= 24) {
 					diagnostics.push(railCapacityDiagnostic(edge.id, railIndex));
 				}
@@ -5332,12 +5391,14 @@ function coordinateEdgeTextAnnotations(
 			labelBaseOffset,
 			options,
 		);
-		placedLabelBoxes.push({
-			x: anchor.center.x - layout.box.width / 2,
-			y: anchor.center.y - layout.box.height / 2,
-			width: layout.box.width,
-			height: layout.box.height,
-		});
+		if (!anchor.externalized) {
+			placedLabelBoxes.push({
+				x: anchor.center.x - layout.box.width / 2,
+				y: anchor.center.y - layout.box.height / 2,
+				width: layout.box.width,
+				height: layout.box.height,
+			});
+		}
 		annotations.push(
 			buildCenteredTextAnnotation({
 				ownerId: edge.id,
@@ -5645,13 +5706,10 @@ function reportRouteTextClearance(
 	options: SolveDiagramOptions = {},
 ): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
-	const relevantAnnotations = annotations.filter(isRouteClearanceText);
+	const relevantAnnotations = annotations.filter(isLocalRouteClearanceText);
 
 	for (const edge of edges) {
 		for (const annotation of relevantAnnotations) {
-			if (annotation.placement === "external-callout-required") {
-				continue;
-			}
 			if (isEdgeConnectedTextAnnotation(edge, annotation)) {
 				continue;
 			}
@@ -5880,7 +5938,7 @@ function routeLabelFeedbackHardTextObstacles(
 	options: SolveDiagramOptions,
 ): RouteLabelFeedbackHardTextObstacleEntry[] {
 	return textAnnotations
-		.filter(isRouteClearanceText)
+		.filter(isLocalRouteClearanceText)
 		.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 		.map((annotation) => ({
 			box: textObstacleBox(annotation, options),
@@ -6084,7 +6142,14 @@ function edgeRouteBounds(edge: CoordinatedEdge): Box {
 }
 
 function isPreRouteTextObstacle(annotation: SolvedTextAnnotation): boolean {
-	return isRouteClearanceText(annotation);
+	return isLocalRouteClearanceText(annotation);
+}
+
+function isLocalRouteClearanceText(annotation: SolvedTextAnnotation): boolean {
+	return (
+		isRouteClearanceText(annotation) &&
+		annotation.placement !== "external-callout-required"
+	);
 }
 
 function edgeLabelRerouteIterations(options: SolveDiagramOptions): number {

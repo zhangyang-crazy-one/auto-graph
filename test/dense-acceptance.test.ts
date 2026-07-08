@@ -75,12 +75,38 @@ describe("dense MBSE acceptance gate", () => {
 			railRouting: "dependency",
 			textMeasurer: new DeterministicTextMeasurer(),
 		});
+		const externalLabels = solveDiagram(denseCvDependencyPage(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+			externalLabels: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
 
-		expect(result.routing?.rails.length).toBeGreaterThanOrEqual(6);
+		expect(result.routing?.rails.length).toBeGreaterThan(0);
 		expect(result.routing?.gutters).toContainEqual(
 			expect.objectContaining({
 				side: "top",
 				railCount: result.routing?.rails.length,
+			}),
+		);
+		for (const edge of result.edges) {
+			for (const annotation of result.textAnnotations ?? []) {
+				if (annotation.surfaceKind !== "edge-label") continue;
+				if (annotation.ownerId === edge.id) continue;
+				expect(routeCrossesBox(edge.points, annotation.box)).toBe(false);
+			}
+		}
+		expect(externalLabels.routing?.rails.length).toBeGreaterThanOrEqual(6);
+		expect(externalLabels.routing?.gutters).toContainEqual(
+			expect.objectContaining({
+				side: "top",
+				railCount: externalLabels.routing?.rails.length,
+			}),
+		);
+		expect(externalLabels.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-externalization.required",
 			}),
 		);
 	});

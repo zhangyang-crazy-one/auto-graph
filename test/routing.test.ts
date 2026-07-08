@@ -339,6 +339,42 @@ describe("routing", () => {
 		);
 	});
 
+	it("reports endpoint-interior fallback when explicit anchor escapes are blocked", () => {
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 0),
+			sourceAnchor: "left",
+			targetAnchor: "right",
+			hardObstacles: [
+				{ x: -50, y: -30, width: 380, height: 20 },
+				{ x: -50, y: 50, width: 380, height: 20 },
+				{ x: -30, y: -100, width: 20, height: 200 },
+				{ x: 290, y: -100, width: 20, height: 200 },
+			],
+		});
+
+		expect(result.points).toEqual([
+			{ x: 0, y: 20 },
+			{ x: 280, y: 20 },
+		]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "routing.endpoint-interior.unavoidable",
+				detail: expect.objectContaining({
+					remediationType: "adjust-anchors-or-page-split",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
+
 	it("dodges a soft obstacle on a straight edge instead of crossing it", () => {
 		const obstacle: Box = { x: 120, y: -40, width: 40, height: 100 };
 		const result = routeEdge({

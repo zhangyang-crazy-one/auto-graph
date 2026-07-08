@@ -2403,6 +2403,113 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("does not reserve external callout labels as local label boxes", () => {
+		const result = solveDiagram(
+			{
+				id: "external-callouts-do-not-reserve-local-label-boxes",
+				direction: "LR",
+				nodes: [
+					node("a", { x: 0, y: 0 }),
+					node("b", { x: 240, y: 0 }),
+					node("c", { x: 0, y: 0 }),
+					node("d", { x: 240, y: 0 }),
+				],
+				edges: [
+					{
+						id: "first",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						label: { text: "same label" },
+					},
+					{
+						id: "second",
+						source: { nodeId: "c" },
+						target: { nodeId: "d" },
+						label: { text: "same label" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				externalLabels: true,
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const labels = result.textAnnotations?.filter(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+		const first = labels?.find((annotation) => annotation.ownerId === "first");
+		const second = labels?.find(
+			(annotation) => annotation.ownerId === "second",
+		);
+
+		expect(first?.placement).toBe("external-callout-required");
+		expect(second?.placement).toBe("external-callout-required");
+		expect(second?.box).toEqual(first?.box);
+		expect(second?.placementDetail).toMatchObject({
+			labelOverlapCount: 0,
+			localConflictCount: 0,
+		});
+	});
+
+	it("does not route around forced external callout label estimates", () => {
+		const result = solveDiagram(
+			{
+				id: "forced-external-label-estimates-not-local-obstacles",
+				direction: "LR",
+				nodes: [
+					node("a", { x: 0, y: 0 }),
+					node("b", { x: 240, y: 0 }),
+					node("c", { x: 120, y: -160 }),
+					node("d", { x: 120, y: 160 }),
+				],
+				edges: [
+					{
+						id: "external-label",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						label: { text: "wide external label" },
+					},
+					{
+						id: "vertical",
+						source: { nodeId: "c" },
+						target: { nodeId: "d" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				externalLabels: true,
+				edgeLabelRerouting: { maxIterations: 2 },
+				textMeasurer: new DeterministicTextMeasurer(),
+				textIntersectionTolerance: 0,
+			},
+		);
+		const vertical = result.edges.find((edge) => edge.id === "vertical");
+
+		expect(vertical?.points).toEqual([
+			{ x: 160, y: -120 },
+			{ x: 160, y: 160 },
+		]);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "vertical",
+					conflictingObjectId: "external-label",
+				}),
+			}),
+		);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
@@ -3772,6 +3879,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.anchor-capacity.requires-resize",
 		"routing.container-fixed-bounds-overflow",
 		"routing.deliverability.unsatisfiable",
+		"routing.endpoint-interior.unavoidable",
 		"routing.evidence.crossing_forbidden",
 		"routing.label-congestion.unresolved",
 		"routing.label-externalization.required",
@@ -4565,6 +4673,107 @@ it("does not report rail capacity for rail candidates that fall back", () => {
 	expect(result.diagnostics).not.toContainEqual(
 		expect.objectContaining({ code: "routing.rail-capacity.exceeded" }),
 	);
+});
+
+it("rejects dependency rails that cross non-connected edge-label estimates", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `label-rail-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `label-rail-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-routing-edge-label-obstacle",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `label-rail-edge-${index}`,
+				source: { nodeId: `label-rail-source-${index}` },
+				target: { nodeId: `label-rail-target-${index}` },
+				...(index === 0
+					? { label: { text: Array(10).fill("label").join(" ") } }
+					: {}),
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "orthogonal",
+			railRouting: "dependency",
+			edgeLabelRerouting: false,
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		},
+	);
+	const label = result.textAnnotations?.find(
+		(annotation) =>
+			annotation.surfaceKind === "edge-label" &&
+			annotation.ownerId === "label-rail-edge-0",
+	);
+
+	expect(result.routing?.rails.map((rail) => rail.edgeId)).toEqual([
+		"label-rail-edge-0",
+	]);
+	expect(label).toBeDefined();
+	if (label !== undefined) {
+		for (const edge of result.edges.filter(
+			(edge) => edge.id !== "label-rail-edge-0",
+		)) {
+			expect(routeCrossesBox(edge.points, label.box)).toBe(false);
+		}
+	}
+});
+
+it("does not report ordinary detours as rail allocations", () => {
+	const result = solveDiagram(
+		{
+			id: "ordinary-detour-not-rail-allocation",
+			direction: "LR",
+			nodes: [
+				node("source", { x: 0, y: 0 }),
+				node("target", { x: 300, y: 0 }),
+				node("blocker", { x: 140, y: 0 }),
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "orthogonal",
+		},
+	);
+
+	expect(result.edges[0]?.points).toEqual([
+		{ x: 80, y: 20 },
+		{ x: 104, y: 20 },
+		{ x: 104, y: -4 },
+		{ x: 276, y: -4 },
+		{ x: 276, y: 20 },
+		{ x: 300, y: 20 },
+	]);
+	expect(result.routing).toBeUndefined();
 });
 
 it("applies routingGutter to expand node obstacle clearance", () => {

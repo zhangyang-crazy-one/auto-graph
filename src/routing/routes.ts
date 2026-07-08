@@ -920,6 +920,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			hardObstacles,
 			diagnostics,
 		);
+		const finalEndpointObstacles =
+			rankedCandidateRoutes[0]?.endpointObstacles ??
+			endpointInteriorObstacles(input);
 		if (routeCrossesBoxes(finalPoints, hardObstacles, hardObstacleIndex)) {
 			diagnostics.push(
 				hardObstacleFailureDiagnostic({
@@ -932,6 +935,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						"No bounded orthogonal route candidate avoided hard text label obstacles.",
 				}),
 			);
+		}
+		if (routeIntersectsEndpointInteriors(finalPoints, finalEndpointObstacles)) {
+			diagnostics.push(endpointInteriorFailureDiagnostic());
 		}
 
 		return {
@@ -1830,6 +1836,20 @@ function routeIntersectsEndpointInteriors(
 	}
 
 	return false;
+}
+
+function endpointInteriorFailureDiagnostic(): Diagnostic {
+	return {
+		severity: "warning",
+		code: "routing.endpoint-interior.unavoidable",
+		message:
+			"No bounded orthogonal route candidate avoided endpoint node interiors.",
+		detail: {
+			remediationType: "adjust-anchors-or-page-split",
+			suggestedRemedy:
+				"Move the explicit anchor, add endpoint-side clearance, or split the dense view.",
+		},
+	};
 }
 
 function hardObstacleFailureDiagnostic(input: {
