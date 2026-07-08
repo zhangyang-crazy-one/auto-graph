@@ -426,6 +426,23 @@ it("dodges multiple obstacles in obstacle-avoiding orthogonal mode", () => {
 	}
 });
 
+it("tries later anchors before accepting an excessive backtracking route", () => {
+	const obstacle = { x: 150, y: 10, width: 60, height: 80 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(300, 0),
+		obstacles: [obstacle],
+		maxBacktrackingRatio: 1.05,
+	});
+
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.backtracking_excessive" }),
+	);
+	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+});
+
 it("honors requested reroute attempts above three in hard-clear fallback", () => {
 	const obstacles = [
 		{ x: 389, y: -90, width: 106, height: 88 },

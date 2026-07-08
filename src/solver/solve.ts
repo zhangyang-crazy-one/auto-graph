@@ -5258,9 +5258,9 @@ function edgeLabelRerouteIterations(options: SolveDiagramOptions): number {
 		return 0;
 	}
 	if (typeof setting === "object") {
-		return Math.max(0, Math.floor(setting.maxIterations ?? 2));
+		return Math.max(0, Math.floor(setting.maxIterations ?? 4));
 	}
-	return 2;
+	return 4;
 }
 
 function textObstacleBox(
@@ -5502,6 +5502,12 @@ function edgeLabelAnchor(
 		return { x: 0, y: 0 };
 	}
 
+	let bestFallback:
+		| {
+				candidate: Point;
+				score: number;
+		  }
+		| undefined;
 	for (const candidate of edgeLabelAnchorCandidates(
 		edge.points,
 		placement,
@@ -5514,31 +5520,41 @@ function edgeLabelAnchor(
 			width: layout.box.width,
 			height: layout.box.height,
 		};
-		if (routeIntersectsTextBox(edge.points, labelBox)) {
-			continue;
-		}
-		const crossesOtherRoute = edges.some(
+		const crossesOwnRoute = routeIntersectsTextBox(edge.points, labelBox);
+		const otherRouteCrossings = edges.filter(
 			(other) =>
 				other.id !== edge.id && routeIntersectsTextBox(other.points, labelBox),
-		);
-		if (crossesOtherRoute) {
-			continue;
-		}
-		const overlapsNode = obstacleBoxes.some((box) =>
+		).length;
+		const nodeOverlaps = obstacleBoxes.filter((box) =>
 			intersectsAabb(labelBox, box),
-		);
-		if (overlapsNode) {
-			continue;
-		}
-		const overlapsPlacedLabel = placedLabelBoxes.some((box) =>
+		).length;
+		const placedLabelOverlaps = placedLabelBoxes.filter((box) =>
 			intersectsAabb(labelBox, box),
-		);
-		if (!overlapsPlacedLabel) {
+		).length;
+		if (
+			!crossesOwnRoute &&
+			otherRouteCrossings === 0 &&
+			nodeOverlaps === 0 &&
+			placedLabelOverlaps === 0
+		) {
 			return candidate;
+		}
+		const distanceFromDefault = Math.hypot(
+			candidate.x - placement.x,
+			candidate.y - placement.y,
+		);
+		const score =
+			(crossesOwnRoute ? 100_000 : 0) +
+			otherRouteCrossings * 10_000 +
+			nodeOverlaps * 1_000 +
+			placedLabelOverlaps * 500 +
+			distanceFromDefault;
+		if (bestFallback === undefined || score < bestFallback.score) {
+			bestFallback = { candidate, score };
 		}
 	}
 
-	return placement;
+	return bestFallback?.candidate ?? placement;
 }
 
 function edgeLabelAnchorCandidates(
@@ -5612,7 +5628,7 @@ function edgeLabelAnchorCandidates(
 		);
 	}, 0);
 	if (totalLen > 200) {
-		for (const ratio of [0.25, 0.75]) {
+		for (const ratio of [0.2, 0.25, 0.35, 0.65, 0.75, 0.8]) {
 			const qp = labelPlacementAtRatio(points, ratio, totalLen, baseOffset);
 			if (qp !== undefined) {
 				candidates.push(qp);

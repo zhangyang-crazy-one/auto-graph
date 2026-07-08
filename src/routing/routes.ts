@@ -28,18 +28,25 @@ function checkBacktracking(
 	diagnostics: Diagnostic[],
 	maxRatio?: number,
 ): void {
+	const diagnostic = backtrackingDiagnostic(points, source, target, maxRatio);
+	if (diagnostic !== undefined) {
+		diagnostics.push(diagnostic);
+	}
+}
+
+function backtrackingDiagnostic(
+	points: readonly Point[],
+	source: Point,
+	target: Point,
+	maxRatio?: number,
+): Diagnostic | undefined {
 	if (points.length < 2) return;
 	const direct = Math.hypot(target.x - source.x, target.y - source.y);
 	if (direct <= 0) return;
-	let routeLen = 0;
-	for (let i = 0; i < points.length - 1; i++) {
-		const a = points[i] as Point;
-		const b = points[i + 1] as Point;
-		routeLen += Math.hypot(b.x - a.x, b.y - a.y);
-	}
+	const routeLen = routeLength(points);
 	const threshold = maxRatio ?? 20;
 	if (routeLen > direct * threshold) {
-		diagnostics.push({
+		return {
 			severity: "warning",
 			code: "routing.backtracking_excessive",
 			message: `Route length ${Math.round(routeLen)} px exceeds ${threshold}× direct distance ${Math.round(direct)} px.`,
@@ -48,8 +55,18 @@ function checkBacktracking(
 				directDistance: Math.round(direct),
 				threshold,
 			},
-		});
+		};
 	}
+}
+
+function routeLength(points: readonly Point[]): number {
+	let routeLen = 0;
+	for (let i = 0; i < points.length - 1; i++) {
+		const a = points[i] as Point;
+		const b = points[i + 1] as Point;
+		routeLen += Math.hypot(b.x - a.x, b.y - a.y);
+	}
+	return routeLen;
 }
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
@@ -87,6 +104,46 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		input.target.box,
 		input.direction,
 	);
+	let bestExcessiveCleanRoute:
+		| { points: Point[]; diagnostic: Diagnostic; routeLength: number }
+		| undefined;
+	const acceptCleanRoute = (
+		points: Point[],
+		source: Point,
+		target: Point,
+	): RouteEdgeResult | undefined => {
+		const diagnostic = backtrackingDiagnostic(
+			points,
+			source,
+			target,
+			input.maxBacktrackingRatio,
+		);
+		if (diagnostic === undefined) {
+			return { points, diagnostics };
+		}
+		const candidateLength = routeLength(points);
+		if (
+			bestExcessiveCleanRoute === undefined ||
+			candidateLength < bestExcessiveCleanRoute.routeLength
+		) {
+			bestExcessiveCleanRoute = {
+				points,
+				diagnostic,
+				routeLength: candidateLength,
+			};
+		}
+		return undefined;
+	};
+	const returnBestExcessiveCleanRoute = (): RouteEdgeResult | undefined => {
+		if (bestExcessiveCleanRoute === undefined) {
+			return undefined;
+		}
+		diagnostics.push(bestExcessiveCleanRoute.diagnostic);
+		return {
+			points: bestExcessiveCleanRoute.points,
+			diagnostics,
+		};
+	};
 
 	if ((input.kind ?? "orthogonal") === "straight") {
 		const source = getEdgePort(
@@ -242,14 +299,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					) &&
 					!routeIntersectsObstacles(finalized, hardObstacles, hardObstacleIndex)
 				) {
-					checkBacktracking(
-						finalized,
-						source,
-						target,
-						diagnostics,
-						input.maxBacktrackingRatio,
-					);
-					return { points: finalized, diagnostics };
+					const accepted = acceptCleanRoute(finalized, source, target);
+					if (accepted !== undefined) {
+						return accepted;
+					}
+					continue;
 				}
 				// Save rejected finalized path as best-effort fallback —
 				// it has minor crossings but is far better than a 2-point
@@ -296,14 +350,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 								hardObstacleIndex,
 							)
 						) {
-							checkBacktracking(
-								fullFinalized,
-								source,
-								target,
-								diagnostics,
-								input.maxBacktrackingRatio,
-							);
-							return { points: fullFinalized, diagnostics };
+							const accepted = acceptCleanRoute(fullFinalized, source, target);
+							if (accepted !== undefined) {
+								return accepted;
+							}
+							continue;
 						}
 						// Record hard-clear full-retry path as fallback (Codex P2).
 						recordRejected(fullFinalized);
@@ -342,14 +393,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 								hardObstacleIndex,
 							)
 						) {
-							checkBacktracking(
-								gridFinalized,
-								source,
-								target,
-								diagnostics,
-								input.maxBacktrackingRatio,
-							);
-							return { points: gridFinalized, diagnostics };
+							const accepted = acceptCleanRoute(gridFinalized, source, target);
+							if (accepted !== undefined) {
+								return accepted;
+							}
+							continue;
 						}
 						// Record hard-clear grid-retry path as fallback (Codex P2).
 						recordRejected(gridFinalized);
@@ -418,15 +466,20 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				softObstacleIndex,
 				hardObstacleIndex,
 			);
-			checkBacktracking(
+			const accepted = acceptCleanRoute(
 				finalizedClean,
 				candidate.points[0] as Point,
 				candidate.points[candidate.points.length - 1] as Point,
-				diagnostics,
-				input.maxBacktrackingRatio,
 			);
-			return { points: finalizedClean, diagnostics };
+			if (accepted !== undefined) {
+				return accepted;
+			}
 		}
+	}
+
+	const bestExcessiveClean = returnBestExcessiveCleanRoute();
+	if (bestExcessiveClean !== undefined) {
+		return bestExcessiveClean;
 	}
 
 	const hardClearCandidate = candidateRoutes.find(
