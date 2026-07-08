@@ -5,17 +5,17 @@ status: planning
 progress:
   total_phases: 5
   completed_phases: 0
-  active_phase: null
+  active_phase: 8
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 8 - Route/Label Feedback Loop (context gathered)
 Plan: -
-Status: Defining requirements
-Last activity: 2026-07-08 - Milestone v1.1 started
+Status: Ready for planning
+Last activity: 2026-07-08 - Phase 8 context gathered
 
 ## Project Reference
 
@@ -29,6 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 - Issue #73 reports `@crazyhappyone/auto-graph@0.2.15` still failing downstream Stage 5 with 224 critical findings.
 - PR #72 improved dense routing but Codex review identified remaining solver-contract risks in rail and post-growth repair behavior.
 - Dense diagrams can still be geometrically unsatisfiable without more global rails/gutters, external labels, page growth, or page splitting; strict mode must preserve structured remediation diagnostics.
+- Phase 8 context is captured in `.planning/phases/08-route-label-feedback-loop/08-CONTEXT.md`; it locks the recommended closed-loop route/text conflict scope, private loop state, structured loop-exhausted diagnostic, and deterministic improvement budget.
 
 ## Blockers/Concerns
 
@@ -43,4 +44,4 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 
 ## Next Action
 
-Run `$gsd-discuss-phase 8` to gather implementation context for the route/label feedback loop, or `$gsd-plan-phase 8` to plan directly.
+Run `$gsd-plan-phase 8` to turn the route/label feedback loop context into an implementation plan.
