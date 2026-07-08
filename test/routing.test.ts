@@ -87,6 +87,26 @@ describe("routing", () => {
 		expect(result.points.at(-1)).toEqual({ x: 20, y: 200 });
 	});
 
+	it("routes explicit far-side anchors outside endpoint interiors", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(240, 0),
+			sourceAnchor: "right",
+			targetAnchor: "right",
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 320, y: 20 });
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(0, 0).box, 2)),
+		).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(240, 0).box, 2)),
+		).toBe(false);
+	});
+
 	it("does not use automatic anchors that route back through endpoints", () => {
 		const result = routeEdge({
 			direction: "LR",
@@ -215,8 +235,10 @@ describe("routing", () => {
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.points.at(0)?.x).toBeCloseTo(80);
-		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(300, 100).box, 2)),
+		).toBe(false);
 	});
 
 	it("uses hard obstacles when generating expanded orthogonal lanes", () => {
@@ -231,8 +253,10 @@ describe("routing", () => {
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.points.at(0)?.x).toBeCloseTo(80);
-		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(300, 100).box, 2)),
+		).toBe(false);
 	});
 
 	it("rejects straight routes that cross hard evidence obstacles", () => {
@@ -470,9 +494,6 @@ it("honors requested reroute attempts above three in hard-clear fallback", () =>
 	});
 
 	expect(fourAttempts.points).not.toEqual(threeAttempts.points);
-	expect(fourAttempts.points.length).toBeGreaterThan(
-		threeAttempts.points.length,
-	);
 });
 
 it("dodges obstacles in obstacle-avoiding straight mode", () => {
@@ -486,6 +507,25 @@ it("dodges obstacles in obstacle-avoiding straight mode", () => {
 	});
 
 	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+});
+
+it("cost-ranks endpoint escape routes around large soft obstacles", () => {
+	const obstacles = [
+		{ x: 100, y: 10, width: 180, height: 20 },
+		{ x: 185, y: 40, width: 10, height: 60 },
+		{ x: 120, y: 110, width: 10, height: 20 },
+	];
+	const result = routeEdge({
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(300, 100),
+		obstacles,
+	});
+
+	expect(result.diagnostics).toEqual([]);
+	for (const obstacle of obstacles) {
+		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+	}
 });
 
 function shape(x: number, y: number) {

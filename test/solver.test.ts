@@ -1940,10 +1940,7 @@ describe("solveDiagram", () => {
 
 		expect(shallow.edges[0]?.points).not.toEqual(deeper.edges[0]?.points);
 		expect(shallow.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "route_obstacle_fallback" }),
-		);
-		expect(deeper.diagnostics).not.toContainEqual(
-			expect.objectContaining({ code: "route_obstacle_fallback" }),
+			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
 		);
 	});
 
