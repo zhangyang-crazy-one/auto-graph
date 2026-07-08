@@ -2007,11 +2007,13 @@ describe("solveDiagram", () => {
 			constraints: [],
 			diagnostics: [],
 		};
+		const textMeasurer = new DeterministicTextMeasurer();
 		const baseline = solveDiagram(diagram, {
 			initialLayout: "positions",
 			routeKind: "obstacle-avoiding",
 			edgeLabelRerouting: false,
 			maxRoutingAttempts: 8,
+			textMeasurer,
 			textIntersectionTolerance: 0,
 		});
 		const result = solveDiagram(diagram, {
@@ -2019,6 +2021,7 @@ describe("solveDiagram", () => {
 			routeKind: "obstacle-avoiding",
 			edgeLabelRerouting: { maxIterations: 4 },
 			maxRoutingAttempts: 8,
+			textMeasurer,
 			textIntersectionTolerance: 0,
 		});
 
