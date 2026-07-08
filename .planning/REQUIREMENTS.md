@@ -7,10 +7,10 @@
 
 ### Closed-loop Route/Label Solver
 
-- [ ] **LOOP-01**: Solver can validate final edge routes against final node-label and edge-label boxes after edge-label placement.
-- [ ] **LOOP-02**: Solver can reroute conflicting edges using final label boxes as obstacles within a bounded iteration budget.
-- [ ] **LOOP-03**: Solver can preserve deterministic output when route/label feedback loops have multiple equivalent candidate choices.
-- [ ] **LOOP-04**: Solver can stop the loop with a structured unsatisfiable result when all bounded candidates still violate strict clearance.
+- [x] **LOOP-01**: Solver can validate final edge routes against final node-label and edge-label boxes after edge-label placement.
+- [x] **LOOP-02**: Solver can reroute conflicting edges using final label boxes as obstacles within a bounded iteration budget.
+- [x] **LOOP-03**: Solver can preserve deterministic output when route/label feedback loops have multiple equivalent candidate choices.
+- [x] **LOOP-04**: Solver can stop the loop with a structured unsatisfiable result when all bounded candidates still violate strict clearance.
 
 ### Strict Deliverability
 
@@ -74,10 +74,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | Phase 8 | Pending |
-| LOOP-02 | Phase 8 | Pending |
-| LOOP-03 | Phase 8 | Pending |
-| LOOP-04 | Phase 8 | Pending |
+| LOOP-01 | Phase 8 | Complete |
+| LOOP-02 | Phase 8 | Complete |
+| LOOP-03 | Phase 8 | Complete |
+| LOOP-04 | Phase 8 | Complete |
 | STRICT-01 | Phase 9 | Pending |
 | STRICT-02 | Phase 9 | Pending |
 | STRICT-03 | Phase 9 | Pending |
