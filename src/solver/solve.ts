@@ -5343,6 +5343,7 @@ interface RouteLabelFeedbackState {
 
 interface RouteLabelFeedbackScore {
 	readonly routeTextConflicts: number;
+	readonly otherRouteTextConflicts: number;
 	readonly edgeRouteTextConflicts: number;
 	readonly hardRouteDiagnostics: number;
 	readonly softRouteDiagnostics: number;
@@ -5402,6 +5403,8 @@ function scoreRouteLabelFeedbackCandidate(
 	const edge = edges.find((candidate) => candidate.id === edgeId);
 	return {
 		routeTextConflicts: routeTextDiagnostics.length,
+		otherRouteTextConflicts:
+			routeTextDiagnostics.length - edgeRouteTextConflicts,
 		edgeRouteTextConflicts,
 		hardRouteDiagnostics: routeDiagnostics.filter(
 			(diagnostic) => diagnostic.code === "routing.evidence.crossing_forbidden",
@@ -5423,6 +5426,7 @@ function compareRouteLabelFeedbackScore(
 ): number {
 	return (
 		left.routeTextConflicts - right.routeTextConflicts ||
+		left.otherRouteTextConflicts - right.otherRouteTextConflicts ||
 		left.edgeRouteTextConflicts - right.edgeRouteTextConflicts ||
 		left.hardRouteDiagnostics - right.hardRouteDiagnostics ||
 		left.softRouteDiagnostics - right.softRouteDiagnostics ||

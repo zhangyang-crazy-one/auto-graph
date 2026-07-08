@@ -1980,6 +1980,80 @@ describe("solveDiagram", () => {
 		expect(clearanceDiags).toEqual([]);
 	});
 
+	it("reroutes final edge-label crossings through the feedback loop", () => {
+		const diagram: NormalizedDiagram = {
+			id: "edge-label-feedback-clearance",
+			direction: "LR",
+			nodes: [
+				node("source_a", { x: 0, y: -140 }),
+				node("target_a", { x: 180, y: -140 }),
+				node("source_b", { x: 40, y: -300 }),
+				node("target_b", { x: 40, y: -40 }),
+			],
+			edges: [
+				{
+					id: "labeled",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+					label: { text: "wide ".repeat(48).trim() },
+				},
+				{
+					id: "crossing",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const baseline = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: false,
+			maxRoutingAttempts: 8,
+			textIntersectionTolerance: 0,
+		});
+		const result = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 4 },
+			maxRoutingAttempts: 8,
+			textIntersectionTolerance: 0,
+		});
+
+		expect(baseline.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "crossing",
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "crossing",
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+			}),
+		);
+		expect(
+			result.edges.find((edge) => edge.id === "crossing")?.points,
+		).not.toEqual(
+			baseline.edges.find((edge) => edge.id === "crossing")?.points,
+		);
+	});
+
 	it("does not report straight-route text clearance when only segment AABB overlaps", () => {
 		const result = solveDiagram(
 			{
@@ -2023,6 +2097,74 @@ describe("solveDiagram", () => {
 					edgeId: "source-target",
 					textSurfaceKind: "port-label",
 					conflictingObjectId: "label_owner.label",
+				}),
+			}),
+		);
+	});
+
+	it("reports route-label feedback exhaustion for impossible node-label clearance", () => {
+		const result = solveDiagram(
+			{
+				id: "route-label-node-exhaustion",
+				direction: "LR",
+				nodes: [
+					node("source", { x: 0, y: 0 }),
+					node("target", { x: 240, y: 0 }),
+					{
+						id: "label_owner",
+						shape: "rectangle",
+						size: { width: 0, height: 0 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 120, y: 0 },
+						label: { text: "huge label" },
+						labelLayout: createTestLabelLayout("huge label", {
+							x: -1_000,
+							y: -1_000,
+							width: 3_000,
+							height: 3_000,
+						}),
+					},
+				],
+				edges: [
+					{
+						id: "source-target",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				edgeLabelRerouting: { maxIterations: 1 },
+				maxRoutingAttempts: 8,
+				textIntersectionTolerance: 0,
+			},
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					conflictCount: 1,
+					iterations: 1,
+					maxIterations: 1,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
 				}),
 			}),
 		);
@@ -3424,6 +3566,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.label-congestion.unresolved",
 		"routing.obstacle.unavoidable",
 		"routing.rail-capacity.exceeded",
+		"routing.route-label-loop.exhausted",
 		"routing.text-clearance.unresolved",
 	]);
 });
