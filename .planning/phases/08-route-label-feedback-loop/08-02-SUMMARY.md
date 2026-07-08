@@ -58,18 +58,20 @@ completed: 2026-07-08
 - Preserved the existing default: obstacle-avoiding still gets the default feedback budget, default orthogonal does not.
 - Added solver coverage tied to PR review `discussion_r3541568275`.
 - Added a determinism regression comparing canonical repeated solve output for a route-label feedback fixture.
+- Stabilized the feedback-loop solver fixture with `DeterministicTextMeasurer` so GitHub runners do not depend on native font metrics.
 - Ran the full project verification gate.
 
 ## Task Commits
 
 1. **Task 1: Honor explicit orthogonal route/label rerouting** - `d539eda`
 2. **Task 2: Add feedback-loop determinism coverage** - `52b83ae`
-3. **Task 3: Run final Phase 8 verification** - no code commit; verification recorded here
+3. **Task 3: Stabilize feedback-loop fixture for CI measurement variance** - `f213d2f`
+4. **Task 4: Run final Phase 8 verification** - no code commit; verification recorded here
 
 ## Files Created/Modified
 
 - `src/solver/solve.ts` - `edgeLabelRerouteIterations` now honors explicit orthogonal feedback options.
-- `test/solver.test.ts` - Added explicit orthogonal feedback regression and shared huge-label fixture helper.
+- `test/solver.test.ts` - Added explicit orthogonal feedback regression, shared huge-label fixture helper, and deterministic measurement for the feedback fixture.
 - `test/determinism.test.ts` - Added canonical repeated-output feedback-loop determinism test.
 - `.planning/phases/08-route-label-feedback-loop/08-02-SUMMARY.md` - Execution record.
 
@@ -85,6 +87,7 @@ None - plan executed as specified.
 
 ## Issues Encountered
 
+- GitHub CI initially exposed native font metric variance in the feedback-loop solver fixture. The fixture now injects `DeterministicTextMeasurer` for both baseline and result solves.
 - Full `rtk npm run verify` passed with existing Biome warnings. They are warnings, not errors, and are unrelated to Phase 8 changes.
 
 ## User Setup Required
