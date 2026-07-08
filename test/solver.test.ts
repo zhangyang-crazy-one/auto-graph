@@ -2057,6 +2057,66 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("keeps feedback text hard-obstacle diagnostics local", () => {
+		const result = solveDiagram(
+			hugeNodeLabelClearanceDiagram("route-label-hard-text-local"),
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				edgeLabelRerouting: { maxIterations: 2 },
+				maxRoutingAttempts: 8,
+				textIntersectionTolerance: 0,
+			},
+		);
+		const safeResult = solveDiagramSafe(
+			hugeNodeLabelClearanceDiagram("route-label-hard-text-safe"),
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				edgeLabelRerouting: { maxIterations: 2 },
+				maxRoutingAttempts: 8,
+				textIntersectionTolerance: 0,
+			},
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					edgeIds: "source-target",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-hard-obstacle.unavoidable",
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+				detail: expect.objectContaining({ edgeId: "source-target" }),
+			}),
+		);
+		expect(safeResult.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
+
 	it("does not report straight-route text clearance when only segment AABB overlaps", () => {
 		const result = solveDiagram(
 			{
@@ -3715,6 +3775,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.evidence.crossing_forbidden",
 		"routing.label-congestion.unresolved",
 		"routing.label-externalization.required",
+		"routing.label-hard-obstacle.unavoidable",
 		"routing.obstacle.unavoidable",
 		"routing.rail-capacity.exceeded",
 		"routing.route-label-loop.exhausted",

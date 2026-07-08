@@ -62,7 +62,11 @@ import {
 	runDagreInitialLayout,
 } from "../layout/index.js";
 import { runRecursiveContainerLayout } from "../layout/recursive.js";
-import { type RouteKind, routeEdge } from "../routing/index.js";
+import {
+	type RouteHardObstacleMetadata,
+	type RouteKind,
+	routeEdge,
+} from "../routing/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
 import { LayoutPipeline } from "./pipeline/pipeline.js";
@@ -690,6 +694,19 @@ export function solveDiagram(
 				options,
 			);
 			const rerouteDiagnostics: Diagnostic[] = [];
+			const hardTextObstacleEntries = routeLabelFeedbackHardTextObstacles(
+				styledEdge,
+				baselineTextAnnotations,
+				options,
+			);
+			const rerouteHardObstacles = [
+				...hardObstacles,
+				...hardTextObstacleEntries.map((entry) => entry.box),
+			];
+			const rerouteHardObstacleMetadata: RouteHardObstacleMetadata[] = [
+				...hardObstacles.map(() => ({ kind: "evidence" as const })),
+				...hardTextObstacleEntries.map((entry) => entry.metadata),
+			];
 			const reroutedEdge = coordinateEdges(
 				[styledEdge],
 				nodeGeometryById,
@@ -697,14 +714,7 @@ export function solveDiagram(
 				routeObstacleEntries,
 				[...softObstacles, ...titleBarObstacles],
 				baselineTextAnnotations,
-				[
-					...hardObstacles,
-					...routeLabelFeedbackHardTextObstacles(
-						styledEdge,
-						baselineTextAnnotations,
-						options,
-					),
-				],
+				rerouteHardObstacles,
 				diagram.direction,
 				options,
 				rerouteDiagnostics,
@@ -712,6 +722,7 @@ export function solveDiagram(
 				contentBounds,
 				styledEdges,
 				frame !== undefined,
+				rerouteHardObstacleMetadata,
 			).find((edge) => edge.id === edgeId);
 			if (reroutedEdge === undefined) {
 				iterationState = {
@@ -740,7 +751,7 @@ export function solveDiagram(
 			const candidateRoutingDiagnostics = replaceRouteDiagnosticsForEdge(
 				iterationState.edgeRoutingDiagnostics,
 				edgeId,
-				rerouteDiagnostics,
+				routeLabelFeedbackPublicRouteDiagnostics(rerouteDiagnostics),
 			);
 			const candidateScore = scoreRouteLabelFeedbackCandidate(
 				edgeId,
@@ -1170,6 +1181,7 @@ function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
 	}
 	switch (diagnostic.code) {
 		case "routing.text-clearance.unresolved":
+		case "routing.label-hard-obstacle.unavoidable":
 		case "routing.label-congestion.unresolved":
 		case "routing.route-label-loop.exhausted":
 			return "external-label-or-split";
@@ -4601,6 +4613,7 @@ function coordinateEdges(
 	contentBounds: Box,
 	allocationEdges: readonly NormalizedEdge[] = edges,
 	avoidFrameTitleRails = false,
+	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[],
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
@@ -4643,6 +4656,9 @@ function coordinateEdges(
 		direction,
 		options,
 	);
+	const routeHardObstacleMetadata =
+		hardObstacleMetadata ??
+		hardObstacles.map(() => ({ kind: "evidence" as const }));
 
 	for (const edge of edges) {
 		const source = nodes.get(edge.source.nodeId);
@@ -4757,6 +4773,7 @@ function coordinateEdges(
 				...routeTextObstacles,
 			],
 			hardObstacles,
+			hardObstacleMetadata: routeHardObstacleMetadata,
 			corridorMargin,
 			...(options.maxCorners === undefined
 				? {}
@@ -5832,6 +5849,11 @@ interface RouteLabelFeedbackScore {
 	readonly bendCount: number;
 }
 
+interface RouteLabelFeedbackHardTextObstacleEntry {
+	readonly box: Box;
+	readonly metadata: RouteHardObstacleMetadata;
+}
+
 function routeLabelFeedbackTextAnnotations(
 	baseTextAnnotations: readonly SolvedTextAnnotation[],
 	frameTextAnnotations: readonly SolvedTextAnnotation[],
@@ -5856,11 +5878,21 @@ function routeLabelFeedbackHardTextObstacles(
 	edge: NormalizedEdge,
 	textAnnotations: readonly SolvedTextAnnotation[],
 	options: SolveDiagramOptions,
-): Box[] {
+): RouteLabelFeedbackHardTextObstacleEntry[] {
 	return textAnnotations
 		.filter(isRouteClearanceText)
 		.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
-		.map((annotation) => textObstacleBox(annotation, options));
+		.map((annotation) => ({
+			box: textObstacleBox(annotation, options),
+			metadata: {
+				kind: "text",
+				ownerId: annotation.ownerId,
+				surfaceKind: annotation.surfaceKind,
+				...(annotation.surfaceIndex === undefined
+					? {}
+					: { surfaceIndex: annotation.surfaceIndex }),
+			},
+		}));
 }
 
 function edgeIdsFromRouteTextDiagnostics(
@@ -5898,7 +5930,7 @@ function scoreRouteLabelFeedbackCandidate(
 			routeTextDiagnostics.length - edgeRouteTextConflicts,
 		edgeRouteTextConflicts,
 		hardRouteDiagnostics: routeDiagnostics.filter(
-			(diagnostic) => diagnostic.code === "routing.evidence.crossing_forbidden",
+			isRouteLabelFeedbackHardRouteDiagnostic,
 		).length,
 		softRouteDiagnostics: routeDiagnostics.filter(
 			(diagnostic) => diagnostic.code === "routing.obstacle.unavoidable",
@@ -5916,14 +5948,33 @@ function compareRouteLabelFeedbackScore(
 	right: RouteLabelFeedbackScore,
 ): number {
 	return (
+		left.hardRouteDiagnostics - right.hardRouteDiagnostics ||
 		left.routeTextConflicts - right.routeTextConflicts ||
 		left.otherRouteTextConflicts - right.otherRouteTextConflicts ||
 		left.edgeRouteTextConflicts - right.edgeRouteTextConflicts ||
-		left.hardRouteDiagnostics - right.hardRouteDiagnostics ||
 		left.softRouteDiagnostics - right.softRouteDiagnostics ||
 		left.backtrackingDiagnostics - right.backtrackingDiagnostics ||
 		left.routeLength - right.routeLength ||
 		left.bendCount - right.bendCount
+	);
+}
+
+function isRouteLabelFeedbackHardRouteDiagnostic(
+	diagnostic: Diagnostic,
+): boolean {
+	return (
+		diagnostic.code === "routing.evidence.crossing_forbidden" ||
+		(diagnostic.code === "route_obstacle_fallback" &&
+			diagnostic.severity === "error")
+	);
+}
+
+function routeLabelFeedbackPublicRouteDiagnostics(
+	diagnostics: readonly Diagnostic[],
+): Diagnostic[] {
+	return diagnostics.filter(
+		(diagnostic) =>
+			diagnostic.code !== "routing.label-hard-obstacle.unavoidable",
 	);
 }
 

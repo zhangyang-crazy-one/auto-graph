@@ -14,7 +14,11 @@ import type {
 } from "../ir/geometry.js";
 import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
 import { resolveMaxCorners, resolveMaxNodes } from "./budget.js";
-import type { RouteEdgeInput, RouteEdgeResult } from "./types.js";
+import type {
+	RouteEdgeInput,
+	RouteEdgeResult,
+	RouteHardObstacleMetadata,
+} from "./types.js";
 import { findCornerGraphPath } from "./visibility-router.js";
 
 /**
@@ -234,6 +238,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
 	const hardObstacles = input.hardObstacles ?? [];
+	const hardObstacleMetadata = input.hardObstacleMetadata ?? [];
 	// Best rejected path from A* routing — used as fallback when all
 	// heuristic candidates also fail, to avoid returning a 2-point
 	// direct connection that is always worse than a path with minor
@@ -342,11 +347,16 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			hardObstacleIndex,
 		);
 		if (routeCrossesBoxes(points, hardObstacles, hardObstacleIndex)) {
-			diagnostics.push({
-				severity: "error",
-				code: "routing.evidence.crossing_forbidden",
-				message: "Straight route crosses hard evidence block obstacles.",
-			});
+			diagnostics.push(
+				hardObstacleFailureDiagnostic({
+					points,
+					hardObstacles,
+					hardObstacleMetadata,
+					evidenceMessage:
+						"Straight route crosses hard evidence block obstacles.",
+					textMessage: "Straight route crosses hard text label obstacles.",
+				}),
+			);
 			return { points, diagnostics };
 		}
 		if (routeCrossesBoxes(points, softObstacles, softObstacleIndex)) {
@@ -904,20 +914,28 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				diagnostics,
 			};
 		}
-		diagnostics.push({
-			severity: "error",
-			code: "routing.evidence.crossing_forbidden",
-			message:
-				"No bounded orthogonal route candidate avoided hard evidence block obstacles.",
-		});
+		const finalPoints = finalizeRoute(
+			bestPoints,
+			softObstacles,
+			hardObstacles,
+			diagnostics,
+		);
+		if (routeCrossesBoxes(finalPoints, hardObstacles, hardObstacleIndex)) {
+			diagnostics.push(
+				hardObstacleFailureDiagnostic({
+					points: finalPoints,
+					hardObstacles,
+					hardObstacleMetadata,
+					evidenceMessage:
+						"No bounded orthogonal route candidate avoided hard evidence block obstacles.",
+					textMessage:
+						"No bounded orthogonal route candidate avoided hard text label obstacles.",
+				}),
+			);
+		}
 
 		return {
-			points: finalizeRoute(
-				bestPoints,
-				softObstacles,
-				hardObstacles,
-				diagnostics,
-			),
+			points: finalPoints,
 			diagnostics,
 		};
 	}
@@ -1812,6 +1830,109 @@ function routeIntersectsEndpointInteriors(
 	}
 
 	return false;
+}
+
+function hardObstacleFailureDiagnostic(input: {
+	points: readonly Point[];
+	hardObstacles: readonly Box[];
+	hardObstacleMetadata: readonly RouteHardObstacleMetadata[];
+	evidenceMessage: string;
+	textMessage: string;
+}): Diagnostic {
+	const sources = crossedHardObstacleSources(
+		input.points,
+		input.hardObstacles,
+		input.hardObstacleMetadata,
+	);
+	const kinds = stableUniqueStrings(sources.map((source) => source.kind));
+	const textOnly =
+		sources.length > 0 && sources.every((source) => source.kind === "text");
+	if (textOnly) {
+		return {
+			severity: "warning",
+			code: "routing.label-hard-obstacle.unavoidable",
+			message: input.textMessage,
+			detail: {
+				obstacleSource: "text",
+				hardObstacleKinds: kinds.join(","),
+				ownerIds: stableUniqueStrings(
+					sources
+						.map((source) => source.ownerId)
+						.filter((ownerId): ownerId is string => ownerId !== undefined),
+				).join(","),
+				textSurfaceKinds: stableUniqueStrings(
+					sources
+						.map((source) => source.surfaceKind)
+						.filter(
+							(surfaceKind): surfaceKind is string => surfaceKind !== undefined,
+						),
+				).join(","),
+				remediationType: "external-label-or-split",
+			},
+		};
+	}
+	return {
+		severity: "error",
+		code: "routing.evidence.crossing_forbidden",
+		message: input.evidenceMessage,
+		detail: {
+			obstacleSource:
+				sources.length > 0 && kinds.includes("text") ? "mixed" : "evidence",
+			hardObstacleKinds: kinds.length === 0 ? "evidence" : kinds.join(","),
+		},
+	};
+}
+
+function crossedHardObstacleSources(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+	metadata: readonly RouteHardObstacleMetadata[],
+): RouteHardObstacleMetadata[] {
+	const sources: RouteHardObstacleMetadata[] = [];
+	const seen = new Set<string>();
+	for (
+		let obstacleIndex = 0;
+		obstacleIndex < obstacles.length;
+		obstacleIndex += 1
+	) {
+		const obstacle = obstacles[obstacleIndex];
+		if (obstacle === undefined) {
+			continue;
+		}
+		validateBox(obstacle);
+		let crossed = false;
+		for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+			const a = points[pointIndex];
+			const b = points[pointIndex + 1];
+			if (a === undefined || b === undefined) {
+				continue;
+			}
+			if (segmentIntersectsBox(a, b, obstacle)) {
+				crossed = true;
+				break;
+			}
+		}
+		if (!crossed) {
+			continue;
+		}
+		const source = metadata[obstacleIndex] ?? { kind: "evidence" as const };
+		const key = [
+			source.kind,
+			source.ownerId ?? "",
+			source.surfaceKind ?? "",
+			source.surfaceIndex ?? "",
+		].join("\u0000");
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		sources.push(source);
+	}
+	return sources;
+}
+
+function stableUniqueStrings(values: readonly string[]): string[] {
+	return Array.from(new Set(values)).sort();
 }
 
 function routeCrossesBoxes(

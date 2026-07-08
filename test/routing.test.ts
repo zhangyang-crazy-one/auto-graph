@@ -417,6 +417,42 @@ it("emits crossing_forbidden for diagonal straight edge hitting hard obstacle", 
 	);
 });
 
+it("emits text-specific diagnostics for hard text obstacles", () => {
+	const hard = { x: 0, y: 0, width: 360, height: 220 };
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+		hardObstacles: [hard],
+		hardObstacleMetadata: [
+			{
+				kind: "text",
+				ownerId: "edge-a",
+				surfaceKind: "edge-label",
+			},
+		],
+	});
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			severity: "warning",
+			code: "routing.label-hard-obstacle.unavoidable",
+			detail: expect.objectContaining({
+				obstacleSource: "text",
+				ownerIds: "edge-a",
+				textSurfaceKinds: "edge-label",
+				remediationType: "external-label-or-split",
+			}),
+		}),
+	);
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({
+			code: "routing.evidence.crossing_forbidden",
+		}),
+	);
+});
+
 it("dodges obstacles in obstacle-avoiding orthogonal mode", () => {
 	const obstacle = { x: 130, y: 5, width: 80, height: 30 };
 	const result = routeEdge({

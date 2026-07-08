@@ -11,6 +11,15 @@ import type { RoutingBudgetValue } from "./budget.js";
 
 export type RouteKind = "orthogonal" | "straight" | "obstacle-avoiding";
 
+export type RouteHardObstacleKind = "evidence" | "text";
+
+export interface RouteHardObstacleMetadata {
+	kind: RouteHardObstacleKind;
+	ownerId?: string;
+	surfaceKind?: string;
+	surfaceIndex?: number;
+}
+
 export interface RouteEdgeInput {
 	kind?: RouteKind;
 	direction: DiagramDirection;
@@ -20,6 +29,7 @@ export interface RouteEdgeInput {
 	targetAnchor?: AnchorName;
 	obstacles?: readonly Box[];
 	hardObstacles?: readonly Box[];
+	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[];
 	obstacleIndex?: BoxSpatialIndex;
 	hardObstacleIndex?: BoxSpatialIndex;
 	/** Maximum greedy rerouting iterations (default 5). */
