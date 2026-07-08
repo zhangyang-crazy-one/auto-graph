@@ -14,39 +14,39 @@
 
 ### Strict Deliverability
 
-- [ ] **STRICT-01**: Caller can request strict/deliverable clearance semantics that do not silently accept `routing.text-clearance.unresolved` output as deliverable.
-- [ ] **STRICT-02**: Strict mode reports whether the layout is clean, degraded, or unsatisfiable.
-- [ ] **STRICT-03**: Strict unsatisfiable diagnostics identify the blocking page, edge ids, obstacle/text surfaces, and required remediation type.
-- [ ] **STRICT-04**: Existing non-strict behavior remains available for exploratory or degraded layouts.
+- [x] **STRICT-01**: Caller can request strict/deliverable clearance semantics that do not silently accept `routing.text-clearance.unresolved` output as deliverable.
+- [x] **STRICT-02**: Strict mode reports whether the layout is clean, degraded, or unsatisfiable.
+- [x] **STRICT-03**: Strict unsatisfiable diagnostics identify the blocking page, edge ids, obstacle/text surfaces, and required remediation type.
+- [x] **STRICT-04**: Existing non-strict behavior remains available for exploratory or degraded layouts.
 
 ### Label Congestion And Externalization
 
-- [ ] **LABEL-01**: Edge-label placement returns structured congestion data when every candidate collides.
-- [ ] **LABEL-02**: Congestion diagnostics include page, edge set, occupied corridor/rail, candidate count, and label count.
-- [ ] **LABEL-03**: Solver can mark labels as external-callout-required when local placement cannot satisfy strict clearance.
-- [ ] **LABEL-04**: Route/text clearance reporting distinguishes node-label, edge-label, and externalized-label cases.
+- [x] **LABEL-01**: Edge-label placement returns structured congestion data when every candidate collides.
+- [x] **LABEL-02**: Congestion diagnostics include page, edge set, occupied corridor/rail, candidate count, and label count.
+- [x] **LABEL-03**: Solver can mark labels as external-callout-required when local placement cannot satisfy strict clearance.
+- [x] **LABEL-04**: Route/text clearance reporting distinguishes node-label, edge-label, and externalized-label cases.
 
 ### Rails And Gutters
 
-- [ ] **RAIL-01**: Solver exposes page-level rail/gutter allocation for CV dependency and OV/SV resource-flow pages.
-- [ ] **RAIL-02**: Framed LR/RL rail lanes avoid frame title/header obstacles.
-- [ ] **RAIL-03**: Rail validation excludes only the actual source and target nodes, not unrelated nodes whose expanded obstacles touch endpoint boxes.
-- [ ] **RAIL-04**: Rail fast paths are skipped or corrected when explicit anchors would jog through endpoint interiors.
-- [ ] **RAIL-05**: Activity, state, and sequence pages can reserve lane-aware corridors for route bundles.
+- [x] **RAIL-01**: Solver exposes page-level rail/gutter allocation for CV dependency and OV/SV resource-flow pages.
+- [x] **RAIL-02**: Framed LR/RL rail lanes avoid frame title/header obstacles.
+- [x] **RAIL-03**: Rail validation excludes only the actual source and target nodes, not unrelated nodes whose expanded obstacles touch endpoint boxes.
+- [x] **RAIL-04**: Rail fast paths are skipped or corrected when explicit anchors would jog through endpoint interiors.
+- [x] **RAIL-05**: Activity, state, and sequence pages can reserve lane-aware corridors for route bundles.
 
 ### Constraint Repair Integration
 
-- [ ] **CONS-01**: Anchor-capacity growth happens before final overlap/containment repair or triggers a second repair pass afterward.
-- [ ] **CONS-02**: Locked-conflict diagnostics are recalculated after any solver mutation that changes node boxes.
-- [ ] **CONS-03**: Strict mode treats post-growth overlaps as blocking layout errors unless they are explicitly unsatisfiable.
+- [x] **CONS-01**: Anchor-capacity growth happens before final overlap/containment repair or triggers a second repair pass afterward.
+- [x] **CONS-02**: Locked-conflict diagnostics are recalculated after any solver mutation that changes node boxes.
+- [x] **CONS-03**: Strict mode treats post-growth overlaps as blocking layout errors unless they are explicitly unsatisfiable.
 
 ### Acceptance Evidence
 
-- [ ] **ACC-01**: Acceptance tests fail when any final edge route intersects a final edge label.
-- [ ] **ACC-02**: Acceptance tests fail when any final edge route intersects a final node label or unrelated node interior.
-- [ ] **ACC-03**: Acceptance tests cover at least one dense CV dependency page and one OV/SV resource-flow page.
-- [ ] **ACC-04**: Acceptance evidence records Stage 5-style counts for text intersections, obstacle intersections, backtracking, page overflow, and unsat diagnostics.
-- [ ] **ACC-05**: Local `npm run verify` remains the required all-in-one verification gate.
+- [x] **ACC-01**: Acceptance tests fail when any final edge route intersects a final edge label.
+- [x] **ACC-02**: Acceptance tests fail when any final edge route intersects a final node label or unrelated node interior.
+- [x] **ACC-03**: Acceptance tests cover at least one dense CV dependency page and one OV/SV resource-flow page.
+- [x] **ACC-04**: Acceptance evidence records Stage 5-style counts for text intersections, obstacle intersections, backtracking, page overflow, and unsat diagnostics.
+- [x] **ACC-05**: Local `npm run verify` remains the required all-in-one verification gate.
 
 ## v2 Requirements
 
@@ -78,27 +78,27 @@
 | LOOP-02 | Phase 8 | Complete |
 | LOOP-03 | Phase 8 | Complete |
 | LOOP-04 | Phase 8 | Complete |
-| STRICT-01 | Phase 9 | Pending |
-| STRICT-02 | Phase 9 | Pending |
-| STRICT-03 | Phase 9 | Pending |
-| STRICT-04 | Phase 9 | Pending |
-| LABEL-01 | Phase 10 | Pending |
-| LABEL-02 | Phase 10 | Pending |
-| LABEL-03 | Phase 10 | Pending |
-| LABEL-04 | Phase 10 | Pending |
-| RAIL-01 | Phase 11 | Pending |
-| RAIL-02 | Phase 11 | Pending |
-| RAIL-03 | Phase 11 | Pending |
-| RAIL-04 | Phase 11 | Pending |
-| RAIL-05 | Phase 11 | Pending |
-| CONS-01 | Phase 11 | Pending |
-| CONS-02 | Phase 11 | Pending |
-| CONS-03 | Phase 11 | Pending |
-| ACC-01 | Phase 12 | Pending |
-| ACC-02 | Phase 12 | Pending |
-| ACC-03 | Phase 12 | Pending |
-| ACC-04 | Phase 12 | Pending |
-| ACC-05 | Phase 12 | Pending |
+| STRICT-01 | Phase 9 | Complete |
+| STRICT-02 | Phase 9 | Complete |
+| STRICT-03 | Phase 9 | Complete |
+| STRICT-04 | Phase 9 | Complete |
+| LABEL-01 | Phase 10 | Complete |
+| LABEL-02 | Phase 10 | Complete |
+| LABEL-03 | Phase 10 | Complete |
+| LABEL-04 | Phase 10 | Complete |
+| RAIL-01 | Phase 11 | Complete |
+| RAIL-02 | Phase 11 | Complete |
+| RAIL-03 | Phase 11 | Complete |
+| RAIL-04 | Phase 11 | Complete |
+| RAIL-05 | Phase 11 | Complete |
+| CONS-01 | Phase 11 | Complete |
+| CONS-02 | Phase 11 | Complete |
+| CONS-03 | Phase 11 | Complete |
+| ACC-01 | Phase 12 | Complete |
+| ACC-02 | Phase 12 | Complete |
+| ACC-03 | Phase 12 | Complete |
+| ACC-04 | Phase 12 | Complete |
+| ACC-05 | Phase 12 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 25 total

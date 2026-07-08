@@ -6,6 +6,17 @@
     "y": 0
   },
   "degraded": true,
+  "deliverability": {
+    "degraded": true,
+    "diagnosticCodes": [
+      "constraints.locked-target-not-moved"
+    ],
+    "remediationTypes": [
+      "relax-or-grow-fixed-geometry"
+    ],
+    "status": "degraded",
+    "strict": false
+  },
   "diagnostics": [
     {
       "code": "layout.edge-reference.missing",

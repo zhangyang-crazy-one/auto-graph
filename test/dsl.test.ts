@@ -368,6 +368,7 @@ routing:
   fixedSwimlaneGeometry: true
   anchorCapacity: { minSpacing: 18, grow: false }
   railRouting: dependency
+  externalLabels: { edgeLabels: true }
 nodes:
   api: { label: API, position: { x: 40, y: 48 } }
   db: { label: DB, position: { x: 180, y: 48 } }
@@ -400,6 +401,7 @@ output:
 			fixedSwimlaneGeometry: true,
 			anchorCapacity: { minSpacing: 18, grow: false },
 			railRouting: "dependency",
+			externalLabels: { edgeLabels: true },
 		});
 		expect(
 			rendered.diagnostics.filter(

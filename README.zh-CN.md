@@ -125,9 +125,10 @@ routing:
   fixedSwimlaneGeometry: diagnose-overflow
   anchorCapacity: { minSpacing: 16, grow: true }
   railRouting: dependency
+  externalLabels: { edgeLabels: true }
 ```
 
-当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`。
+当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`，需要把拥挤边标签交给下游 keyed callout 渲染时使用 `externalLabels`。求解结果包含 `deliverability.status`（`clean`、`degraded` 或 `unsatisfiable`）以及 strict 交付门需要的 remediation 类型。
 
 ## CLI
 

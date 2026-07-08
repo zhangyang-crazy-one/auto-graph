@@ -27,6 +27,35 @@ export type DiagramStage = "intent" | "normalized" | "coordinated";
 
 export type DiagramMetadata = JsonObject;
 
+export type DeliverabilityStatus = "clean" | "degraded" | "unsatisfiable";
+
+export interface DeliverabilityReport {
+	status: DeliverabilityStatus;
+	strict: boolean;
+	degraded: boolean;
+	diagnosticCodes: string[];
+	remediationTypes: string[];
+}
+
+export interface RoutingRailAllocation {
+	edgeId: string;
+	axis: "x" | "y";
+	side: "top" | "right" | "bottom" | "left";
+	coordinate: number;
+	index: number;
+}
+
+export interface RoutingGutterAllocation {
+	side: "top" | "right" | "bottom" | "left";
+	box: Box;
+	railCount: number;
+}
+
+export interface RoutingAllocationReport {
+	rails: RoutingRailAllocation[];
+	gutters: RoutingGutterAllocation[];
+}
+
 // Authoring intent consumed by the future prepare stage.
 export interface IntentDiagram {
 	id?: string;
@@ -78,6 +107,8 @@ export interface CoordinatedDiagram {
 	diagnostics: Diagnostic[];
 	/** True when any deliverability-breaking diagnostic was emitted. */
 	degraded: boolean;
+	deliverability?: DeliverabilityReport;
+	routing?: RoutingAllocationReport;
 	bounds: Box;
 	frame?: CoordinatedFrame;
 	metadata?: DiagramMetadata;

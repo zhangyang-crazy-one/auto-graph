@@ -2270,6 +2270,79 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("marks requested strict edge labels as external callout required", () => {
+		const result = solveDiagram(
+			{
+				id: "strict-edge-label-externalization",
+				direction: "LR",
+				nodes: [
+					node("source", { x: -220, y: 0 }),
+					node("target", { x: 520, y: 0 }),
+				],
+				edges: [
+					{
+						id: "labeled",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+						label: { text: "external callout required label" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				strict: true,
+				externalLabels: true,
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const label = result.textAnnotations?.find(
+			(annotation) =>
+				annotation.surfaceKind === "edge-label" &&
+				annotation.ownerId === "labeled",
+		);
+
+		expect(label).toMatchObject({
+			placement: "external-callout-required",
+			placementDetail: expect.objectContaining({
+				candidateCount: expect.any(Number),
+				localConflictCount: expect.any(Number),
+				nodeOverlapCount: expect.any(Number),
+			}),
+		});
+		expect(label?.placementDetail?.candidateCount).toBeGreaterThan(0);
+		expect(label?.placementDetail?.localConflictCount).toBeGreaterThanOrEqual(
+			0,
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-externalization.required",
+				severity: "error",
+				detail: expect.objectContaining({
+					edgeIds: "labeled",
+					labelCount: 1,
+					remediationType: "external-label",
+				}),
+			}),
+		);
+		expect(result.deliverability).toMatchObject({
+			status: "unsatisfiable",
+			remediationTypes: expect.arrayContaining(["external-label"]),
+		});
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
@@ -3564,11 +3637,25 @@ function diagramWithDiagnostic(diagnostic: Diagnostic): NormalizedDiagram {
 it("sets degraded when a deliverability diagnostic is emitted", () => {
 	const result = solveDiagram(lockedChildDiagram());
 	expect(result.degraded).toBe(true);
+	expect(result.deliverability).toMatchObject({
+		status: "degraded",
+		strict: false,
+		degraded: true,
+		diagnosticCodes: expect.arrayContaining([
+			"constraints.locked-target-not-moved",
+		]),
+		remediationTypes: expect.arrayContaining(["relax-or-grow-fixed-geometry"]),
+	});
 });
 
 it("promotes deliverability warnings to errors when strict is set", () => {
 	const result = solveDiagram(lockedChildDiagram(), { strict: true });
 	expect(result.degraded).toBe(true);
+	expect(result.deliverability).toMatchObject({
+		status: "unsatisfiable",
+		strict: true,
+		degraded: true,
+	});
 	const locked = result.diagnostics.filter(
 		(d) => d.code === "constraints.locked-target-not-moved",
 	);
@@ -3576,11 +3663,33 @@ it("promotes deliverability warnings to errors when strict is set", () => {
 	for (const d of locked) {
 		expect(d.severity).toBe("error");
 	}
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.deliverability.unsatisfiable",
+			severity: "error",
+			detail: expect.objectContaining({
+				pageId: "locked-child",
+				diagnosticCodes: expect.stringContaining(
+					"constraints.locked-target-not-moved",
+				),
+				remediationTypes: expect.stringContaining(
+					"relax-or-grow-fixed-geometry",
+				),
+			}),
+		}),
+	);
 });
 
 it("keeps degraded false when no deliverability diagnostics are emitted", () => {
 	const result = solveDiagram(sampleDiagram());
 	expect(result.degraded).toBe(false);
+	expect(result.deliverability).toMatchObject({
+		status: "clean",
+		strict: false,
+		degraded: false,
+		diagnosticCodes: [],
+		remediationTypes: [],
+	});
 });
 
 it("does not promote severity when strict is unset", () => {
@@ -3597,12 +3706,15 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
 		"constraints.locked-target-not-moved",
 		"constraints.overlap.locked-conflict",
+		"constraints.overlap.post-growth",
 		"layout.container-fixed-bounds-overflow",
 		"route_obstacle_fallback",
 		"routing.anchor-capacity.requires-resize",
 		"routing.container-fixed-bounds-overflow",
+		"routing.deliverability.unsatisfiable",
 		"routing.evidence.crossing_forbidden",
 		"routing.label-congestion.unresolved",
+		"routing.label-externalization.required",
 		"routing.obstacle.unavoidable",
 		"routing.rail-capacity.exceeded",
 		"routing.route-label-loop.exhausted",
@@ -3809,6 +3921,113 @@ it("recenters node labels after implicit anchor capacity growth", () => {
 	);
 });
 
+it("does not mutate caller node labels during anchor capacity growth", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `mutation-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const source = {
+		id: "source",
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 0, y: 140 },
+		label: { text: "source" },
+		labelLayout: createTestLabelLayout("source", {
+			x: 20,
+			y: 13,
+			width: 40,
+			height: 14,
+		}),
+	};
+	const diagram: NormalizedDiagram = {
+		id: "anchor-capacity-input-immutability",
+		direction: "LR",
+		nodes: [source, ...targets],
+		edges: targets.map((target) => ({
+			id: `source-${target.id}`,
+			source: { nodeId: "source" },
+			target: { nodeId: target.id },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	const before = { ...source.labelLayout.box };
+
+	solveDiagram(diagram, {
+		initialLayout: "positions",
+		routeKind: "obstacle-avoiding",
+		anchorCapacity: { minSpacing: 24 },
+	});
+
+	expect(source.labelLayout.box).toEqual(before);
+	expect(diagram.nodes[0]?.labelLayout?.box).toEqual(before);
+});
+
+it("reports post-growth overlaps introduced by anchor capacity sizing", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `overlap-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-post-growth-overlap",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				{
+					id: "sibling",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 190 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+			strict: true,
+		},
+	);
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "constraints.overlap.post-growth",
+			severity: "error",
+			detail: expect.objectContaining({
+				firstId: "sibling",
+				secondId: "source",
+				remediationType: "post-growth-repair",
+			}),
+		}),
+	);
+	expect(result.deliverability?.status).toBe("unsatisfiable");
+});
+
 it("sizes implicit anchor capacity after constraints move endpoint sides", () => {
 	const targets = Array.from({ length: 5 }, (_, index) => ({
 		id: `moved-target-${index}`,
@@ -4003,6 +4222,16 @@ it("routes dense same-rank dependencies through deterministic rails", () => {
 	for (const railY of railYs) {
 		expect(railY).toBeLessThan(minNodeY);
 	}
+	expect(result.routing?.rails).toHaveLength(pairCount);
+	expect(result.routing?.gutters).toContainEqual(
+		expect.objectContaining({
+			side: "top",
+			railCount: pairCount,
+			box: expect.objectContaining({
+				height: expect.any(Number),
+			}),
+		}),
+	);
 });
 
 it("falls back from rails that cross off-corridor node obstacles", () => {

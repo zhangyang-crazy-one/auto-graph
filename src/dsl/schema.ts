@@ -405,6 +405,14 @@ export const diagramDslSchema = z
 				railRouting: z
 					.union([z.literal(false), z.literal("auto"), z.literal("dependency")])
 					.optional(),
+				externalLabels: z
+					.union([
+						z.boolean(),
+						z.object({
+							edgeLabels: z.boolean().optional(),
+						}),
+					])
+					.optional(),
 				portShifting: z
 					.object({
 						enabled: z.boolean().optional(),

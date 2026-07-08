@@ -12,10 +12,10 @@ Build a closed-loop route and label clearance pipeline so dense MBSE diagrams ei
 | Phase | Name | Goal | Requirements |
 |-------|------|------|--------------|
 | 8 | Route/Label Feedback Loop (Complete 2026-07-08, 2/2 plans) | Route final edges against final label geometry with bounded deterministic rerouting. | LOOP-01, LOOP-02, LOOP-03, LOOP-04 |
-| 9 | Strict Deliverability Contract | Add strict/degraded/unsatisfiable layout semantics and remediation diagnostics. | STRICT-01, STRICT-02, STRICT-03, STRICT-04 |
-| 10 | Label Congestion And External Labels | Make failed edge-label placement actionable and support external-callout-required outcomes. | LABEL-01, LABEL-02, LABEL-03, LABEL-04 |
-| 11 | Rails, Gutters, And Post-growth Repair | Promote page-level routing capacity and PR #72 Codex review fixes into solver contracts. | RAIL-01, RAIL-02, RAIL-03, RAIL-04, RAIL-05, CONS-01, CONS-02, CONS-03 |
-| 12 | Dense MBSE Acceptance Gate | Add Stage 5-style invariant tests and evidence for representative dense MBSE pages. | ACC-01, ACC-02, ACC-03, ACC-04, ACC-05 |
+| 9 | Strict Deliverability Contract (Complete 2026-07-08, 1/1 plan) | Add strict/degraded/unsatisfiable layout semantics and remediation diagnostics. | STRICT-01, STRICT-02, STRICT-03, STRICT-04 |
+| 10 | Label Congestion And External Labels (Complete 2026-07-08, 1/1 plan) | Make failed edge-label placement actionable and support external-callout-required outcomes. | LABEL-01, LABEL-02, LABEL-03, LABEL-04 |
+| 11 | Rails, Gutters, And Post-growth Repair (Complete 2026-07-08, 1/1 plan) | Promote page-level routing capacity and PR #72 Codex review fixes into solver contracts. | RAIL-01, RAIL-02, RAIL-03, RAIL-04, RAIL-05, CONS-01, CONS-02, CONS-03 |
+| 12 | Dense MBSE Acceptance Gate (Complete 2026-07-08, 1/1 plan) | Add Stage 5-style invariant tests and evidence for representative dense MBSE pages. | ACC-01, ACC-02, ACC-03, ACC-04, ACC-05 |
 
 ## Phase Details
 

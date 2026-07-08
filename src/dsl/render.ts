@@ -173,6 +173,7 @@ function solveDenseRoutingOptions(
 			| "fixedSwimlaneGeometry"
 			| "anchorCapacity"
 			| "railRouting"
+			| "externalLabels"
 	  >
 	| Record<string, never> {
 	if (metadata === undefined) {
@@ -187,6 +188,7 @@ function solveDenseRoutingOptions(
 		| "fixedSwimlaneGeometry"
 		| "anchorCapacity"
 		| "railRouting"
+		| "externalLabels"
 	> = {};
 	if (typeof metadata.textIntersectionTolerance === "number") {
 		options.textIntersectionTolerance = metadata.textIntersectionTolerance;
@@ -225,6 +227,12 @@ function solveDenseRoutingOptions(
 	) {
 		options.railRouting = metadata.railRouting;
 	}
+	if (
+		typeof metadata.externalLabels === "boolean" ||
+		isExternalLabelsOptions(metadata.externalLabels)
+	) {
+		options.externalLabels = metadata.externalLabels;
+	}
 	return options;
 }
 
@@ -245,6 +253,15 @@ function isAnchorCapacityOptions(
 		isJsonObject(value) &&
 		(value.minSpacing === undefined || typeof value.minSpacing === "number") &&
 		(value.grow === undefined || typeof value.grow === "boolean")
+	);
+}
+
+function isExternalLabelsOptions(
+	value: unknown,
+): value is { edgeLabels?: boolean } {
+	return (
+		isJsonObject(value) &&
+		(value.edgeLabels === undefined || typeof value.edgeLabels === "boolean")
 	);
 }
 

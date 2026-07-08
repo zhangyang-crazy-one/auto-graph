@@ -23,7 +23,12 @@ import {
 	DELIVERABILITY_DIAGNOSTIC_CODES,
 	type Diagnostic,
 } from "../ir/diagnostics.js";
-import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
+import type {
+	CoordinatedDiagram,
+	DeliverabilityReport,
+	NormalizedDiagram,
+	RoutingAllocationReport,
+} from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
 	CoordinatedEvidencePanel,
@@ -119,6 +124,8 @@ export interface SolveDiagramOptions {
 	anchorCapacity?: boolean | { minSpacing?: number; grow?: boolean };
 	/** Dense dependency rail routing policy. */
 	railRouting?: false | "auto" | "dependency";
+	/** Mark congested edge labels as external-callout-required instead of silently accepting local collisions. */
+	externalLabels?: boolean | { edgeLabels?: boolean };
 	/** Corridor expansion margin for corner-graph prefilter.
 	 * - number: fixed px margin
 	 * - "auto" (default): max(200, contentDiagonal * 0.3)
@@ -229,12 +236,13 @@ export function solveDiagram(
 	const cjkStyledNodes = nodes.map((node) =>
 		enhanceNodeCjkTypography(node, cjkTypography, diagnostics),
 	);
-	const styledNodes =
+	const styledNodesBase =
 		options.prefitLabelSize === true
 			? cjkStyledNodes.map((node) =>
 					prefitNodeLabelSize(node, options, diagnostics),
 				)
 			: cjkStyledNodes;
+	const styledNodes = styledNodesBase.map(cloneNormalizedNodeForSolver);
 	const styledEdges = edges.map((edge) =>
 		enhanceEdgeCjkTypography(edge, cjkTypography, diagnostics),
 	);
@@ -355,14 +363,6 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
-	expandNodeBoxesForAnchorCapacity(
-		styledEdges,
-		styledNodes,
-		constrained.boxes,
-		diagram.direction,
-		options,
-		diagnostics,
-	);
 	const contractSwimlanes =
 		options.fixedSwimlaneGeometry === true ||
 		options.fixedSwimlaneGeometry === "diagnose-overflow"
@@ -394,6 +394,18 @@ export function solveDiagram(
 	// by repairOverlaps — clean those up before continuing.
 	removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
 	diagnostics.push(...swimlaneContracts.diagnostics);
+	const beforeAnchorGrowthBoxes = cloneBoxMap(constrained.boxes);
+	expandNodeBoxesForAnchorCapacity(
+		styledEdges,
+		styledNodes,
+		constrained.boxes,
+		diagram.direction,
+		options,
+		diagnostics,
+	);
+	diagnostics.push(
+		...reportPostGrowthOverlaps(beforeAnchorGrowthBoxes, constrained.boxes),
+	);
 
 	const coordinatedNodes = coordinateNodes(
 		styledNodes,
@@ -577,17 +589,21 @@ export function solveDiagram(
 		}
 	}
 
-	const routeObstacleBoxes = [...nodeGeometryById.values()].map((geometry) =>
-		options.routingGutter === undefined
-			? geometry.obstacleBox
-			: expandBox(geometry.obstacleBox, options.routingGutter),
+	const routeObstacleEntries = [...nodeGeometryById.entries()].map(
+		([nodeId, geometry]) => ({
+			id: nodeId,
+			box:
+				options.routingGutter === undefined
+					? geometry.obstacleBox
+					: expandBox(geometry.obstacleBox, options.routingGutter),
+		}),
 	);
 	const edgeRoutingDiagnostics: Diagnostic[] = [];
 	let coordinatedEdges = coordinateEdges(
 		styledEdges,
 		nodeGeometryById,
 		coordinatedNodes,
-		routeObstacleBoxes,
+		routeObstacleEntries,
 		[...softObstacles, ...titleBarObstacles],
 		routingTextObstacles,
 		hardObstacles,
@@ -596,6 +612,8 @@ export function solveDiagram(
 		edgeRoutingDiagnostics,
 		coordinatedGroups,
 		contentBounds,
+		styledEdges,
+		frame !== undefined,
 	);
 	let edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
@@ -604,9 +622,7 @@ export function solveDiagram(
 			...baseTextAnnotations.map((annotation) => annotation.box),
 			...frameTextAnnotation.map((annotation) => annotation.box),
 		],
-		options.textMeasurer,
-		options.labelPlacement,
-		options.labelOffset,
+		options,
 	);
 	const maxEdgeLabelReroutes = edgeLabelRerouteIterations(options);
 	let routeLabelFeedbackState: RouteLabelFeedbackState = {
@@ -678,7 +694,7 @@ export function solveDiagram(
 				[styledEdge],
 				nodeGeometryById,
 				coordinatedNodes,
-				routeObstacleBoxes,
+				routeObstacleEntries,
 				[...softObstacles, ...titleBarObstacles],
 				baselineTextAnnotations,
 				[
@@ -695,6 +711,7 @@ export function solveDiagram(
 				coordinatedGroups,
 				contentBounds,
 				styledEdges,
+				frame !== undefined,
 			).find((edge) => edge.id === edgeId);
 			if (reroutedEdge === undefined) {
 				iterationState = {
@@ -713,9 +730,7 @@ export function solveDiagram(
 					...baseTextAnnotations.map((annotation) => annotation.box),
 					...frameTextAnnotation.map((annotation) => annotation.box),
 				],
-				options.textMeasurer,
-				options.labelPlacement,
-				options.labelOffset,
+				options,
 			);
 			const candidateTextAnnotations = routeLabelFeedbackTextAnnotations(
 				baseTextAnnotations,
@@ -804,6 +819,12 @@ export function solveDiagram(
 		...edgeTextAnnotations,
 	];
 	diagnostics.push(...reportTextAnnotationCollisions(textAnnotations));
+	diagnostics.push(
+		...reportExternalizedLabelDiagnostics(
+			edgeTextAnnotations,
+			coordinatedEdges,
+		),
+	);
 	const routeTextDiagnostics = reportRouteTextClearance(
 		coordinatedEdges,
 		textAnnotations,
@@ -831,16 +852,31 @@ export function solveDiagram(
 		),
 	);
 
-	let degraded = false;
+	let deliverability = buildDeliverabilityReport(diagnostics, options);
+	if (deliverability.status === "unsatisfiable") {
+		diagnostics.push(
+			deliverabilityUnsatisfiableDiagnostic(
+				diagram.id,
+				deliverability,
+				diagnostics,
+			),
+		);
+		deliverability = buildDeliverabilityReport(diagnostics, options);
+	}
+	const degraded = deliverability.degraded;
 	const resultDiagnostics = diagnostics.map((diagnostic) => {
 		if (DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code)) {
-			degraded = true;
 			if (options.strict) {
 				return { ...diagnostic, severity: "error" as const };
 			}
 		}
 		return diagnostic;
 	});
+	const routingAllocations = buildRoutingAllocationReport(
+		coordinatedEdges,
+		contentBounds,
+		diagram.direction,
+	);
 
 	return {
 		id: diagram.id,
@@ -861,6 +897,10 @@ export function solveDiagram(
 			: { evidencePanels: coordinatedEvidencePanels }),
 		diagnostics: resultDiagnostics,
 		degraded,
+		deliverability,
+		...(routingAllocations === undefined
+			? {}
+			: { routing: routingAllocations }),
 		bounds:
 			frame === undefined
 				? unionBoxes(boundsBase)
@@ -885,6 +925,275 @@ export function solveDiagramSafe(
 	options: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
 	return solveDiagram(diagram, { ...options, prefitLabelSize: true });
+}
+
+function cloneNormalizedNodeForSolver(node: NormalizedNode): NormalizedNode {
+	return {
+		...node,
+		size: { ...node.size },
+		padding: { ...node.padding },
+		...(node.position === undefined ? {} : { position: { ...node.position } }),
+		...(node.labelLayout === undefined
+			? {}
+			: {
+					labelLayout: {
+						...node.labelLayout,
+						box: { ...node.labelLayout.box },
+						contentBox: { ...node.labelLayout.contentBox },
+						naturalSize: { ...node.labelLayout.naturalSize },
+						fittedSize: { ...node.labelLayout.fittedSize },
+						padding: { ...node.labelLayout.padding },
+						overflow: { ...node.labelLayout.overflow },
+						lines: node.labelLayout.lines.map((line) => ({
+							...line,
+							box: { ...line.box },
+						})),
+						diagnostics: node.labelLayout.diagnostics.map((diagnostic) => ({
+							...diagnostic,
+							...(diagnostic.path === undefined
+								? {}
+								: { path: [...diagnostic.path] }),
+							...(diagnostic.detail === undefined
+								? {}
+								: { detail: { ...diagnostic.detail } }),
+						})),
+					},
+				}),
+	};
+}
+
+function cloneBoxMap(boxes: ReadonlyMap<string, Box>): Map<string, Box> {
+	return new Map(
+		[...boxes.entries()].map(([id, box]) => [id, { ...box }] as const),
+	);
+}
+
+function reportPostGrowthOverlaps(
+	before: ReadonlyMap<string, Box>,
+	after: ReadonlyMap<string, Box>,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	const ids = [...after.keys()].sort((a, b) => a.localeCompare(b));
+	for (let leftIndex = 0; leftIndex < ids.length; leftIndex += 1) {
+		const leftId = ids[leftIndex];
+		const leftAfter = leftId === undefined ? undefined : after.get(leftId);
+		const leftBefore = leftId === undefined ? undefined : before.get(leftId);
+		if (leftId === undefined || leftAfter === undefined) continue;
+		for (
+			let rightIndex = leftIndex + 1;
+			rightIndex < ids.length;
+			rightIndex += 1
+		) {
+			const rightId = ids[rightIndex];
+			const rightAfter = rightId === undefined ? undefined : after.get(rightId);
+			const rightBefore =
+				rightId === undefined ? undefined : before.get(rightId);
+			if (rightId === undefined || rightAfter === undefined) continue;
+			if (!intersectsAabb(leftAfter, rightAfter)) continue;
+			const overlappedBefore =
+				leftBefore !== undefined &&
+				rightBefore !== undefined &&
+				intersectsAabb(leftBefore, rightBefore);
+			if (overlappedBefore) continue;
+			const changed =
+				leftBefore === undefined ||
+				rightBefore === undefined ||
+				!sameBox(leftBefore, leftAfter) ||
+				!sameBox(rightBefore, rightAfter);
+			if (!changed) continue;
+			diagnostics.push({
+				severity: "warning",
+				code: "constraints.overlap.post-growth",
+				message: `Anchor-capacity growth introduced overlap between ${leftId} and ${rightId}.`,
+				path: ["nodes"],
+				detail: compactDetail({
+					firstId: leftId,
+					secondId: rightId,
+					remediationType: "post-growth-repair",
+					suggestedRemedy:
+						"Increase spacing, relax fixed positions, reduce same-side fanout, or rerun layout with larger page capacity.",
+				}),
+			});
+		}
+	}
+	return diagnostics;
+}
+
+function buildRoutingAllocationReport(
+	edges: readonly CoordinatedEdge[],
+	contentBounds: Box,
+	direction: NormalizedDiagram["direction"],
+): RoutingAllocationReport | undefined {
+	const horizontal = direction === "LR" || direction === "RL";
+	const railCandidates = edges.flatMap((edge) => {
+		if (edge.points.length === 0) return [];
+		const coordinate = horizontal
+			? Math.min(...edge.points.map((point) => point.y))
+			: Math.min(...edge.points.map((point) => point.x));
+		const threshold = horizontal ? contentBounds.y : contentBounds.x;
+		if (!(coordinate < threshold - 1)) {
+			return [];
+		}
+		return [
+			{
+				edgeId: edge.id,
+				axis: horizontal ? ("y" as const) : ("x" as const),
+				side: horizontal ? ("top" as const) : ("left" as const),
+				coordinate,
+			},
+		];
+	});
+	if (railCandidates.length === 0) {
+		return undefined;
+	}
+	const sortedRails = [...railCandidates].sort(
+		(left, right) =>
+			left.coordinate - right.coordinate ||
+			left.edgeId.localeCompare(right.edgeId),
+	);
+	const rails = sortedRails.map((rail, index) => ({
+		...rail,
+		coordinate: Math.round(rail.coordinate),
+		index,
+	}));
+	const minCoordinate = Math.min(...rails.map((rail) => rail.coordinate));
+	const gutter = horizontal
+		? {
+				side: "top" as const,
+				box: {
+					x: contentBounds.x,
+					y: minCoordinate,
+					width: contentBounds.width,
+					height: contentBounds.y - minCoordinate,
+				},
+				railCount: rails.length,
+			}
+		: {
+				side: "left" as const,
+				box: {
+					x: minCoordinate,
+					y: contentBounds.y,
+					width: contentBounds.x - minCoordinate,
+					height: contentBounds.height,
+				},
+				railCount: rails.length,
+			};
+	return { rails, gutters: [gutter] };
+}
+
+function buildDeliverabilityReport(
+	diagnostics: readonly Diagnostic[],
+	options: SolveDiagramOptions,
+): DeliverabilityReport {
+	const blocking = diagnostics.filter((diagnostic) =>
+		DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
+	);
+	const degraded = blocking.length > 0;
+	return {
+		status: !degraded ? "clean" : options.strict ? "unsatisfiable" : "degraded",
+		strict: options.strict === true,
+		degraded,
+		diagnosticCodes: stableStrings(
+			blocking.map((diagnostic) => diagnostic.code),
+		),
+		remediationTypes: stableStrings(blocking.map(remediationTypeForDiagnostic)),
+	};
+}
+
+function deliverabilityUnsatisfiableDiagnostic(
+	pageId: string,
+	report: DeliverabilityReport,
+	diagnostics: readonly Diagnostic[],
+): Diagnostic {
+	const blocking = diagnostics.filter((diagnostic) =>
+		DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
+	);
+	const edgeIds = stableStrings(
+		flattenDiagnosticDetailStrings(blocking, "edgeId"),
+	);
+	const edgeIdLists = stableStrings(
+		flattenDiagnosticDetailStrings(blocking, "edgeIds")
+			.flatMap((value) => value.split(","))
+			.map((value) => value.trim())
+			.filter((value) => value.length > 0),
+	);
+	const textSurfaceKinds = stableStrings(
+		flattenDiagnosticDetailStrings(blocking, "textSurfaceKind").concat(
+			flattenDiagnosticDetailStrings(blocking, "textSurfaceKinds")
+				.flatMap((value) => value.split(","))
+				.map((value) => value.trim())
+				.filter((value) => value.length > 0),
+		),
+	);
+	const conflictingObjectIds = stableStrings(
+		flattenDiagnosticDetailStrings(blocking, "conflictingObjectId").concat(
+			flattenDiagnosticDetailStrings(blocking, "ownerIds")
+				.flatMap((value) => value.split(","))
+				.map((value) => value.trim())
+				.filter((value) => value.length > 0),
+		),
+	);
+	return {
+		severity: "error",
+		code: "routing.deliverability.unsatisfiable",
+		message:
+			"Strict deliverability could not be satisfied; structured remediation is required before this layout is deliverable.",
+		path: ["diagnostics"],
+		detail: compactDetail({
+			pageId,
+			status: report.status,
+			strict: report.strict,
+			blockingDiagnosticCount: blocking.length,
+			diagnosticCodes: report.diagnosticCodes.join(","),
+			remediationTypes: report.remediationTypes.join(","),
+			edgeIds: stableStrings([...edgeIds, ...edgeIdLists]).join(","),
+			textSurfaceKinds: textSurfaceKinds.join(","),
+			conflictingObjectIds: conflictingObjectIds.join(","),
+			suggestedRemedy:
+				"Apply the listed remediation types, such as external labels, route rails, page growth, or page splitting, then solve again.",
+		}),
+	};
+}
+
+function flattenDiagnosticDetailStrings(
+	diagnostics: readonly Diagnostic[],
+	key: string,
+): string[] {
+	return diagnostics
+		.map((diagnostic) => diagnostic.detail?.[key])
+		.filter((value): value is string => typeof value === "string");
+}
+
+function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
+	if (typeof diagnostic.detail?.remediationType === "string") {
+		return diagnostic.detail.remediationType;
+	}
+	switch (diagnostic.code) {
+		case "routing.text-clearance.unresolved":
+		case "routing.label-congestion.unresolved":
+		case "routing.route-label-loop.exhausted":
+			return "external-label-or-split";
+		case "routing.label-externalization.required":
+			return "external-label";
+		case "routing.obstacle.unavoidable":
+		case "routing.evidence.crossing_forbidden":
+		case "route_obstacle_fallback":
+			return "route-rail-or-page-split";
+		case "routing.rail-capacity.exceeded":
+			return "increase-rails-or-split";
+		case "routing.anchor-capacity.requires-resize":
+			return "grow-node-anchor-capacity";
+		case "constraints.overlap.locked-conflict":
+		case "constraints.overlap.post-growth":
+		case "constraints.locked-target-not-moved":
+		case "layout.container-fixed-bounds-overflow":
+		case "routing.container-fixed-bounds-overflow":
+			return "relax-or-grow-fixed-geometry";
+		case "routing.deliverability.unsatisfiable":
+			return "structured-remediation-required";
+		default:
+			return "manual-remediation";
+	}
 }
 
 function runInitialLayout(input: {
@@ -4272,11 +4581,16 @@ function evidenceOverlapDiagnostic(
 	};
 }
 
+interface NodeObstacleEntry {
+	id: string;
+	box: Box;
+}
+
 function coordinateEdges(
 	edges: readonly NormalizedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	coordinatedNodes: readonly CoordinatedNode[],
-	obstacles: readonly Box[],
+	nodeObstacles: readonly NodeObstacleEntry[],
 	softObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
 	hardObstacles: readonly Box[],
@@ -4286,6 +4600,7 @@ function coordinateEdges(
 	groups: readonly CoordinatedGroup[],
 	contentBounds: Box,
 	allocationEdges: readonly NormalizedEdge[] = edges,
+	avoidFrameTitleRails = false,
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
@@ -4313,7 +4628,7 @@ function coordinateEdges(
 			? Math.max(routingGutter, corridorMargin)
 			: routingGutter;
 	const nodeObstacleIndex = createBoxSpatialIndex(
-		obstacles.map((box, index) => ({ id: `node-obstacle:${index}`, box })),
+		nodeObstacles.map((entry) => ({ id: entry.id, box: entry.box })),
 		queryGutter,
 	);
 	const railIndexByEdgeId = railRouteIndexByEdgeId(
@@ -4371,14 +4686,17 @@ function coordinateEdges(
 		const routeTextObstacles = textObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => textObstacleBox(annotation, options));
+		const railTextObstacles = textObstacles
+			.filter((annotation) => annotation.surfaceKind !== "edge-label")
+			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
+			.map((annotation) => textObstacleBox(annotation, options));
 		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
 		const routeNodeObstacles = queryBoxSpatialIndex(nodeObstacleIndex, corridor)
-			.map((entry) => entry.box)
 			.filter(
-				(obstacle) =>
-					!sameBox(obstacle, source.obstacleBox) &&
-					!sameBox(obstacle, target.obstacleBox),
-			);
+				(entry) =>
+					entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
+			)
+			.map((entry) => entry.box);
 		const routeGroupObstacles = groupObstaclesForEdge(
 			edge,
 			groups,
@@ -4394,19 +4712,23 @@ function coordinateEdges(
 				direction,
 				contentBounds,
 				railIndex,
+				avoidFrameTitleRails,
 			);
-			const railNodeObstacles = obstacles.filter(
-				(obstacle) =>
-					!intersectsAabb(obstacle, source.box) &&
-					!intersectsAabb(obstacle, target.box),
-			);
+			const railNodeObstacles = nodeObstacles
+				.filter(
+					(obstacle) =>
+						obstacle.id !== edge.source.nodeId &&
+						obstacle.id !== edge.target.nodeId,
+				)
+				.map((obstacle) => obstacle.box);
 			const railSoftObstacles = [
 				...railNodeObstacles,
 				...softObstacles,
 				...routeGroupObstacles,
-				...routeTextObstacles,
+				...railTextObstacles,
 			];
 			if (
+				railPoints !== undefined &&
 				!routeCrossesBoxes(railPoints, railSoftObstacles) &&
 				!routeCrossesBoxes(railPoints, hardObstacles)
 			) {
@@ -4524,7 +4846,8 @@ function railRoutePoints(
 	direction: NormalizedDiagram["direction"],
 	contentBounds: Box,
 	railIndex: number,
-): Point[] {
+	avoidFrameTitleRails: boolean,
+): Point[] | undefined {
 	const gap = 18;
 	if (direction === "LR" || direction === "RL") {
 		const sourceSide =
@@ -4549,15 +4872,31 @@ function railRoutePoints(
 						source.box,
 						direction,
 					);
+		if (
+			!isHorizontalRailEndpointSide(sourceSide) ||
+			!isHorizontalRailEndpointSide(targetSide)
+		) {
+			return undefined;
+		}
 		const start = getEdgePort(
 			source,
 			target.center,
 			sourceAnchor ?? sourceSide,
 		);
 		const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
-		const sourceJogX = sourceSide === "left" ? start.x - gap : start.x + gap;
-		const targetJogX = targetSide === "left" ? end.x - gap : end.x + gap;
-		const railY = contentBounds.y - 32 - railIndex * gap;
+		const sourceJogX = avoidFrameTitleJogX(
+			sourceSide === "left" ? start.x - gap : start.x + gap,
+			contentBounds,
+			gap,
+			avoidFrameTitleRails,
+		);
+		const targetJogX = avoidFrameTitleJogX(
+			targetSide === "left" ? end.x - gap : end.x + gap,
+			contentBounds,
+			gap,
+			avoidFrameTitleRails,
+		);
+		const railY = contentBounds.y - 64 - railIndex * gap;
 		return compactRoutePoints([
 			start,
 			{ x: sourceJogX, y: start.y },
@@ -4579,11 +4918,17 @@ function railRoutePoints(
 				? "bottom"
 				: "top"
 			: anchorSideForEndpoint(targetAnchor, target.box, source.box, direction);
+	if (
+		!isVerticalRailEndpointSide(sourceSide) ||
+		!isVerticalRailEndpointSide(targetSide)
+	) {
+		return undefined;
+	}
 	const start = getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
 	const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
 	const sourceJogY = sourceSide === "top" ? start.y - gap : start.y + gap;
 	const targetJogY = targetSide === "top" ? end.y - gap : end.y + gap;
-	const railX = contentBounds.x - 32 - railIndex * gap;
+	const railX = contentBounds.x - 64 - railIndex * gap;
 	return compactRoutePoints([
 		start,
 		{ x: start.x, y: sourceJogY },
@@ -4592,6 +4937,31 @@ function railRoutePoints(
 		{ x: end.x, y: targetJogY },
 		end,
 	]);
+}
+
+function isHorizontalRailEndpointSide(side: AnchorSide): boolean {
+	return side === "left" || side === "right";
+}
+
+function isVerticalRailEndpointSide(side: AnchorSide): boolean {
+	return side === "top" || side === "bottom";
+}
+
+function avoidFrameTitleJogX(
+	jogX: number,
+	contentBounds: Box,
+	gap: number,
+	enabled: boolean,
+): number {
+	if (!enabled) {
+		return jogX;
+	}
+	const reservedTitleLeft = contentBounds.x - 64;
+	const reservedTitleRight = contentBounds.x + 220;
+	if (jogX >= reservedTitleLeft && jogX <= reservedTitleRight) {
+		return reservedTitleRight + gap;
+	}
+	return jogX;
 }
 
 function compactRoutePoints(points: readonly Point[]): Point[] {
@@ -4909,14 +5279,12 @@ function coordinateBaseTextAnnotations(input: {
 function coordinateEdgeTextAnnotations(
 	edges: readonly CoordinatedEdge[],
 	obstacleBoxes: readonly Box[],
-	textMeasurer?: TextMeasurer,
-	labelPlacement?: "beside" | "on-path",
-	labelOffset?: number,
+	options: SolveDiagramOptions = {},
 ): SolvedTextAnnotation[] {
 	const labelBaseOffset =
-		labelPlacement === "beside" ? (labelOffset ?? 16) : 10;
+		options.labelPlacement === "beside" ? (options.labelOffset ?? 16) : 10;
 
-	const measurer = textMeasurer ?? createDefaultTextMeasurer();
+	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	const annotations: SolvedTextAnnotation[] = [];
 	const placedLabelBoxes: Box[] = [];
 
@@ -4938,17 +5306,18 @@ function coordinateEdgeTextAnnotations(
 			},
 			measurer,
 		);
-		const center = edgeLabelAnchor(
+		const anchor = edgeLabelAnchor(
 			edge,
 			layout,
 			edges,
 			obstacleBoxes,
 			placedLabelBoxes,
 			labelBaseOffset,
+			options,
 		);
 		placedLabelBoxes.push({
-			x: center.x - layout.box.width / 2,
-			y: center.y - layout.box.height / 2,
+			x: anchor.center.x - layout.box.width / 2,
+			y: anchor.center.y - layout.box.height / 2,
 			width: layout.box.width,
 			height: layout.box.height,
 		});
@@ -4958,7 +5327,17 @@ function coordinateEdgeTextAnnotations(
 				surfaceKind: "edge-label",
 				layout,
 				typography: typographyForLabel(edge.label),
-				center,
+				center: anchor.center,
+				...(anchor.externalized
+					? { placement: "external-callout-required" }
+					: {}),
+				placementDetail: {
+					candidateCount: anchor.candidateCount,
+					localConflictCount: anchor.localConflictCount,
+					routeConflictCount: anchor.routeConflictCount,
+					nodeOverlapCount: anchor.nodeOverlapCount,
+					labelOverlapCount: anchor.labelOverlapCount,
+				},
 			}),
 		);
 	}
@@ -5144,6 +5523,8 @@ function buildCenteredTextAnnotation(input: {
 	ownerId: string;
 	surfaceKind: TextSurfaceKind;
 	surfaceIndex?: number;
+	placement?: SolvedTextAnnotation["placement"];
+	placementDetail?: SolvedTextAnnotation["placementDetail"];
 	layout: LabelLayout;
 	typography?: CjkTypography;
 	center: Point;
@@ -5156,6 +5537,10 @@ function buildCenteredTextAnnotation(input: {
 		...(input.surfaceIndex === undefined
 			? {}
 			: { surfaceIndex: input.surfaceIndex }),
+		...(input.placement === undefined ? {} : { placement: input.placement }),
+		...(input.placementDetail === undefined
+			? {}
+			: { placementDetail: input.placementDetail }),
 		box: {
 			x: input.center.x - input.layout.box.width / 2,
 			y: input.center.y - input.layout.box.height / 2,
@@ -5247,6 +5632,9 @@ function reportRouteTextClearance(
 
 	for (const edge of edges) {
 		for (const annotation of relevantAnnotations) {
+			if (annotation.placement === "external-callout-required") {
+				continue;
+			}
 			if (isEdgeConnectedTextAnnotation(edge, annotation)) {
 				continue;
 			}
@@ -5276,6 +5664,91 @@ function reportRouteTextClearance(
 	}
 
 	return diagnostics;
+}
+
+function reportExternalizedLabelDiagnostics(
+	annotations: readonly SolvedTextAnnotation[],
+	edges: readonly CoordinatedEdge[],
+): Diagnostic[] {
+	const externalized = annotations.filter(
+		(annotation) =>
+			annotation.surfaceKind === "edge-label" &&
+			annotation.placement === "external-callout-required",
+	);
+	if (externalized.length === 0) {
+		return [];
+	}
+	const edgeIds = stableStrings(
+		externalized.map((annotation) => annotation.ownerId),
+	);
+	const candidateCount = externalized.reduce(
+		(total, annotation) =>
+			total + numberDetail(annotation.placementDetail?.candidateCount),
+		0,
+	);
+	const localConflictCount = externalized.reduce(
+		(total, annotation) =>
+			total + numberDetail(annotation.placementDetail?.localConflictCount),
+		0,
+	);
+	const routeConflictCount = externalized.reduce(
+		(total, annotation) =>
+			total + numberDetail(annotation.placementDetail?.routeConflictCount),
+		0,
+	);
+	const nodeOverlapCount = externalized.reduce(
+		(total, annotation) =>
+			total + numberDetail(annotation.placementDetail?.nodeOverlapCount),
+		0,
+	);
+	const labelOverlapCount = externalized.reduce(
+		(total, annotation) =>
+			total + numberDetail(annotation.placementDetail?.labelOverlapCount),
+		0,
+	);
+	const involvedEdges = edges.filter((edge) => edgeIds.includes(edge.id));
+	const bounds =
+		involvedEdges.length === 0
+			? undefined
+			: unionBoxes(involvedEdges.map((edge) => edgeRouteBounds(edge)));
+	return [
+		{
+			severity: "warning",
+			code: "routing.label-externalization.required",
+			message: `${externalized.length} edge label(s) require external callouts because local candidates remain congested.`,
+			path: ["textAnnotations", "edge-label"],
+			detail: compactDetail({
+				edgeIds: edgeIds.join(","),
+				labelCount: externalized.length,
+				candidateCount,
+				localConflictCount,
+				routeConflictCount,
+				nodeOverlapCount,
+				labelOverlapCount,
+				remediationType: "external-label",
+				occupiedCorridor:
+					bounds === undefined
+						? undefined
+						: `${Math.round(bounds.x)},${Math.round(bounds.y)},${Math.round(
+								bounds.width,
+							)},${Math.round(bounds.height)}`,
+				...(bounds === undefined
+					? {}
+					: {
+							boundsX: Math.round(bounds.x),
+							boundsY: Math.round(bounds.y),
+							boundsWidth: Math.round(bounds.width),
+							boundsHeight: Math.round(bounds.height),
+						}),
+				suggestedRemedy:
+					"Render these edge labels as keyed external callouts, increase label rails, or split the dense view.",
+			}),
+		},
+	];
+}
+
+function numberDetail(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function reportLabelCongestionDiagnostics(
@@ -5807,6 +6280,16 @@ function fallbackLabelLayout(text: string): LabelLayout {
 	};
 }
 
+interface EdgeLabelAnchorResult {
+	center: Point;
+	candidateCount: number;
+	localConflictCount: number;
+	routeConflictCount: number;
+	nodeOverlapCount: number;
+	labelOverlapCount: number;
+	externalized: boolean;
+}
+
 function edgeLabelAnchor(
 	edge: CoordinatedEdge,
 	layout: LabelLayout,
@@ -5814,24 +6297,37 @@ function edgeLabelAnchor(
 	obstacleBoxes: readonly Box[],
 	placedLabelBoxes: readonly Box[],
 	baseOffset = 10,
-): Point {
+	options: SolveDiagramOptions = {},
+): EdgeLabelAnchorResult {
 	const placement = labelPlacementOnPolyline(edge.points, baseOffset);
 	if (placement === undefined) {
-		return { x: 0, y: 0 };
+		return {
+			center: { x: 0, y: 0 },
+			candidateCount: 0,
+			localConflictCount: 0,
+			routeConflictCount: 0,
+			nodeOverlapCount: 0,
+			labelOverlapCount: 0,
+			externalized: false,
+		};
 	}
 
 	let bestFallback:
 		| {
 				candidate: Point;
 				score: number;
+				routeConflictCount: number;
+				nodeOverlapCount: number;
+				labelOverlapCount: number;
 		  }
 		| undefined;
-	for (const candidate of edgeLabelAnchorCandidates(
+	const candidates = edgeLabelAnchorCandidates(
 		edge.points,
 		placement,
 		layout,
 		baseOffset,
-	)) {
+	);
+	for (const candidate of candidates) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
 			y: candidate.y - layout.box.height / 2,
@@ -5855,24 +6351,61 @@ function edgeLabelAnchor(
 			nodeOverlaps === 0 &&
 			placedLabelOverlaps === 0
 		) {
-			return candidate;
+			const externalPolicy = edgeLabelExternalizationPolicy(options);
+			return {
+				center: candidate,
+				candidateCount: candidates.length,
+				localConflictCount: 0,
+				routeConflictCount: 0,
+				nodeOverlapCount: 0,
+				labelOverlapCount: 0,
+				externalized: externalPolicy === "force",
+			};
 		}
 		const distanceFromDefault = Math.hypot(
 			candidate.x - placement.x,
 			candidate.y - placement.y,
 		);
 		const score =
-			(crossesOwnRoute ? 100_000 : 0) +
-			otherRouteCrossings * 10_000 +
-			nodeOverlaps * 1_000 +
-			placedLabelOverlaps * 500 +
+			nodeOverlaps * 1_000_000 +
+			placedLabelOverlaps * 500_000 +
+			otherRouteCrossings * 100_000 +
+			(crossesOwnRoute ? 10_000 : 0) +
 			distanceFromDefault;
 		if (bestFallback === undefined || score < bestFallback.score) {
-			bestFallback = { candidate, score };
+			bestFallback = {
+				candidate,
+				score,
+				routeConflictCount: (crossesOwnRoute ? 1 : 0) + otherRouteCrossings,
+				nodeOverlapCount: nodeOverlaps,
+				labelOverlapCount: placedLabelOverlaps,
+			};
 		}
 	}
 
-	return bestFallback?.candidate ?? placement;
+	const fallback = bestFallback ?? {
+		candidate: placement,
+		score: 0,
+		routeConflictCount: 0,
+		nodeOverlapCount: 0,
+		labelOverlapCount: 0,
+	};
+	const localConflictCount =
+		fallback.routeConflictCount +
+		fallback.nodeOverlapCount +
+		fallback.labelOverlapCount;
+	const externalPolicy = edgeLabelExternalizationPolicy(options);
+	return {
+		center: fallback.candidate,
+		candidateCount: candidates.length,
+		localConflictCount,
+		routeConflictCount: fallback.routeConflictCount,
+		nodeOverlapCount: fallback.nodeOverlapCount,
+		labelOverlapCount: fallback.labelOverlapCount,
+		externalized:
+			externalPolicy === "force" ||
+			(localConflictCount > 0 && externalPolicy === "congested"),
+	};
 }
 
 function edgeLabelAnchorCandidates(
@@ -6012,6 +6545,19 @@ function edgeLabelAnchorCandidates(
 	}
 
 	return candidates;
+}
+
+function edgeLabelExternalizationPolicy(
+	options: SolveDiagramOptions,
+): "off" | "congested" | "force" {
+	const setting = options.externalLabels;
+	if (setting === true) {
+		return "force";
+	}
+	if (typeof setting === "object") {
+		return setting.edgeLabels === false ? "off" : "force";
+	}
+	return options.strict === true ? "congested" : "off";
 }
 
 function labelPlacementOnPolyline(

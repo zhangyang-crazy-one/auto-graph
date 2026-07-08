@@ -4,7 +4,7 @@ import type {
 	TextStyleOptions,
 } from "../text/index.js";
 import type { Diagnostic } from "./diagnostics.js";
-import type { Box, Insets, Size } from "./geometry.js";
+import type { Box, Insets, JsonObject, Size } from "./geometry.js";
 
 export interface LabelLineLayout {
 	text: string;
@@ -49,6 +49,8 @@ export interface SolvedTextAnnotation {
 	ownerId: string;
 	surfaceKind: TextSurfaceKind;
 	surfaceIndex?: number;
+	placement?: "local" | "external-callout-required";
+	placementDetail?: JsonObject;
 	box: Box;
 	anchor: Box | { x: number; y: number };
 	paddings: Insets;

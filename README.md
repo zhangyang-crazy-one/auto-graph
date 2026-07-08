@@ -125,9 +125,10 @@ routing:
   fixedSwimlaneGeometry: diagnose-overflow
   anchorCapacity: { minSpacing: 16, grow: true }
   railRouting: dependency
+  externalLabels: { edgeLabels: true }
 ```
 
-Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, and `railRouting: dependency` for dense same-rank dependency pages.
+Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, `railRouting: dependency` for dense same-rank dependency pages, and `externalLabels` when downstream renderers should turn congested edge labels into keyed callouts. Solved diagrams include `deliverability.status` (`clean`, `degraded`, or `unsatisfiable`) plus remediation types for strict delivery gates.
 
 ## CLI
 

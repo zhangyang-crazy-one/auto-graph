@@ -699,8 +699,15 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 	const hardClearCandidate = rankedCandidateRoutes.find(
 		(candidate) =>
-			candidate.quality.hardCrossings === 0 &&
-			candidate.quality.endpointCrossings === 0,
+			!routeIntersectsObstacles(
+				candidate.points,
+				hardObstacles,
+				hardObstacleIndex,
+			) &&
+			!routeIntersectsEndpointInteriors(
+				candidate.points,
+				candidate.endpointObstacles,
+			),
 	);
 	if (hardClearCandidate !== undefined) {
 		let bestPoints = hardClearCandidate.points;
@@ -744,6 +751,10 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						return accepted;
 					}
 				}
+			}
+			const excessiveClean = returnBestExcessiveCleanRoute();
+			if (excessiveClean !== undefined) {
+				return excessiveClean;
 			}
 			// Fall back to improving the first hard-clear candidate
 			const rerouted = greedyRerouteAroundObstacles(
@@ -861,6 +872,10 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						return accepted;
 					}
 				}
+			}
+			const excessiveClean = returnBestExcessiveCleanRoute();
+			if (excessiveClean !== undefined) {
+				return excessiveClean;
 			}
 			bestPoints = greedyRerouteAroundObstacles(
 				rankedCandidateRoutes[0]?.points ??
@@ -1197,10 +1212,10 @@ function pathLength(points: readonly Point[]): number {
 
 function endpointInteriorObstacles(input: RouteEdgeInput): Box[] {
 	const boxes: Box[] = [];
-	if (hasDistinctAnchors(input.source)) {
+	if (hasDistinctAnchors(input.source) && input.sourceAnchor !== "center") {
 		boxes.push(insetBox(input.source.box, 1));
 	}
-	if (hasDistinctAnchors(input.target)) {
+	if (hasDistinctAnchors(input.target) && input.targetAnchor !== "center") {
 		boxes.push(insetBox(input.target.box, 1));
 	}
 	return boxes.filter((box) => box.width > 0 && box.height > 0);
