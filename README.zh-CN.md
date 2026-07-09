@@ -126,9 +126,17 @@ routing:
   anchorCapacity: { minSpacing: 16, grow: true }
   railRouting: dependency
   externalLabels: { edgeLabels: true }
+  deliverabilityMode: strict
+  remediationPolicy:
+    externalLabels: suggest
+    routeRails: suggest
+    growFixedGeometry: auto
+    pageSplit: suggest
 ```
 
-当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`，需要把拥挤边标签交给下游 keyed callout 渲染时使用 `externalLabels`。求解结果包含 `deliverability.status`（`clean`、`degraded` 或 `unsatisfiable`）以及 strict 交付门需要的 remediation 类型。
+当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`，需要把拥挤边标签交给下游 keyed callout 渲染时使用 `externalLabels`。`deliverabilityMode: strict` 等价于 `strict: true`；`deliverabilityMode: degraded-ok` 保留 advisory degraded 输出。`remediationPolicy` 控制 external labels、route rails、fixed-geometry growth 和 page split 是 `off`、`suggest`，还是在支持时 `auto`。
+
+求解结果继续保留旧的 `degraded`、`deliverability.status` 和 `deliverability.remediationTypes` 字段。同时新增确定性的 `deliverability.remediationPlans` 对象，包含稳定 ID、类型、状态、诊断代码、edge/node ID 以及类型专属细节，strict 消费方可以直接应用或暂存 remediation，而不需要解析自由文本诊断。
 
 ## CLI
 

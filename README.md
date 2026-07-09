@@ -126,9 +126,17 @@ routing:
   anchorCapacity: { minSpacing: 16, grow: true }
   railRouting: dependency
   externalLabels: { edgeLabels: true }
+  deliverabilityMode: strict
+  remediationPolicy:
+    externalLabels: suggest
+    routeRails: suggest
+    growFixedGeometry: auto
+    pageSplit: suggest
 ```
 
-Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, `railRouting: dependency` for dense same-rank dependency pages, and `externalLabels` when downstream renderers should turn congested edge labels into keyed callouts. Solved diagrams include `deliverability.status` (`clean`, `degraded`, or `unsatisfiable`) plus remediation types for strict delivery gates.
+Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, `railRouting: dependency` for dense same-rank dependency pages, and `externalLabels` when downstream renderers should turn congested edge labels into keyed callouts. `deliverabilityMode: strict` is equivalent to `strict: true`; `deliverabilityMode: degraded-ok` preserves advisory degraded output. `remediationPolicy` controls whether external labels, route rails, fixed-geometry growth, and page splitting are `off`, `suggest`, or `auto` where supported.
+
+Solved diagrams keep the legacy `degraded`, `deliverability.status`, and `deliverability.remediationTypes` fields. They also expose deterministic `deliverability.remediationPlans` objects with stable IDs, type, status, diagnostic codes, edge/node IDs, and type-specific details so strict consumers can apply or stage the suggested remediation without parsing free-form diagnostic text.
 
 ## CLI
 
