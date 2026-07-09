@@ -2078,8 +2078,11 @@ describe("solveDiagram", () => {
 				textIntersectionTolerance: 0,
 			},
 		);
+		const affectedEdgeDiagnostics = result.diagnostics.filter(
+			(diagnostic) => diagnostic.detail?.edgeId === "source-target",
+		);
 
-		expect(result.diagnostics).toContainEqual(
+		expect(affectedEdgeDiagnostics).toContainEqual(
 			expect.objectContaining({
 				code: "routing.text-clearance.unresolved",
 				detail: expect.objectContaining({
@@ -2091,6 +2094,7 @@ describe("solveDiagram", () => {
 		);
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
+				severity: "warning",
 				code: "routing.route-label-loop.exhausted",
 				detail: expect.objectContaining({
 					edgeIds: "source-target",
@@ -2103,10 +2107,9 @@ describe("solveDiagram", () => {
 				code: "routing.label-hard-obstacle.unavoidable",
 			}),
 		);
-		expect(result.diagnostics).not.toContainEqual(
+		expect(affectedEdgeDiagnostics).not.toContainEqual(
 			expect.objectContaining({
 				code: "routing.evidence.crossing_forbidden",
-				detail: expect.objectContaining({ edgeId: "source-target" }),
 			}),
 		);
 		expect(safeResult.diagnostics).not.toContainEqual(
@@ -2115,6 +2118,44 @@ describe("solveDiagram", () => {
 				code: "routing.evidence.crossing_forbidden",
 			}),
 		);
+	});
+
+	it("scores feedback hard-route diagnostics ahead of text-clearance gains", () => {
+		const source = readFileSync(
+			new URL("../src/solver/solve.ts", import.meta.url),
+			"utf8",
+		);
+		const comparatorStart = source.indexOf(
+			"function compareRouteLabelFeedbackScore(",
+		);
+		const hardPredicateStart = source.indexOf(
+			"function isRouteLabelFeedbackHardRouteDiagnostic(",
+		);
+		expect(comparatorStart).toBeGreaterThanOrEqual(0);
+		expect(hardPredicateStart).toBeGreaterThan(comparatorStart);
+
+		const comparator = source.slice(comparatorStart, hardPredicateStart);
+		const hardRouteIndex = comparator.indexOf(
+			"left.hardRouteDiagnostics - right.hardRouteDiagnostics",
+		);
+		const routeTextIndex = comparator.indexOf(
+			"left.routeTextConflicts - right.routeTextConflicts",
+		);
+		expect(hardRouteIndex).toBeGreaterThanOrEqual(0);
+		expect(routeTextIndex).toBeGreaterThanOrEqual(0);
+		expect(hardRouteIndex).toBeLessThan(routeTextIndex);
+
+		const hardPredicate = source.slice(
+			hardPredicateStart,
+			source.indexOf("function routeLabelFeedbackPublicRouteDiagnostics("),
+		);
+		expect(hardPredicate).toContain(
+			'diagnostic.code === "routing.evidence.crossing_forbidden"',
+		);
+		expect(hardPredicate).toContain(
+			'diagnostic.code === "route_obstacle_fallback"',
+		);
+		expect(hardPredicate).toContain('diagnostic.severity === "error"');
 	});
 
 	it("does not report straight-route text clearance when only segment AABB overlaps", () => {

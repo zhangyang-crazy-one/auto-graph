@@ -5,7 +5,11 @@ import type {
 	NormalizedDiagram,
 	SolvedTextAnnotation,
 } from "../src/ir/index.js";
-import { solveDiagram } from "../src/solver/index.js";
+import {
+	type SolveDiagramOptions,
+	solveDiagram,
+	solveDiagramSafe,
+} from "../src/solver/index.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("dense MBSE acceptance gate", () => {
@@ -13,21 +17,16 @@ describe("dense MBSE acceptance gate", () => {
 		["CV dependency page", denseCvDependencyPage()],
 		["OV/SV resource-flow page", denseResourceFlowPage()],
 	])("reports Stage 5-style clearance evidence for %s", (_name, diagram) => {
-		const result = solveDiagram(diagram, {
-			initialLayout: "positions",
-			routeKind: "obstacle-avoiding",
-			railRouting: "dependency",
-			edgeLabelRerouting: { maxIterations: 4 },
-			textObstacleVertices: true,
-			textIntersectionTolerance: 0,
-			strict: true,
-			textMeasurer: new DeterministicTextMeasurer(),
-		});
+		const result = solveDiagram(diagram, denseAcceptanceOptions());
+		const safeResult = solveDiagramSafe(diagram, denseAcceptanceOptions());
 		const evidence = stage5Evidence(result);
 		const criticals =
 			evidence.edgeLabelIntersections +
 			evidence.nodeLabelIntersections +
 			evidence.unrelatedNodeIntersections;
+
+		expect(fatalEvidenceCrossings(result)).toEqual([]);
+		expect(fatalEvidenceCrossings(safeResult)).toEqual([]);
 
 		if (result.deliverability?.status === "clean") {
 			expect(criticals).toBe(0);
@@ -111,6 +110,29 @@ describe("dense MBSE acceptance gate", () => {
 		);
 	});
 });
+
+function denseAcceptanceOptions(): SolveDiagramOptions {
+	return {
+		initialLayout: "positions",
+		routeKind: "obstacle-avoiding",
+		railRouting: "dependency",
+		edgeLabelRerouting: { maxIterations: 4 },
+		textObstacleVertices: true,
+		textIntersectionTolerance: 0,
+		strict: true,
+		textMeasurer: new DeterministicTextMeasurer(),
+	};
+}
+
+function fatalEvidenceCrossings(
+	result: CoordinatedDiagram,
+): CoordinatedDiagram["diagnostics"] {
+	return result.diagnostics.filter(
+		(diagnostic) =>
+			diagnostic.severity === "error" &&
+			diagnostic.code === "routing.evidence.crossing_forbidden",
+	);
+}
 
 function stage5Evidence(result: CoordinatedDiagram): {
 	edgeLabelIntersections: number;
