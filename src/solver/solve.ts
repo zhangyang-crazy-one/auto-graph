@@ -188,20 +188,6 @@ function classifyPagePolicyFromBoxes(
 	return "off";
 }
 
-function countSameRankEdges(
-	edges: readonly NormalizedEdge[],
-	nodeById: ReadonlyMap<string, NormalizedNode>,
-	direction: NormalizedDiagram["direction"],
-): number {
-	const boxes = new Map(
-		[...nodeById.entries()].map(([id, node]) => [
-			id,
-			nodeBoxFromNormalized(node),
-		]),
-	);
-	return countSameRankEdgesFromBoxes(edges, boxes, direction);
-}
-
 function countSameRankEdgesFromBoxes(
 	edges: readonly NormalizedEdge[],
 	boxes: ReadonlyMap<string, Box>,
@@ -217,20 +203,6 @@ function countSameRankEdgesFromBoxes(
 		}
 	}
 	return count;
-}
-
-function countLabeledNonSameRankEdges(
-	edges: readonly NormalizedEdge[],
-	nodeById: ReadonlyMap<string, NormalizedNode>,
-	direction: NormalizedDiagram["direction"],
-): number {
-	const boxes = new Map(
-		[...nodeById.entries()].map(([id, node]) => [
-			id,
-			nodeBoxFromNormalized(node),
-		]),
-	);
-	return countLabeledNonSameRankEdgesFromBoxes(edges, boxes, direction);
 }
 
 function countLabeledNonSameRankEdgesFromBoxes(
@@ -253,20 +225,6 @@ function countLabeledNonSameRankEdgesFromBoxes(
 	return count;
 }
 
-function maxSameSideFanIn(
-	edges: readonly NormalizedEdge[],
-	nodeById: ReadonlyMap<string, NormalizedNode>,
-	direction: NormalizedDiagram["direction"],
-): number {
-	const boxes = new Map(
-		[...nodeById.entries()].map(([id, node]) => [
-			id,
-			nodeBoxFromNormalized(node),
-		]),
-	);
-	return maxSameSideFanInFromBoxes(edges, boxes, nodeById, direction);
-}
-
 function maxSameSideFanInFromBoxes(
 	edges: readonly NormalizedEdge[],
 	boxes: ReadonlyMap<string, Box>,
@@ -275,7 +233,10 @@ function maxSameSideFanInFromBoxes(
 ): number {
 	const counts = new Map<string, number>();
 	for (const edge of edges) {
-		if (!nodeById.has(edge.target.nodeId) || !nodeById.has(edge.source.nodeId)) {
+		if (
+			!nodeById.has(edge.target.nodeId) ||
+			!nodeById.has(edge.source.nodeId)
+		) {
 			continue;
 		}
 		const target = boxes.get(edge.target.nodeId);
@@ -325,8 +286,8 @@ function isSameRankByNodeBoxes(
 }
 
 function inferredEndpointSide(
-	source: Box,
-	target: Box,
+	_source: Box,
+	_target: Box,
 	direction: NormalizedDiagram["direction"],
 	endpoint: "source" | "target",
 ): RoutingRailAllocation["side"] {
@@ -7885,8 +7846,7 @@ function buildExternalLabelCallouts(
 			height: keyLayout.box.height,
 		};
 		const calloutBox = externalLabelShelfBox(bounds, source.box, shelfY);
-		shelfY +=
-			Math.max(14, source.box.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
+		shelfY += Math.max(14, source.box.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
 		const callout: ExternalLabelCallout = {
 			edgeId: source.ownerId,
 			key,
