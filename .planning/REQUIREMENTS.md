@@ -8,10 +8,10 @@
 
 ### Issue Consolidation And Regression Guards
 
-- [ ] **EPIC-01**: Open non-polar issues are consolidated under #75, with #69/#71/#73 as folded evidence, #74 as fixed-with-regression-guard, and #15 explicitly excluded.
-- [ ] **EPIC-02**: Planning artifacts record the 0.2.13 -> 0.2.17 evidence trend and the live 0.2.17 Stage 5 result: 132 critical / 179 warnings.
-- [ ] **REG-74-01**: A targeted regression test proves route-label feedback text obstacles do not emit fatal `routing.evidence.crossing_forbidden`.
-- [ ] **REG-74-02**: Candidate scoring continues to reject reroutes that introduce hard-route diagnostics, even if they reduce route/text conflict count.
+- [x] **EPIC-01**: Open non-polar issues are consolidated under #75, with #69/#71/#73 as folded evidence, #74 as fixed-with-regression-guard, and #15 explicitly excluded.
+- [x] **EPIC-02**: Planning artifacts record the 0.2.13 -> 0.2.17 evidence trend and the live 0.2.17 Stage 5 result: 132 critical / 179 warnings.
+- [x] **REG-74-01**: A targeted regression test proves route-label feedback text obstacles do not emit fatal `routing.evidence.crossing_forbidden`.
+- [x] **REG-74-02**: Candidate scoring continues to reject reroutes that introduce hard-route diagnostics, even if they reduce route/text conflict count.
 
 ### Public Remediation Contract
 
