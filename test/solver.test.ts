@@ -4983,6 +4983,105 @@ it("classifies pagePolicy auto from diagram structure", () => {
 	);
 });
 
+it("fans out same-side anchors under resource-flow page policy", () => {
+	const targets = Array.from({ length: 4 }, (_, index) => ({
+		id: `fanout-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 240, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "policy-fanout-resource-flow",
+			direction: "LR",
+			nodes: [
+				{
+					id: "fanout-source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 105 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `fanout-${target.id}`,
+				source: { nodeId: "fanout-source" },
+				target: { nodeId: target.id },
+				label: { text: `flow ${target.id}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "resource-flow",
+			anchorCapacity: { minSpacing: 12 },
+		},
+	);
+	const sourceYs = result.edges
+		.filter((edge) => edge.source.nodeId === "fanout-source")
+		.map((edge) => edge.points[0]?.y)
+		.filter((y): y is number => y !== undefined);
+	expect(new Set(sourceYs).size).toBe(targets.length);
+});
+
+it("preserves explicit portId anchors under ibd-high-fan-in fan-out", () => {
+	const targets = Array.from({ length: 3 }, (_, index) => ({
+		id: `port-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 240, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "policy-fanout-portid",
+			direction: "LR",
+			nodes: [
+				{
+					id: "port-source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 70 },
+					ports: [{ id: "fixed-out", side: "right" as const, kind: "proxy" }],
+				},
+				...targets,
+			],
+			edges: [
+				{
+					id: "port-edge-fixed",
+					source: { nodeId: "port-source", portId: "fixed-out" },
+					target: { nodeId: "port-target-0" },
+				},
+				...targets.slice(1).map((target) => ({
+					id: `port-edge-${target.id}`,
+					source: { nodeId: "port-source" },
+					target: { nodeId: target.id },
+				})),
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 12 },
+		},
+	);
+	const source = result.nodes.find((node) => node.id === "port-source");
+	const fixedPort = source?.ports?.find((port) => port.id === "fixed-out");
+	const fixedEdge = result.edges.find((edge) => edge.id === "port-edge-fixed");
+	expect(fixedPort).toBeDefined();
+	expect(fixedEdge?.points[0]).toEqual(fixedPort?.anchor);
+});
+
 it("rejects a second edge from occupying the same rail lane", () => {
 	const pairCount = 4;
 	const result = solveDiagram(

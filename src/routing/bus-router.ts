@@ -3,12 +3,10 @@ import type { Box, Point } from "../ir/geometry.js";
 // ---------------------------------------------------------------------------
 // Bus routing — shared-corridor edge bundling (Issue #54, 方案 C)
 //
-// NOTE: This module currently exports the computeFanOutPorts primitive
-// only.  It is NOT yet wired into coordinateEdges / routeEdge, so
-// merging this file alone produces zero runtime behavior change.
-// Integration into the edge-coordination path is planned in a follow-up
-// PR that will call computeFanOutPorts for same-source same-side edges
-// (skipping edges that already carry an explicit portId or anchor).
+// NOTE: computeFanOutPorts is wired from solve.ts coordinateEdges for
+// pagePolicy "resource-flow" and "ibd-high-fan-in". Under those policies it
+// replaces distributedAnchorPointsByEndpoint for eligible endpoints
+// (skipping explicit portId and authored corner anchors).
 // ---------------------------------------------------------------------------
 
 /**

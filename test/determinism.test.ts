@@ -119,6 +119,59 @@ describe("solver determinism", () => {
 		expect(stringifyCanonical(first)).toBe(stringifyCanonical(second));
 	});
 
+	it("serializes IBD grow-disabled remediation details byte-identically", () => {
+		const sources = Array.from({ length: 10 }, (_, index) =>
+			node(`ibd-source-${index}`, { x: 0, y: index * 46 }),
+		);
+		const input: NormalizedDiagram = {
+			id: "ibd-growth-determinism",
+			direction: "LR",
+			nodes: [
+				...sources,
+				node("ibd-aggregator", { x: 260, y: 180 }),
+				node("ibd-sink", { x: 440, y: 180 }),
+			],
+			edges: [
+				...sources.map((source, index) => ({
+					id: `ibd-flow-${index}`,
+					source: { nodeId: source.id },
+					target: { nodeId: "ibd-aggregator" },
+				})),
+				{
+					id: "ibd-aggregate-out",
+					source: { nodeId: "ibd-aggregator" },
+					target: { nodeId: "ibd-sink" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			pagePolicy: "ibd-high-fan-in" as const,
+			anchorCapacity: { minSpacing: 24, grow: false },
+			strict: true,
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+		expect(
+			first.deliverability?.remediationPlans.some(
+				(plan) =>
+					plan.type === "grow-fixed-geometry" &&
+					plan.detail.strategy === "grow-or-relax-fixed-geometry" &&
+					(plan.detail.growthDeltas?.length ?? 0) > 0,
+			),
+		).toBe(true);
+		expect(stringifyCanonical(first.deliverability?.remediationPlans)).toBe(
+			stringifyCanonical(second.deliverability?.remediationPlans),
+		);
+	});
+
 	it("serializes over-budget page-split remediation plans byte-identically", () => {
 		const pairCount = 25;
 		const input: NormalizedDiagram = {

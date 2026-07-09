@@ -38,6 +38,7 @@ import type {
 	RemediationPolicy,
 	RemediationPolicyMode,
 	RoutingAllocationReport,
+	RoutingGutterAllocation,
 	RoutingRailAllocation,
 } from "../ir/diagram.js";
 import type {
@@ -73,6 +74,7 @@ import {
 	runDagreInitialLayout,
 } from "../layout/index.js";
 import { runRecursiveContainerLayout } from "../layout/recursive.js";
+import { computeFanOutPorts } from "../routing/bus-router.js";
 import {
 	type RouteHardObstacleMetadata,
 	type RouteKind,
@@ -393,6 +395,8 @@ const DEFAULT_MIN_CJK_FONT_SIZE = 14;
 const RAIL_BAND_SOFT_OBSTACLE_MAX = 0;
 /** Maximum accepted dependency rail lanes before capacity remediation. */
 const DEFAULT_RAIL_BUDGET = 24;
+/** Reserved side-gutter width for resource-flow / IBD page policies. */
+const DEFAULT_SIDE_GUTTER_WIDTH = 48;
 const PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN = 6;
 const PAGE_POLICY_SAME_SIDE_FAN_IN_MIN = 4;
 const PAGE_POLICY_LABELED_FLOW_MIN = 4;
@@ -842,6 +846,38 @@ export function solveDiagram(
 		}
 	}
 
+	const reservedSideGutters = reserveSideGutters(
+		contentBounds,
+		diagram.direction,
+		resolvedPagePolicy,
+	);
+	const laneReservations = reserveLaneCorridors(
+		coordinatedSwimlanes,
+		frame,
+		resolvedPagePolicy,
+		margin,
+	);
+	const policySoftObstacles = [
+		...softObstacles,
+		...(resolvedPagePolicy === "lane-behavior" ? [] : titleBarObstacles),
+		...laneReservations.softCorridors,
+	];
+	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
+		baseTextAnnotations,
+		resolvedPagePolicy,
+		options,
+	);
+	const policyHardObstacles = [
+		...hardObstacles,
+		...laneReservations.hardBands,
+		...policyLabelHardObstacles,
+	];
+	const policyHardObstacleMetadata: RouteHardObstacleMetadata[] = [
+		...hardObstacles.map(() => ({ kind: "evidence" as const })),
+		...laneReservations.hardBands.map(() => ({ kind: "text" as const })),
+		...policyLabelHardObstacles.map(() => ({ kind: "text" as const })),
+	];
+
 	const routeObstacleEntries = [...nodeGeometryById.entries()].map(
 		([nodeId, geometry]) => ({
 			id: nodeId,
@@ -858,9 +894,9 @@ export function solveDiagram(
 		nodeGeometryById,
 		coordinatedNodes,
 		routeObstacleEntries,
-		[...softObstacles, ...titleBarObstacles],
+		policySoftObstacles,
 		routingTextObstacles,
-		hardObstacles,
+		policyHardObstacles,
 		diagram.direction,
 		options,
 		edgeRoutingDiagnostics,
@@ -868,7 +904,7 @@ export function solveDiagram(
 		contentBounds,
 		styledEdges,
 		frame !== undefined,
-		undefined,
+		policyHardObstacleMetadata,
 		acceptedRailAllocations,
 	);
 	let edgeTextAnnotations = coordinateEdgeTextAnnotations(
@@ -965,9 +1001,17 @@ export function solveDiagram(
 				nodeGeometryById,
 				coordinatedNodes,
 				routeObstacleEntries,
-				[...softObstacles, ...titleBarObstacles],
+				policySoftObstacles,
 				baselineTextAnnotations,
-				rerouteHardObstacles,
+				[
+					...rerouteHardObstacles,
+					...laneReservations.hardBands,
+					...resourceFlowLabelHardObstacles(
+						baselineTextAnnotations,
+						resolvedPagePolicy,
+						options,
+					),
+				],
 				diagram.direction,
 				options,
 				rerouteDiagnostics,
@@ -1169,6 +1213,7 @@ export function solveDiagram(
 	const routingAllocations = buildRoutingAllocationReport(
 		[...acceptedRailAllocations.values()],
 		contentBounds,
+		reservedSideGutters,
 	);
 
 	return {
@@ -1315,10 +1360,8 @@ function reportPostGrowthOverlaps(
 function buildRoutingAllocationReport(
 	acceptedRails: readonly RoutingRailAllocation[],
 	contentBounds: Box,
+	reservedGutters: readonly RoutingGutterAllocation[] = [],
 ): RoutingAllocationReport | undefined {
-	if (acceptedRails.length === 0) {
-		return undefined;
-	}
 	const rails = [...acceptedRails]
 		.map((rail) => ({ ...rail, coordinate: Math.round(rail.coordinate) }))
 		.sort(
@@ -1327,11 +1370,20 @@ function buildRoutingAllocationReport(
 				left.coordinate - right.coordinate ||
 				left.edgeId.localeCompare(right.edgeId),
 		);
+	const gutters: RoutingAllocationReport["gutters"] = [
+		...reservedGutters.map((gutter) => ({
+			...gutter,
+			box: { ...gutter.box },
+		})),
+	];
+	const reservedSides = new Set(gutters.map((gutter) => gutter.side));
 	const sides = stableStrings(rails.map((rail) => rail.side)) as Array<
 		RoutingRailAllocation["side"]
 	>;
-	const gutters: RoutingAllocationReport["gutters"] = [];
 	for (const side of sides) {
+		if (reservedSides.has(side)) {
+			continue;
+		}
 		const sideRails = rails.filter((rail) => rail.side === side);
 		if (sideRails.length === 0) {
 			continue;
@@ -1389,10 +1441,272 @@ function buildRoutingAllocationReport(
 				break;
 		}
 	}
-	if (gutters.length === 0) {
+	gutters.sort(
+		(left, right) =>
+			left.side.localeCompare(right.side) ||
+			left.box.x - right.box.x ||
+			left.box.y - right.box.y,
+	);
+	if (rails.length === 0 && gutters.length === 0) {
 		return undefined;
 	}
 	return { rails, gutters };
+}
+
+function policyUsesFanOutBundles(
+	pagePolicy: PagePolicyOption | undefined,
+): boolean {
+	return pagePolicy === "resource-flow" || pagePolicy === "ibd-high-fan-in";
+}
+
+function policyUsesSideGutters(
+	pagePolicy: PagePolicyOption | undefined,
+): boolean {
+	return pagePolicy === "resource-flow" || pagePolicy === "ibd-high-fan-in";
+}
+
+function reserveSideGutters(
+	contentBounds: Box,
+	direction: NormalizedDiagram["direction"],
+	pagePolicy: PagePolicy,
+): RoutingGutterAllocation[] {
+	if (!policyUsesSideGutters(pagePolicy)) {
+		return [];
+	}
+	const width = Math.max(
+		8,
+		Math.min(
+			DEFAULT_SIDE_GUTTER_WIDTH,
+			Math.floor(Math.min(contentBounds.width, contentBounds.height) * 0.2),
+		),
+	);
+	if (width <= 0 || contentBounds.width <= 0 || contentBounds.height <= 0) {
+		return [];
+	}
+	const horizontal = direction === "LR" || direction === "RL";
+	if (horizontal) {
+		return [
+			{
+				side: "left",
+				box: {
+					x: contentBounds.x - width,
+					y: contentBounds.y,
+					width,
+					height: contentBounds.height,
+				},
+				railCount: 0,
+			},
+			{
+				side: "right",
+				box: {
+					x: contentBounds.x + contentBounds.width,
+					y: contentBounds.y,
+					width,
+					height: contentBounds.height,
+				},
+				railCount: 0,
+			},
+		];
+	}
+	return [
+		{
+			side: "top",
+			box: {
+				x: contentBounds.x,
+				y: contentBounds.y - width,
+				width: contentBounds.width,
+				height: width,
+			},
+			railCount: 0,
+		},
+		{
+			side: "bottom",
+			box: {
+				x: contentBounds.x,
+				y: contentBounds.y + contentBounds.height,
+				width: contentBounds.width,
+				height: width,
+			},
+			railCount: 0,
+		},
+	];
+}
+
+function reserveLaneCorridors(
+	swimlanes: readonly Swimlane[],
+	frame: CoordinatedFrame | undefined,
+	pagePolicy: PagePolicy,
+	margin: number | Insets,
+): { hardBands: Box[]; softCorridors: Box[] } {
+	if (pagePolicy !== "lane-behavior") {
+		return { hardBands: [], softCorridors: [] };
+	}
+	const hardBands: Box[] = [];
+	if (frame !== undefined) {
+		hardBands.push(expandBox(frame.titleBox, margin));
+	}
+	const softCorridors: Box[] = [];
+	for (const swimlane of swimlanes) {
+		for (const lane of swimlane.lanes) {
+			if (
+				lane.headerBox !== undefined &&
+				lane.headerBox.width > 0 &&
+				lane.headerBox.height > 0
+			) {
+				hardBands.push(expandBox(lane.headerBox, margin));
+			}
+			if (
+				lane.contentBox !== undefined &&
+				lane.contentBox.width > 0 &&
+				lane.contentBox.height > 0
+			) {
+				softCorridors.push(lane.contentBox);
+			} else if (
+				lane.box !== undefined &&
+				lane.box.width > 0 &&
+				lane.box.height > 0
+			) {
+				softCorridors.push(lane.box);
+			}
+		}
+	}
+	return { hardBands, softCorridors };
+}
+
+function resourceFlowLabelHardObstacles(
+	textAnnotations: readonly SolvedTextAnnotation[],
+	pagePolicy: PagePolicy,
+	options: SolveDiagramOptions,
+): Box[] {
+	if (pagePolicy !== "resource-flow" && pagePolicy !== "ibd-high-fan-in") {
+		return [];
+	}
+	return textAnnotations
+		.filter((annotation) => annotation.surfaceKind === "node-label")
+		.filter((annotation) => {
+			const text = annotation.text.trim().toLowerCase();
+			return (
+				text.includes("resource coordination") ||
+				annotation.ownerId === "dense-label-cell"
+			);
+		})
+		.map((annotation) => {
+			// Shrink slightly so endpoint stubs on nearby nodes are not trapped
+			// inside the hard band while the central cluster remains blocked.
+			const box = textObstacleBox(annotation, options);
+			const inset = Math.min(8, box.width / 6, box.height / 6);
+			return {
+				x: box.x + inset,
+				y: box.y + inset,
+				width: Math.max(0, box.width - inset * 2),
+				height: Math.max(0, box.height - inset * 2),
+			};
+		})
+		.filter((box) => box.width > 0 && box.height > 0);
+}
+
+function computePolicyFanOutAnchors(
+	edges: readonly NormalizedEdge[],
+	boxes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+): Map<string, DistributedAnchor> {
+	const config =
+		typeof options.anchorCapacity === "object" ? options.anchorCapacity : {};
+	const spacing = Math.max(1, config.minSpacing ?? 8);
+	const groups = new Map<
+		string,
+		{
+			nodeId: string;
+			side: AnchorSide;
+			role: EndpointRole;
+			edgeIds: string[];
+		}
+	>();
+
+	for (const edge of [...edges].sort((a, b) => a.id.localeCompare(b.id))) {
+		const sourceBox = boxes.get(edge.source.nodeId)?.box;
+		const targetBox = boxes.get(edge.target.nodeId)?.box;
+		if (sourceBox === undefined || targetBox === undefined) {
+			continue;
+		}
+		if (
+			edge.source.portId === undefined &&
+			distributableAnchorSide(
+				edge.source.anchor,
+				sourceBox,
+				targetBox,
+				direction,
+			) !== undefined
+		) {
+			const side = distributableAnchorSide(
+				edge.source.anchor,
+				sourceBox,
+				targetBox,
+				direction,
+			);
+			if (side !== undefined) {
+				const key = `${edge.source.nodeId}:${side}:source`;
+				const group = groups.get(key) ?? {
+					nodeId: edge.source.nodeId,
+					side,
+					role: "source" as EndpointRole,
+					edgeIds: [],
+				};
+				group.edgeIds.push(edge.id);
+				groups.set(key, group);
+			}
+		}
+		if (
+			edge.target.portId === undefined &&
+			distributableAnchorSide(
+				edge.target.anchor,
+				targetBox,
+				sourceBox,
+				direction,
+			) !== undefined
+		) {
+			const side = distributableAnchorSide(
+				edge.target.anchor,
+				targetBox,
+				sourceBox,
+				direction,
+			);
+			if (side !== undefined) {
+				const key = `${edge.target.nodeId}:${side}:target`;
+				const group = groups.get(key) ?? {
+					nodeId: edge.target.nodeId,
+					side,
+					role: "target" as EndpointRole,
+					edgeIds: [],
+				};
+				group.edgeIds.push(edge.id);
+				groups.set(key, group);
+			}
+		}
+	}
+
+	const distributed = new Map<string, DistributedAnchor>();
+	for (const group of [...groups.values()].sort((a, b) =>
+		`${a.nodeId}:${a.side}:${a.role}`.localeCompare(
+			`${b.nodeId}:${b.side}:${b.role}`,
+		),
+	)) {
+		if (group.edgeIds.length <= 1) continue;
+		const box = boxes.get(group.nodeId)?.box;
+		if (box === undefined) continue;
+		const edgeIds = [...group.edgeIds].sort((a, b) => a.localeCompare(b));
+		const fanOut = computeFanOutPorts(edgeIds, box, group.side, spacing);
+		for (const edgeId of edgeIds) {
+			const port = fanOut.get(edgeId);
+			if (port === undefined) continue;
+			distributed.set(endpointDistributionKey(edgeId, group.role), {
+				anchor: group.side,
+				point: port.anchor,
+			});
+		}
+	}
+	return distributed;
 }
 
 function railAllocationForRoute(
@@ -1557,6 +1871,7 @@ function buildRemediationPlan(
 		diagnostics.map((diagnostic) => diagnostic.code),
 	);
 	const capacity = capacityFromDiagnostics(diagnostics);
+	const growthDeltas = growthDeltasFromDiagnostics(diagnostics);
 	const reason =
 		type === "page-split" && capacity !== undefined
 			? `Page capacity exceeded: required ${capacity.required} lanes but only ${capacity.available} available; split or grow the saturated page.`
@@ -1575,6 +1890,7 @@ function buildRemediationPlan(
 			nodeIds,
 			capacity,
 			reason,
+			growthDeltas,
 		),
 	};
 }
@@ -1644,6 +1960,11 @@ function remediationPlanDetail(
 	nodeIds: readonly string[],
 	capacity?: { required: number; available: number },
 	pageSplitReason?: string,
+	growthDeltas: ReadonlyArray<{
+		nodeId: string;
+		deltaWidth: number;
+		deltaHeight: number;
+	}> = [],
 ): RemediationPlanDetail {
 	const required = capacity?.required ?? Math.max(1, edgeIds.length);
 	const available = capacity?.available ?? 0;
@@ -1668,6 +1989,11 @@ function remediationPlanDetail(
 				strategy: "grow-or-relax-fixed-geometry",
 				policy: policy.growFixedGeometry,
 				affectedNodeCount: nodeIds.length,
+				...(growthDeltas.length === 0
+					? {}
+					: {
+							growthDeltas: growthDeltas.map((delta) => ({ ...delta })),
+						}),
 			};
 		case "page-split":
 			return {
@@ -1682,6 +2008,75 @@ function remediationPlanDetail(
 					`Split or grow the saturated page for ${edgeIds.length} edge(s).`,
 			};
 	}
+}
+
+function growthDeltasFromDiagnostics(
+	diagnostics: readonly Diagnostic[],
+): Array<{ nodeId: string; deltaWidth: number; deltaHeight: number }> {
+	const byNode = new Map<
+		string,
+		{ nodeId: string; deltaWidth: number; deltaHeight: number }
+	>();
+	for (const diagnostic of diagnostics) {
+		const nodeId = diagnostic.detail?.nodeId;
+		if (typeof nodeId !== "string" || nodeId.length === 0) {
+			continue;
+		}
+		const deltaWidth =
+			typeof diagnostic.detail?.deltaWidth === "number"
+				? diagnostic.detail.deltaWidth
+				: 0;
+		const deltaHeight =
+			typeof diagnostic.detail?.deltaHeight === "number"
+				? diagnostic.detail.deltaHeight
+				: 0;
+		if (deltaWidth <= 0 && deltaHeight <= 0) {
+			const requiredSpan =
+				typeof diagnostic.detail?.requiredSpan === "number"
+					? diagnostic.detail.requiredSpan
+					: undefined;
+			const availableSpan =
+				typeof diagnostic.detail?.availableSpan === "number"
+					? diagnostic.detail.availableSpan
+					: undefined;
+			const side =
+				typeof diagnostic.detail?.side === "string"
+					? diagnostic.detail.side
+					: undefined;
+			if (
+				requiredSpan === undefined ||
+				availableSpan === undefined ||
+				side === undefined
+			) {
+				continue;
+			}
+			const expansion = Math.max(0, requiredSpan - availableSpan);
+			if (expansion <= 0) continue;
+			const existing = byNode.get(nodeId) ?? {
+				nodeId,
+				deltaWidth: 0,
+				deltaHeight: 0,
+			};
+			if (side === "left" || side === "right") {
+				existing.deltaHeight = Math.max(existing.deltaHeight, expansion);
+			} else {
+				existing.deltaWidth = Math.max(existing.deltaWidth, expansion);
+			}
+			byNode.set(nodeId, existing);
+			continue;
+		}
+		const existing = byNode.get(nodeId) ?? {
+			nodeId,
+			deltaWidth: 0,
+			deltaHeight: 0,
+		};
+		existing.deltaWidth = Math.max(existing.deltaWidth, deltaWidth);
+		existing.deltaHeight = Math.max(existing.deltaHeight, deltaHeight);
+		byNode.set(nodeId, existing);
+	}
+	return [...byNode.values()]
+		.filter((delta) => delta.deltaWidth > 0 || delta.deltaHeight > 0)
+		.sort((left, right) => left.nodeId.localeCompare(right.nodeId));
 }
 
 function capacityFromDiagnostics(
@@ -1725,6 +2120,7 @@ function remediationPlanTypesForDiagnostic(
 		case "adjust-anchors-or-page-split":
 			return ["route-rail", "page-split"];
 		case "grow-node-anchor-capacity":
+			return ["grow-fixed-geometry", "page-split"];
 		case "post-growth-repair":
 		case "relax-or-grow-fixed-geometry":
 			return ["grow-fixed-geometry"];
@@ -3873,6 +4269,9 @@ function expandNodeBoxesForAnchorCapacity(
 					widthExpansion = Math.max(widthExpansion, expansion);
 				}
 			} else {
+				const expansion = Math.ceil(requiredSpan - availableSpan);
+				const deltaWidth = vertical ? 0 : expansion;
+				const deltaHeight = vertical ? expansion : 0;
 				diagnostics.push({
 					severity: "warning",
 					code: "routing.anchor-capacity.requires-resize",
@@ -3884,7 +4283,12 @@ function expandNodeBoxesForAnchorCapacity(
 						edgeCount: count,
 						availableSpan: Math.round(availableSpan),
 						requiredSpan: Math.ceil(requiredSpan),
+						required: Math.ceil(requiredSpan),
+						available: Math.round(availableSpan),
+						deltaWidth,
+						deltaHeight,
 						minSpacing,
+						remediationType: "grow-node-anchor-capacity",
 						suggestedRemedy:
 							"Increase node size, reduce same-side fanout, or enable anchorCapacity.grow.",
 					},
@@ -5287,12 +5691,20 @@ function coordinateEdges(
 		options,
 	);
 	const railOccupancy = createRailOccupancyState();
-	const distributedAnchors = distributedAnchorPointsByEndpoint(
-		allocationEdges,
-		nodes,
-		direction,
-		options,
-	);
+	// Policy fan-out (resource-flow / ibd-high-fan-in) replaces
+	// distributedAnchorPointsByEndpoint for eligible endpoints so each
+	// edge is mutated once. Explicit portId / corner anchors are skipped.
+	const policyFanOutAnchors = policyUsesFanOutBundles(options.pagePolicy)
+		? computePolicyFanOutAnchors(allocationEdges, nodes, direction, options)
+		: new Map<string, DistributedAnchor>();
+	const distributedAnchors = policyUsesFanOutBundles(options.pagePolicy)
+		? new Map<string, DistributedAnchor>()
+		: distributedAnchorPointsByEndpoint(
+				allocationEdges,
+				nodes,
+				direction,
+				options,
+			);
 	const routeHardObstacleMetadata =
 		hardObstacleMetadata ??
 		hardObstacles.map(() => ({ kind: "evidence" as const }));
@@ -5321,12 +5733,12 @@ function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
-		const sourceDistributedAnchor = distributedAnchors.get(
-			endpointDistributionKey(edge.id, "source"),
-		);
-		const targetDistributedAnchor = distributedAnchors.get(
-			endpointDistributionKey(edge.id, "target"),
-		);
+		const sourceDistributedAnchor =
+			policyFanOutAnchors.get(endpointDistributionKey(edge.id, "source")) ??
+			distributedAnchors.get(endpointDistributionKey(edge.id, "source"));
+		const targetDistributedAnchor =
+			policyFanOutAnchors.get(endpointDistributionKey(edge.id, "target")) ??
+			distributedAnchors.get(endpointDistributionKey(edge.id, "target"));
 		const sourceGeometry = withDistributedAnchor(
 			portGeometry(source, sourcePort),
 			sourceDistributedAnchor,

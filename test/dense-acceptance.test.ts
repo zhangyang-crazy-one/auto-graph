@@ -229,6 +229,168 @@ describe("dense MBSE acceptance gate", () => {
 			second.routing?.rails.map((rail) => rail.coordinate),
 		);
 	});
+
+	it("reserves side gutters for resource-flow pages and avoids central labels", () => {
+		const result = solveDiagram(resourceFlowGutterPage(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "resource-flow",
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const sideGutters = (result.routing?.gutters ?? []).filter(
+			(gutter) => gutter.side === "left" || gutter.side === "right",
+		);
+		expect(sideGutters.length).toBeGreaterThan(0);
+		expect(
+			sideGutters.some(
+				(gutter) => gutter.box.width > 0 && gutter.box.height > 0,
+			),
+		).toBe(true);
+
+		const centralLabel = result.textAnnotations?.find(
+			(annotation) =>
+				annotation.surfaceKind === "node-label" &&
+				annotation.ownerId === "dense-label-cell",
+		);
+		expect(centralLabel).toBeDefined();
+		if (centralLabel !== undefined) {
+			const interior = insetBox(centralLabel.box, 2);
+			for (const edge of result.edges) {
+				expect(routeCrossesBox(edge.points, interior)).toBe(false);
+			}
+		}
+	});
+
+	it("keeps lane-behavior routes out of title and header bands", () => {
+		const diagram: NormalizedDiagram = {
+			id: "phase-16-lane-behavior",
+			direction: "LR",
+			nodes: [
+				node("lane-source-a", { x: 40, y: 120 }),
+				node("lane-source-b", { x: 40, y: 220 }),
+				node("lane-target-a", { x: 280, y: 120 }),
+				node("lane-target-b", { x: 280, y: 220 }),
+			],
+			edges: [
+				{
+					id: "lane-edge-a",
+					source: { nodeId: "lane-source-a" },
+					target: { nodeId: "lane-target-a" },
+				},
+				{
+					id: "lane-edge-b",
+					source: { nodeId: "lane-source-b" },
+					target: { nodeId: "lane-target-b" },
+				},
+			],
+			groups: [],
+			swimlanes: [
+				{
+					id: "behavior",
+					label: { text: "Lane behavior" },
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{
+							id: "left",
+							label: { text: "Source" },
+							children: ["lane-source-a", "lane-source-b"],
+						},
+						{
+							id: "right",
+							label: { text: "Target" },
+							children: ["lane-target-a", "lane-target-b"],
+						},
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+			frame: {
+				kind: "sysml",
+				titleTab: "AV-1 lane behavior",
+			},
+		};
+		const result = solveDiagram(diagram, {
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "lane-behavior",
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const reservedBands: Box[] = [];
+		if (result.frame?.titleBox !== undefined) {
+			reservedBands.push(insetBox(result.frame.titleBox, 2));
+		}
+		for (const swimlane of result.swimlanes ?? []) {
+			for (const lane of swimlane.lanes) {
+				if (lane.headerBox !== undefined) {
+					reservedBands.push(insetBox(lane.headerBox, 2));
+				}
+			}
+		}
+		expect(reservedBands.length).toBeGreaterThan(0);
+		for (const edge of result.edges) {
+			for (const band of reservedBands) {
+				expect(routeCrossesBox(edge.points, band)).toBe(false);
+			}
+		}
+	});
+
+	it("emits growthDeltas and page-split for grow-disabled IBD pages", () => {
+		const options: SolveDiagramOptions = {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		};
+		const first = solveDiagram(denseIbdHighFanInPage(), options);
+		const second = solveDiagram(denseIbdHighFanInPage(), options);
+		const growPlan = first.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		const splitPlan = first.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "page-split",
+		);
+
+		expect(growPlan).toBeDefined();
+		expect(growPlan?.detail).toMatchObject({
+			strategy: "grow-or-relax-fixed-geometry",
+			growthDeltas: expect.arrayContaining([
+				expect.objectContaining({
+					nodeId: expect.any(String),
+					deltaWidth: expect.any(Number),
+					deltaHeight: expect.any(Number),
+				}),
+			]),
+		});
+		if (
+			growPlan?.detail.strategy === "grow-or-relax-fixed-geometry" &&
+			growPlan.detail.growthDeltas !== undefined
+		) {
+			expect(growPlan.detail.growthDeltas.length).toBeGreaterThan(0);
+			expect(
+				growPlan.detail.growthDeltas.some(
+					(delta) => delta.deltaWidth > 0 || delta.deltaHeight > 0,
+				),
+			).toBe(true);
+		}
+		expect(splitPlan?.detail).toMatchObject({
+			strategy: "split-over-capacity-page",
+			required: expect.any(Number),
+			available: expect.any(Number),
+		});
+		if (splitPlan?.detail.strategy === "split-over-capacity-page") {
+			expect(splitPlan.detail.required).toBeGreaterThan(
+				splitPlan.detail.available,
+			);
+		}
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+	});
 });
 
 function denseAcceptanceOptions(): SolveDiagramOptions {
@@ -341,54 +503,22 @@ function routeCrossesBox(
 		const start = points[index];
 		const end = points[index + 1];
 		if (start === undefined || end === undefined) continue;
-		if (segmentIntersectsBox(start, end, box)) return true;
+		const segment = {
+			x: Math.min(start.x, end.x),
+			y: Math.min(start.y, end.y),
+			width: Math.abs(end.x - start.x),
+			height: Math.abs(end.y - start.y),
+		};
+		if (
+			segment.x < box.x + box.width &&
+			segment.x + segment.width > box.x &&
+			segment.y < box.y + box.height &&
+			segment.y + segment.height > box.y
+		) {
+			return true;
+		}
 	}
 	return false;
-}
-
-function segmentIntersectsBox(
-	start: { x: number; y: number },
-	end: { x: number; y: number },
-	box: Box,
-): boolean {
-	if (pointInsideBox(start, box) || pointInsideBox(end, box)) {
-		return true;
-	}
-	if (start.x === end.x) {
-		return (
-			start.x > box.x &&
-			start.x < box.x + box.width &&
-			rangesOverlap(start.y, end.y, box.y, box.y + box.height)
-		);
-	}
-	if (start.y === end.y) {
-		return (
-			start.y > box.y &&
-			start.y < box.y + box.height &&
-			rangesOverlap(start.x, end.x, box.x, box.x + box.width)
-		);
-	}
-	return true;
-}
-
-function pointInsideBox(point: { x: number; y: number }, box: Box): boolean {
-	return (
-		point.x > box.x &&
-		point.x < box.x + box.width &&
-		point.y > box.y &&
-		point.y < box.y + box.height
-	);
-}
-
-function rangesOverlap(
-	a: number,
-	b: number,
-	min: number,
-	max: number,
-): boolean {
-	const low = Math.min(a, b);
-	const high = Math.max(a, b);
-	return high > min && low < max;
 }
 
 function insetBox(box: Box, amount: number): Box {
@@ -460,6 +590,45 @@ function denseResourceFlowPage(): NormalizedDiagram {
 			id: `rf-${String(index + 1).padStart(2, "0")}`,
 			source: { nodeId: `producer-${index % producers.length}` },
 			target: { nodeId: `consumer-${(index * 2 + 1) % consumers.length}` },
+			label: { text: `resource flow ${index + 1}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+/** LR resource-flow fixture with a central label that does not trap endpoints. */
+function resourceFlowGutterPage(): NormalizedDiagram {
+	const producers = Array.from({ length: 4 }, (_, index) =>
+		node(`gutter-producer-${index}`, { x: 0, y: index * 78 }),
+	);
+	const consumers = Array.from({ length: 4 }, (_, index) =>
+		node(`gutter-consumer-${index}`, { x: 420, y: index * 78 }),
+	);
+	return {
+		id: "phase-16-resource-flow-gutters",
+		direction: "LR",
+		nodes: [
+			...producers,
+			...consumers,
+			{
+				...node("dense-label-cell", { x: 180, y: 90 }),
+				label: { text: "resource coordination cell" },
+				labelLayout: testLabelLayout("resource coordination cell", {
+					x: -40,
+					y: -40,
+					width: 200,
+					height: 180,
+				}),
+			},
+		],
+		edges: Array.from({ length: 8 }, (_, index) => ({
+			id: `gutter-rf-${String(index + 1).padStart(2, "0")}`,
+			source: { nodeId: `gutter-producer-${index % producers.length}` },
+			target: {
+				nodeId: `gutter-consumer-${(index * 2 + 1) % consumers.length}`,
+			},
 			label: { text: `resource flow ${index + 1}` },
 		})),
 		groups: [],
