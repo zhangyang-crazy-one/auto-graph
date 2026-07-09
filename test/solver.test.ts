@@ -6,6 +6,7 @@ import {
 	type Box,
 	DELIVERABILITY_DIAGNOSTIC_CODES,
 	type Diagnostic,
+	type ExternalLabelRemediationDetail,
 	type LabelLayout,
 	type NormalizedDiagram,
 } from "../src/ir/index.js";
@@ -2551,6 +2552,144 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("applies deterministic keyed external callouts when remediation policy is auto", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const plan = result.deliverability?.remediationPlans.find(
+			(candidate) => candidate.type === "external-label",
+		);
+		const detail = plan?.detail as ExternalLabelRemediationDetail | undefined;
+
+		expect(plan).toMatchObject({
+			status: "applied",
+			edgeIds: ["alpha", "middle", "zeta"],
+			diagnosticCodes: expect.arrayContaining([
+				"routing.label-externalization.required",
+			]),
+		});
+		expect(detail).toMatchObject({
+			strategy: "keyed-callouts",
+			policy: "auto",
+			labelCount: 3,
+		});
+		expect(
+			detail?.callouts?.map(({ edgeId, key, text, shelfSide }) => ({
+				edgeId,
+				key,
+				text,
+				shelfSide,
+			})),
+		).toEqual([
+			{
+				edgeId: "alpha",
+				key: "E1",
+				text: "alpha external callout label",
+				shelfSide: "right",
+			},
+			{
+				edgeId: "middle",
+				key: "E2",
+				text: "middle external callout label",
+				shelfSide: "right",
+			},
+			{
+				edgeId: "zeta",
+				key: "E3",
+				text: "zeta external callout label",
+				shelfSide: "right",
+			},
+		]);
+		const labels = result.textAnnotations?.filter(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+		expect(
+			labels?.filter(
+				(annotation) => annotation.placement === "external-callout-required",
+			),
+		).toEqual([]);
+		const alphaKey = labels?.find(
+			(annotation) =>
+				annotation.ownerId === "alpha" &&
+				annotation.placementDetail?.role === "key",
+		);
+		const alphaCallout = labels?.find(
+			(annotation) =>
+				annotation.ownerId === "alpha" &&
+				annotation.placementDetail?.role === "callout",
+		);
+		expect(alphaKey).toMatchObject({
+			text: "E1",
+			placement: "external-callout",
+			box: detail?.callouts?.[0]?.keyBox,
+		});
+		expect(alphaCallout).toMatchObject({
+			text: "alpha external callout label",
+			placement: "external-callout",
+			box: detail?.callouts?.[0]?.calloutBox,
+		});
+		expect(alphaKey?.box.width ?? 0).toBeLessThan(alphaCallout?.box.width ?? 0);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "alpha",
+				}),
+			}),
+		);
+	});
+
+	it("keeps suggest and off external-label policies non-executing", () => {
+		const suggest = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "suggest" },
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const off = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "off" },
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		expect(
+			suggest.deliverability?.remediationPlans.find(
+				(plan) => plan.type === "external-label",
+			),
+		).toMatchObject({ status: "suggested" });
+		expect(
+			suggest.textAnnotations?.some(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout-required",
+			),
+		).toBe(true);
+		expect(
+			suggest.textAnnotations?.some(
+				(annotation) => annotation.placement === "external-callout",
+			),
+		).toBe(false);
+		expect(
+			off.deliverability?.remediationPlans.some(
+				(plan) => plan.type === "external-label",
+			),
+		).toBe(false);
+		expect(
+			off.textAnnotations?.some(
+				(annotation) => annotation.placement === "external-callout",
+			),
+		).toBe(false);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
@@ -5048,6 +5187,44 @@ function node(id: string, position?: { x: number; y: number }) {
 		size: { width: 80, height: 40 },
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
+	};
+}
+
+function externalLabelAutoDiagram(): NormalizedDiagram {
+	return {
+		id: "external-label-auto",
+		direction: "LR",
+		nodes: [
+			node("zeta-source", { x: 0, y: 0 }),
+			node("zeta-target", { x: 300, y: 0 }),
+			node("alpha-source", { x: 0, y: 90 }),
+			node("alpha-target", { x: 300, y: 90 }),
+			node("middle-source", { x: 0, y: 180 }),
+			node("middle-target", { x: 300, y: 180 }),
+		],
+		edges: [
+			{
+				id: "zeta",
+				source: { nodeId: "zeta-source" },
+				target: { nodeId: "zeta-target" },
+				label: { text: "zeta external callout label" },
+			},
+			{
+				id: "alpha",
+				source: { nodeId: "alpha-source" },
+				target: { nodeId: "alpha-target" },
+				label: { text: "alpha external callout label" },
+			},
+			{
+				id: "middle",
+				source: { nodeId: "middle-source" },
+				target: { nodeId: "middle-target" },
+				label: { text: "middle external callout label" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
 	};
 }
 

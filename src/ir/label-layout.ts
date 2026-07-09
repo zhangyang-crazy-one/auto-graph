@@ -49,7 +49,7 @@ export interface SolvedTextAnnotation {
 	ownerId: string;
 	surfaceKind: TextSurfaceKind;
 	surfaceIndex?: number;
-	placement?: "local" | "external-callout-required";
+	placement?: "local" | "external-callout-required" | "external-callout";
 	placementDetail?: JsonObject;
 	box: Box;
 	anchor: Box | { x: number; y: number };

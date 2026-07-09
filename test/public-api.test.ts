@@ -103,6 +103,16 @@ describe("public API", () => {
 				strategy: "keyed-callouts",
 				policy: remediationPolicy.externalLabels ?? "suggest",
 				labelCount: 1,
+				callouts: [
+					{
+						edgeId: "edge-a-b",
+						key: "E1",
+						text: "Read data",
+						shelfSide: "right",
+						keyBox: { x: 48, y: 24, width: 14, height: 14 },
+						calloutBox: { x: 220, y: 0, width: 96, height: 14 },
+					},
+				],
 			},
 		};
 		const sample: CoordinatedDiagram = {

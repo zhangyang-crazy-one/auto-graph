@@ -27,6 +27,7 @@ import type {
 	CoordinatedDiagram,
 	DeliverabilityMode,
 	DeliverabilityReport,
+	ExternalLabelCallout,
 	NormalizedDiagram,
 	PageSplitPolicyMode,
 	RemediationPlan,
@@ -172,6 +173,8 @@ const DEFAULT_PANEL_WIDTH = 320;
 const DEFAULT_PANEL_ITEM_HEIGHT = 28;
 const DEFAULT_EVIDENCE_BLOCK_GAP = 24;
 const EDGE_LABEL_CLEARANCE = 8;
+const EXTERNAL_LABEL_SHELF_GAP = 48;
+const EXTERNAL_LABEL_SHELF_ROW_GAP = 8;
 const DEFAULT_CJK_FONT_FAMILY = "YaHei,SimSun,sans-serif";
 const DEFAULT_MIN_CJK_FONT_SIZE = 14;
 // Reuse DSL defaults — these are the same values as DEFAULT_FONT,
@@ -223,6 +226,13 @@ interface CjkTypographyOptions {
 interface CjkTypography {
 	fontFamily?: string;
 	fontSize?: number;
+}
+
+interface BuiltExternalLabelCallout {
+	callout: ExternalLabelCallout;
+	source: SolvedTextAnnotation;
+	keyAnnotation: SolvedTextAnnotation;
+	calloutAnnotation: SolvedTextAnnotation;
 }
 
 export function solveDiagram(
@@ -837,6 +847,20 @@ export function solveDiagram(
 	);
 	diagnostics.push(...edgeRoutingDiagnostics);
 	const edgePointBounds = edgeBounds(coordinatedEdges);
+	const externalLabelCallouts =
+		externalLabelExecutionMode(options) === "auto"
+			? buildExternalLabelCallouts(
+					edgeTextAnnotations,
+					unionBoxes([contentBounds, ...edgePointBounds]),
+					options,
+				)
+			: [];
+	if (externalLabelCallouts.length > 0) {
+		edgeTextAnnotations = applyExternalLabelCallouts(
+			edgeTextAnnotations,
+			externalLabelCallouts,
+		);
+	}
 	const boundsBase = [
 		contentBounds,
 		...edgePointBounds,
@@ -887,7 +911,14 @@ export function solveDiagram(
 		),
 	);
 
-	let deliverability = buildDeliverabilityReport(diagnostics, options);
+	const appliedExternalLabelCallouts = externalLabelCallouts.map(
+		(callout) => callout.callout,
+	);
+	let deliverability = buildDeliverabilityReport(
+		diagnostics,
+		options,
+		appliedExternalLabelCallouts,
+	);
 	if (deliverability.status === "unsatisfiable") {
 		diagnostics.push(
 			deliverabilityUnsatisfiableDiagnostic(
@@ -896,7 +927,11 @@ export function solveDiagram(
 				diagnostics,
 			),
 		);
-		deliverability = buildDeliverabilityReport(diagnostics, options);
+		deliverability = buildDeliverabilityReport(
+			diagnostics,
+			options,
+			appliedExternalLabelCallouts,
+		);
 	}
 	const degraded = deliverability.degraded;
 	const resultDiagnostics = diagnostics.map((diagnostic) => {
@@ -1157,6 +1192,7 @@ function railAllocationForRoute(
 function buildDeliverabilityReport(
 	diagnostics: readonly Diagnostic[],
 	options: SolveDiagramOptions,
+	appliedExternalLabelCallouts: readonly ExternalLabelCallout[] = [],
 ): DeliverabilityReport {
 	const blocking = diagnostics.filter((diagnostic) =>
 		DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
@@ -1171,7 +1207,11 @@ function buildDeliverabilityReport(
 			blocking.map((diagnostic) => diagnostic.code),
 		),
 		remediationTypes: stableStrings(blocking.map(remediationTypeForDiagnostic)),
-		remediationPlans: buildRemediationPlans(blocking, options),
+		remediationPlans: buildRemediationPlans(
+			blocking,
+			options,
+			appliedExternalLabelCallouts,
+		),
 	};
 }
 
@@ -1182,6 +1222,7 @@ function isStrictDeliverability(options: SolveDiagramOptions): boolean {
 function buildRemediationPlans(
 	diagnostics: readonly Diagnostic[],
 	options: SolveDiagramOptions,
+	appliedExternalLabelCallouts: readonly ExternalLabelCallout[] = [],
 ): RemediationPlan[] {
 	const policy = resolveRemediationPolicy(options.remediationPolicy);
 	const buckets = new Map<RemediationPlanType, Diagnostic[]>();
@@ -1210,6 +1251,18 @@ function buildRemediationPlans(
 	return planTypes
 		.flatMap((type) => {
 			const bucket = buckets.get(type);
+			if (
+				type === "external-label" &&
+				appliedExternalLabelCallouts.length > 0
+			) {
+				return [
+					buildAppliedExternalLabelRemediationPlan(
+						bucket ?? [],
+						policy,
+						appliedExternalLabelCallouts,
+					),
+				];
+			}
 			return bucket === undefined || bucket.length === 0
 				? []
 				: [buildRemediationPlan(type, bucket, policy)];
@@ -1282,6 +1335,47 @@ function buildRemediationPlan(
 		edgeIds,
 		nodeIds,
 		detail: remediationPlanDetail(type, policy, edgeIds, nodeIds),
+	};
+}
+
+function buildAppliedExternalLabelRemediationPlan(
+	diagnostics: readonly Diagnostic[],
+	policy: Required<RemediationPolicy>,
+	callouts: readonly ExternalLabelCallout[],
+): Omit<RemediationPlan, "id"> {
+	const diagnosticEdgeIds = stableStrings([
+		...flattenDiagnosticDetailStrings(diagnostics, "edgeId"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "edgeIds"),
+	]);
+	const edgeIds = stableStrings([
+		...diagnosticEdgeIds,
+		...callouts.map((callout) => callout.edgeId),
+	]);
+	const nodeIds = stableStrings([
+		...flattenDiagnosticDetailStrings(diagnostics, "nodeId"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "nodeIds"),
+		...flattenDiagnosticDetailStrings(diagnostics, "sourceId"),
+		...flattenDiagnosticDetailStrings(diagnostics, "targetId"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "ownerIds"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "conflictingObjectIds"),
+	]).filter((id) => id.length > 0);
+	const diagnosticCodes = stableStrings([
+		"routing.label-externalization.required",
+		...diagnostics.map((diagnostic) => diagnostic.code),
+	]);
+	return {
+		type: "external-label",
+		status: "applied",
+		reason: `Moved ${callouts.length} congested edge label${callouts.length === 1 ? "" : "s"} into deterministic keyed callouts.`,
+		diagnosticCodes,
+		edgeIds,
+		nodeIds,
+		detail: {
+			strategy: "keyed-callouts",
+			policy: policy.externalLabels,
+			labelCount: callouts.length,
+			callouts: callouts.map((callout) => ({ ...callout })),
+		},
 	};
 }
 
@@ -5849,6 +5943,171 @@ function normalizeOutputFontFamily(font: TextStyleOptions): string {
 	return font.fontFamily === "Arial" ? "Arial, sans-serif" : font.fontFamily;
 }
 
+function buildExternalLabelCallouts(
+	annotations: readonly SolvedTextAnnotation[],
+	bounds: Box,
+	options: SolveDiagramOptions,
+): BuiltExternalLabelCallout[] {
+	const sources = annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "edge-label" &&
+				annotation.placement === "external-callout-required",
+		)
+		.sort((left, right) => left.ownerId.localeCompare(right.ownerId));
+	if (sources.length === 0) {
+		return [];
+	}
+
+	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
+	return sources.map((source, index) => {
+		const key = externalLabelKey(index);
+		const keyLayout = fitLabel(
+			key,
+			{
+				font: {
+					fontFamily: source.fontFamily,
+					fontSize: Math.max(10, Math.min(source.fontSize, 12)),
+					lineHeight: Math.max(12, Math.min(source.fontSize + 2, 14)),
+				},
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				minSize: { width: 0, height: 0 },
+				maxWidth: 48,
+			},
+			measurer,
+		);
+		const sourceCenter = boxCenter(source.box);
+		const keyBox = {
+			x: sourceCenter.x - keyLayout.box.width / 2,
+			y: sourceCenter.y - keyLayout.box.height / 2,
+			width: keyLayout.box.width,
+			height: keyLayout.box.height,
+		};
+		const calloutBox = externalLabelShelfBox(bounds, source.box, index);
+		const callout: ExternalLabelCallout = {
+			edgeId: source.ownerId,
+			key,
+			text: source.text,
+			shelfSide: "right",
+			keyBox,
+			calloutBox,
+		};
+		return {
+			callout,
+			source,
+			keyAnnotation: buildExternalLabelKeyAnnotation(
+				source,
+				keyLayout,
+				callout,
+			),
+			calloutAnnotation: buildExternalLabelCalloutAnnotation(source, callout),
+		};
+	});
+}
+
+function applyExternalLabelCallouts(
+	annotations: readonly SolvedTextAnnotation[],
+	callouts: readonly BuiltExternalLabelCallout[],
+): SolvedTextAnnotation[] {
+	if (callouts.length === 0) {
+		return [...annotations];
+	}
+	const calloutByEdgeId = new Map(
+		callouts.map((callout) => [callout.source.ownerId, callout]),
+	);
+	const rewritten: SolvedTextAnnotation[] = [];
+	for (const annotation of annotations) {
+		const callout = calloutByEdgeId.get(annotation.ownerId);
+		if (
+			annotation.surfaceKind !== "edge-label" ||
+			annotation.placement !== "external-callout-required" ||
+			callout === undefined
+		) {
+			rewritten.push(annotation);
+			continue;
+		}
+		rewritten.push(callout.keyAnnotation, callout.calloutAnnotation);
+	}
+	return rewritten;
+}
+
+function externalLabelKey(index: number): string {
+	return `E${index + 1}`;
+}
+
+function externalLabelShelfBox(
+	bounds: Box,
+	sourceBox: Box,
+	index: number,
+): Box {
+	return {
+		x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
+		y:
+			bounds.y +
+			index * (Math.max(14, sourceBox.height) + EXTERNAL_LABEL_SHELF_ROW_GAP),
+		width: sourceBox.width,
+		height: sourceBox.height,
+	};
+}
+
+function buildExternalLabelKeyAnnotation(
+	source: SolvedTextAnnotation,
+	keyLayout: LabelLayout,
+	callout: ExternalLabelCallout,
+): SolvedTextAnnotation {
+	return {
+		...source,
+		text: callout.key,
+		placement: "external-callout",
+		placementDetail: externalLabelPlacementDetail(source, callout, "key"),
+		box: callout.keyBox,
+		paddings: keyLayout.padding,
+		lines: keyLayout.lines,
+		fontFamily: normalizeOutputFontFamily(keyLayout.font),
+		fontSize: keyLayout.font.fontSize,
+		textBackend: keyLayout.textBackend,
+	};
+}
+
+function buildExternalLabelCalloutAnnotation(
+	source: SolvedTextAnnotation,
+	callout: ExternalLabelCallout,
+): SolvedTextAnnotation {
+	return {
+		...source,
+		placement: "external-callout",
+		placementDetail: externalLabelPlacementDetail(source, callout, "callout"),
+		box: callout.calloutBox,
+	};
+}
+
+function externalLabelPlacementDetail(
+	source: SolvedTextAnnotation,
+	callout: ExternalLabelCallout,
+	role: "key" | "callout",
+): NonNullable<SolvedTextAnnotation["placementDetail"]> {
+	return {
+		...(source.placementDetail ?? {}),
+		role,
+		key: callout.key,
+		originalText: callout.text,
+		shelfSide: callout.shelfSide,
+		keyBox: boxJson(callout.keyBox),
+		calloutBox: boxJson(callout.calloutBox),
+	};
+}
+
+function boxJson(
+	box: Box,
+): NonNullable<SolvedTextAnnotation["placementDetail"]> {
+	return {
+		x: box.x,
+		y: box.y,
+		width: box.width,
+		height: box.height,
+	};
+}
+
 function reportTextAnnotationCollisions(
 	annotations: readonly SolvedTextAnnotation[],
 ): Diagnostic[] {
@@ -6357,8 +6616,15 @@ function isPreRouteTextObstacle(annotation: SolvedTextAnnotation): boolean {
 function isLocalRouteClearanceText(annotation: SolvedTextAnnotation): boolean {
 	return (
 		isRouteClearanceText(annotation) &&
-		annotation.placement !== "external-callout-required"
+		annotation.placement !== "external-callout-required" &&
+		annotation.placement !== "external-callout"
 	);
+}
+
+function externalLabelExecutionMode(
+	options: SolveDiagramOptions,
+): RemediationPolicyMode {
+	return resolveRemediationPolicy(options.remediationPolicy).externalLabels;
 }
 
 function edgeLabelRerouteIterations(options: SolveDiagramOptions): number {
@@ -6876,11 +7142,21 @@ function edgeLabelExternalizationPolicy(
 	options: SolveDiagramOptions,
 ): "off" | "congested" | "force" {
 	const setting = options.externalLabels;
+	const remediationMode = externalLabelExecutionMode(options);
+	if (
+		setting === false ||
+		(typeof setting === "object" && setting.edgeLabels === false)
+	) {
+		return "off";
+	}
 	if (setting === true) {
 		return "force";
 	}
 	if (typeof setting === "object") {
-		return setting.edgeLabels === false ? "off" : "force";
+		return "force";
+	}
+	if (remediationMode === "auto") {
+		return "congested";
 	}
 	return options.strict === true ? "congested" : "off";
 }

@@ -371,7 +371,7 @@ routing:
   externalLabels: { edgeLabels: true }
   deliverabilityMode: degraded-ok
   remediationPolicy:
-    externalLabels: suggest
+    externalLabels: auto
     routeRails: suggest
     growFixedGeometry: auto
     pageSplit: suggest
@@ -410,11 +410,22 @@ output:
 			externalLabels: { edgeLabels: true },
 			deliverabilityMode: "degraded-ok",
 			remediationPolicy: {
-				externalLabels: "suggest",
+				externalLabels: "auto",
 				routeRails: "suggest",
 				growFixedGeometry: "auto",
 				pageSplit: "suggest",
 			},
+		});
+		expect(
+			rendered.diagram?.deliverability?.remediationPlans.find(
+				(plan) => plan.type === "external-label",
+			),
+		).toMatchObject({
+			status: "applied",
+			detail: expect.objectContaining({
+				strategy: "keyed-callouts",
+				policy: "auto",
+			}),
 		});
 		expect(
 			rendered.diagnostics.filter(

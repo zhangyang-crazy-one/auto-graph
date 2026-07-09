@@ -50,10 +50,20 @@ export type RemediationPlanType =
 	| "grow-fixed-geometry"
 	| "page-split";
 
+export interface ExternalLabelCallout {
+	edgeId: string;
+	key: string;
+	text: string;
+	shelfSide: "top" | "right" | "bottom" | "left";
+	keyBox: Box;
+	calloutBox: Box;
+}
+
 export interface ExternalLabelRemediationDetail {
 	strategy: "keyed-callouts";
 	policy: RemediationPolicyMode;
 	labelCount: number;
+	callouts?: ExternalLabelCallout[];
 }
 
 export interface RouteRailRemediationDetail {

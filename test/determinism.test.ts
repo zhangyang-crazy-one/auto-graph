@@ -9,11 +9,13 @@ import {
 import { exportExcalidraw, exportSvg } from "../src/exporters/index.js";
 import type {
 	CoordinatedDiagram,
+	ExternalLabelRemediationDetail,
 	LabelLayout,
 	NormalizedDiagram,
 } from "../src/ir/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("solver determinism", () => {
 	it("serializes repeated solveDiagram output byte-identically", () => {
@@ -74,6 +76,47 @@ describe("solver determinism", () => {
 		expect(stringifyCanonical(first)).toBe(
 			stringifyCanonical(solveDiagram(input, options)),
 		);
+	});
+
+	it("serializes repeated external-label auto callouts byte-identically", () => {
+		const input = externalLabelCalloutDiagram();
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "straight" as const,
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" as const },
+			textMeasurer: new DeterministicTextMeasurer(),
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		const firstDetail = first.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "external-label",
+		)?.detail as ExternalLabelRemediationDetail | undefined;
+		const secondDetail = second.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "external-label",
+		)?.detail as ExternalLabelRemediationDetail | undefined;
+
+		expect(firstDetail?.callouts).toEqual(secondDetail?.callouts);
+		expect(
+			first.textAnnotations
+				?.filter((annotation) => annotation.placement === "external-callout")
+				.map((annotation) => ({
+					ownerId: annotation.ownerId,
+					text: annotation.text,
+					role: annotation.placementDetail?.role,
+					box: annotation.box,
+				})),
+		).toEqual(
+			second.textAnnotations
+				?.filter((annotation) => annotation.placement === "external-callout")
+				.map((annotation) => ({
+					ownerId: annotation.ownerId,
+					text: annotation.text,
+					role: annotation.placementDetail?.role,
+					box: annotation.box,
+				})),
+		);
+		expect(stringifyCanonical(first)).toBe(stringifyCanonical(second));
 	});
 
 	it.each([
@@ -276,6 +319,36 @@ function routeLabelFeedbackDiagram(): NormalizedDiagram {
 				id: "source-target",
 				source: { nodeId: "source" },
 				target: { nodeId: "target" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+function externalLabelCalloutDiagram(): NormalizedDiagram {
+	return {
+		id: "external-label-callout-deterministic",
+		direction: "LR",
+		nodes: [
+			node("source-b", { x: 0, y: 0 }),
+			node("target-b", { x: 300, y: 0 }),
+			node("source-a", { x: 0, y: 90 }),
+			node("target-a", { x: 300, y: 90 }),
+		],
+		edges: [
+			{
+				id: "edge-b",
+				source: { nodeId: "source-b" },
+				target: { nodeId: "target-b" },
+				label: { text: "second callout label" },
+			},
+			{
+				id: "edge-a",
+				source: { nodeId: "source-a" },
+				target: { nodeId: "target-a" },
+				label: { text: "first callout label" },
 			},
 		],
 		groups: [],

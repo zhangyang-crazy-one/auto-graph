@@ -97,6 +97,56 @@ describe("dense MBSE acceptance gate", () => {
 		});
 	});
 
+	it("applies external label callouts in auto mode for dense CV pages", () => {
+		const suggest = solveDiagram(denseCvDependencyPage(), {
+			...denseAcceptanceOptions(),
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "suggest" },
+		});
+		const off = solveDiagram(denseCvDependencyPage(), {
+			...denseAcceptanceOptions(),
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "off" },
+		});
+		const auto = solveDiagram(denseCvDependencyPage(), {
+			...denseAcceptanceOptions(),
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+		});
+		const autoEvidence = stage5Evidence(auto);
+		const suggestEvidence = stage5Evidence(suggest);
+		const offEvidence = stage5Evidence(off);
+		const autoPlan = auto.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "external-label",
+		);
+
+		expect(autoPlan).toMatchObject({
+			type: "external-label",
+			status: "applied",
+			detail: expect.objectContaining({
+				strategy: "keyed-callouts",
+				policy: "auto",
+				callouts: expect.any(Array),
+			}),
+		});
+		expect(autoEvidence.remediationPlanTypes).toContain("external-label");
+		expect(autoPlan?.detail.strategy).toBe("keyed-callouts");
+		if (autoPlan?.detail.strategy === "keyed-callouts") {
+			expect(autoPlan.detail.callouts?.length ?? 0).toBeGreaterThan(0);
+		}
+		expect(autoEvidence.edgeLabelIntersections).toBeLessThanOrEqual(
+			suggestEvidence.edgeLabelIntersections,
+		);
+		expect(autoEvidence.edgeLabelIntersections).toBeLessThanOrEqual(
+			offEvidence.edgeLabelIntersections,
+		);
+		expect(
+			auto.textAnnotations?.some(
+				(annotation) => annotation.placement === "external-callout-required",
+			),
+		).toBe(false);
+	});
+
 	it("exposes rail/gutter evidence for dense CV dependency pages", () => {
 		const result = solveDiagram(denseCvDependencyPage(), {
 			initialLayout: "positions",
@@ -183,6 +233,7 @@ function stage5Evidence(result: CoordinatedDiagram): {
 	for (const edge of result.edges) {
 		for (const annotation of textAnnotations) {
 			if (annotation.placement === "external-callout-required") continue;
+			if (annotation.placement === "external-callout") continue;
 			if (isConnectedText(edge, annotation)) continue;
 			if (!routeCrossesBox(edge.points, annotation.box)) continue;
 			if (annotation.surfaceKind === "edge-label") {
