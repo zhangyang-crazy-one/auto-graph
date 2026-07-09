@@ -108,6 +108,59 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## Dense Routing Controls
+
+Dense, position-preserving diagrams can opt into obstacle-aware routing controls through YAML `routing` metadata. These controls are deterministic and headless; impossible layouts return structured diagnostics instead of relying on visual inspection.
+
+```yaml
+layout:
+  mode: positions
+  direction: LR
+routing:
+  kind: obstacle-avoiding
+  edgeLabelRerouting: { maxIterations: 2 }
+  compactTextObstacles: labels-only
+  textIntersectionTolerance: 2
+  textObstacleVertices: true
+  fixedSwimlaneGeometry: diagnose-overflow
+  anchorCapacity: { minSpacing: 16, grow: true }
+  railRouting: dependency
+  externalLabels: { edgeLabels: true }
+  deliverabilityMode: strict
+  remediationPolicy:
+    externalLabels: auto
+    routeRails: auto
+    growFixedGeometry: auto
+    pageSplit: suggest
+```
+
+Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, `railRouting: dependency` for dense same-rank dependency pages, and `externalLabels` when downstream renderers should turn congested edge labels into keyed callouts.
+
+`deliverabilityMode: strict` (equivalent to `strict: true`) requires clean geometry or structured `unsatisfiable` output with `remediationPlans`. `deliverabilityMode: degraded-ok` keeps advisory degraded output.
+
+After the local route/label feedback loop exhausts, residual conflicts enter a bounded remediation pass (default 2 iterations). Apply order is grow → rails → external-label. `pageSplit` is never auto-materialized.
+
+### `remediationPolicy` apply matrix
+
+| Key | `suggest` / `off` | `auto` |
+|-----|-------------------|--------|
+| `externalLabels` | Stage keyed-callout plans only | Apply deterministic keyed callouts and re-check clearance |
+| `routeRails` | Stage dependency-rail plans only | Force dependency rails, re-route, mark `applied` or `blocked` |
+| `growFixedGeometry` | Stage growth plans only | Apply growth deltas / expand nodes, re-route, mark `applied` or `blocked` |
+| `pageSplit` | Stage machine-readable `required`/`available` plans (`suggest` only; no `auto`) | — page split is **not** auto-materialized |
+
+Plan statuses are `suggested`, `applied`, or `blocked`. Under full-auto strict dense acceptance, auto-capable types must be `applied` or `blocked` (not left as `suggested`).
+
+Solved diagrams keep the legacy `degraded`, `deliverability.status`, and `deliverability.remediationTypes` fields. They also expose deterministic `deliverability.remediationPlans` objects with stable IDs, type, status, diagnostic codes, edge/node IDs, and type-specific details so strict consumers can apply or stage remediation without parsing free-form diagnostic text.
+
+### Issue hygiene (dense MBSE epic)
+
+Recommended operator actions after this contract lands on local fixtures:
+
+- Close [#74](https://github.com/zhangyang-crazy-one/auto-graph/issues/74) — regression guard already present (text hard obstacles must not become evidence crossings).
+- Fold [#71](https://github.com/zhangyang-crazy-one/auto-graph/issues/71), [#73](https://github.com/zhangyang-crazy-one/auto-graph/issues/73), and [#69](https://github.com/zhangyang-crazy-one/auto-graph/issues/69) into [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75).
+- Keep [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75) open until the local dense contract (clean or structured unsat with plans) is met — not until live DoDAF Stage 5 criticals hit zero.
+
 ## CLI
 
 ```bash
@@ -134,7 +187,8 @@ auto-graph v0.0.1 includes:
 - Label fitting, shape geometry, AABB collision utilities, and edge ports
 - Dagre-backed initial layout
 - Exact, relative, align, distribute, and containment constraints
-- Straight and orthogonal routing
+- Straight, orthogonal, obstacle-avoiding, and dense dependency rail routing
+- Text-aware route clearance, edge-label rerouting, fixed swimlane geometry, and structured congestion diagnostics
 - SVG and Excalidraw exporters
 - Golden and determinism tests
 
@@ -144,7 +198,6 @@ Out of scope for this first release:
 - draw.io XML export
 - Mermaid import/export
 - Full styling engine
-- CAD-grade dense routing
 
 ## Verification
 

@@ -31,6 +31,8 @@ export interface AstarOptions {
 	readonly corridorPrefilter?: boolean;
 	/** Corridor expansion margin in px (default 32). */
 	readonly corridorMargin?: number;
+	/** Add compact obstacle midlines to the route grid. */
+	readonly textObstacleVertices?: boolean;
 }
 
 interface GraphNode {
@@ -80,8 +82,20 @@ export function findObstacleFreePath(
 		: obstacles;
 
 	// 1. Collect interesting coordinates.
-	const xs = collectXs(source, target, filtered, margin);
-	const ys = collectYs(source, target, filtered, margin);
+	const xs = collectXs(
+		source,
+		target,
+		filtered,
+		margin,
+		options.textObstacleVertices === true,
+	);
+	const ys = collectYs(
+		source,
+		target,
+		filtered,
+		margin,
+		options.textObstacleVertices === true,
+	);
 
 	if (xs.length * ys.length > maxNodes) {
 		diagnostics?.push({
@@ -149,8 +163,20 @@ export function findObstacleFreePath(
 	// may have forced a detour outside it, where obstacles were omitted.
 	if (!useCorridor) return null;
 
-	const xsFull = collectXs(source, target, obstacles, margin);
-	const ysFull = collectYs(source, target, obstacles, margin);
+	const xsFull = collectXs(
+		source,
+		target,
+		obstacles,
+		margin,
+		options.textObstacleVertices === true,
+	);
+	const ysFull = collectYs(
+		source,
+		target,
+		obstacles,
+		margin,
+		options.textObstacleVertices === true,
+	);
 
 	if (xsFull.length * ysFull.length > maxNodes) {
 		diagnostics?.push({
@@ -238,12 +264,16 @@ function collectXs(
 	target: Point,
 	obstacles: readonly Box[],
 	margin: number,
+	textObstacleVertices = false,
 ): number[] {
 	const raw: number[] = [];
 	// Offset obstacle edges by 2 px so grid lines sit just outside,
 	// avoiding tangent-touch AABB intersections (Issue #39).
 	for (const obs of obstacles) {
 		raw.push(obs.x - margin - 2, obs.x + obs.width + margin + 2);
+		if (textObstacleVertices && isCompactTextObstacle(obs)) {
+			raw.push(obs.x + obs.width / 2);
+		}
 	}
 	// Deduplicate obstacle grid lines, then always include source
 	// and target exactly so A* can find its start/goal nodes even
@@ -262,12 +292,16 @@ function collectYs(
 	target: Point,
 	obstacles: readonly Box[],
 	margin: number,
+	textObstacleVertices = false,
 ): number[] {
 	const raw: number[] = [];
 	// Offset obstacle edges by 2 px so grid lines sit just outside,
 	// avoiding tangent-touch AABB intersections (Issue #39).
 	for (const obs of obstacles) {
 		raw.push(obs.y - margin - 2, obs.y + obs.height + margin + 2);
+		if (textObstacleVertices && isCompactTextObstacle(obs)) {
+			raw.push(obs.y + obs.height / 2);
+		}
 	}
 	// Deduplicate obstacle grid lines, then always include source
 	// and target exactly so A* can find its start/goal nodes even
@@ -279,6 +313,10 @@ function collectYs(
 		}
 	}
 	return deduped.sort((a, b) => a - b);
+}
+
+function isCompactTextObstacle(box: Box): boolean {
+	return box.width <= 160 || box.height <= 40;
 }
 
 /**

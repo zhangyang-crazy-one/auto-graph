@@ -6,6 +6,14 @@
     "y": 0
   },
   "degraded": false,
+  "deliverability": {
+    "degraded": false,
+    "diagnosticCodes": [],
+    "remediationPlans": [],
+    "remediationTypes": [],
+    "status": "clean",
+    "strict": false
+  },
   "diagnostics": [],
   "direction": "BT",
   "edges": [

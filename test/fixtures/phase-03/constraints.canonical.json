@@ -6,6 +6,37 @@
     "y": 0
   },
   "degraded": true,
+  "deliverability": {
+    "degraded": true,
+    "diagnosticCodes": [
+      "constraints.locked-target-not-moved"
+    ],
+    "remediationPlans": [
+      {
+        "detail": {
+          "affectedNodeCount": 1,
+          "policy": "suggest",
+          "strategy": "grow-or-relax-fixed-geometry"
+        },
+        "diagnosticCodes": [
+          "constraints.locked-target-not-moved"
+        ],
+        "edgeIds": [],
+        "id": "remediation-01-grow-fixed-geometry",
+        "nodeIds": [
+          "child"
+        ],
+        "reason": "Grow or relax fixed geometry constraints for 1 deliverability diagnostic.",
+        "status": "suggested",
+        "type": "grow-fixed-geometry"
+      }
+    ],
+    "remediationTypes": [
+      "relax-or-grow-fixed-geometry"
+    ],
+    "status": "degraded",
+    "strict": false
+  },
   "diagnostics": [
     {
       "code": "layout.edge-reference.missing",

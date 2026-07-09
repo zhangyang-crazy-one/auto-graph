@@ -615,13 +615,17 @@ function renderEdgeLabel(
 	if (edge.label?.text === undefined || edge.points.length < 2) {
 		return [];
 	}
-	const annotation = findAnnotation(annotations, "edge-label", edge.id);
-	if (annotation !== undefined) {
-		return (
-			renderSolvedTextAnnotation(annotation, "edge-label", {
-				indent: "  ",
-				mode: "center",
-			}) ?? []
+	const matching = annotations.filter(
+		(annotation) =>
+			annotation.surfaceKind === "edge-label" && annotation.ownerId === edge.id,
+	);
+	if (matching.length > 0) {
+		return matching.flatMap(
+			(annotation) =>
+				renderSolvedTextAnnotation(annotation, "edge-label", {
+					indent: "  ",
+					mode: "center",
+				}) ?? [],
 		);
 	}
 	const placement = labelPlacementOnPolyline(edge.points);

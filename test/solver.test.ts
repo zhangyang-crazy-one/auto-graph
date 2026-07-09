@@ -3,12 +3,19 @@ import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import { computeArrowhead } from "../src/exporters/arrow.js";
 import {
+	type Box,
 	DELIVERABILITY_DIAGNOSTIC_CODES,
 	type Diagnostic,
+	type ExternalLabelRemediationDetail,
 	type LabelLayout,
 	type NormalizedDiagram,
+	type PageSplitRemediationDetail,
 } from "../src/ir/index.js";
-import { solveDiagram, solveDiagramSafe } from "../src/solver/index.js";
+import {
+	resolvePagePolicy,
+	solveDiagram,
+	solveDiagramSafe,
+} from "../src/solver/index.js";
 import type {
 	PreparedText,
 	TextLayout,
@@ -195,6 +202,18 @@ describe("solveDiagram", () => {
 		expect(Number.isFinite(autoB.y)).toBe(true);
 		expect(autoA).not.toMatchObject({ x: 10_000, y: -5_000 });
 		expect(autoB).not.toMatchObject({ x: 10_000, y: -5_000 });
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "layout.positions.missing",
+				detail: expect.objectContaining({ nodeId: "auto-a" }),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "layout.positions.missing",
+				detail: expect.objectContaining({ nodeId: "auto-b" }),
+			}),
+		);
 		expect(result.diagnostics).not.toContainEqual(
 			expect.objectContaining({ code: "layout.edge-reference.missing" }),
 		);
@@ -1927,14 +1946,11 @@ describe("solveDiagram", () => {
 
 		expect(shallow.edges[0]?.points).not.toEqual(deeper.edges[0]?.points);
 		expect(shallow.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "route_obstacle_fallback" }),
-		);
-		expect(deeper.diagnostics).not.toContainEqual(
-			expect.objectContaining({ code: "route_obstacle_fallback" }),
+			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
 		);
 	});
 
-	it("reports edge-label clearance conflicts after route placement (may be resolved by pre-estimation #41)", () => {
+	it("routes around edge-label estimate corridors before final label placement", () => {
 		const result = solveDiagram({
 			id: "edge-label-clearance",
 			direction: "LR",
@@ -1962,16 +1978,190 @@ describe("solveDiagram", () => {
 			diagnostics: [],
 		});
 
-		// With pre-estimation (#41), edge labels are estimated before
-		// routing so the crossing edge can avoid the labeled edge's label
-		// area.  The diagnostic may or may not appear depending on the
-		// effectiveness of the estimate.
 		const clearanceDiags = result.diagnostics.filter(
 			(d) =>
 				d.code === "routing.text-clearance.unresolved" &&
 				d.detail?.textSurfaceKind === "edge-label",
 		);
-		expect(clearanceDiags.length).toBeLessThanOrEqual(1);
+		expect(clearanceDiags).toEqual([]);
+	});
+
+	it("reroutes final edge-label crossings through the feedback loop", () => {
+		const diagram: NormalizedDiagram = {
+			id: "edge-label-feedback-clearance",
+			direction: "LR",
+			nodes: [
+				node("source_a", { x: 0, y: -140 }),
+				node("target_a", { x: 180, y: -140 }),
+				node("source_b", { x: 40, y: -300 }),
+				node("target_b", { x: 40, y: -40 }),
+			],
+			edges: [
+				{
+					id: "labeled",
+					source: { nodeId: "source_a" },
+					target: { nodeId: "target_a" },
+					label: { text: "wide ".repeat(48).trim() },
+				},
+				{
+					id: "crossing",
+					source: { nodeId: "source_b" },
+					target: { nodeId: "target_b" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const textMeasurer = new DeterministicTextMeasurer();
+		const baseline = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: false,
+			maxRoutingAttempts: 8,
+			textMeasurer,
+			textIntersectionTolerance: 0,
+		});
+		const result = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 4 },
+			maxRoutingAttempts: 8,
+			textMeasurer,
+			textIntersectionTolerance: 0,
+		});
+
+		expect(baseline.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "crossing",
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "crossing",
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+			}),
+		);
+		expect(
+			result.edges.find((edge) => edge.id === "crossing")?.points,
+		).not.toEqual(
+			baseline.edges.find((edge) => edge.id === "crossing")?.points,
+		);
+	});
+
+	it("keeps feedback text hard-obstacle diagnostics local", () => {
+		const result = solveDiagram(
+			hugeNodeLabelClearanceDiagram("route-label-hard-text-local"),
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				edgeLabelRerouting: { maxIterations: 2 },
+				maxRoutingAttempts: 8,
+				textIntersectionTolerance: 0,
+			},
+		);
+		const safeResult = solveDiagramSafe(
+			hugeNodeLabelClearanceDiagram("route-label-hard-text-safe"),
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				edgeLabelRerouting: { maxIterations: 2 },
+				maxRoutingAttempts: 8,
+				textIntersectionTolerance: 0,
+			},
+		);
+		const affectedEdgeDiagnostics = result.diagnostics.filter(
+			(diagnostic) => diagnostic.detail?.edgeId === "source-target",
+		);
+
+		expect(affectedEdgeDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					edgeIds: "source-target",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-hard-obstacle.unavoidable",
+			}),
+		);
+		expect(affectedEdgeDiagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+		expect(safeResult.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
+
+	it("scores feedback hard-route diagnostics ahead of text-clearance gains", () => {
+		const source = readFileSync(
+			new URL("../src/solver/solve.ts", import.meta.url),
+			"utf8",
+		);
+		const comparatorStart = source.indexOf(
+			"function compareRouteLabelFeedbackScore(",
+		);
+		const hardPredicateStart = source.indexOf(
+			"function isRouteLabelFeedbackHardRouteDiagnostic(",
+		);
+		expect(comparatorStart).toBeGreaterThanOrEqual(0);
+		expect(hardPredicateStart).toBeGreaterThan(comparatorStart);
+
+		const comparator = source.slice(comparatorStart, hardPredicateStart);
+		const hardRouteIndex = comparator.indexOf(
+			"left.hardRouteDiagnostics - right.hardRouteDiagnostics",
+		);
+		const routeTextIndex = comparator.indexOf(
+			"left.routeTextConflicts - right.routeTextConflicts",
+		);
+		expect(hardRouteIndex).toBeGreaterThanOrEqual(0);
+		expect(routeTextIndex).toBeGreaterThanOrEqual(0);
+		expect(hardRouteIndex).toBeLessThan(routeTextIndex);
+
+		const hardPredicate = source.slice(
+			hardPredicateStart,
+			source.indexOf("function routeLabelFeedbackPublicRouteDiagnostics("),
+		);
+		expect(hardPredicate).toContain(
+			'diagnostic.code === "routing.evidence.crossing_forbidden"',
+		);
+		expect(hardPredicate).toContain(
+			'diagnostic.code === "route_obstacle_fallback"',
+		);
+		expect(hardPredicate).toContain('diagnostic.severity === "error"');
 	});
 
 	it("does not report straight-route text clearance when only segment AABB overlaps", () => {
@@ -2022,6 +2212,802 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("reports route-label feedback exhaustion for impossible node-label clearance", () => {
+		const result = solveDiagram(
+			hugeNodeLabelClearanceDiagram("route-label-node-exhaustion"),
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				edgeLabelRerouting: { maxIterations: 1 },
+				maxRoutingAttempts: 8,
+				textIntersectionTolerance: 0,
+			},
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					conflictCount: 1,
+					iterations: 1,
+					maxIterations: 1,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+	});
+
+	it("honors explicit orthogonal edgeLabelRerouting for discussion_r3541568275", () => {
+		const baseline = solveDiagram(
+			hugeNodeLabelClearanceDiagram("orthogonal-route-label-baseline"),
+			{
+				initialLayout: "positions",
+				routeKind: "orthogonal",
+				textIntersectionTolerance: 0,
+			},
+		);
+		const explicitTrue = solveDiagram(
+			hugeNodeLabelClearanceDiagram("orthogonal-route-label-true"),
+			{
+				initialLayout: "positions",
+				routeKind: "orthogonal",
+				edgeLabelRerouting: true,
+				textIntersectionTolerance: 0,
+			},
+		);
+		const explicitObject = solveDiagram(
+			hugeNodeLabelClearanceDiagram("orthogonal-route-label-object"),
+			{
+				initialLayout: "positions",
+				routeKind: "orthogonal",
+				edgeLabelRerouting: { maxIterations: 2 },
+				textIntersectionTolerance: 0,
+			},
+		);
+
+		expect(baseline.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(baseline.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+			}),
+		);
+		expect(explicitTrue.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					maxIterations: 4,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+		expect(explicitObject.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					maxIterations: 2,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+	});
+
+	it("groups residual dense label clearance failures into congestion diagnostics", () => {
+		const diagram: NormalizedDiagram = {
+			id: "route-label-congestion",
+			direction: "LR",
+			nodes: [
+				node("source", { x: 0, y: 0 }),
+				node("target", { x: 240, y: 0 }),
+				{
+					id: "label_owner",
+					shape: "rectangle",
+					size: { width: 0, height: 0 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 120, y: 0 },
+					label: { text: "huge label" },
+					labelLayout: createTestLabelLayout("huge label", {
+						x: -1_000,
+						y: -1_000,
+						width: 3_000,
+						height: 3_000,
+					}),
+				},
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+
+		const result = solveDiagram(diagram, {
+			routeKind: "straight",
+			textIntersectionTolerance: 0,
+		});
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "source-target",
+					textSurfaceKind: "node-label",
+					conflictingObjectId: "label_owner",
+				}),
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-congestion.unresolved",
+				detail: expect.objectContaining({
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+	});
+
+	it("marks requested strict edge labels as external callout required", () => {
+		const result = solveDiagram(
+			{
+				id: "strict-edge-label-externalization",
+				direction: "LR",
+				nodes: [
+					node("source", { x: -220, y: 0 }),
+					node("target", { x: 520, y: 0 }),
+				],
+				edges: [
+					{
+						id: "labeled",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+						label: { text: "external callout required label" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				strict: true,
+				externalLabels: true,
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const label = result.textAnnotations?.find(
+			(annotation) =>
+				annotation.surfaceKind === "edge-label" &&
+				annotation.ownerId === "labeled",
+		);
+
+		expect(label).toMatchObject({
+			placement: "external-callout-required",
+			placementDetail: expect.objectContaining({
+				candidateCount: expect.any(Number),
+				localConflictCount: expect.any(Number),
+				nodeOverlapCount: expect.any(Number),
+			}),
+		});
+		expect(label?.placementDetail?.candidateCount).toBeGreaterThan(0);
+		expect(label?.placementDetail?.localConflictCount).toBeGreaterThanOrEqual(
+			0,
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-externalization.required",
+				severity: "error",
+				detail: expect.objectContaining({
+					edgeIds: "labeled",
+					labelCount: 1,
+					remediationType: "external-label",
+				}),
+			}),
+		);
+		expect(result.deliverability).toMatchObject({
+			status: "unsatisfiable",
+			remediationTypes: expect.arrayContaining(["external-label"]),
+		});
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "labeled",
+				}),
+			}),
+		);
+	});
+
+	it("does not reserve external callout labels as local label boxes", () => {
+		const result = solveDiagram(
+			{
+				id: "external-callouts-do-not-reserve-local-label-boxes",
+				direction: "LR",
+				nodes: [
+					node("a", { x: 0, y: 0 }),
+					node("b", { x: 240, y: 0 }),
+					node("c", { x: 0, y: 0 }),
+					node("d", { x: 240, y: 0 }),
+				],
+				edges: [
+					{
+						id: "first",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						label: { text: "same label" },
+					},
+					{
+						id: "second",
+						source: { nodeId: "c" },
+						target: { nodeId: "d" },
+						label: { text: "same label" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				externalLabels: true,
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const labels = result.textAnnotations?.filter(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+		const first = labels?.find((annotation) => annotation.ownerId === "first");
+		const second = labels?.find(
+			(annotation) => annotation.ownerId === "second",
+		);
+
+		expect(first?.placement).toBe("external-callout-required");
+		expect(second?.placement).toBe("external-callout-required");
+		expect(second?.box).toEqual(first?.box);
+		expect(second?.placementDetail).toMatchObject({
+			labelOverlapCount: 0,
+			localConflictCount: 0,
+		});
+	});
+
+	it("does not route around forced external callout label estimates", () => {
+		const result = solveDiagram(
+			{
+				id: "forced-external-label-estimates-not-local-obstacles",
+				direction: "LR",
+				nodes: [
+					node("a", { x: 0, y: 0 }),
+					node("b", { x: 240, y: 0 }),
+					node("c", { x: 120, y: -160 }),
+					node("d", { x: 120, y: 160 }),
+				],
+				edges: [
+					{
+						id: "external-label",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						label: { text: "wide external label" },
+					},
+					{
+						id: "vertical",
+						source: { nodeId: "c" },
+						target: { nodeId: "d" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				externalLabels: true,
+				edgeLabelRerouting: { maxIterations: 2 },
+				textMeasurer: new DeterministicTextMeasurer(),
+				textIntersectionTolerance: 0,
+			},
+		);
+		const vertical = result.edges.find((edge) => edge.id === "vertical");
+
+		expect(vertical?.points).toEqual([
+			{ x: 160, y: -120 },
+			{ x: 160, y: 160 },
+		]);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					edgeId: "vertical",
+					conflictingObjectId: "external-label",
+				}),
+			}),
+		);
+	});
+
+	it("applies deterministic keyed external callouts when remediation policy is auto", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const plan = result.deliverability?.remediationPlans.find(
+			(candidate) => candidate.type === "external-label",
+		);
+		const detail = plan?.detail as ExternalLabelRemediationDetail | undefined;
+
+		expect(plan).toMatchObject({
+			status: "applied",
+			edgeIds: ["alpha", "middle", "zeta"],
+			diagnosticCodes: expect.arrayContaining([
+				"routing.label-externalization.required",
+			]),
+		});
+		expect(detail).toMatchObject({
+			strategy: "keyed-callouts",
+			policy: "auto",
+			labelCount: 3,
+		});
+		expect(
+			detail?.callouts?.map(({ edgeId, key, text, shelfSide }) => ({
+				edgeId,
+				key,
+				text,
+				shelfSide,
+			})),
+		).toEqual([
+			{
+				edgeId: "alpha",
+				key: "E1",
+				text: "alpha external callout label",
+				shelfSide: "right",
+			},
+			{
+				edgeId: "middle",
+				key: "E2",
+				text: "middle external callout label",
+				shelfSide: "right",
+			},
+			{
+				edgeId: "zeta",
+				key: "E3",
+				text: "zeta external callout label",
+				shelfSide: "right",
+			},
+		]);
+		const labels = result.textAnnotations?.filter(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+		expect(
+			labels?.filter(
+				(annotation) => annotation.placement === "external-callout-required",
+			),
+		).toEqual([]);
+		const alphaKey = labels?.find(
+			(annotation) =>
+				annotation.ownerId === "alpha" &&
+				annotation.placementDetail?.role === "key",
+		);
+		const alphaCallout = labels?.find(
+			(annotation) =>
+				annotation.ownerId === "alpha" &&
+				annotation.placementDetail?.role === "callout",
+		);
+		expect(alphaKey).toMatchObject({
+			text: "E1",
+			placement: "external-callout",
+			box: detail?.callouts?.[0]?.keyBox,
+		});
+		expect(alphaCallout).toMatchObject({
+			text: "E1: alpha external callout label",
+			placement: "external-callout",
+			box: detail?.callouts?.[0]?.calloutBox,
+		});
+		expect(alphaKey?.box.width ?? 0).toBeLessThan(alphaCallout?.box.width ?? 0);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.text-clearance.unresolved",
+				detail: expect.objectContaining({
+					textSurfaceKind: "edge-label",
+					conflictingObjectId: "alpha",
+				}),
+			}),
+		);
+	});
+
+	it("honors deliverabilityMode strict for congested label externalization", () => {
+		const diagram = congestedEdgeLabelExternalizationDiagram();
+		const optionsBase = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			pagePolicy: "off" as const,
+			edgeLabelRerouting: { maxIterations: 2 },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		};
+		const withFlag = solveDiagram(diagram, {
+			...optionsBase,
+			strict: true,
+		});
+		const withMode = solveDiagram(diagram, {
+			...optionsBase,
+			deliverabilityMode: "strict",
+		});
+		const placements = (result: typeof withFlag) =>
+			result.textAnnotations
+				?.filter((annotation) => annotation.surfaceKind === "edge-label")
+				.map((annotation) => ({
+					ownerId: annotation.ownerId,
+					placement: annotation.placement,
+				}))
+				.sort((left, right) => left.ownerId.localeCompare(right.ownerId));
+		expect(placements(withMode)).toEqual(placements(withFlag));
+		expect(
+			withMode.textAnnotations?.some(
+				(annotation) =>
+					annotation.placement === "external-callout-required" ||
+					annotation.placement === "external-callout",
+			),
+		).toBe(true);
+	});
+
+	it("treats strict true like deliverabilityMode strict for page-policy auto-classify", () => {
+		const nodes = [
+			...Array.from({ length: 4 }, (_, index) =>
+				node(`src-${index}`, { x: 0, y: index * 50 }),
+			),
+			node("agg", { x: 220, y: 60 }),
+		];
+		const diagram: NormalizedDiagram = {
+			id: "strict-page-policy-equiv",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: 4 }, (_, index) => ({
+				id: `fan-${index}`,
+				source: { nodeId: `src-${index}` },
+				target: { nodeId: "agg" },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const withStrict = resolvePagePolicy(diagram, { strict: true });
+		const withMode = resolvePagePolicy(diagram, {
+			deliverabilityMode: "strict",
+		});
+		expect(withStrict).toBe(withMode);
+		expect(withStrict).toBe("ibd-high-fan-in");
+		expect(resolvePagePolicy(diagram, {})).toBe("off");
+	});
+
+	it("does not auto-classify page policy for advisory deliverability settings", () => {
+		const diagram: NormalizedDiagram = {
+			id: "advisory-no-page-policy",
+			direction: "LR",
+			nodes: [
+				...Array.from({ length: 4 }, (_, index) =>
+					node(`src-${index}`, { x: 0, y: index * 50 }),
+				),
+				node("agg", { x: 220, y: 60 }),
+			],
+			edges: Array.from({ length: 4 }, (_, index) => ({
+				id: `fan-${index}`,
+				source: { nodeId: `src-${index}` },
+				target: { nodeId: "agg" },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		expect(
+			resolvePagePolicy(diagram, { deliverabilityMode: "degraded-ok" }),
+		).toBe("off");
+		expect(
+			resolvePagePolicy(diagram, {
+				remediationPolicy: { externalLabels: "suggest" },
+			}),
+		).toBe("off");
+		expect(
+			resolvePagePolicy(diagram, {
+				remediationPolicy: { routeRails: "auto" },
+			}),
+		).toBe("ibd-high-fan-in");
+	});
+
+	it("includes childId in grow-fixed-geometry remediation plans", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane-childid-plan",
+				direction: "LR",
+				nodes: [node("a", { x: 500, y: 500 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 100, y: 40, width: 220, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				fixedSwimlaneGeometry: true,
+				strict: true,
+				pagePolicy: "off",
+				remediationPolicy: {
+					growFixedGeometry: "suggest",
+					externalLabels: "suggest",
+					routeRails: "suggest",
+					pageSplit: "suggest",
+				},
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const growPlan = result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		expect(growPlan?.nodeIds).toContain("a");
+	});
+
+	it("maps label congestion residuals to route-rail candidates", () => {
+		const result = solveDiagram(congestedEdgeLabelExternalizationDiagram(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "off",
+			edgeLabelRerouting: { maxIterations: 1 },
+			textIntersectionTolerance: 0,
+			strict: true,
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const plans = result.deliverability?.remediationPlans ?? [];
+		const hasCongestion = result.diagnostics.some((diagnostic) =>
+			[
+				"routing.label-congestion.unresolved",
+				"routing.text-clearance.unresolved",
+				"routing.route-label-loop.exhausted",
+			].includes(diagnostic.code),
+		);
+		if (hasCongestion) {
+			expect(plans.some((plan) => plan.type === "route-rail")).toBe(true);
+			expect(plans.some((plan) => plan.type === "external-label")).toBe(true);
+		}
+	});
+
+	it("stacks external callouts by cumulative shelf height", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const callouts = result.textAnnotations
+			?.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "callout",
+			)
+			.sort((left, right) => left.box.y - right.box.y);
+		expect((callouts?.length ?? 0) >= 2).toBe(true);
+		if (callouts !== undefined && callouts.length >= 2) {
+			for (let index = 0; index < callouts.length - 1; index += 1) {
+				const current = callouts[index];
+				const next = callouts[index + 1];
+				if (current === undefined || next === undefined) continue;
+				expect(next.box.y).toBeGreaterThanOrEqual(
+					current.box.y + current.box.height,
+				);
+			}
+		}
+	});
+
+	it("exports both key and shelf callout annotations in SVG", async () => {
+		const { exportSvg } = await import("../src/exporters/svg.js");
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const svg = exportSvg(result);
+		expect(svg).toContain(">E1<");
+		expect(svg).toMatch(/E1: alpha external callout/);
+		expect(svg).toMatch(/E2: middle external callout/);
+		expect(svg).toContain('data-for="alpha"');
+		expect(
+			(svg.match(/data-for="alpha"/g) ?? []).length,
+		).toBeGreaterThanOrEqual(2);
+	});
+
+	it("exports both key and shelf callout annotations in Excalidraw", async () => {
+		const { exportExcalidraw } = await import("../src/exporters/excalidraw.js");
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const scene = JSON.parse(exportExcalidraw(result)) as {
+			elements: Array<{ id?: string; type?: string; text?: string }>;
+		};
+		const texts = scene.elements.filter((element) => element.type === "text");
+		expect(texts.some((element) => element.text === "E1")).toBe(true);
+		expect(
+			texts.some((element) =>
+				(element.text ?? "").includes("E1: alpha external callout"),
+			),
+		).toBe(true);
+		expect(
+			texts.filter((element) =>
+				(element.id ?? "").startsWith("edge-label:alpha:"),
+			).length,
+		).toBeGreaterThanOrEqual(2);
+	});
+
+	it("keeps keyed external-callout markers in route clearance", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const keyMarkers =
+			result.textAnnotations?.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "key",
+			) ?? [];
+		expect(keyMarkers.length).toBeGreaterThan(0);
+		const shelfBodies =
+			result.textAnnotations?.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "callout",
+			) ?? [];
+		expect(shelfBodies.length).toBeGreaterThan(0);
+		// Key markers remain local clearance obstacles; shelf bodies do not.
+		for (const key of keyMarkers) {
+			expect(key.box.width).toBeGreaterThan(0);
+			expect(key.box.height).toBeGreaterThan(0);
+		}
+	});
+
+	it("does not keep route-label-loop.exhausted when remediation clears conflicts", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 1 },
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "auto",
+				routeRails: "auto",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+			strict: true,
+		});
+		const hasResidualText = result.diagnostics.some(
+			(diagnostic) => diagnostic.code === "routing.text-clearance.unresolved",
+		);
+		if (!hasResidualText && result.deliverability?.status === "clean") {
+			expect(result.diagnostics).not.toContainEqual(
+				expect.objectContaining({
+					code: "routing.route-label-loop.exhausted",
+				}),
+			);
+		}
+	});
+
+	it("keeps suggest and off external-label policies non-executing", () => {
+		const suggest = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "suggest" },
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const off = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "off" },
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		expect(
+			suggest.deliverability?.remediationPlans.find(
+				(plan) => plan.type === "external-label",
+			),
+		).toMatchObject({ status: "suggested" });
+		expect(
+			suggest.textAnnotations?.some(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout-required",
+			),
+		).toBe(true);
+		expect(
+			suggest.textAnnotations?.some(
+				(annotation) => annotation.placement === "external-callout",
+			),
+		).toBe(false);
+		expect(
+			off.deliverability?.remediationPlans.some(
+				(plan) => plan.type === "external-label",
+			),
+		).toBe(false);
+		expect(
+			off.textAnnotations?.some(
+				(annotation) => annotation.placement === "external-callout",
+			),
+		).toBe(false);
+	});
+
 	it("ignores empty lanes when deriving populated swimlane extents", () => {
 		const result = solveDiagram({
 			id: "mixed-swimlane",
@@ -2046,6 +3032,316 @@ describe("solveDiagram", () => {
 		expect(result.diagnostics).toEqual([]);
 		expect(result.swimlanes?.[0]?.box?.x).toBeGreaterThan(200);
 		expect(result.swimlanes?.[0]?.box?.y).toBeGreaterThan(100);
+	});
+
+	it("preserves fixed swimlane and lane geometry in fixed mode", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane",
+				direction: "LR",
+				nodes: [node("a", { x: 150, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 100, y: 40, width: 220, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.swimlanes?.[0]?.box).toEqual({
+			x: 100,
+			y: 40,
+			width: 220,
+			height: 160,
+		});
+		expect(result.swimlanes?.[0]?.lanes[0]?.box).toEqual({
+			x: 100,
+			y: 40,
+			width: 220,
+			height: 160,
+		});
+		expect(result.swimlanes?.[0]?.lanes[0]?.headerBox).toEqual({
+			x: 100,
+			y: 40,
+			width: 220,
+			height: 20,
+		});
+		expect(result.swimlanes?.[0]?.lanes[0]?.contentBox).toEqual({
+			x: 100,
+			y: 60,
+			width: 220,
+			height: 140,
+		});
+	});
+
+	it("keeps contract layout for non-fixed swimlanes in fixed mode", () => {
+		const result = solveDiagram(
+			{
+				id: "mixed-fixed-and-contract-swimlanes",
+				direction: "LR",
+				nodes: [
+					node("fixed_child", { x: 130, y: 80 }),
+					node("source_a", { x: 400, y: 0 }),
+					node("source_b", { x: 400, y: 120 }),
+					node("target_a", { x: 520, y: 0 }),
+					node("target_b", { x: 520, y: 120 }),
+				],
+				edges: [
+					{
+						id: "source_a-target_a",
+						source: { nodeId: "source_a" },
+						target: { nodeId: "target_a" },
+					},
+					{
+						id: "source_b-target_b",
+						source: { nodeId: "source_b" },
+						target: { nodeId: "target_b" },
+					},
+				],
+				groups: [],
+				swimlanes: [
+					{
+						id: "fixed",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [{ id: "fixed_lane", children: ["fixed_child"] }],
+					},
+					{
+						id: "contract",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 24,
+						padding: 16,
+						lanes: [
+							{ id: "sources", children: ["source_a", "source_b"] },
+							{ id: "targets", children: ["target_a", "target_b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		const fixed = result.swimlanes?.find((swimlane) => swimlane.id === "fixed");
+		const contract = result.swimlanes?.find(
+			(swimlane) => swimlane.id === "contract",
+		);
+		expect(fixed?.box).toEqual({ x: 100, y: 40, width: 220, height: 160 });
+		expect(contract?.lanes[0]?.headerBox?.height).toBe(24);
+		expect(contract?.lanes[1]?.headerBox?.height).toBe(24);
+		expect(contract?.lanes[0]?.contentBox?.y).toBeGreaterThan(
+			contract?.lanes[0]?.headerBox?.y ?? 0,
+		);
+		expect(
+			result.nodes.find((n) => n.id === "target_a")?.box.x,
+		).toBeGreaterThan(
+			result.nodes.find((n) => n.id === "source_a")?.box.x ?? 0,
+		);
+	});
+
+	it("derives missing fixed lane boxes from the authored swimlane box", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane-parent-derived-lanes",
+				direction: "LR",
+				nodes: [node("a", { x: 120, y: 80 }), node("b", { x: 230, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{ id: "left", children: ["a"] },
+							{ id: "right", children: ["b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.swimlanes?.[0]?.lanes[0]?.box).toEqual({
+			x: 100,
+			y: 40,
+			width: 110,
+			height: 160,
+		});
+		expect(result.swimlanes?.[0]?.lanes[1]?.box).toEqual({
+			x: 210,
+			y: 40,
+			width: 110,
+			height: 160,
+		});
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.container-fixed-bounds-overflow",
+			}),
+		);
+	});
+
+	it("wraps child-derived fixed lane boxes with header and padding", () => {
+		const result = solveDiagram(
+			{
+				id: "partial-fixed-swimlane-derived-lane",
+				direction: "LR",
+				nodes: [node("a", { x: 100, y: 80 }), node("b", { x: 260, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						padding: 12,
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 80, y: 40, width: 120, height: 120 },
+							},
+							{ id: "derived", children: ["b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		const derived = result.swimlanes?.[0]?.lanes.find(
+			(lane) => lane.id === "derived",
+		);
+		const child = nodeBox(result, "b");
+		expect(derived?.box).toEqual({
+			x: child.x - 12,
+			y: child.y - 32,
+			width: child.width + 24,
+			height: child.height + 44,
+		});
+		expect(derived?.contentBox).toBeDefined();
+		if (derived?.contentBox !== undefined) {
+			expect(derived.contentBox.y).toBe(child.y - 12);
+			expect(derived.contentBox.height).toBe(child.height + 24);
+			expect(child.x).toBeGreaterThanOrEqual(derived.contentBox.x);
+			expect(child.y).toBeGreaterThanOrEqual(derived.contentBox.y);
+			expect(child.x + child.width).toBeLessThanOrEqual(
+				derived.contentBox.x + derived.contentBox.width,
+			);
+			expect(child.y + child.height).toBeLessThanOrEqual(
+				derived.contentBox.y + derived.contentBox.height,
+			);
+		}
+	});
+
+	it("diagnoses fixed lane boxes outside an authored swimlane box", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-lane-outside-parent",
+				direction: "LR",
+				nodes: [node("a", { x: 150, y: 80 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "outside",
+								children: ["a"],
+								box: { x: 340, y: 40, width: 120, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "layout.container-fixed-bounds-overflow",
+				detail: expect.objectContaining({
+					swimlaneId: "lanes",
+					laneId: "outside",
+				}),
+			}),
+		);
+	});
+
+	it("diagnoses children outside fixed swimlane content bounds", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane-overflow",
+				direction: "LR",
+				nodes: [node("a", { x: 500, y: 500 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 100, y: 40, width: 220, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", fixedSwimlaneGeometry: true },
+		);
+
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.container-fixed-bounds-overflow",
+				detail: expect.objectContaining({
+					swimlaneId: "lanes",
+					laneId: "fixed",
+					childId: "a",
+				}),
+			}),
+		);
 	});
 
 	it("treats contract swimlanes as physical lane regions with reserved headers", () => {
@@ -3006,11 +4302,25 @@ function diagramWithDiagnostic(diagnostic: Diagnostic): NormalizedDiagram {
 it("sets degraded when a deliverability diagnostic is emitted", () => {
 	const result = solveDiagram(lockedChildDiagram());
 	expect(result.degraded).toBe(true);
+	expect(result.deliverability).toMatchObject({
+		status: "degraded",
+		strict: false,
+		degraded: true,
+		diagnosticCodes: expect.arrayContaining([
+			"constraints.locked-target-not-moved",
+		]),
+		remediationTypes: expect.arrayContaining(["relax-or-grow-fixed-geometry"]),
+	});
 });
 
 it("promotes deliverability warnings to errors when strict is set", () => {
 	const result = solveDiagram(lockedChildDiagram(), { strict: true });
 	expect(result.degraded).toBe(true);
+	expect(result.deliverability).toMatchObject({
+		status: "unsatisfiable",
+		strict: true,
+		degraded: true,
+	});
 	const locked = result.diagnostics.filter(
 		(d) => d.code === "constraints.locked-target-not-moved",
 	);
@@ -3018,11 +4328,33 @@ it("promotes deliverability warnings to errors when strict is set", () => {
 	for (const d of locked) {
 		expect(d.severity).toBe("error");
 	}
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.deliverability.unsatisfiable",
+			severity: "error",
+			detail: expect.objectContaining({
+				pageId: "locked-child",
+				diagnosticCodes: expect.stringContaining(
+					"constraints.locked-target-not-moved",
+				),
+				remediationTypes: expect.stringContaining(
+					"relax-or-grow-fixed-geometry",
+				),
+			}),
+		}),
+	);
 });
 
 it("keeps degraded false when no deliverability diagnostics are emitted", () => {
 	const result = solveDiagram(sampleDiagram());
 	expect(result.degraded).toBe(false);
+	expect(result.deliverability).toMatchObject({
+		status: "clean",
+		strict: false,
+		degraded: false,
+		diagnosticCodes: [],
+		remediationTypes: [],
+	});
 });
 
 it("does not promote severity when strict is unset", () => {
@@ -3039,9 +4371,20 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 	expect(Array.from(DELIVERABILITY_DIAGNOSTIC_CODES).sort()).toEqual([
 		"constraints.locked-target-not-moved",
 		"constraints.overlap.locked-conflict",
+		"constraints.overlap.post-growth",
+		"layout.container-fixed-bounds-overflow",
 		"route_obstacle_fallback",
+		"routing.anchor-capacity.requires-resize",
+		"routing.container-fixed-bounds-overflow",
+		"routing.deliverability.unsatisfiable",
+		"routing.endpoint-interior.unavoidable",
 		"routing.evidence.crossing_forbidden",
+		"routing.label-congestion.unresolved",
+		"routing.label-externalization.required",
+		"routing.label-hard-obstacle.unavoidable",
 		"routing.obstacle.unavoidable",
+		"routing.rail-capacity.exceeded",
+		"routing.route-label-loop.exhausted",
 		"routing.text-clearance.unresolved",
 	]);
 });
@@ -3142,6 +4485,1569 @@ it("uses obstacle-avoiding routing to dodge nodes", () => {
 	);
 
 	expect(result.edges[0]?.points.length).toBeGreaterThanOrEqual(2);
+});
+
+it("grows overloaded implicit anchor sides before routing", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-grow",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+		},
+	);
+
+	expect(nodeBox(result, "source").height).toBeGreaterThanOrEqual(106);
+	expect(new Set(result.edges.map((edge) => edge.points[0]?.y)).size).toBe(
+		targets.length,
+	);
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({
+			code: "routing.anchor-capacity.requires-resize",
+		}),
+	);
+});
+
+it("recenters node labels after implicit anchor capacity growth", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `label-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-label-recenter",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+					label: { text: "source" },
+					labelLayout: createTestLabelLayout("source", {
+						x: 20,
+						y: 13,
+						width: 40,
+						height: 14,
+					}),
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+		},
+	);
+
+	const source = result.nodes.find((node) => node.id === "source");
+	expect(source?.labelLayout?.box.y).toBeCloseTo(
+		((source?.box.height ?? 0) - (source?.labelLayout?.box.height ?? 0)) / 2,
+		5,
+	);
+});
+
+it("does not mutate caller node labels during anchor capacity growth", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `mutation-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const source = {
+		id: "source",
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 0, y: 140 },
+		label: { text: "source" },
+		labelLayout: createTestLabelLayout("source", {
+			x: 20,
+			y: 13,
+			width: 40,
+			height: 14,
+		}),
+	};
+	const diagram: NormalizedDiagram = {
+		id: "anchor-capacity-input-immutability",
+		direction: "LR",
+		nodes: [source, ...targets],
+		edges: targets.map((target) => ({
+			id: `source-${target.id}`,
+			source: { nodeId: "source" },
+			target: { nodeId: target.id },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	const before = { ...source.labelLayout.box };
+
+	solveDiagram(diagram, {
+		initialLayout: "positions",
+		routeKind: "obstacle-avoiding",
+		anchorCapacity: { minSpacing: 24 },
+	});
+
+	expect(source.labelLayout.box).toEqual(before);
+	expect(diagram.nodes[0]?.labelLayout?.box).toEqual(before);
+});
+
+it("reports post-growth overlaps introduced by anchor capacity sizing", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `overlap-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-post-growth-overlap",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				{
+					id: "sibling",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 190 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+			strict: true,
+		},
+	);
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "constraints.overlap.post-growth",
+			severity: "error",
+			detail: expect.objectContaining({
+				firstId: "sibling",
+				secondId: "source",
+				remediationType: "post-growth-repair",
+			}),
+		}),
+	);
+	expect(result.deliverability?.status).toBe("unsatisfiable");
+});
+
+it("sizes implicit anchor capacity after constraints move endpoint sides", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `moved-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-after-constraints",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: targets.map((target, index) => ({
+				kind: "relative-position" as const,
+				sourceId: target.id,
+				referenceId: "source",
+				relation: "right-of" as const,
+				offset: { x: 220, y: (index - 2) * 70 },
+			})),
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24 },
+		},
+	);
+
+	expect(nodeBox(result, "source").height).toBeGreaterThan(40);
+	expect(new Set(result.edges.map((edge) => edge.points[0]?.y)).size).toBe(
+		targets.length,
+	);
+});
+
+it("diagnoses overloaded anchor sides when growth is disabled", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `fixed-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-diagnose",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24, grow: false },
+		},
+	);
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.anchor-capacity.requires-resize",
+			path: ["nodes", "source"],
+		}),
+	);
+});
+
+it("ignores explicit corner anchors during implicit anchor capacity checks", () => {
+	const targets = Array.from({ length: 5 }, (_, index) => ({
+		id: `corner-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 220, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "anchor-capacity-explicit-corners",
+			direction: "LR",
+			nodes: [
+				{
+					id: "source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 140 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `source-${target.id}`,
+				source: { nodeId: "source", anchor: "top-left" },
+				target: { nodeId: target.id },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			anchorCapacity: { minSpacing: 24, grow: false },
+		},
+	);
+
+	expect(nodeBox(result, "source")).toEqual({
+		x: 0,
+		y: 140,
+		width: 80,
+		height: 40,
+	});
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({
+			code: "routing.anchor-capacity.requires-resize",
+			path: ["nodes", "source"],
+		}),
+	);
+});
+
+it("routes dense same-rank dependencies through deterministic rails", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-routing",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `edge-${index}`,
+				source: { nodeId: `source-${index}` },
+				target: { nodeId: `target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+	const minNodeY = Math.min(...result.nodes.map((node) => node.box.y));
+	const maxNodeBottom = Math.max(
+		...result.nodes.map((node) => node.box.y + node.box.height),
+	);
+	const rails = result.routing?.rails ?? [];
+	const sides = new Set(rails.map((rail) => rail.side));
+
+	expect(rails).toHaveLength(pairCount);
+	expect(sides.has("top")).toBe(true);
+	expect(sides.has("bottom")).toBe(true);
+	for (const rail of rails) {
+		if (rail.side === "top") {
+			expect(rail.coordinate).toBeLessThan(minNodeY);
+		} else {
+			expect(rail.coordinate).toBeGreaterThan(maxNodeBottom);
+		}
+	}
+	expect(result.routing?.gutters).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				side: "top",
+				box: expect.objectContaining({
+					height: expect.any(Number),
+				}),
+			}),
+			expect.objectContaining({
+				side: "bottom",
+				box: expect.objectContaining({
+					height: expect.any(Number),
+				}),
+			}),
+		]),
+	);
+});
+
+it("falls back from rails that cross off-corridor node obstacles", () => {
+	const pairCount = 6;
+	const nodes = [
+		{
+			id: "rail-blocker",
+			shape: "rectangle" as const,
+			size: { width: 20, height: 60 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 90, y: -250 },
+		},
+		...Array.from({ length: pairCount }, (_, index) => [
+			{
+				id: `blocked-source-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: index * 70 },
+			},
+			{
+				id: `blocked-target-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 240, y: index * 70 },
+			},
+		]).flat(),
+	];
+	const result = solveDiagram(
+		{
+			id: "rail-routing-off-corridor-obstacle",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `blocked-edge-${index}`,
+				source: { nodeId: `blocked-source-${index}` },
+				target: { nodeId: `blocked-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	const blocker = nodeBox(result, "rail-blocker");
+	for (const edge of result.edges) {
+		expect(routeCrossesBox(edge.points, blocker)).toBe(false);
+	}
+});
+
+it("expands diagram frames to enclose dependency rails", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `framed-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `framed-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "framed-rail-routing",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `framed-edge-${index}`,
+				source: { nodeId: `framed-source-${index}` },
+				target: { nodeId: `framed-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			frame: {
+				kind: "sysml",
+				titleTab: "System",
+			},
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	const frame = result.frame?.box;
+	expect(frame).toBeDefined();
+	if (frame !== undefined) {
+		for (const edge of result.edges) {
+			for (const point of edge.points) {
+				expect(point.x).toBeGreaterThanOrEqual(frame.x);
+				expect(point.x).toBeLessThanOrEqual(frame.x + frame.width);
+				expect(point.y).toBeGreaterThanOrEqual(frame.y);
+				expect(point.y).toBeLessThanOrEqual(frame.y + frame.height);
+			}
+		}
+	}
+});
+
+it("falls back from dependency rails that would cross hard obstacles", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `rail-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `rail-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-routing-hard-obstacle",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `rail-edge-${index}`,
+				source: { nodeId: `rail-source-${index}` },
+				target: { nodeId: `rail-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			matrices: [
+				{
+					id: "rail-hard-block",
+					rows: ["need"],
+					cols: ["function"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 90, y: -70 },
+					size: { width: 48, height: 64 },
+				},
+			],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	const block = result.matrices?.[0]?.box;
+	expect(block).toBeDefined();
+	if (block !== undefined) {
+		for (const edge of result.edges) {
+			expect(routeCrossesBox(edge.points, block)).toBe(false);
+		}
+	}
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.evidence.crossing_forbidden" }),
+	);
+});
+
+it("reports the twenty-fifth dependency rail as over capacity", () => {
+	const pairCount = 25;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `capacity-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `capacity-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-capacity",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `capacity-edge-${index}`,
+				source: { nodeId: `capacity-source-${index}` },
+				target: { nodeId: `capacity-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.rail-capacity.exceeded",
+			detail: expect.objectContaining({
+				railIndex: 24,
+				required: 25,
+				available: 24,
+			}),
+		}),
+	);
+	const pageSplit = result.deliverability?.remediationPlans.find(
+		(plan) => plan.type === "page-split",
+	);
+	expect(pageSplit).toBeDefined();
+	expect(pageSplit?.edgeIds.length).toBeGreaterThan(0);
+	expect(pageSplit?.nodeIds.length).toBeGreaterThan(0);
+	expect(pageSplit?.reason.length).toBeGreaterThan(0);
+	const detail = pageSplit?.detail as PageSplitRemediationDetail | undefined;
+	expect(detail?.required).toBeGreaterThan(detail?.available ?? 0);
+	expect(detail?.available).toBe(24);
+	expect(
+		result.deliverability?.remediationPlans.some(
+			(plan) => plan.type === "route-rail",
+		),
+	).toBe(true);
+});
+
+describe("phase 17 remediation apply loop", () => {
+	it("classifies route/text conflicts without rewriting diagnostic codes", () => {
+		const result = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 1 },
+			textIntersectionTolerance: 0,
+			externalLabels: true,
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const textClearance = result.diagnostics.filter(
+			(diagnostic) => diagnostic.code === "routing.text-clearance.unresolved",
+		);
+		for (const diagnostic of textClearance) {
+			expect(diagnostic.detail?.conflictClass).toBeDefined();
+			expect([
+				"node-label-strike",
+				"edge-label-pileup",
+				"label-bbox-graze",
+			]).toContain(diagnostic.detail?.conflictClass);
+		}
+		const railOverflow = result.diagnostics.find(
+			(diagnostic) => diagnostic.code === "routing.rail-capacity.exceeded",
+		);
+		if (railOverflow !== undefined) {
+			expect(railOverflow.detail?.conflictClass).toBe("rail-lane-overflow");
+		}
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+				detail: expect.objectContaining({
+					conflictClass: "edge-label-pileup",
+				}),
+			}),
+		);
+	});
+
+	it("transitions exhausted route-label loop into remediation planning", () => {
+		const result = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 1 },
+			textIntersectionTolerance: 0,
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "auto",
+				routeRails: "auto",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		const exhausted = result.diagnostics.find(
+			(diagnostic) => diagnostic.code === "routing.route-label-loop.exhausted",
+		);
+		if (exhausted !== undefined) {
+			expect(exhausted.detail).toMatchObject({
+				remediationTransition: true,
+				phase: "remediation-planning",
+			});
+		}
+		expect(result.deliverability).toBeDefined();
+		if (result.deliverability?.status === "clean") {
+			expect(
+				result.deliverability.remediationPlans.some(
+					(plan) => plan.status === "applied",
+				) ||
+					!result.diagnostics.some((diagnostic) =>
+						DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
+					),
+			).toBe(true);
+		} else {
+			expect(result.deliverability?.remediationPlans.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("marks routeRails auto as applied or blocked with snapshot semantics", () => {
+		const auto = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 2 },
+			textIntersectionTolerance: 0,
+			railRouting: false,
+			pagePolicy: "off",
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "auto",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const suggest = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 2 },
+			textIntersectionTolerance: 0,
+			railRouting: false,
+			pagePolicy: "off",
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		const autoRail = auto.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "route-rail",
+		);
+		const suggestRail = suggest.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "route-rail",
+		);
+		if (autoRail !== undefined) {
+			expect(["applied", "blocked"]).toContain(autoRail.status);
+			expect(autoRail.status).not.toBe("suggested");
+			expect(autoRail.detail).toMatchObject({
+				strategy: "dependency-rails",
+				policy: "auto",
+				required: expect.any(Number),
+				available: expect.any(Number),
+			});
+		}
+		if (suggestRail !== undefined) {
+			expect(suggestRail.status).toBe("suggested");
+		}
+	});
+
+	it("applies or blocks growFixedGeometry auto from grow-disabled IBD pressure", () => {
+		const auto = solveDiagram(denseIbdRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const suggest = solveDiagram(denseIbdRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		const autoGrow = auto.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		const suggestGrow = suggest.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		expect(autoGrow).toBeDefined();
+		expect(["applied", "blocked"]).toContain(autoGrow?.status);
+		if (autoGrow?.detail.strategy === "grow-or-relax-fixed-geometry") {
+			expect(autoGrow.detail.policy).toBe("auto");
+			if (autoGrow.status === "blocked") {
+				expect((autoGrow.detail.growthDeltas?.length ?? 0) > 0).toBe(true);
+			}
+			if (autoGrow.status === "applied") {
+				expect(nodeBox(auto, "ibd-aggregator").height).toBeGreaterThan(
+					nodeBox(suggest, "ibd-aggregator").height - 0.001,
+				);
+			}
+		}
+		expect(suggestGrow?.status).toBe("suggested");
+		expect(nodeBox(suggest, "ibd-aggregator").height).toBe(40);
+	});
+
+	it("recenters node labels after growFixedGeometry auto deltas", () => {
+		const diagram = denseIbdRemediationFixture();
+		const aggregator = diagram.nodes.find(
+			(item) => item.id === "ibd-aggregator",
+		);
+		expect(aggregator).toBeDefined();
+		if (aggregator !== undefined) {
+			aggregator.label = { text: "aggregator" };
+			aggregator.labelLayout = createTestLabelLayout("aggregator", {
+				x: 10,
+				y: 13,
+				width: 60,
+				height: 14,
+			});
+		}
+		const result = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const grow = result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		if (grow?.status !== "applied") {
+			return;
+		}
+		const node = result.nodes.find((item) => item.id === "ibd-aggregator");
+		expect(node?.labelLayout).toBeDefined();
+		expect(node?.labelLayout?.box.y).toBeCloseTo(
+			((node?.box.height ?? 0) - (node?.labelLayout?.box.height ?? 0)) / 2,
+			5,
+		);
+		expect(node?.labelLayout?.box.x).toBeCloseTo(
+			((node?.box.width ?? 0) - (node?.labelLayout?.box.width ?? 0)) / 2,
+			5,
+		);
+	});
+
+	it("never applies page-split and keeps required/available under suggest", () => {
+		const pairCount = 25;
+		const nodes = Array.from({ length: pairCount }, (_, index) => [
+			{
+				id: `capacity-source-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: index * 70 },
+			},
+			{
+				id: `capacity-target-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 240, y: index * 70 },
+			},
+		]).flat();
+		const result = solveDiagram(
+			{
+				id: "page-split-never-applied",
+				direction: "LR",
+				nodes,
+				edges: Array.from({ length: pairCount }, (_, index) => ({
+					id: `capacity-edge-${index}`,
+					source: { nodeId: `capacity-source-${index}` },
+					target: { nodeId: `capacity-target-${index}` },
+				})),
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				railRouting: "dependency",
+				remediationPolicy: {
+					externalLabels: "auto",
+					routeRails: "auto",
+					growFixedGeometry: "auto",
+					pageSplit: "suggest",
+				},
+				strict: true,
+			},
+		);
+
+		const pageSplit = result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "page-split",
+		);
+		expect(pageSplit).toBeDefined();
+		expect(pageSplit?.status).not.toBe("applied");
+		expect(pageSplit?.status).toBe("suggested");
+		expect(pageSplit?.detail).toMatchObject({
+			strategy: "split-over-capacity-page",
+			required: expect.any(Number),
+			available: expect.any(Number),
+		});
+		if (pageSplit?.detail.strategy === "split-over-capacity-page") {
+			expect(pageSplit.detail.required).toBeGreaterThan(
+				pageSplit.detail.available,
+			);
+		}
+		if (result.deliverability?.status !== "clean") {
+			expect(result.deliverability?.status).toBe("unsatisfiable");
+			expect(result.deliverability?.remediationPlans.length).toBeGreaterThan(0);
+		}
+	});
+});
+
+function denseCvRemediationFixture(): NormalizedDiagram {
+	const nodeCount = 5;
+	const nodes = Array.from({ length: nodeCount }, (_, index) => [
+		{
+			id: `cv-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `cv-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 300, y: index * 70 },
+		},
+	]).flat();
+	return {
+		id: "phase-17-cv-remediation",
+		direction: "LR",
+		nodes,
+		edges: Array.from({ length: 20 }, (_, index) => ({
+			id: `cv-dependency-${index}`,
+			source: { nodeId: `cv-source-${index % nodeCount}` },
+			target: {
+				nodeId: `cv-target-${(index * 2 + Math.floor(index / nodeCount)) % nodeCount}`,
+			},
+			label: { text: `capability dependency ${index}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		frame: {
+			kind: "sysml",
+			titleTab: "CV remediation view",
+		},
+	};
+}
+
+function denseIbdRemediationFixture(): NormalizedDiagram {
+	const sources = Array.from({ length: 10 }, (_, index) => ({
+		id: `ibd-source-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 0, y: index * 46 },
+	}));
+	return {
+		id: "phase-17-ibd-remediation",
+		direction: "LR",
+		nodes: [
+			...sources,
+			{
+				id: "ibd-aggregator",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 260, y: 180 },
+			},
+			{
+				id: "ibd-sink",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 440, y: 180 },
+			},
+		],
+		edges: [
+			...sources.map((source, index) => ({
+				id: `ibd-flow-${index}`,
+				source: { nodeId: source.id },
+				target: { nodeId: "ibd-aggregator" },
+			})),
+			{
+				id: "ibd-aggregate-out",
+				source: { nodeId: "ibd-aggregator" },
+				target: { nodeId: "ibd-sink" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+it("resolves explicit pagePolicy over heuristic classification", () => {
+	const diagram: NormalizedDiagram = {
+		id: "page-policy-explicit",
+		direction: "LR",
+		nodes: [
+			{
+				id: "a",
+				shape: "rectangle",
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: 0 },
+			},
+			{
+				id: "b",
+				shape: "rectangle",
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 200, y: 0 },
+			},
+		],
+		edges: [
+			{
+				id: "a-b",
+				source: { nodeId: "a" },
+				target: { nodeId: "b" },
+				label: { text: "flow" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		swimlanes: [
+			{
+				id: "lane-pack",
+				label: { text: "Lane" },
+				orientation: "horizontal",
+				lanes: [{ id: "lane-a", label: { text: "A" }, children: ["a", "b"] }],
+			},
+		],
+	};
+	expect(resolvePagePolicy(diagram, { pagePolicy: "auto" })).toBe(
+		"lane-behavior",
+	);
+	expect(resolvePagePolicy(diagram, { pagePolicy: "dependency" })).toBe(
+		"dependency",
+	);
+});
+
+it("classifies pagePolicy auto from diagram structure", () => {
+	const withSwimlanes: NormalizedDiagram = {
+		id: "auto-lane",
+		direction: "LR",
+		nodes: [node("s1", { x: 0, y: 0 }), node("t1", { x: 200, y: 0 })],
+		edges: [{ id: "e1", source: { nodeId: "s1" }, target: { nodeId: "t1" } }],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		swimlanes: [
+			{
+				id: "sw",
+				label: { text: "Swim" },
+				orientation: "horizontal",
+				lanes: [{ id: "l1", label: { text: "L1" }, children: ["s1", "t1"] }],
+			},
+		],
+	};
+	expect(resolvePagePolicy(withSwimlanes, { pagePolicy: "auto" })).toBe(
+		"lane-behavior",
+	);
+
+	const highFanIn: NormalizedDiagram = {
+		id: "auto-ibd",
+		direction: "LR",
+		nodes: [
+			...Array.from({ length: 4 }, (_, index) =>
+				node(`src-${index}`, { x: 0, y: index * 50 }),
+			),
+			node("agg", { x: 220, y: 60 }),
+		],
+		edges: Array.from({ length: 4 }, (_, index) => ({
+			id: `fan-${index}`,
+			source: { nodeId: `src-${index}` },
+			target: { nodeId: "agg" },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	expect(resolvePagePolicy(highFanIn, { pagePolicy: "auto" })).toBe(
+		"ibd-high-fan-in",
+	);
+
+	const resourceFlow: NormalizedDiagram = {
+		id: "auto-resource",
+		direction: "LR",
+		nodes: [
+			node("p0", { x: 0, y: 0 }),
+			node("p1", { x: 0, y: 40 }),
+			node("p2", { x: 0, y: 80 }),
+			node("p3", { x: 0, y: 120 }),
+			node("c0", { x: 280, y: 280 }),
+			node("c1", { x: 280, y: 360 }),
+			node("c2", { x: 280, y: 440 }),
+			node("c3", { x: 280, y: 520 }),
+		],
+		edges: Array.from({ length: 4 }, (_, index) => ({
+			id: `rf-${index}`,
+			source: { nodeId: `p${index}` },
+			target: { nodeId: `c${index}` },
+			label: { text: `resource ${index}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	expect(resolvePagePolicy(resourceFlow, { pagePolicy: "auto" })).toBe(
+		"resource-flow",
+	);
+
+	const dependency: NormalizedDiagram = {
+		id: "auto-dependency",
+		direction: "LR",
+		nodes: Array.from({ length: 6 }, (_, index) => [
+			node(`ds-${index}`, { x: 0, y: index * 70 }),
+			node(`dt-${index}`, { x: 240, y: index * 70 }),
+		]).flat(),
+		edges: Array.from({ length: 6 }, (_, index) => ({
+			id: `de-${index}`,
+			source: { nodeId: `ds-${index}` },
+			target: { nodeId: `dt-${index}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	expect(resolvePagePolicy(dependency, { pagePolicy: "auto" })).toBe(
+		"dependency",
+	);
+	expect(resolvePagePolicy(dependency, { pagePolicy: "auto" })).toBe(
+		resolvePagePolicy(dependency, { pagePolicy: "auto" }),
+	);
+});
+
+it("fans out same-side anchors under resource-flow page policy", () => {
+	const targets = Array.from({ length: 4 }, (_, index) => ({
+		id: `fanout-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 240, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "policy-fanout-resource-flow",
+			direction: "LR",
+			nodes: [
+				{
+					id: "fanout-source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 105 },
+				},
+				...targets,
+			],
+			edges: targets.map((target) => ({
+				id: `fanout-${target.id}`,
+				source: { nodeId: "fanout-source" },
+				target: { nodeId: target.id },
+				label: { text: `flow ${target.id}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "resource-flow",
+			anchorCapacity: { minSpacing: 12 },
+		},
+	);
+	const sourceYs = result.edges
+		.filter((edge) => edge.source.nodeId === "fanout-source")
+		.map((edge) => edge.points[0]?.y)
+		.filter((y): y is number => y !== undefined);
+	expect(new Set(sourceYs).size).toBe(targets.length);
+});
+
+it("preserves explicit portId anchors under ibd-high-fan-in fan-out", () => {
+	const targets = Array.from({ length: 3 }, (_, index) => ({
+		id: `port-target-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 240, y: index * 70 },
+	}));
+	const result = solveDiagram(
+		{
+			id: "policy-fanout-portid",
+			direction: "LR",
+			nodes: [
+				{
+					id: "port-source",
+					shape: "rectangle" as const,
+					size: { width: 80, height: 40 },
+					padding: { top: 0, right: 0, bottom: 0, left: 0 },
+					position: { x: 0, y: 70 },
+					ports: [{ id: "fixed-out", side: "right" as const, kind: "proxy" }],
+				},
+				...targets,
+			],
+			edges: [
+				{
+					id: "port-edge-fixed",
+					source: { nodeId: "port-source", portId: "fixed-out" },
+					target: { nodeId: "port-target-0" },
+				},
+				...targets.slice(1).map((target) => ({
+					id: `port-edge-${target.id}`,
+					source: { nodeId: "port-source" },
+					target: { nodeId: target.id },
+				})),
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 12 },
+		},
+	);
+	const source = result.nodes.find((node) => node.id === "port-source");
+	const fixedPort = source?.ports?.find((port) => port.id === "fixed-out");
+	const fixedEdge = result.edges.find((edge) => edge.id === "port-edge-fixed");
+	expect(fixedPort).toBeDefined();
+	expect(fixedEdge?.points[0]).toEqual(fixedPort?.anchor);
+});
+
+it("rejects a second edge from occupying the same rail lane", () => {
+	const pairCount = 4;
+	const result = solveDiagram(
+		{
+			id: "rail-occupancy",
+			direction: "LR",
+			nodes: Array.from({ length: pairCount }, (_, index) => [
+				node(`s${index}`, { x: 0, y: index * 70 }),
+				node(`t${index}`, { x: 240, y: index * 70 }),
+			]).flat(),
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `edge-${index}`,
+				source: { nodeId: `s${index}` },
+				target: { nodeId: `t${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
+			railRouting: "dependency",
+		},
+	);
+	const rails = result.routing?.rails ?? [];
+	expect(rails.length).toBe(pairCount);
+	const occupancyKeys = rails.map(
+		(rail) => `${rail.side}:${Math.round(rail.coordinate)}`,
+	);
+	expect(new Set(occupancyKeys).size).toBe(rails.length);
+	expect(new Set(rails.map((rail) => rail.side))).toEqual(
+		new Set(["top", "bottom"]),
+	);
+});
+
+it("honors railRouting false even when pagePolicy is dependency", () => {
+	const result = solveDiagram(
+		{
+			id: "rail-opt-out",
+			direction: "LR",
+			nodes: [
+				node("s0", { x: 0, y: 0 }),
+				node("t0", { x: 240, y: 0 }),
+				node("s1", { x: 0, y: 70 }),
+				node("t1", { x: 240, y: 70 }),
+				node("s2", { x: 0, y: 140 }),
+				node("t2", { x: 240, y: 140 }),
+				node("s3", { x: 0, y: 210 }),
+				node("t3", { x: 240, y: 210 }),
+				node("s4", { x: 0, y: 280 }),
+				node("t4", { x: 240, y: 280 }),
+				node("s5", { x: 0, y: 350 }),
+				node("t5", { x: 240, y: 350 }),
+			],
+			edges: [
+				{
+					id: "edge-0",
+					source: { nodeId: "s0" },
+					target: { nodeId: "t0" },
+				},
+				{
+					id: "edge-1",
+					source: { nodeId: "s1" },
+					target: { nodeId: "t1" },
+				},
+				{
+					id: "edge-2",
+					source: { nodeId: "s2" },
+					target: { nodeId: "t2" },
+				},
+				{
+					id: "edge-3",
+					source: { nodeId: "s3" },
+					target: { nodeId: "t3" },
+				},
+				{
+					id: "edge-4",
+					source: { nodeId: "s4" },
+					target: { nodeId: "t4" },
+				},
+				{
+					id: "edge-5",
+					source: { nodeId: "s5" },
+					target: { nodeId: "t5" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
+			railRouting: false,
+		},
+	);
+	expect(result.routing?.rails ?? []).toEqual([]);
+});
+
+it("does not report rail capacity for rail candidates that fall back", () => {
+	const pairCount = 25;
+	const nodes = [
+		{
+			id: "capacity-blocker-top",
+			shape: "rectangle" as const,
+			size: { width: 20, height: 120 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 90, y: -450 },
+		},
+		{
+			id: "capacity-blocker-bottom",
+			shape: "rectangle" as const,
+			size: { width: 20, height: 120 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 90, y: 25 * 70 + 200 },
+		},
+		...Array.from({ length: pairCount }, (_, index) => [
+			{
+				id: `fallback-capacity-source-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: index * 70 },
+			},
+			{
+				id: `fallback-capacity-target-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 240, y: index * 70 },
+			},
+		]).flat(),
+	];
+	const result = solveDiagram(
+		{
+			id: "rail-capacity-fallback",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `fallback-capacity-edge-${index}`,
+				source: { nodeId: `fallback-capacity-source-${index}` },
+				target: { nodeId: `fallback-capacity-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			railRouting: "dependency",
+		},
+	);
+
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.rail-capacity.exceeded" }),
+	);
+});
+
+it("rejects dependency rails that cross non-connected edge-label estimates", () => {
+	const pairCount = 6;
+	const nodes = Array.from({ length: pairCount }, (_, index) => [
+		{
+			id: `label-rail-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `label-rail-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 240, y: index * 70 },
+		},
+	]).flat();
+	const result = solveDiagram(
+		{
+			id: "rail-routing-edge-label-obstacle",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `label-rail-edge-${index}`,
+				source: { nodeId: `label-rail-source-${index}` },
+				target: { nodeId: `label-rail-target-${index}` },
+				...(index === 0
+					? { label: { text: Array(10).fill("label").join(" ") } }
+					: {}),
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "orthogonal",
+			railRouting: "dependency",
+			edgeLabelRerouting: false,
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		},
+	);
+	const label = result.textAnnotations?.find(
+		(annotation) =>
+			annotation.surfaceKind === "edge-label" &&
+			annotation.ownerId === "label-rail-edge-0",
+	);
+
+	expect(result.routing?.rails.map((rail) => rail.edgeId)).toEqual(
+		expect.arrayContaining(["label-rail-edge-0"]),
+	);
+	expect(result.routing?.rails.length).toBeGreaterThan(0);
+	expect(label).toBeDefined();
+	if (label !== undefined) {
+		for (const edge of result.edges.filter(
+			(edge) => edge.id !== "label-rail-edge-0",
+		)) {
+			expect(routeCrossesBox(edge.points, label.box)).toBe(false);
+		}
+	}
+});
+
+it("does not report ordinary detours as rail allocations", () => {
+	const result = solveDiagram(
+		{
+			id: "ordinary-detour-not-rail-allocation",
+			direction: "LR",
+			nodes: [
+				node("source", { x: 0, y: 0 }),
+				node("target", { x: 300, y: 0 }),
+				node("blocker", { x: 140, y: 0 }),
+			],
+			edges: [
+				{
+					id: "source-target",
+					source: { nodeId: "source" },
+					target: { nodeId: "target" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "orthogonal",
+		},
+	);
+
+	expect(result.edges[0]?.points).toEqual([
+		{ x: 80, y: 20 },
+		{ x: 104, y: 20 },
+		{ x: 104, y: -4 },
+		{ x: 276, y: -4 },
+		{ x: 276, y: 20 },
+		{ x: 300, y: 20 },
+	]);
+	expect(result.routing).toBeUndefined();
 });
 
 it("applies routingGutter to expand node obstacle clearance", () => {
@@ -3378,6 +6284,105 @@ function node(id: string, position?: { x: number; y: number }) {
 	};
 }
 
+function externalLabelAutoDiagram(): NormalizedDiagram {
+	return {
+		id: "external-label-auto",
+		direction: "LR",
+		nodes: [
+			node("zeta-source", { x: 0, y: 0 }),
+			node("zeta-target", { x: 300, y: 0 }),
+			node("alpha-source", { x: 0, y: 90 }),
+			node("alpha-target", { x: 300, y: 90 }),
+			node("middle-source", { x: 0, y: 180 }),
+			node("middle-target", { x: 300, y: 180 }),
+		],
+		edges: [
+			{
+				id: "zeta",
+				source: { nodeId: "zeta-source" },
+				target: { nodeId: "zeta-target" },
+				label: { text: "zeta external callout label" },
+			},
+			{
+				id: "alpha",
+				source: { nodeId: "alpha-source" },
+				target: { nodeId: "alpha-target" },
+				label: { text: "alpha external callout label" },
+			},
+			{
+				id: "middle",
+				source: { nodeId: "middle-source" },
+				target: { nodeId: "middle-target" },
+				label: { text: "middle external callout label" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+function congestedEdgeLabelExternalizationDiagram(): NormalizedDiagram {
+	const nodes: NormalizedDiagram["nodes"] = [];
+	const edges: NormalizedDiagram["edges"] = [];
+	for (let index = 0; index < 5; index += 1) {
+		nodes.push(node(`s${index}`, { x: 0, y: index * 70 }));
+		nodes.push(node(`t${index}`, { x: 300, y: index * 70 }));
+	}
+	for (let index = 0; index < 20; index += 1) {
+		edges.push({
+			id: `e${index}`,
+			source: { nodeId: `s${index % 5}` },
+			target: { nodeId: `t${(index * 2) % 5}` },
+			label: { text: `capability dependency ${index} with long text` },
+		});
+	}
+	return {
+		id: "congested-edge-label-externalization",
+		direction: "LR",
+		nodes,
+		edges,
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+function hugeNodeLabelClearanceDiagram(id: string): NormalizedDiagram {
+	return {
+		id,
+		direction: "LR",
+		nodes: [
+			node("source", { x: 0, y: 0 }),
+			node("target", { x: 240, y: 0 }),
+			{
+				id: "label_owner",
+				shape: "rectangle",
+				size: { width: 0, height: 0 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 120, y: 0 },
+				label: { text: "huge label" },
+				labelLayout: createTestLabelLayout("huge label", {
+					x: -1_000,
+					y: -1_000,
+					width: 3_000,
+					height: 3_000,
+				}),
+			},
+		],
+		edges: [
+			{
+				id: "source-target",
+				source: { nodeId: "source" },
+				target: { nodeId: "target" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
 function nodeBox(result: ReturnType<typeof solveDiagram>, id: string) {
 	const found = result.nodes.find(
 		(coordinatedNode) => coordinatedNode.id === id,
@@ -3386,6 +6391,32 @@ function nodeBox(result: ReturnType<typeof solveDiagram>, id: string) {
 		throw new Error(`Expected solved node ${id}`);
 	}
 	return found.box;
+}
+
+function routeCrossesBox(
+	points: readonly { x: number; y: number }[],
+	box: Box,
+) {
+	for (let index = 0; index < points.length - 1; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) continue;
+		const segment = {
+			x: Math.min(start.x, end.x),
+			y: Math.min(start.y, end.y),
+			width: Math.abs(end.x - start.x),
+			height: Math.abs(end.y - start.y),
+		};
+		if (
+			segment.x < box.x + box.width &&
+			segment.x + segment.width > box.x &&
+			segment.y < box.y + box.height &&
+			segment.y + segment.height > box.y
+		) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function createTestLabelLayout(

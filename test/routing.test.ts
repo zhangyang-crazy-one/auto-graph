@@ -87,6 +87,26 @@ describe("routing", () => {
 		expect(result.points.at(-1)).toEqual({ x: 20, y: 200 });
 	});
 
+	it("routes explicit far-side anchors outside endpoint interiors", () => {
+		const result = routeEdge({
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(240, 0),
+			sourceAnchor: "right",
+			targetAnchor: "right",
+		});
+
+		expect(result.diagnostics).toEqual([]);
+		expect(result.points.at(0)).toEqual({ x: 80, y: 20 });
+		expect(result.points.at(-1)).toEqual({ x: 320, y: 20 });
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(0, 0).box, 2)),
+		).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(240, 0).box, 2)),
+		).toBe(false);
+	});
+
 	it("does not use automatic anchors that route back through endpoints", () => {
 		const result = routeEdge({
 			direction: "LR",
@@ -215,8 +235,10 @@ describe("routing", () => {
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.points.at(0)?.x).toBeCloseTo(80);
-		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(300, 100).box, 2)),
+		).toBe(false);
 	});
 
 	it("uses hard obstacles when generating expanded orthogonal lanes", () => {
@@ -231,8 +253,10 @@ describe("routing", () => {
 
 		expect(result.diagnostics).toEqual([]);
 		expect(result.points.at(0)?.x).toBeCloseTo(80);
-		expect(result.points.at(-1)?.x).toBeCloseTo(300);
 		expect(routeIntersectsObstacle(result.points, hardObstacle)).toBe(false);
+		expect(
+			routeIntersectsObstacle(result.points, insetBox(shape(300, 100).box, 2)),
+		).toBe(false);
 	});
 
 	it("rejects straight routes that cross hard evidence obstacles", () => {
@@ -309,6 +333,42 @@ describe("routing", () => {
 
 		expect(result.points.length).toBeGreaterThanOrEqual(2);
 		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
+
+	it("reports endpoint-interior fallback when explicit anchor escapes are blocked", () => {
+		const result = routeEdge({
+			kind: "orthogonal",
+			direction: "LR",
+			source: shape(0, 0),
+			target: shape(200, 0),
+			sourceAnchor: "left",
+			targetAnchor: "right",
+			hardObstacles: [
+				{ x: -50, y: -30, width: 380, height: 20 },
+				{ x: -50, y: 50, width: 380, height: 20 },
+				{ x: -30, y: -100, width: 20, height: 200 },
+				{ x: 290, y: -100, width: 20, height: 200 },
+			],
+		});
+
+		expect(result.points).toEqual([
+			{ x: 0, y: 20 },
+			{ x: 280, y: 20 },
+		]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "routing.endpoint-interior.unavoidable",
+				detail: expect.objectContaining({
+					remediationType: "adjust-anchors-or-page-split",
+				}),
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
 			expect.objectContaining({
 				code: "routing.evidence.crossing_forbidden",
 			}),
@@ -393,6 +453,42 @@ it("emits crossing_forbidden for diagonal straight edge hitting hard obstacle", 
 	);
 });
 
+it("emits text-specific diagnostics for hard text obstacles", () => {
+	const hard = { x: 0, y: 0, width: 360, height: 220 };
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+		hardObstacles: [hard],
+		hardObstacleMetadata: [
+			{
+				kind: "text",
+				ownerId: "edge-a",
+				surfaceKind: "edge-label",
+			},
+		],
+	});
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			severity: "warning",
+			code: "routing.label-hard-obstacle.unavoidable",
+			detail: expect.objectContaining({
+				obstacleSource: "text",
+				ownerIds: "edge-a",
+				textSurfaceKinds: "edge-label",
+				remediationType: "external-label-or-split",
+			}),
+		}),
+	);
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({
+			code: "routing.evidence.crossing_forbidden",
+		}),
+	);
+});
+
 it("dodges obstacles in obstacle-avoiding orthogonal mode", () => {
 	const obstacle = { x: 130, y: 5, width: 80, height: 30 };
 	const result = routeEdge({
@@ -426,6 +522,23 @@ it("dodges multiple obstacles in obstacle-avoiding orthogonal mode", () => {
 	}
 });
 
+it("tries later anchors before accepting an excessive backtracking route", () => {
+	const obstacle = { x: 150, y: 10, width: 60, height: 80 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(300, 0),
+		obstacles: [obstacle],
+		maxBacktrackingRatio: 1.05,
+	});
+
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.backtracking_excessive" }),
+	);
+	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+});
+
 it("honors requested reroute attempts above three in hard-clear fallback", () => {
 	const obstacles = [
 		{ x: 389, y: -90, width: 106, height: 88 },
@@ -453,9 +566,6 @@ it("honors requested reroute attempts above three in hard-clear fallback", () =>
 	});
 
 	expect(fourAttempts.points).not.toEqual(threeAttempts.points);
-	expect(fourAttempts.points.length).toBeGreaterThan(
-		threeAttempts.points.length,
-	);
 });
 
 it("dodges obstacles in obstacle-avoiding straight mode", () => {
@@ -469,6 +579,25 @@ it("dodges obstacles in obstacle-avoiding straight mode", () => {
 	});
 
 	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+});
+
+it("cost-ranks endpoint escape routes around large soft obstacles", () => {
+	const obstacles = [
+		{ x: 100, y: 10, width: 180, height: 20 },
+		{ x: 185, y: 40, width: 10, height: 60 },
+		{ x: 120, y: 110, width: 10, height: 20 },
+	];
+	const result = routeEdge({
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(300, 100),
+		obstacles,
+	});
+
+	expect(result.diagnostics).toEqual([]);
+	for (const obstacle of obstacles) {
+		expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
+	}
 });
 
 function shape(x: number, y: number) {

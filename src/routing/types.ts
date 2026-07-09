@@ -11,6 +11,15 @@ import type { RoutingBudgetValue } from "./budget.js";
 
 export type RouteKind = "orthogonal" | "straight" | "obstacle-avoiding";
 
+export type RouteHardObstacleKind = "evidence" | "text";
+
+export interface RouteHardObstacleMetadata {
+	kind: RouteHardObstacleKind;
+	ownerId?: string;
+	surfaceKind?: string;
+	surfaceIndex?: number;
+}
+
 export interface RouteEdgeInput {
 	kind?: RouteKind;
 	direction: DiagramDirection;
@@ -20,6 +29,7 @@ export interface RouteEdgeInput {
 	targetAnchor?: AnchorName;
 	obstacles?: readonly Box[];
 	hardObstacles?: readonly Box[];
+	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[];
 	obstacleIndex?: BoxSpatialIndex;
 	hardObstacleIndex?: BoxSpatialIndex;
 	/** Maximum greedy rerouting iterations (default 5). */
@@ -38,6 +48,8 @@ export interface RouteEdgeInput {
 	/** Route-length / direct-distance ratio above which a backtracking
 	 * warning is emitted (default 20). */
 	maxBacktrackingRatio?: number;
+	/** Add mid-edge vertices around compact text obstacles to improve clearance. */
+	textObstacleVertices?: boolean;
 }
 
 export interface RouteEdgeResult {

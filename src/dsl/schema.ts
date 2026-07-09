@@ -5,6 +5,8 @@ import type { DslDiagnostic } from "./types.js";
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
 const layoutModeSchema = z.enum(["dagre", "positions"]);
 const routeKindSchema = z.enum(["orthogonal", "straight", "obstacle-avoiding"]);
+const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
+const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
@@ -28,6 +30,13 @@ const nonNegativeNumberSchema = finiteNumberSchema.min(0);
 const pointSchema = z.object({
 	x: finiteNumberSchema,
 	y: finiteNumberSchema,
+});
+
+const boxSchema = z.object({
+	x: finiteNumberSchema,
+	y: finiteNumberSchema,
+	width: nonNegativeNumberSchema,
+	height: nonNegativeNumberSchema,
 });
 
 const insetsSchema = z.object({
@@ -150,12 +159,14 @@ const swimlaneSchema = z.object({
 	label: labelSchema.optional(),
 	orientation: z.enum(["vertical", "horizontal"]).optional(),
 	layout: z.enum(["overlay", "contract"]).optional(),
+	box: boxSchema.optional(),
 	headerHeight: nonNegativeNumberSchema.optional(),
 	padding: nonNegativeNumberSchema.optional(),
 	lanes: z.record(
 		z.string(),
 		z.object({
 			label: labelSchema.optional(),
+			box: boxSchema.optional(),
 			children: z.array(z.string()).optional(),
 		}),
 	),
@@ -368,6 +379,61 @@ export const diagramDslSchema = z
 		routing: z
 			.object({
 				kind: routeKindSchema.optional(),
+				textIntersectionTolerance: nonNegativeNumberSchema.optional(),
+				compactTextObstacles: z
+					.union([z.boolean(), z.literal("labels-only")])
+					.optional(),
+				edgeLabelRerouting: z
+					.union([
+						z.boolean(),
+						z.object({
+							maxIterations: nonNegativeNumberSchema.optional(),
+						}),
+					])
+					.optional(),
+				textObstacleVertices: z.boolean().optional(),
+				fixedSwimlaneGeometry: z
+					.union([z.boolean(), z.literal("diagnose-overflow")])
+					.optional(),
+				anchorCapacity: z
+					.union([
+						z.boolean(),
+						z.object({
+							minSpacing: nonNegativeNumberSchema.optional(),
+							grow: z.boolean().optional(),
+						}),
+					])
+					.optional(),
+				railRouting: z
+					.union([z.literal(false), z.literal("auto"), z.literal("dependency")])
+					.optional(),
+				pagePolicy: z
+					.enum([
+						"off",
+						"auto",
+						"dependency",
+						"resource-flow",
+						"lane-behavior",
+						"ibd-high-fan-in",
+					])
+					.optional(),
+				externalLabels: z
+					.union([
+						z.boolean(),
+						z.object({
+							edgeLabels: z.boolean().optional(),
+						}),
+					])
+					.optional(),
+				deliverabilityMode: deliverabilityModeSchema.optional(),
+				remediationPolicy: z
+					.object({
+						externalLabels: remediationPolicyModeSchema.optional(),
+						routeRails: remediationPolicyModeSchema.optional(),
+						growFixedGeometry: remediationPolicyModeSchema.optional(),
+						pageSplit: z.enum(["off", "suggest"]).optional(),
+					})
+					.optional(),
 				portShifting: z
 					.object({
 						enabled: z.boolean().optional(),

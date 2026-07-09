@@ -90,6 +90,7 @@ export function renderDiagramDsl(
 					? "obstacle-avoiding"
 					: "orthogonal",
 		...solvePortShiftingOption(normalized.diagram.metadata?.portShifting),
+		...solveDenseRoutingOptions(normalized.diagram.metadata),
 		...(options.textMeasurer === undefined
 			? {}
 			: { textMeasurer: options.textMeasurer }),
@@ -158,6 +159,168 @@ function solvePortShiftingOption(value: unknown):
 		portShifting.spacing = value.spacing;
 	}
 	return { portShifting };
+}
+
+function solveDenseRoutingOptions(
+	metadata: JsonObject | undefined,
+):
+	| Pick<
+			SolveDiagramOptions,
+			| "textIntersectionTolerance"
+			| "compactTextObstacles"
+			| "edgeLabelRerouting"
+			| "textObstacleVertices"
+			| "fixedSwimlaneGeometry"
+			| "anchorCapacity"
+			| "railRouting"
+			| "pagePolicy"
+			| "externalLabels"
+			| "deliverabilityMode"
+			| "remediationPolicy"
+	  >
+	| Record<string, never> {
+	if (metadata === undefined) {
+		return {};
+	}
+	const options: Pick<
+		SolveDiagramOptions,
+		| "textIntersectionTolerance"
+		| "compactTextObstacles"
+		| "edgeLabelRerouting"
+		| "textObstacleVertices"
+		| "fixedSwimlaneGeometry"
+		| "anchorCapacity"
+		| "railRouting"
+		| "pagePolicy"
+		| "externalLabels"
+		| "deliverabilityMode"
+		| "remediationPolicy"
+	> = {};
+	if (typeof metadata.textIntersectionTolerance === "number") {
+		options.textIntersectionTolerance = metadata.textIntersectionTolerance;
+	}
+	if (
+		typeof metadata.compactTextObstacles === "boolean" ||
+		metadata.compactTextObstacles === "labels-only"
+	) {
+		options.compactTextObstacles = metadata.compactTextObstacles;
+	}
+	if (
+		typeof metadata.edgeLabelRerouting === "boolean" ||
+		isEdgeLabelReroutingOptions(metadata.edgeLabelRerouting)
+	) {
+		options.edgeLabelRerouting = metadata.edgeLabelRerouting;
+	}
+	if (typeof metadata.textObstacleVertices === "boolean") {
+		options.textObstacleVertices = metadata.textObstacleVertices;
+	}
+	if (
+		typeof metadata.fixedSwimlaneGeometry === "boolean" ||
+		metadata.fixedSwimlaneGeometry === "diagnose-overflow"
+	) {
+		options.fixedSwimlaneGeometry = metadata.fixedSwimlaneGeometry;
+	}
+	if (
+		typeof metadata.anchorCapacity === "boolean" ||
+		isAnchorCapacityOptions(metadata.anchorCapacity)
+	) {
+		options.anchorCapacity = metadata.anchorCapacity;
+	}
+	if (
+		metadata.railRouting === false ||
+		metadata.railRouting === "auto" ||
+		metadata.railRouting === "dependency"
+	) {
+		options.railRouting = metadata.railRouting;
+	}
+	const pagePolicy = metadata.pagePolicy;
+	if (isPagePolicyOption(pagePolicy)) {
+		options.pagePolicy = pagePolicy;
+	}
+	if (
+		typeof metadata.externalLabels === "boolean" ||
+		isExternalLabelsOptions(metadata.externalLabels)
+	) {
+		options.externalLabels = metadata.externalLabels;
+	}
+	if (
+		metadata.deliverabilityMode === "strict" ||
+		metadata.deliverabilityMode === "degraded-ok"
+	) {
+		options.deliverabilityMode = metadata.deliverabilityMode;
+	}
+	if (isRemediationPolicyOptions(metadata.remediationPolicy)) {
+		options.remediationPolicy = metadata.remediationPolicy;
+	}
+	return options;
+}
+
+function isEdgeLabelReroutingOptions(
+	value: unknown,
+): value is { maxIterations?: number } {
+	return (
+		isJsonObject(value) &&
+		(value.maxIterations === undefined ||
+			typeof value.maxIterations === "number")
+	);
+}
+
+function isAnchorCapacityOptions(
+	value: unknown,
+): value is { minSpacing?: number; grow?: boolean } {
+	return (
+		isJsonObject(value) &&
+		(value.minSpacing === undefined || typeof value.minSpacing === "number") &&
+		(value.grow === undefined || typeof value.grow === "boolean")
+	);
+}
+
+function isExternalLabelsOptions(
+	value: unknown,
+): value is { edgeLabels?: boolean } {
+	return (
+		isJsonObject(value) &&
+		(value.edgeLabels === undefined || typeof value.edgeLabels === "boolean")
+	);
+}
+
+function isPagePolicyOption(
+	value: unknown,
+): value is NonNullable<SolveDiagramOptions["pagePolicy"]> {
+	return (
+		value === "off" ||
+		value === "auto" ||
+		value === "dependency" ||
+		value === "resource-flow" ||
+		value === "lane-behavior" ||
+		value === "ibd-high-fan-in"
+	);
+}
+
+function isRemediationPolicyOptions(value: unknown): value is {
+	externalLabels?: "off" | "suggest" | "auto";
+	routeRails?: "off" | "suggest" | "auto";
+	growFixedGeometry?: "off" | "suggest" | "auto";
+	pageSplit?: "off" | "suggest";
+} {
+	return (
+		isJsonObject(value) &&
+		isRemediationPolicyMode(value.externalLabels) &&
+		isRemediationPolicyMode(value.routeRails) &&
+		isRemediationPolicyMode(value.growFixedGeometry) &&
+		(value.pageSplit === undefined ||
+			value.pageSplit === "off" ||
+			value.pageSplit === "suggest")
+	);
+}
+
+function isRemediationPolicyMode(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === "off" ||
+		value === "suggest" ||
+		value === "auto"
+	);
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

@@ -7,9 +7,15 @@ import {
 	renderDiagramDsl,
 } from "../src/dsl/index.js";
 import { exportExcalidraw, exportSvg } from "../src/exporters/index.js";
-import type { CoordinatedDiagram, NormalizedDiagram } from "../src/ir/index.js";
+import type {
+	CoordinatedDiagram,
+	ExternalLabelRemediationDetail,
+	LabelLayout,
+	NormalizedDiagram,
+} from "../src/ir/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("solver determinism", () => {
 	it("serializes repeated solveDiagram output byte-identically", () => {
@@ -43,6 +49,218 @@ describe("solver determinism", () => {
 
 		expect(stringifyCanonical(solveDiagram(input))).toBe(
 			stringifyCanonical(solveDiagram(input)),
+		);
+	});
+
+	it("serializes repeated route-label feedback output byte-identically", () => {
+		const input = routeLabelFeedbackDiagram();
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "orthogonal" as const,
+			edgeLabelRerouting: { maxIterations: 2 },
+			textIntersectionTolerance: 0,
+		};
+		const first = solveDiagram(input, options);
+
+		expect(first.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.route-label-loop.exhausted",
+				detail: expect.objectContaining({
+					maxIterations: 2,
+					edgeIds: "source-target",
+					ownerIds: "label_owner",
+					textSurfaceKinds: "node-label",
+				}),
+			}),
+		);
+		expect(stringifyCanonical(first)).toBe(
+			stringifyCanonical(solveDiagram(input, options)),
+		);
+	});
+
+	it("serializes repeated external-label auto callouts byte-identically", () => {
+		const input = externalLabelCalloutDiagram();
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "straight" as const,
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" as const },
+			textMeasurer: new DeterministicTextMeasurer(),
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		const firstDetail = first.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "external-label",
+		)?.detail as ExternalLabelRemediationDetail | undefined;
+		const secondDetail = second.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "external-label",
+		)?.detail as ExternalLabelRemediationDetail | undefined;
+
+		expect(firstDetail?.callouts).toEqual(secondDetail?.callouts);
+		expect(
+			first.textAnnotations
+				?.filter((annotation) => annotation.placement === "external-callout")
+				.map((annotation) => ({
+					ownerId: annotation.ownerId,
+					text: annotation.text,
+					role: annotation.placementDetail?.role,
+					box: annotation.box,
+				})),
+		).toEqual(
+			second.textAnnotations
+				?.filter((annotation) => annotation.placement === "external-callout")
+				.map((annotation) => ({
+					ownerId: annotation.ownerId,
+					text: annotation.text,
+					role: annotation.placementDetail?.role,
+					box: annotation.box,
+				})),
+		);
+		expect(stringifyCanonical(first)).toBe(stringifyCanonical(second));
+	});
+
+	it("serializes IBD grow-disabled remediation details byte-identically", () => {
+		const sources = Array.from({ length: 10 }, (_, index) =>
+			node(`ibd-source-${index}`, { x: 0, y: index * 46 }),
+		);
+		const input: NormalizedDiagram = {
+			id: "ibd-growth-determinism",
+			direction: "LR",
+			nodes: [
+				...sources,
+				node("ibd-aggregator", { x: 260, y: 180 }),
+				node("ibd-sink", { x: 440, y: 180 }),
+			],
+			edges: [
+				...sources.map((source, index) => ({
+					id: `ibd-flow-${index}`,
+					source: { nodeId: source.id },
+					target: { nodeId: "ibd-aggregator" },
+				})),
+				{
+					id: "ibd-aggregate-out",
+					source: { nodeId: "ibd-aggregator" },
+					target: { nodeId: "ibd-sink" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			pagePolicy: "ibd-high-fan-in" as const,
+			anchorCapacity: { minSpacing: 24, grow: false },
+			strict: true,
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+		expect(
+			first.deliverability?.remediationPlans.some(
+				(plan) =>
+					plan.type === "grow-fixed-geometry" &&
+					plan.detail.strategy === "grow-or-relax-fixed-geometry" &&
+					(plan.detail.growthDeltas?.length ?? 0) > 0,
+			),
+		).toBe(true);
+		expect(stringifyCanonical(first.deliverability?.remediationPlans)).toBe(
+			stringifyCanonical(second.deliverability?.remediationPlans),
+		);
+	});
+
+	it("serializes growFixedGeometry auto remediation plans byte-identically", () => {
+		const sources = Array.from({ length: 10 }, (_, index) =>
+			node(`ibd-source-${index}`, { x: 0, y: index * 46 }),
+		);
+		const input: NormalizedDiagram = {
+			id: "ibd-growth-auto-determinism",
+			direction: "LR",
+			nodes: [
+				...sources,
+				node("ibd-aggregator", { x: 260, y: 180 }),
+				node("ibd-sink", { x: 440, y: 180 }),
+			],
+			edges: [
+				...sources.map((source, index) => ({
+					id: `ibd-flow-${index}`,
+					source: { nodeId: source.id },
+					target: { nodeId: "ibd-aggregator" },
+				})),
+				{
+					id: "ibd-aggregate-out",
+					source: { nodeId: "ibd-aggregator" },
+					target: { nodeId: "ibd-sink" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			pagePolicy: "ibd-high-fan-in" as const,
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				growFixedGeometry: "auto" as const,
+				pageSplit: "suggest" as const,
+			},
+			strict: true,
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		const growPlan = first.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		expect(growPlan).toBeDefined();
+		expect(["applied", "blocked"]).toContain(growPlan?.status);
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+		expect(stringifyCanonical(first.deliverability?.remediationPlans)).toBe(
+			stringifyCanonical(second.deliverability?.remediationPlans),
+		);
+	});
+
+	it("serializes over-budget page-split remediation plans byte-identically", () => {
+		const pairCount = 25;
+		const input: NormalizedDiagram = {
+			id: "rail-capacity-determinism",
+			direction: "LR",
+			nodes: Array.from({ length: pairCount }, (_, index) => [
+				node(`capacity-source-${index}`, { x: 0, y: index * 70 }),
+				node(`capacity-target-${index}`, { x: 240, y: index * 70 }),
+			]).flat(),
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `capacity-edge-${index}`,
+				source: { nodeId: `capacity-source-${index}` },
+				target: { nodeId: `capacity-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			railRouting: "dependency" as const,
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+		expect(
+			first.deliverability?.remediationPlans.some(
+				(plan) => plan.type === "page-split",
+			),
+		).toBe(true);
+		expect(stringifyCanonical(first.deliverability?.remediationPlans)).toBe(
+			stringifyCanonical(second.deliverability?.remediationPlans),
 		);
 	});
 
@@ -219,6 +437,71 @@ function routingDiagram(): NormalizedDiagram {
 	};
 }
 
+function routeLabelFeedbackDiagram(): NormalizedDiagram {
+	return {
+		id: "route-label-feedback-determinism",
+		direction: "LR",
+		nodes: [
+			node("source", { x: 0, y: 0 }),
+			node("target", { x: 240, y: 0 }),
+			{
+				id: "label_owner",
+				shape: "rectangle" as const,
+				size: { width: 0, height: 0 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 120, y: 0 },
+				label: { text: "huge label" },
+				labelLayout: testLabelLayout("huge label", {
+					x: -1_000,
+					y: -1_000,
+					width: 3_000,
+					height: 3_000,
+				}),
+			},
+		],
+		edges: [
+			{
+				id: "source-target",
+				source: { nodeId: "source" },
+				target: { nodeId: "target" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+function externalLabelCalloutDiagram(): NormalizedDiagram {
+	return {
+		id: "external-label-callout-deterministic",
+		direction: "LR",
+		nodes: [
+			node("source-b", { x: 0, y: 0 }),
+			node("target-b", { x: 300, y: 0 }),
+			node("source-a", { x: 0, y: 90 }),
+			node("target-a", { x: 300, y: 90 }),
+		],
+		edges: [
+			{
+				id: "edge-b",
+				source: { nodeId: "source-b" },
+				target: { nodeId: "target-b" },
+				label: { text: "second callout label" },
+			},
+			{
+				id: "edge-a",
+				source: { nodeId: "source-a" },
+				target: { nodeId: "target-a" },
+				label: { text: "first callout label" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
 function node(id: string, position?: { x: number; y: number }) {
 	return {
 		id,
@@ -226,5 +509,29 @@ function node(id: string, position?: { x: number; y: number }) {
 		size: { width: 80, height: 40 },
 		padding: { top: 0, right: 0, bottom: 0, left: 0 },
 		...(position === undefined ? {} : { position }),
+	};
+}
+
+function testLabelLayout(text: string, box: LabelLayout["box"]): LabelLayout {
+	return {
+		text,
+		box,
+		contentBox: box,
+		naturalSize: { width: box.width, height: box.height },
+		fittedSize: { width: box.width, height: box.height },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		font: { fontFamily: "Arial", fontSize: 12, lineHeight: 14 },
+		lineHeight: 14,
+		lines: [
+			{
+				text,
+				box,
+				baselineY: box.y + 11.2,
+				width: box.width,
+				lineIndex: 0,
+			},
+		],
+		overflow: { horizontal: false, vertical: false, truncated: false },
+		diagnostics: [],
 	};
 }

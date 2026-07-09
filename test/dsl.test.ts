@@ -353,6 +353,101 @@ output:
 		expect(rendered.diagram?.bounds.y).toBeLessThanOrEqual(-160);
 	});
 
+	it("passes dense routing and fixed swimlane geometry through DSL render", () => {
+		const source = `
+title: Dense Canvas
+layout:
+  direction: LR
+  mode: positions
+routing:
+  kind: obstacle-avoiding
+  textIntersectionTolerance: 4
+  compactTextObstacles: labels-only
+  edgeLabelRerouting: { maxIterations: 3 }
+  textObstacleVertices: true
+  fixedSwimlaneGeometry: true
+  anchorCapacity: { minSpacing: 18, grow: false }
+  railRouting: dependency
+  pagePolicy: dependency
+  externalLabels: { edgeLabels: true }
+  deliverabilityMode: degraded-ok
+  remediationPolicy:
+    externalLabels: auto
+    routeRails: suggest
+    growFixedGeometry: auto
+    pageSplit: suggest
+nodes:
+  api: { label: API, position: { x: 40, y: 48 } }
+  db: { label: DB, position: { x: 180, y: 48 } }
+edges:
+  - api -> db: reads
+swimlanes:
+  system:
+    label: System
+    box: { x: 0, y: 0, width: 320, height: 160 }
+    lanes:
+      services:
+        label: Services
+        box: { x: 0, y: 24, width: 320, height: 136 }
+        children: [api, db]
+output:
+  format: svg
+`;
+
+		const normalized = normalizeDiagramDsl(parseDiagramDsl(source).value);
+		const rendered = renderDiagramDsl(source, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		expect(normalized.diagram?.metadata).toMatchObject({
+			routeKind: "obstacle-avoiding",
+			textIntersectionTolerance: 4,
+			compactTextObstacles: "labels-only",
+			edgeLabelRerouting: { maxIterations: 3 },
+			textObstacleVertices: true,
+			fixedSwimlaneGeometry: true,
+			anchorCapacity: { minSpacing: 18, grow: false },
+			railRouting: "dependency",
+			pagePolicy: "dependency",
+			externalLabels: { edgeLabels: true },
+			deliverabilityMode: "degraded-ok",
+			remediationPolicy: {
+				externalLabels: "auto",
+				routeRails: "suggest",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+		});
+		expect(
+			rendered.diagram?.deliverability?.remediationPlans.find(
+				(plan) => plan.type === "external-label",
+			),
+		).toMatchObject({
+			status: "applied",
+			detail: expect.objectContaining({
+				strategy: "keyed-callouts",
+				policy: "auto",
+			}),
+		});
+		expect(
+			rendered.diagnostics.filter(
+				(diagnostic) => diagnostic.severity === "error",
+			),
+		).toEqual([]);
+		expect(rendered.diagram?.swimlanes?.[0]?.box).toMatchObject({
+			x: 0,
+			y: 0,
+			width: 320,
+			height: 160,
+		});
+		expect(rendered.diagram?.swimlanes?.[0]?.lanes[0]?.box).toMatchObject({
+			x: 0,
+			y: 24,
+			width: 320,
+			height: 136,
+		});
+	});
+
 	it("rejects negative object frame padding before normalization", () => {
 		const result = parseDiagramDsl(`
 nodes:

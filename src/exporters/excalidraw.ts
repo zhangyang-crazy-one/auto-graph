@@ -11,6 +11,7 @@ import type {
 	NodeShape,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
+import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import type { ExportOptions } from "./types.js";
 
 type ExcalidrawElement =
@@ -144,6 +145,9 @@ export function exportExcalidraw(
 
 	for (const edge of diagram.edges) {
 		elements.push(renderArrow(edge));
+		elements.push(
+			...renderEdgeLabelAnnotations(edge, diagram.textAnnotations ?? []),
+		);
 	}
 
 	const scene = {
@@ -318,6 +322,58 @@ function renderArrow(edge: CoordinatedEdge): ExcalidrawArrowElement {
 		endBinding: { elementId: `node:${edge.target.nodeId}`, focus: 0, gap: 0 },
 		startArrowhead: null,
 		endArrowhead: mapArrowhead(edge.arrowhead),
+	};
+}
+
+function renderEdgeLabelAnnotations(
+	edge: CoordinatedEdge,
+	annotations: readonly SolvedTextAnnotation[],
+): ExcalidrawTextElement[] {
+	const matching = annotations.filter(
+		(annotation) =>
+			annotation.surfaceKind === "edge-label" && annotation.ownerId === edge.id,
+	);
+	return matching.map((annotation, index) => {
+		const role =
+			typeof annotation.placementDetail?.role === "string"
+				? annotation.placementDetail.role
+				: "label";
+		return renderAnnotationText(
+			`edge-label:${edge.id}:${role}:${index}`,
+			annotation,
+		);
+	});
+}
+
+function renderAnnotationText(
+	id: string,
+	annotation: SolvedTextAnnotation,
+): ExcalidrawTextElement {
+	const fontSize = annotation.fontSize > 0 ? annotation.fontSize : 12;
+	return {
+		...baseElement(id, "text", {
+			x: annotation.box.x,
+			y: annotation.box.y,
+			width: Math.max(fontSize, annotation.box.width),
+			height: Math.max(fontSize, annotation.box.height),
+		}),
+		backgroundColor: "transparent",
+		strokeColor: "#111827",
+		groupIds: [],
+		text: annotation.text,
+		fontSize,
+		fontFamily: 1,
+		textAlign: "center",
+		verticalAlign: "middle",
+		baseline: fontSize,
+		containerId: null,
+		originalText: annotation.text,
+		lineHeight: 1.25,
+		boundElements: null,
+		link: null,
+		locked: false,
+		seed: seedFor(id),
+		versionNonce: seedFor(`${id}:nonce`),
 	};
 }
 
