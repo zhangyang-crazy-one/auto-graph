@@ -369,6 +369,12 @@ routing:
   anchorCapacity: { minSpacing: 18, grow: false }
   railRouting: dependency
   externalLabels: { edgeLabels: true }
+  deliverabilityMode: degraded-ok
+  remediationPolicy:
+    externalLabels: suggest
+    routeRails: suggest
+    growFixedGeometry: auto
+    pageSplit: suggest
 nodes:
   api: { label: API, position: { x: 40, y: 48 } }
   db: { label: DB, position: { x: 180, y: 48 } }
@@ -402,6 +408,13 @@ output:
 			anchorCapacity: { minSpacing: 18, grow: false },
 			railRouting: "dependency",
 			externalLabels: { edgeLabels: true },
+			deliverabilityMode: "degraded-ok",
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
 		});
 		expect(
 			rendered.diagnostics.filter(

@@ -153,6 +153,17 @@ function normalizeDenseRoutingOptions(
 						edgeLabels: routing.externalLabels.edgeLabels,
 					});
 	}
+	if (routing.deliverabilityMode !== undefined) {
+		options.deliverabilityMode = routing.deliverabilityMode;
+	}
+	if (routing.remediationPolicy !== undefined) {
+		options.remediationPolicy = objectWithoutUndefined({
+			externalLabels: routing.remediationPolicy.externalLabels,
+			routeRails: routing.remediationPolicy.routeRails,
+			growFixedGeometry: routing.remediationPolicy.growFixedGeometry,
+			pageSplit: routing.remediationPolicy.pageSplit,
+		});
+	}
 	return options;
 }
 

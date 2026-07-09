@@ -174,6 +174,8 @@ function solveDenseRoutingOptions(
 			| "anchorCapacity"
 			| "railRouting"
 			| "externalLabels"
+			| "deliverabilityMode"
+			| "remediationPolicy"
 	  >
 	| Record<string, never> {
 	if (metadata === undefined) {
@@ -189,6 +191,8 @@ function solveDenseRoutingOptions(
 		| "anchorCapacity"
 		| "railRouting"
 		| "externalLabels"
+		| "deliverabilityMode"
+		| "remediationPolicy"
 	> = {};
 	if (typeof metadata.textIntersectionTolerance === "number") {
 		options.textIntersectionTolerance = metadata.textIntersectionTolerance;
@@ -233,6 +237,15 @@ function solveDenseRoutingOptions(
 	) {
 		options.externalLabels = metadata.externalLabels;
 	}
+	if (
+		metadata.deliverabilityMode === "strict" ||
+		metadata.deliverabilityMode === "degraded-ok"
+	) {
+		options.deliverabilityMode = metadata.deliverabilityMode;
+	}
+	if (isRemediationPolicyOptions(metadata.remediationPolicy)) {
+		options.remediationPolicy = metadata.remediationPolicy;
+	}
 	return options;
 }
 
@@ -262,6 +275,32 @@ function isExternalLabelsOptions(
 	return (
 		isJsonObject(value) &&
 		(value.edgeLabels === undefined || typeof value.edgeLabels === "boolean")
+	);
+}
+
+function isRemediationPolicyOptions(value: unknown): value is {
+	externalLabels?: "off" | "suggest" | "auto";
+	routeRails?: "off" | "suggest" | "auto";
+	growFixedGeometry?: "off" | "suggest" | "auto";
+	pageSplit?: "off" | "suggest";
+} {
+	return (
+		isJsonObject(value) &&
+		isRemediationPolicyMode(value.externalLabels) &&
+		isRemediationPolicyMode(value.routeRails) &&
+		isRemediationPolicyMode(value.growFixedGeometry) &&
+		(value.pageSplit === undefined ||
+			value.pageSplit === "off" ||
+			value.pageSplit === "suggest")
+	);
+}
+
+function isRemediationPolicyMode(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === "off" ||
+		value === "suggest" ||
+		value === "auto"
 	);
 }
 

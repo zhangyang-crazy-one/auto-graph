@@ -5,6 +5,8 @@ import type { DslDiagnostic } from "./types.js";
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
 const layoutModeSchema = z.enum(["dagre", "positions"]);
 const routeKindSchema = z.enum(["orthogonal", "straight", "obstacle-avoiding"]);
+const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
+const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
@@ -412,6 +414,15 @@ export const diagramDslSchema = z
 							edgeLabels: z.boolean().optional(),
 						}),
 					])
+					.optional(),
+				deliverabilityMode: deliverabilityModeSchema.optional(),
+				remediationPolicy: z
+					.object({
+						externalLabels: remediationPolicyModeSchema.optional(),
+						routeRails: remediationPolicyModeSchema.optional(),
+						growFixedGeometry: remediationPolicyModeSchema.optional(),
+						pageSplit: z.enum(["off", "suggest"]).optional(),
+					})
 					.optional(),
 				portShifting: z
 					.object({
