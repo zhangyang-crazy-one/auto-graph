@@ -16,6 +16,7 @@ describe("dense MBSE acceptance gate", () => {
 	it.each([
 		["CV dependency page", denseCvDependencyPage()],
 		["OV/SV resource-flow page", denseResourceFlowPage()],
+		["IBD high-fan-in page", denseIbdHighFanInPage()],
 	])("reports Stage 5-style clearance evidence for %s", (_name, diagram) => {
 		const result = solveDiagram(diagram, denseAcceptanceOptions());
 		const safeResult = solveDiagramSafe(diagram, denseAcceptanceOptions());
@@ -27,6 +28,10 @@ describe("dense MBSE acceptance gate", () => {
 
 		expect(fatalEvidenceCrossings(result)).toEqual([]);
 		expect(fatalEvidenceCrossings(safeResult)).toEqual([]);
+		expect(evidence.routeObstacleIntersections).toBeGreaterThanOrEqual(0);
+		expect(evidence.remediationPlanCount).toBe(
+			result.deliverability?.remediationPlans.length ?? 0,
+		);
 
 		if (result.deliverability?.status === "clean") {
 			expect(criticals).toBe(0);
@@ -65,6 +70,31 @@ describe("dense MBSE acceptance gate", () => {
 				].includes(diagnostic.code),
 			),
 		).toBe(true);
+		expect(evidence.remediationPlanCount).toBeGreaterThan(0);
+		expect(evidence.remediationPlanTypes.length).toBeGreaterThan(0);
+	});
+
+	it("emits deterministic remediation plan objects for dense strict output", () => {
+		const first = solveDiagram(
+			denseCvDependencyPage(),
+			denseAcceptanceOptions(),
+		);
+		const second = solveDiagram(
+			denseCvDependencyPage(),
+			denseAcceptanceOptions(),
+		);
+
+		expect(first.deliverability?.remediationPlans.length).toBeGreaterThan(0);
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+		expect(first.deliverability?.remediationPlans[0]).toMatchObject({
+			id: expect.stringMatching(/^remediation-\d\d-/),
+			status: "suggested",
+			diagnosticCodes: expect.any(Array),
+			edgeIds: expect.any(Array),
+			nodeIds: expect.any(Array),
+		});
 	});
 
 	it("exposes rail/gutter evidence for dense CV dependency pages", () => {
@@ -138,14 +168,18 @@ function stage5Evidence(result: CoordinatedDiagram): {
 	edgeLabelIntersections: number;
 	nodeLabelIntersections: number;
 	unrelatedNodeIntersections: number;
+	routeObstacleIntersections: number;
 	unsatDiagnostics: number;
 	backtrackingDiagnostics: number;
 	pageOverflowDiagnostics: number;
+	remediationPlanCount: number;
+	remediationPlanTypes: string[];
 } {
 	const textAnnotations = result.textAnnotations ?? [];
 	let edgeLabelIntersections = 0;
 	let nodeLabelIntersections = 0;
 	let unrelatedNodeIntersections = 0;
+	let routeObstacleIntersections = 0;
 	for (const edge of result.edges) {
 		for (const annotation of textAnnotations) {
 			if (annotation.placement === "external-callout-required") continue;
@@ -164,13 +198,16 @@ function stage5Evidence(result: CoordinatedDiagram): {
 			}
 			if (routeCrossesBox(edge.points, insetBox(node.box, 1))) {
 				unrelatedNodeIntersections += 1;
+				routeObstacleIntersections += 1;
 			}
 		}
 	}
+	const remediationPlans = result.deliverability?.remediationPlans ?? [];
 	return {
 		edgeLabelIntersections,
 		nodeLabelIntersections,
 		unrelatedNodeIntersections,
+		routeObstacleIntersections,
 		unsatDiagnostics: result.diagnostics.filter((diagnostic) =>
 			diagnostic.code.includes("unsatisfiable"),
 		).length,
@@ -180,6 +217,12 @@ function stage5Evidence(result: CoordinatedDiagram): {
 		pageOverflowDiagnostics: result.diagnostics.filter(
 			(diagnostic) => diagnostic.code === "page_overflow",
 		).length,
+		remediationPlanCount: remediationPlans.length,
+		remediationPlanTypes: [
+			...new Set(remediationPlans.map((plan) => plan.type)),
+		]
+			.sort()
+			.map(String),
 	};
 }
 
@@ -267,8 +310,8 @@ function insetBox(box: Box, amount: number): Box {
 }
 
 function denseCvDependencyPage(): NormalizedDiagram {
-	const pairCount = 8;
-	const nodes = Array.from({ length: pairCount }, (_, index) => [
+	const nodeCount = 5;
+	const nodes = Array.from({ length: nodeCount }, (_, index) => [
 		node(`cv-source-${index}`, { x: 0, y: index * 70 }),
 		node(`cv-target-${index}`, { x: 300, y: index * 70 }),
 	]).flat();
@@ -276,10 +319,12 @@ function denseCvDependencyPage(): NormalizedDiagram {
 		id: "phase-12-cv-dependency",
 		direction: "LR",
 		nodes,
-		edges: Array.from({ length: pairCount }, (_, index) => ({
+		edges: Array.from({ length: 20 }, (_, index) => ({
 			id: `cv-dependency-${index}`,
-			source: { nodeId: `cv-source-${index}` },
-			target: { nodeId: `cv-target-${index}` },
+			source: { nodeId: `cv-source-${index % nodeCount}` },
+			target: {
+				nodeId: `cv-target-${(index * 2 + Math.floor(index / nodeCount)) % nodeCount}`,
+			},
 			label: { text: `capability dependency ${index}` },
 		})),
 		groups: [],
@@ -293,14 +338,22 @@ function denseCvDependencyPage(): NormalizedDiagram {
 }
 
 function denseResourceFlowPage(): NormalizedDiagram {
+	const producers = Array.from({ length: 4 }, (_, index) =>
+		node(`producer-${index}`, { x: 0, y: index * 78 }),
+	);
+	const relays = Array.from({ length: 4 }, (_, index) =>
+		node(`relay-${index}`, { x: 160, y: 30 + index * 78 }),
+	);
+	const consumers = Array.from({ length: 4 }, (_, index) =>
+		node(`consumer-${index}`, { x: 340, y: index * 78 }),
+	);
 	return {
 		id: "phase-12-resource-flow",
 		direction: "LR",
 		nodes: [
-			node("producer-a", { x: 0, y: 0 }),
-			node("producer-b", { x: 0, y: 90 }),
-			node("consumer-a", { x: 320, y: 0 }),
-			node("consumer-b", { x: 320, y: 90 }),
+			...producers,
+			...relays,
+			...consumers,
 			{
 				...node("dense-label-cell", { x: 150, y: 20 }),
 				label: { text: "resource coordination cell" },
@@ -312,30 +365,42 @@ function denseResourceFlowPage(): NormalizedDiagram {
 				}),
 			},
 		],
+		edges: Array.from({ length: 12 }, (_, index) => ({
+			id: `rf-${String(index + 1).padStart(2, "0")}`,
+			source: { nodeId: `producer-${index % producers.length}` },
+			target: { nodeId: `consumer-${(index * 2 + 1) % consumers.length}` },
+			label: { text: `resource flow ${index + 1}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+function denseIbdHighFanInPage(): NormalizedDiagram {
+	const sources = Array.from({ length: 10 }, (_, index) =>
+		node(`ibd-source-${index}`, { x: 0, y: index * 46 }),
+	);
+	return {
+		id: "phase-12-ibd-high-fan-in",
+		direction: "LR",
+		nodes: [
+			...sources,
+			node("ibd-aggregator", { x: 260, y: 180 }),
+			node("ibd-sink", { x: 440, y: 180 }),
+		],
 		edges: [
+			...sources.map((source, index) => ({
+				id: `ibd-flow-${index}`,
+				source: { nodeId: source.id },
+				target: { nodeId: "ibd-aggregator" },
+				label: { text: `allocated item flow ${index}` },
+			})),
 			{
-				id: "rf-01",
-				source: { nodeId: "producer-a" },
-				target: { nodeId: "consumer-b" },
-				label: { text: "resource flow one" },
-			},
-			{
-				id: "rf-02",
-				source: { nodeId: "producer-b" },
-				target: { nodeId: "consumer-a" },
-				label: { text: "resource flow two" },
-			},
-			{
-				id: "rf-03",
-				source: { nodeId: "producer-a" },
-				target: { nodeId: "consumer-a" },
-				label: { text: "resource flow three" },
-			},
-			{
-				id: "rf-04",
-				source: { nodeId: "producer-b" },
-				target: { nodeId: "consumer-b" },
-				label: { text: "resource flow four" },
+				id: "ibd-aggregate-out",
+				source: { nodeId: "ibd-aggregator" },
+				target: { nodeId: "ibd-sink" },
+				label: { text: "aggregate item flow" },
 			},
 		],
 		groups: [],
