@@ -10,85 +10,91 @@ DGE is not a renderer or a visual editor. It is the missing geometry solving lay
 
 Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
 
-## Current Milestone: v1.1 Closed-loop Route/Label Clearance
+## Current Milestone: v1.2 Dense MBSE Remediation Execution
 
-**Goal:** Build a closed-loop route and label clearance pipeline so dense MBSE diagrams either pass strict route/text/layout gates or return structured unsatisfiable remediation diagnostics.
+**Goal:** Resolve the current non-polar open issue set by treating #75 as the capability epic: the solver must execute or machine-stage dense-diagram remediations instead of only diagnosing degraded output.
+
+**Issue scope:**
+- **Active epic:** #75 `feat(capability): dense MBSE deliverability - execute remediations, not only diagnose them`.
+- **Fold into #75:** #69, #71, and #73. Their route/text, label, rail, fixed-geometry, and closed-loop findings are historical evidence and implementation inputs.
+- **Regression guard / close candidate:** #74. 0.2.17 fixed the Stage 3 fatal regression; v1.2 must add a stable regression test before closing or superseding it.
+- **Explicitly excluded:** #15 polar/geographic coordinate support. It is a coordinate-system feature, not part of dense MBSE deliverability.
 
 **Target features:**
-- Final edge-label placement participates in route selection and rerouting instead of remaining a post-hoc diagnostic surface.
-- Strict deliverable mode distinguishes clean output, degraded output, and unsatisfiable output.
-- Label congestion diagnostics identify page, edge set, occupied rail/corridor, label count, and proposed remediation.
-- Rail/gutter routing becomes first-class for CV dependency, OV/SV resource-flow, activity/state, and sequence pages.
-- Acceptance tests assert hard downstream invariants for final routes against final node labels, final edge labels, unrelated node interiors, and hard obstacles.
+- Public dense-deliverability options such as `deliverabilityMode` and `remediationPolicy`.
+- Machine-readable remediation plans, not only string remediation names.
+- Automatic keyed external labels for congested long inline edge labels.
+- Page-level policies before edge search: dependency rails, resource-flow side gutters, lane-aware corridors, and IBD/high-fan-in anchor capacity.
+- `routing.route-label-loop.exhausted` becomes a transition into remediation execution or a structured unsatisfiable state.
+- Strict consumers can rely on stable `deliverability`, `degraded`, `bounds`, routing allocations, and remediation plan objects.
 
 ## Requirements
 
 ### Validated
 
-- Complete: DSL, IR, solver, and SVG support for fixed evidence blocks, matrices, tables, and evidence panels - Phase 07
-- Complete: Dense routing heuristics now include route cost ranking, endpoint interior protection, excessive-backtracking avoidance, and lower-conflict label fallback - PR #72 / quick task 260708-hz4
+- Complete: DSL, IR, solver, and SVG support for fixed evidence blocks, matrices, tables, and evidence panels - Phase 07.
+- Complete: Local route-label feedback loop, strict/degraded status, external-label-required diagnostics, rails/gutters, and Stage 5-style dense acceptance scaffolding - v1.1 / Phases 8-12.
+- Complete: #74 P0 symptom is fixed in 0.2.17: the live downstream case no longer aborts Stage 3 with fatal `routing.evidence.crossing_forbidden` from text congestion.
+- Complete: #71 position-preserving/container-collapse side is no longer the active blocker after downstream mitigations and upstream fixes; the remaining #71 scope is dense route/label congestion, now folded into #75.
 
 ### Active
 
-- [ ] Final route and final edge-label placement are solved in a bounded feedback loop.
-- [ ] Strict/deliverable layouts fail closed with structured unsatisfiable diagnostics when clearance cannot be achieved.
-- [ ] Dense page routing uses explicit rail/gutter capacity instead of ad hoc fallback routes.
-- [ ] Framed diagrams, grown anchor capacity, rail endpoint filtering, and side-anchor fast paths honor final collision contracts.
-- [ ] Acceptance tests cover downstream Stage 5 hard-gate invariants on representative dense MBSE pages.
+- [ ] #69/#71/#73/#74/#75 are represented in one issue-resolution matrix, with #15 excluded.
+- [ ] #74 has a targeted regression guard proving feedback text obstacles cannot surface as fatal evidence crossing.
+- [ ] The solver exposes a stable remediation contract: `deliverabilityMode`, `remediationPolicy`, and remediation plan objects.
+- [ ] Dense fixtures encode #75's live failure shape: CV dependency page with at least 20 labeled edges, OV/SV resource-flow page, and IBD/high-fan-in interface page.
+- [ ] External label execution converts congested inline labels into deterministic keyed callouts and removes the long label box from the route field.
+- [ ] Page policy execution allocates top/bottom rails, side gutters, fan-out/bundle lanes, lane-aware corridors, and anchor-capacity growth or growth plans.
+- [ ] Exhausted local route-label feedback triggers remediation execution or returns a structured unsatisfiable plan with capacity numbers.
+- [ ] Strict dense mode returns clean geometry or a machine-applicable remediation/unsat result; it must not silently return visually colliding degraded output as a normal solve.
+- [ ] Docs explain the difference between degraded diagnosis and deliverable remediation execution.
 
 ### Out of Scope
 
-- Full libavoid/yFiles-equivalent global router rewrite - the milestone integrates closed-loop behavior into the existing TypeScript solver first.
-- Browser UI or visual editor - the package remains a headless TypeScript library and `agh` CLI.
-- Graphviz subprocess routing - it adds installation and determinism risks outside the current Node-first architecture.
-- Downstream drawio-mbse pipeline changes as the primary fix - downstream failures should be addressed in auto-graph geometry contracts first.
+- #15 polar/geographic coordinate support.
+- Full replacement with libavoid, yFiles, Graphviz, or another external routing engine.
+- Browser UI or visual editor.
+- Loosening downstream hard gates or changing Stage 5 semantics so colliding diagrams pass.
+- Fully automatic semantic page splitting in v1.2; v1.2 must produce a machine-readable split plan and may leave actual multi-page materialization to a later milestone.
 
 ## Context
 
-- Latest issue: #73, opened 2026-07-08, reports `@crazyhappyone/auto-graph@0.2.15` still failing downstream `drawio-mbse` Stage 5 with 224 critical findings: 204 `edge_route_text_intersection` and 20 `edge_route_obstacle_intersection`.
-- Version trend shows real but incomplete progress: `0.2.13` had 472 criticals, `0.2.14` had 277, and `0.2.15` has 224.
-- The architectural gap is a linear pipeline: initial layout -> constraints -> route edges using estimated labels -> final edge-label placement -> post-hoc diagnostics.
-- The needed pipeline is closed-loop: route candidates -> final label placement -> route/text validation -> reroute or externalize labels -> structured unsatisfiable diagnostics when still blocked.
-- PR #72 Codex review on commit `6a94940fec` identified four P2 rail/constraint risks that belong in this milestone:
-  - rerun overlap/containment repair after `anchorCapacity.grow`;
-  - keep framed rails clear of frame title obstacles;
-  - exclude only actual endpoint nodes from rail validation;
-  - skip or repair rail fast paths for anchors that jog through endpoint interiors.
+- #69 established the early root causes: edge-label chicken-and-egg, text-surface routing vertices, compact text obstacles, and tolerance. Much of this became local solver capability, but it could only reduce failures.
+- #71 recorded the 0.2.10 to 0.2.14 downstream trend and separated solved container/position problems from remaining dense route/label congestion.
+- #73 asked for a closed loop. v1.1 implemented a weak loop, but 0.2.17 still exhausts on dense pages and returns advisory remediations.
+- #74 caught and validated the 0.2.16 regression where text congestion became fatal evidence crossing; #75 says it can close after a guard.
+- #75 reframes the foundation problem: the diagnosis layer now names the missing actions, but the execution layer does not apply them. The next release must execute or machine-stage external labels, rails/gutters, growth, and split plans.
+- Latest live case result on 0.2.17: Stage 5 fails with 132 critical / 179 warnings, including 129 route/text intersections and 3 route/obstacle intersections. Ten pages are degraded and one page is clean.
 
 ## Constraints
 
-- **Runtime**: TypeScript on Node.js 20+ - required by the package and CLI.
-- **Architecture**: Preserve prepare/solve/export separation - measurement and validation happen before or around solver loops, exporters consume coordinated geometry.
-- **Determinism**: Same input must produce byte-stable or numerically stable output.
-- **Measurement**: Text measurement remains abstracted behind the existing text measurer interface; Pretext is the default backend.
-- **Quality**: Golden and acceptance tests must catch text overflow, connector misalignment, collisions, non-deterministic output, and malformed exports.
-- **Scope**: No server, database, browser UI, or external service dependency.
+- **Runtime**: TypeScript on Node.js 20+.
+- **Architecture**: Preserve prepare/solve/export separation; v1.2 extends solver contracts and output metadata without turning the package into a renderer.
+- **Determinism**: Same input must produce byte-stable or numerically stable output, diagnostics, routing allocations, and remediation plans.
+- **Measurement**: Text measurement remains abstracted behind the existing text measurer interface.
+- **Quality**: Tests must catch text overflow, route/text collisions, route/obstacle collisions, excessive backtracking, non-determinism, and regression of #74.
+- **Workflow**: Continue on PR #72 branch unless redirected. Do not stage or revert the unrelated local `package.json` version bump.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Treat Issue #73 as an architectural milestone rather than another route heuristic patch | Remaining failures come from final label placement and routing being disconnected | Pending |
-| Continue from Phase 8 rather than resetting phase numbers | Existing Phase 07 artifacts are present and previous milestone numbering should remain traceable | Pending |
-| Skip extra research for this milestone | Issue #73 includes codebase analysis, and PR #72 review provides immediate implementation targets | Pending |
-| Keep strict mode fail-closed | MBSE downstream gates need deliverable geometry or actionable unsat, not silent degraded output | Pending |
+| Use #75 as the active epic | #75 correctly identifies the foundational issue: remediation execution, not another local heuristic | Accepted |
+| Fold #69/#71/#73 into #75 | Their findings are implementation inputs, but none should remain a separate competing milestone scope | Accepted |
+| Treat #74 as fixed-but-guarded | 0.2.17 fixed the live regression; v1.2 adds a regression test before closure | Accepted |
+| Exclude #15 | Polar/geographic coordinates are unrelated to dense MBSE deliverability | Accepted |
+| Keep v1.2 TS-native | Current solver has enough primitives to execute the first remediation layer without external router dependencies | Accepted |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `$gsd-transition`):
-1. Requirements invalidated? -> Move to Out of Scope with reason
-2. Requirements validated? -> Move to Validated with phase reference
-3. New requirements emerged? -> Add to Active
-4. Decisions to log? -> Add to Key Decisions
-5. "What This Is" still accurate? -> Update if drifted
-
-**After each milestone** (via `$gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check - still the right priority?
-3. Audit Out of Scope - reasons still valid?
-4. Update Context with current state
+**After each phase transition**:
+1. Requirements invalidated? Move to Out of Scope with reason.
+2. Requirements validated? Move to Validated with phase reference.
+3. New requirements emerged? Add to Active.
+4. Decisions to log? Add to Key Decisions.
+5. "What This Is" still accurate? Update if drifted.
 
 ---
-*Last updated: 2026-07-08 after starting milestone v1.1*
+*Last updated: 2026-07-09 after adopting Issue #75 as v1.2 epic*

@@ -1,115 +1,99 @@
-# Roadmap: v1.1 Closed-loop Route/Label Clearance
+# Roadmap: v1.2 Dense MBSE Remediation Execution
 
-**Created:** 2026-07-08
-**Phase numbering:** Continued from existing Phase 07 artifacts
+**Created:** 2026-07-09
+**Phase numbering:** Continued from completed v1.1 Phases 8-12
+**Epic:** #75
 
 ## Milestone Goal
 
-Build a closed-loop route and label clearance pipeline so dense MBSE diagrams either pass strict route/text/layout gates or return structured unsatisfiable remediation diagnostics.
+Resolve the current non-polar open issue set by implementing dense-diagram remediation execution. The solver must not stop at degraded diagnostics for dense MBSE pages; it must execute external labels, rails/gutters, growth, or return machine-applicable split/unsat plans.
+
+## Issue Routing
+
+| Issue | Role In v1.2 | Decision |
+|-------|--------------|----------|
+| #75 | Active epic | Primary tracking issue for this milestone. |
+| #73 | Folded design context | Weak closed loop exists; remaining work is executable remediation. |
+| #71 | Folded evidence context | Dense route/label portion moves to #75; position/container side is historical. |
+| #69 | Folded root-cause context | Iteration, text vertices, compact obstacles, and tolerance are local primitives, not enough by themselves. |
+| #74 | Regression guard | Add test then close or mark superseded by #75. |
+| #15 | Excluded | Polar/geographic coordinates are not part of dense MBSE deliverability. |
 
 ## Phases
 
 | Phase | Name | Goal | Requirements |
 |-------|------|------|--------------|
-| 8 | Route/Label Feedback Loop (Complete 2026-07-08, 2/2 plans) | Route final edges against final label geometry with bounded deterministic rerouting. | LOOP-01, LOOP-02, LOOP-03, LOOP-04 |
-| 9 | Strict Deliverability Contract (Complete 2026-07-08, 1/1 plan) | Add strict/degraded/unsatisfiable layout semantics and remediation diagnostics. | STRICT-01, STRICT-02, STRICT-03, STRICT-04 |
-| 10 | Label Congestion And External Labels (Complete 2026-07-08, 1/1 plan) | Make failed edge-label placement actionable and support external-callout-required outcomes. | LABEL-01, LABEL-02, LABEL-03, LABEL-04 |
-| 11 | Rails, Gutters, And Post-growth Repair (Complete 2026-07-08, 1/1 plan) | Promote page-level routing capacity and PR #72 Codex review fixes into solver contracts. | RAIL-01, RAIL-02, RAIL-03, RAIL-04, RAIL-05, CONS-01, CONS-02, CONS-03 |
-| 12 | Dense MBSE Acceptance Gate (Complete 2026-07-08, 1/1 plan) | Add Stage 5-style invariant tests and evidence for representative dense MBSE pages. | ACC-01, ACC-02, ACC-03, ACC-04, ACC-05 |
+| 13 | Unified Issue Research And Regression Guards | Consolidate #69/#71/#73/#74 into #75, exclude #15, and lock #74 regression behavior. | EPIC-01, EPIC-02, REG-74-01, REG-74-02 |
+| 14 | Remediation Contract And Dense Fixtures | Add public remediation contract and dense evidence fixtures for CV, OV/SV, and IBD shapes. | CONTRACT-01, CONTRACT-02, CONTRACT-03, CONTRACT-04, FIXTURE-01, FIXTURE-02, FIXTURE-03, FIXTURE-04 |
+| 15 | External Label Execution | Convert congested inline edge labels into deterministic keyed external callouts. | EXT-01, EXT-02, EXT-03, EXT-04 |
+| 16 | Page Policy Rails, Gutters, And Bundles | Add page-level policies for dependency rails, side gutters, lane corridors, bundles, and growth/split capacity. | POLICY-01, POLICY-02, POLICY-03, POLICY-04, POLICY-05, POLICY-06 |
+| 17 | Strict Remediation Loop And Issue Closure | Make exhausted feedback execute/stage remediations, enforce strict closure, document the contract, and prepare issue hygiene. | LOOP-01, LOOP-02, LOOP-03, DIAG-01, STRICT-01, STRICT-02, DOC-01 |
 
 ## Phase Details
 
-### Phase 8: Route/Label Feedback Loop
+### Phase 13: Unified Issue Research And Regression Guards
 
-**Goal:** Route final edges against final label geometry with bounded deterministic rerouting.
-
-**Requirements:** LOOP-01, LOOP-02, LOOP-03, LOOP-04
+**Goal:** Consolidate all active non-polar issue evidence under #75 and lock #74 so future remediation changes cannot reintroduce fatal evidence-crossing regression.
 
 **Success criteria:**
-1. Solver can place edge labels, build final label boxes, and revalidate routes against those boxes.
-2. Conflicting edges can be rerouted with final label boxes as obstacles within a deterministic iteration limit.
-3. Repeated runs on the same input produce stable coordinated edges, labels, diagnostics, and snapshots.
-4. If bounded rerouting cannot clear conflicts, the solver returns an unsatisfiable diagnostic instead of only a post-hoc warning.
+1. Research file maps #69/#71/#73/#74/#75 into one issue-resolution matrix and marks #15 excluded.
+2. Tests prove text hard obstacles from route-label feedback are not emitted as `routing.evidence.crossing_forbidden`.
+3. Feedback candidate scoring still prioritizes hard-route diagnostics ahead of route/text count improvements.
+4. Planning state points to #75 as the active epic.
 
-**Notes:**
-- Start from `src/solver/solve.ts::coordinateEdges`, `coordinateEdgeTextAnnotations`, `edgeLabelAnchor`, and `reportRouteTextClearance`.
-- Preserve existing non-strict behavior until Phase 9 defines the public contract.
+### Phase 14: Remediation Contract And Dense Fixtures
 
-### Phase 9: Strict Deliverability Contract
-
-**Goal:** Add strict/degraded/unsatisfiable layout semantics and remediation diagnostics.
-
-**Requirements:** STRICT-01, STRICT-02, STRICT-03, STRICT-04
+**Goal:** Define the public contract and fixtures before implementing remediation execution.
 
 **Success criteria:**
-1. Public solver options can request strict/deliverable clearance semantics.
-2. Solver output includes a clear clean/degraded/unsatisfiable status or equivalent structured diagnostics.
-3. Strict mode does not treat `routing.text-clearance.unresolved` or unsafe `routing.obstacle.unavoidable` output as deliverable.
-4. Non-strict callers retain current degraded-output behavior.
+1. `SolveDiagramOptions` or equivalent exposes dense deliverability mode and remediation policy.
+2. `CoordinatedDiagram` can carry remediation plan objects with deterministic IDs and machine-applicable details.
+3. Dense CV, OV/SV, and IBD fixtures encode #75's capacity failure families.
+4. Stage 5-style evidence includes deliverability and remediation-plan counts.
 
-**Notes:**
-- Diagnostic payloads must include enough detail for downstream drawio-mbse remediation.
-- Keep status naming compatible with existing `Diagnostic` conventions.
+### Phase 15: External Label Execution
 
-### Phase 10: Label Congestion And External Labels
-
-**Goal:** Make failed edge-label placement actionable and support external-callout-required outcomes.
-
-**Requirements:** LABEL-01, LABEL-02, LABEL-03, LABEL-04
+**Goal:** Turn edge-label congestion into executed keyed callouts rather than advisory `external-label-or-split` diagnostics.
 
 **Success criteria:**
-1. `edgeLabelAnchor` or its replacement returns structured congestion data when all local candidates collide.
-2. Diagnostics include page, edge ids, corridor/rail details, candidate counts, and label counts.
-3. Solver can mark labels as external-callout-required instead of placing them into collisions.
-4. Route/text reporting distinguishes node-label, edge-label, and externalized-label clearance cases.
+1. Congested inline edge labels get deterministic keys.
+2. Long label text moves to a reserved external shelf/legend.
+3. Local route field only contains short keys or no local label box, so routes no longer collide with long inline labels.
+4. Solver output preserves edge-to-callout mapping for downstream exporters.
 
-**Notes:**
-- This phase should not build full downstream callout rendering; it should establish solver semantics and exportable metadata.
+### Phase 16: Page Policy Rails, Gutters, And Bundles
 
-### Phase 11: Rails, Gutters, And Post-growth Repair
-
-**Goal:** Promote page-level routing capacity and PR #72 Codex review fixes into solver contracts.
-
-**Requirements:** RAIL-01, RAIL-02, RAIL-03, RAIL-04, RAIL-05, CONS-01, CONS-02, CONS-03
+**Goal:** Solve the correct page-level capacity problem before per-edge search.
 
 **Success criteria:**
-1. CV dependency and OV/SV resource-flow pages can reserve page-level rails/gutters as first-class solver output.
-2. Framed LR/RL rail lanes avoid title/header obstacles.
-3. Rail validation excludes only actual endpoint nodes by identity.
-4. Rail fast paths skip or correct anchors that would jog through endpoint interiors.
-5. Anchor-capacity growth cannot leave unreported overlaps or stale locked-conflict diagnostics.
+1. Dependency pages allocate top/bottom rails with occupancy scoring.
+2. Resource-flow and IBD pages allocate side gutters and fan-in/fan-out bundles.
+3. Lane-behavior pages reserve lane-aware corridors and avoid title/header bands.
+4. Anchor capacity triggers growth or exact growth plans.
+5. Rail/lane overload returns split plans with concrete capacity numbers.
 
-**Notes:**
-- Directly addresses PR #72 Codex review comments on `src/solver/solve.ts`.
-- Activity, state, and sequence lane-aware corridors can be implemented conservatively as reserved corridor metadata plus validation.
+### Phase 17: Strict Remediation Loop And Issue Closure
 
-### Phase 12: Dense MBSE Acceptance Gate
-
-**Goal:** Add Stage 5-style invariant tests and evidence for representative dense MBSE pages.
-
-**Requirements:** ACC-01, ACC-02, ACC-03, ACC-04, ACC-05
+**Goal:** Integrate remediation execution into the route-label loop and finish the public/documented strict contract.
 
 **Success criteria:**
-1. Tests fail if a final route intersects a final edge label.
-2. Tests fail if a final route intersects a final node label, unrelated node interior, or hard obstacle.
-3. Fixtures include at least one dense CV dependency page and one OV/SV resource-flow page.
-4. Evidence records Stage 5-style counts for text intersections, obstacle intersections, backtracking, page overflow, and unsat diagnostics.
-5. `npm run verify` passes after the milestone test suite is integrated.
-
-**Notes:**
-- The target is not merely lower counts; the gate must assert deliverable invariants or structured unsat output.
+1. `routing.route-label-loop.exhausted` transitions into remediation planning.
+2. Auto policies execute remediations and re-solve affected subgraphs.
+3. Suggest-only policies return machine-applicable unsat/split/grow plans.
+4. Strict dense mode returns clean Stage 5-style output or structured unsat; it does not return unplanned visual collisions as normal output.
+5. README documents dense remediation mode and #74/#73/#71 closure recommendations are ready.
 
 ## Traceability Summary
 
 | Phase | Requirement Count |
 |-------|-------------------|
-| Phase 8 | 4 |
-| Phase 9 | 4 |
-| Phase 10 | 4 |
-| Phase 11 | 8 |
-| Phase 12 | 5 |
+| Phase 13 | 4 |
+| Phase 14 | 8 |
+| Phase 15 | 4 |
+| Phase 16 | 6 |
+| Phase 17 | 7 |
 
-**Coverage:** 25 / 25 v1.1 requirements mapped.
+**Coverage:** 29 / 29 v1.2 requirements mapped.
 
 ---
-*Roadmap created: 2026-07-08 for milestone v1.1*
+*Roadmap created: 2026-07-09 for Issue #75 capability epic*

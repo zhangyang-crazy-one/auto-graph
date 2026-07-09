@@ -1,52 +1,50 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Closed-loop Route/Label Clearance
-status: milestone_complete
-last_updated: 2026-07-08T21:20:35+08:00
-last_activity: 2026-07-08 -- Quick fix 260708-t3y completed for PR #72 Codex P2 routing review findings
+milestone: v1.2
+milestone_name: Dense MBSE Remediation Execution
+status: planning
+last_updated: 2026-07-09T15:29:08+08:00
+last_activity: 2026-07-09 -- Adopted Issue #75 as the active non-polar dense deliverability epic
 progress:
   total_phases: 5
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
-stopped_at: Milestone v1.1 complete — ready for final audit/ship
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+stopped_at: Phase 13 planning
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 12
-Plan: Complete
-Status: Milestone complete
-Last activity: 2026-07-08 - Completed quick task 260708-t3y: Fix PR #72 Codex P2 routing review findings
+Phase: 13
+Plan: Pending
+Status: Planning v1.2 capability epic
+Last activity: 2026-07-09 - Consolidated #69/#71/#73/#74/#75 under #75, excluding #15.
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-08)
+See: .planning/PROJECT.md
 
 **Core value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
-**Current focus:** v1.1 milestone complete — closed-loop route/label clearance and strict dense MBSE acceptance
+**Current focus:** v1.2 dense MBSE remediation execution: apply or machine-stage external labels, rails/gutters, growth, and split plans.
 
 ## Accumulated Context
 
-- Issue #73 reports `@crazyhappyone/auto-graph@0.2.15` still failing downstream Stage 5 with 224 critical findings.
-- PR #72 improved dense routing but Codex review identified remaining solver-contract risks in rail and post-growth repair behavior.
-- Dense diagrams can still be geometrically unsatisfiable without more global rails/gutters, external labels, page growth, or page splitting; strict mode must preserve structured remediation diagnostics.
-- Phase 8 context is captured in `.planning/phases/08-route-label-feedback-loop/08-CONTEXT.md`; it locks the recommended closed-loop route/text conflict scope, private loop state, structured loop-exhausted diagnostic, and deterministic improvement budget.
-- Phase 9 added public `deliverability.status` and strict unsatisfiable remediation diagnostics.
-- Phase 10 added edge-label external callout semantics and `routing.externalLabels` DSL forwarding.
-- Phase 11 added page-level rail/gutter allocations, identity-based rail validation, framed rail title avoidance, post-growth overlap reporting, and route fallback fixes.
-- Phase 12 added dense MBSE Stage 5-style acceptance tests for CV dependency and OV/SV resource-flow pages.
-- Quick task 260708-s5e fixed Issue #74: route-label feedback text obstacles no longer surface as fatal evidence-crossing diagnostics, and non-strict downstream consumers can continue to resolved-layout artifacts with structured text-clearance diagnostics.
-- Quick task 260708-t3y fixed the latest PR #72 Codex P2 routing review findings: external callouts no longer reserve local geometry, rail validation keeps non-connected edge-label obstacles, endpoint-interior fallback violations are diagnosable, and routing allocation reports only accepted rails.
+- v1.1 completed local route-label feedback, strict/degraded status, external-label-required diagnostics, rail/gutter output, and Stage 5-style dense acceptance scaffolding.
+- #69 identified early text-clearance root causes: edge-label chicken-and-egg, node-label route pressure, text vertices, compact text obstacles, and tolerance.
+- #71 established the downstream evidence trend and separated solved position/container issues from remaining dense route/label congestion.
+- #73 correctly requested a closed loop; the loop now exists but exhausts and returns advisory remediations.
+- #74 is fixed in 0.2.17 for the live case, but needs a regression guard before closure.
+- #75 is the active epic: diagnosis is ahead of execution. The solver must execute or machine-stage remediations rather than returning degraded visual collisions as normal output.
+- #15 polar/geographic coordinate support remains open but excluded from this milestone by user request.
 
 ## Blockers/Concerns
 
-- `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, and `.planning/ROADMAP.md` were missing before this milestone and have been recreated from AGENTS project context, Issue #73, and PR #72 review evidence.
-- The local working tree has an external `package.json` version bump from `0.2.14` to `0.2.17`; it is intentionally left uncommitted by this milestone.
+- The local working tree has an external `package.json` version bump to `0.2.17`; leave it uncommitted unless the user explicitly asks.
+- Live downstream fixtures are external to this repo. v1.2 should start with minimized local dense fixtures that represent the #75 failure families.
+- Full semantic page splitting is not required for v1.2, but split plans must be machine-readable enough for strict consumers.
 
 ## Quick Tasks Completed
 
@@ -58,4 +56,4 @@ See: .planning/PROJECT.md (updated 2026-07-08)
 
 ## Next Action
 
-Run `$gsd-ship` or merge PR #72 after CI passes.
+Plan Phase 13: unified issue research and #74 regression guards.

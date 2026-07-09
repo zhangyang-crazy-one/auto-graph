@@ -1,110 +1,105 @@
 # Requirements: Diagram Geometry Engine
 
 **Defined:** 2026-07-08
+**Updated:** 2026-07-09
 **Core Value:** Given the same declarative diagram intent, DGE must produce deterministic, collision-aware, text-safe coordinates that downstream exporters can render or edit without manual coordinate repair.
 
-## v1.1 Requirements
+## v1.2 Requirements: Dense MBSE Remediation Execution
 
-### Closed-loop Route/Label Solver
+### Issue Consolidation And Regression Guards
 
-- [x] **LOOP-01**: Solver can validate final edge routes against final node-label and edge-label boxes after edge-label placement.
-- [x] **LOOP-02**: Solver can reroute conflicting edges using final label boxes as obstacles within a bounded iteration budget.
-- [x] **LOOP-03**: Solver can preserve deterministic output when route/label feedback loops have multiple equivalent candidate choices.
-- [x] **LOOP-04**: Solver can stop the loop with a structured unsatisfiable result when all bounded candidates still violate strict clearance.
+- [ ] **EPIC-01**: Open non-polar issues are consolidated under #75, with #69/#71/#73 as folded evidence, #74 as fixed-with-regression-guard, and #15 explicitly excluded.
+- [ ] **EPIC-02**: Planning artifacts record the 0.2.13 -> 0.2.17 evidence trend and the live 0.2.17 Stage 5 result: 132 critical / 179 warnings.
+- [ ] **REG-74-01**: A targeted regression test proves route-label feedback text obstacles do not emit fatal `routing.evidence.crossing_forbidden`.
+- [ ] **REG-74-02**: Candidate scoring continues to reject reroutes that introduce hard-route diagnostics, even if they reduce route/text conflict count.
 
-### Strict Deliverability
+### Public Remediation Contract
 
-- [x] **STRICT-01**: Caller can request strict/deliverable clearance semantics that do not silently accept `routing.text-clearance.unresolved` output as deliverable.
-- [x] **STRICT-02**: Strict mode reports whether the layout is clean, degraded, or unsatisfiable.
-- [x] **STRICT-03**: Strict unsatisfiable diagnostics identify the blocking page, edge ids, obstacle/text surfaces, and required remediation type.
-- [x] **STRICT-04**: Existing non-strict behavior remains available for exploratory or degraded layouts.
+- [ ] **CONTRACT-01**: Public options support `deliverabilityMode: "strict" | "degraded-ok"` or equivalent.
+- [ ] **CONTRACT-02**: Public options support `remediationPolicy` with `externalLabels`, `routeRails`, `growFixedGeometry`, and `pageSplit` policies using `off | suggest | auto` where applicable.
+- [ ] **CONTRACT-03**: `CoordinatedDiagram` exposes stable remediation plan objects, not only string remediation types.
+- [ ] **CONTRACT-04**: `deliverability`, `degraded`, `bounds`, `diagnosticCodes`, `remediationTypes`, and remediation plan objects are documented as stable public output for strict consumers.
 
-### Label Congestion And Externalization
+### Dense Fixture And Evidence Baseline
 
-- [x] **LABEL-01**: Edge-label placement returns structured congestion data when every candidate collides.
-- [x] **LABEL-02**: Congestion diagnostics include page, edge set, occupied corridor/rail, candidate count, and label count.
-- [x] **LABEL-03**: Solver can mark labels as external-callout-required when local placement cannot satisfy strict clearance.
-- [x] **LABEL-04**: Route/text clearance reporting distinguishes node-label, edge-label, and externalized-label cases.
+- [ ] **FIXTURE-01**: Dense CV-style dependency fixture has at least 20 labeled edges over a small node set and reproduces rail/label capacity pressure.
+- [ ] **FIXTURE-02**: Dense OV/SV-style resource-flow fixture reproduces side-gutter, node-label, and route/obstacle pressure.
+- [ ] **FIXTURE-03**: Dense IBD/high-fan-in fixture reproduces anchor capacity and bundle/fan-out pressure.
+- [ ] **FIXTURE-04**: Stage 5-style evidence records route/text, route/obstacle, unrelated-node, backtracking, page-overflow, deliverability, and remediation-plan counts.
 
-### Rails And Gutters
+### External Label Execution
 
-- [x] **RAIL-01**: Solver exposes page-level rail/gutter allocation for CV dependency and OV/SV resource-flow pages.
-- [x] **RAIL-02**: Framed LR/RL rail lanes avoid frame title/header obstacles.
-- [x] **RAIL-03**: Rail validation excludes only the actual source and target nodes, not unrelated nodes whose expanded obstacles touch endpoint boxes.
-- [x] **RAIL-04**: Rail fast paths are skipped or corrected when explicit anchors would jog through endpoint interiors.
-- [x] **RAIL-05**: Activity, state, and sequence pages can reserve lane-aware corridors for route bundles.
+- [ ] **EXT-01**: Congested inline edge labels can be converted into deterministic keyed callouts.
+- [ ] **EXT-02**: Externalized labels reserve a deterministic label shelf/legend outside the saturated route field.
+- [ ] **EXT-03**: Only short keys remain near routed edges; long label boxes no longer participate as local route obstacles.
+- [ ] **EXT-04**: External label execution preserves source edge identity and enough metadata for downstream draw.io/SVG exporters.
 
-### Constraint Repair Integration
+### Page Policy Routing And Capacity
 
-- [x] **CONS-01**: Anchor-capacity growth happens before final overlap/containment repair or triggers a second repair pass afterward.
-- [x] **CONS-02**: Locked-conflict diagnostics are recalculated after any solver mutation that changes node boxes.
-- [x] **CONS-03**: Strict mode treats post-growth overlaps as blocking layout errors unless they are explicitly unsatisfiable.
+- [ ] **POLICY-01**: Solver can classify or accept page policy hints for dependency, resource-flow, lane-behavior, and IBD/high-fan-in pages.
+- [ ] **POLICY-02**: Dependency pages allocate deterministic top/bottom rails and score rail occupancy before route acceptance.
+- [ ] **POLICY-03**: Resource-flow and IBD pages allocate side gutters and fan-in/fan-out bundle lanes.
+- [ ] **POLICY-04**: Activity/state/sequence pages reserve lane-aware corridors and avoid header/title bands.
+- [ ] **POLICY-05**: Anchor-capacity pressure triggers growth when policy allows it, otherwise returns exact growth deltas in a remediation plan.
+- [ ] **POLICY-06**: Rail/lane capacity over budget returns a split plan with edge subset, node subset, capacity numbers, and reason.
 
-### Acceptance Evidence
+### Remediation Loop And Strict Closure
 
-- [x] **ACC-01**: Acceptance tests fail when any final edge route intersects a final edge label.
-- [x] **ACC-02**: Acceptance tests fail when any final edge route intersects a final node label or unrelated node interior.
-- [x] **ACC-03**: Acceptance tests cover at least one dense CV dependency page and one OV/SV resource-flow page.
-- [x] **ACC-04**: Acceptance evidence records Stage 5-style counts for text intersections, obstacle intersections, backtracking, page overflow, and unsat diagnostics.
-- [x] **ACC-05**: Local `npm run verify` remains the required all-in-one verification gate.
+- [ ] **LOOP-01**: `routing.route-label-loop.exhausted` transitions into remediation planning instead of terminal advisory failure.
+- [ ] **LOOP-02**: When policy can execute a remediation, the solver applies it and re-solves the affected subgraph.
+- [ ] **LOOP-03**: When policy cannot execute a remediation, strict mode returns structured unsatisfiable output with machine-applicable remediation plans.
+- [ ] **DIAG-01**: Diagnostics distinguish true node-label strike-through, edge-label pileup, label bounding-box graze, fixed-geometry blockage, rail/lane capacity overflow, and true evidence crossing.
+- [ ] **STRICT-01**: Strict dense mode returns either zero Stage 5-style critical route/text and route/obstacle findings or an unsatisfiable/degraded result with executed or machine-applicable remediation plans.
+- [ ] **STRICT-02**: No deliverable layout emits `routing.text-clearance.unresolved`, `routing.obstacle.unavoidable`, or `routing.route-label-loop.exhausted` without an executed or staged remediation plan.
+- [ ] **DOC-01**: README docs describe dense deliverability mode, remediation policy, remediation plans, and issue closure expectations.
 
-## v2 Requirements
+## Deferred / Excluded
 
-### Global Routing Architecture
-
-- **GLOBAL-01**: Solver can perform full ordered-bundle or bus-routing optimization across all page edges.
-- **GLOBAL-02**: Solver can split pages automatically when route/label capacity is provably insufficient.
-- **GLOBAL-03**: Solver can export structured rail/gutter plans for downstream editors as first-class artifacts.
-
-### Downstream Integration
-
-- **DOWN-01**: drawio-mbse can consume auto-graph unsatisfiable diagnostics to propose page splits or external labels.
-- **DOWN-02**: CLI can emit a machine-readable strict-delivery report compatible with downstream Stage 5 validation.
-
-## Out of Scope
-
-| Feature | Reason |
-|---------|--------|
-| Full router replacement with an external engine | Too broad for this milestone; first close the current solver feedback loop. |
-| Browser visual editor | The package remains headless and one-shot. |
-| Graphviz subprocess fallback | Adds non-Node dependency and different layout semantics. |
-| Automatic page splitting implementation | This milestone should diagnose split-required cases; full auto-split is v2. |
+| Requirement | Reason |
+|-------------|--------|
+| #15 polar/geographic coordinates | Separate coordinate-system feature; excluded by user request. |
+| Full external global router replacement | Too broad and unnecessary for the first executable remediation layer. |
+| Automatic semantic page materialization | v1.2 returns machine-readable split plans; full auto-split can follow. |
+| Downstream gate relaxation | The problem is real visual invalidity; gates must stay strict. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | Phase 8 | Complete |
-| LOOP-02 | Phase 8 | Complete |
-| LOOP-03 | Phase 8 | Complete |
-| LOOP-04 | Phase 8 | Complete |
-| STRICT-01 | Phase 9 | Complete |
-| STRICT-02 | Phase 9 | Complete |
-| STRICT-03 | Phase 9 | Complete |
-| STRICT-04 | Phase 9 | Complete |
-| LABEL-01 | Phase 10 | Complete |
-| LABEL-02 | Phase 10 | Complete |
-| LABEL-03 | Phase 10 | Complete |
-| LABEL-04 | Phase 10 | Complete |
-| RAIL-01 | Phase 11 | Complete |
-| RAIL-02 | Phase 11 | Complete |
-| RAIL-03 | Phase 11 | Complete |
-| RAIL-04 | Phase 11 | Complete |
-| RAIL-05 | Phase 11 | Complete |
-| CONS-01 | Phase 11 | Complete |
-| CONS-02 | Phase 11 | Complete |
-| CONS-03 | Phase 11 | Complete |
-| ACC-01 | Phase 12 | Complete |
-| ACC-02 | Phase 12 | Complete |
-| ACC-03 | Phase 12 | Complete |
-| ACC-04 | Phase 12 | Complete |
-| ACC-05 | Phase 12 | Complete |
+| EPIC-01 | Phase 13 | Planned |
+| EPIC-02 | Phase 13 | Planned |
+| REG-74-01 | Phase 13 | Planned |
+| REG-74-02 | Phase 13 | Planned |
+| CONTRACT-01 | Phase 14 | Planned |
+| CONTRACT-02 | Phase 14 | Planned |
+| CONTRACT-03 | Phase 14 | Planned |
+| CONTRACT-04 | Phase 14 | Planned |
+| FIXTURE-01 | Phase 14 | Planned |
+| FIXTURE-02 | Phase 14 | Planned |
+| FIXTURE-03 | Phase 14 | Planned |
+| FIXTURE-04 | Phase 14 | Planned |
+| EXT-01 | Phase 15 | Planned |
+| EXT-02 | Phase 15 | Planned |
+| EXT-03 | Phase 15 | Planned |
+| EXT-04 | Phase 15 | Planned |
+| POLICY-01 | Phase 16 | Planned |
+| POLICY-02 | Phase 16 | Planned |
+| POLICY-03 | Phase 16 | Planned |
+| POLICY-04 | Phase 16 | Planned |
+| POLICY-05 | Phase 16 | Planned |
+| POLICY-06 | Phase 16 | Planned |
+| LOOP-01 | Phase 17 | Planned |
+| LOOP-02 | Phase 17 | Planned |
+| LOOP-03 | Phase 17 | Planned |
+| DIAG-01 | Phase 17 | Planned |
+| STRICT-01 | Phase 17 | Planned |
+| STRICT-02 | Phase 17 | Planned |
+| DOC-01 | Phase 17 | Planned |
 
 **Coverage:**
-- v1.1 requirements: 25 total
-- Mapped to phases: 25
+- v1.2 requirements: 29 total
+- Mapped to phases: 29
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-07-08*
-*Last updated: 2026-07-08 after milestone v1.1 definition*
+*Last updated: 2026-07-09 after Issue #75 consolidation*
