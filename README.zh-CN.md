@@ -128,15 +128,38 @@ routing:
   externalLabels: { edgeLabels: true }
   deliverabilityMode: strict
   remediationPolicy:
-    externalLabels: suggest
-    routeRails: suggest
+    externalLabels: auto
+    routeRails: auto
     growFixedGeometry: auto
     pageSplit: suggest
 ```
 
-当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`，需要把拥挤边标签交给下游 keyed callout 渲染时使用 `externalLabels`。`deliverabilityMode: strict` 等价于 `strict: true`；`deliverabilityMode: degraded-ok` 保留 advisory degraded 输出。`remediationPolicy` 控制 external labels、route rails、fixed-geometry growth 和 page split 是 `off`、`suggest`，还是在支持时 `auto`。
+当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`，需要把拥挤边标签交给下游 keyed callout 渲染时使用 `externalLabels`。
 
-求解结果继续保留旧的 `degraded`、`deliverability.status` 和 `deliverability.remediationTypes` 字段。同时新增确定性的 `deliverability.remediationPlans` 对象，包含稳定 ID、类型、状态、诊断代码、edge/node ID 以及类型专属细节，strict 消费方可以直接应用或暂存 remediation，而不需要解析自由文本诊断。
+`deliverabilityMode: strict`（等价于 `strict: true`）要求几何干净，或返回带 `remediationPlans` 的结构化 `unsatisfiable`。`deliverabilityMode: degraded-ok` 保留 advisory degraded 输出。
+
+本地 route/label 反馈循环耗尽后，残余冲突进入有界 remediation 轮次（默认最多 2 次）。应用顺序为 grow → rails → external-label。`pageSplit` **不会**自动物化拆页。
+
+### `remediationPolicy` 应用矩阵
+
+| 键 | `suggest` / `off` | `auto` |
+|----|-------------------|--------|
+| `externalLabels` | 仅暂存 keyed callout 计划 | 应用确定性 keyed callout 并复查 clearance |
+| `routeRails` | 仅暂存 dependency rail 计划 | 强制 dependency rails、重路由，标记 `applied` 或 `blocked` |
+| `growFixedGeometry` | 仅暂存增长计划 | 应用 growth deltas / 扩展节点、重路由，标记 `applied` 或 `blocked` |
+| `pageSplit` | 暂存可读的 `required`/`available` 计划（仅 `suggest`，无 `auto`） | — 拆页**不会**自动物化 |
+
+计划状态为 `suggested`、`applied` 或 `blocked`。在 full-auto strict 密集验收下，可自动执行的类型必须是 `applied` 或 `blocked`，不能停留在 `suggested`。
+
+求解结果继续保留旧的 `degraded`、`deliverability.status` 和 `deliverability.remediationTypes` 字段。同时提供确定性的 `deliverability.remediationPlans` 对象，包含稳定 ID、类型、状态、诊断代码、edge/node ID 以及类型专属细节，strict 消费方可以直接应用或暂存 remediation，而不需要解析自由文本诊断。
+
+### Issue 收口建议（密集 MBSE epic）
+
+本契约在本地 fixture 落地后，建议人工操作：
+
+- 关闭 [#74](https://github.com/zhangyang-crazy-one/auto-graph/issues/74) — 回归守卫已存在（文本硬障碍不得升级为 evidence crossing）。
+- 将 [#71](https://github.com/zhangyang-crazy-one/auto-graph/issues/71)、[#73](https://github.com/zhangyang-crazy-one/auto-graph/issues/73)、[#69](https://github.com/zhangyang-crazy-one/auto-graph/issues/69) 并入 [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75)。
+- 保持 [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75) 开放，直到本地密集契约（干净或带计划的结构化 unsat）满足为止——不以 live DoDAF Stage 5 critical 归零为关闭条件。
 
 ## CLI
 

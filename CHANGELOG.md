@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Dense remediation loop
+
+- **Bounded remediation pass** after route/label feedback exhaustion (default 2 iterations): apply order grow → rails → external-label; `pageSplit` is never auto-materialized.
+- **`remediationPolicy` apply matrix**: `externalLabels` / `routeRails` / `growFixedGeometry` `auto` mutate geometry or mark `blocked`; `suggest`/`off` stay non-mutating; plans expose `applied`/`blocked`/`suggested`.
+- **`conflictClass` taxonomy** on deliverability diagnostics (`node-label-strike`, `edge-label-pileup`, `label-bbox-graze`, `fixed-geometry-block`, `rail-lane-overflow`, `evidence-crossing`) without changing diagnostic codes.
+- **Strict dense gate**: full-auto profile returns clean geometry or structured `unsatisfiable` with per-family remediation plans.
+
 ## 0.2.5 (2026-06-26)
 
 ### Issue #54 布局与路由引擎

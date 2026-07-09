@@ -78,67 +78,64 @@ describe("dense MBSE acceptance gate", () => {
 		["CV dependency page", denseCvDependencyPage()],
 		["OV/SV resource-flow page", denseResourceFlowPage()],
 		["IBD high-fan-in page", denseIbdHighFanInPage()],
-	])(
-		"enforces full-auto strict clean-or-unsat plan coverage for %s",
-		(_name, diagram) => {
-			const result = solveDiagram(diagram, denseFullAutoStrictOptions());
-			const evidence = stage5Evidence(result);
-			const criticals =
-				evidence.edgeLabelIntersections +
-				evidence.nodeLabelIntersections +
-				evidence.unrelatedNodeIntersections;
-			const plans = result.deliverability?.remediationPlans ?? [];
+	])("enforces full-auto strict clean-or-unsat plan coverage for %s", (_name, diagram) => {
+		const result = solveDiagram(diagram, denseFullAutoStrictOptions());
+		const evidence = stage5Evidence(result);
+		const criticals =
+			evidence.edgeLabelIntersections +
+			evidence.nodeLabelIntersections +
+			evidence.unrelatedNodeIntersections;
+		const plans = result.deliverability?.remediationPlans ?? [];
 
-			expect(fatalEvidenceCrossings(result)).toEqual([]);
+		expect(fatalEvidenceCrossings(result)).toEqual([]);
 
-			if (result.deliverability?.status === "clean") {
-				expect(criticals).toBe(0);
-				expect(result.diagnostics).not.toContainEqual(
-					expect.objectContaining({
-						code: "routing.text-clearance.unresolved",
-					}),
-				);
-				expect(result.diagnostics).not.toContainEqual(
-					expect.objectContaining({
-						code: "routing.obstacle.unavoidable",
-					}),
-				);
-				return;
-			}
-
-			expect(result.deliverability?.status).toBe("unsatisfiable");
-			expect(plans.length).toBeGreaterThan(0);
-			for (const plan of plans) {
-				if (
-					plan.type === "route-rail" ||
-					plan.type === "grow-fixed-geometry" ||
-					plan.type === "external-label"
-				) {
-					expect(["applied", "blocked"]).toContain(plan.status);
-					expect(plan.status).not.toBe("suggested");
-				}
-				if (plan.type === "page-split") {
-					expect(["suggested", "blocked"]).toContain(plan.status);
-					expect(plan.status).not.toBe("applied");
-				}
-			}
-
-			const uncovered = result.diagnostics.filter(
-				(diagnostic) =>
-					[
-						"routing.text-clearance.unresolved",
-						"routing.obstacle.unavoidable",
-						"routing.route-label-loop.exhausted",
-					].includes(diagnostic.code) &&
-					!plans.some(
-						(plan) =>
-							plan.diagnosticCodes.includes(diagnostic.code) ||
-							planCoversDiagnosticFamily(plan.type, diagnostic.code),
-					),
+		if (result.deliverability?.status === "clean") {
+			expect(criticals).toBe(0);
+			expect(result.diagnostics).not.toContainEqual(
+				expect.objectContaining({
+					code: "routing.text-clearance.unresolved",
+				}),
 			);
-			expect(uncovered).toEqual([]);
-		},
-	);
+			expect(result.diagnostics).not.toContainEqual(
+				expect.objectContaining({
+					code: "routing.obstacle.unavoidable",
+				}),
+			);
+			return;
+		}
+
+		expect(result.deliverability?.status).toBe("unsatisfiable");
+		expect(plans.length).toBeGreaterThan(0);
+		for (const plan of plans) {
+			if (
+				plan.type === "route-rail" ||
+				plan.type === "grow-fixed-geometry" ||
+				plan.type === "external-label"
+			) {
+				expect(["applied", "blocked"]).toContain(plan.status);
+				expect(plan.status).not.toBe("suggested");
+			}
+			if (plan.type === "page-split") {
+				expect(["suggested", "blocked"]).toContain(plan.status);
+				expect(plan.status).not.toBe("applied");
+			}
+		}
+
+		const uncovered = result.diagnostics.filter(
+			(diagnostic) =>
+				[
+					"routing.text-clearance.unresolved",
+					"routing.obstacle.unavoidable",
+					"routing.route-label-loop.exhausted",
+				].includes(diagnostic.code) &&
+				!plans.some(
+					(plan) =>
+						plan.diagnosticCodes.includes(diagnostic.code) ||
+						planCoversDiagnosticFamily(plan.type, diagnostic.code),
+				),
+		);
+		expect(uncovered).toEqual([]);
+	});
 
 	it("emits deterministic remediation plan objects for dense strict output", () => {
 		const first = solveDiagram(
@@ -488,10 +485,7 @@ function denseFullAutoStrictOptions(): SolveDiagramOptions {
 	};
 }
 
-function planCoversDiagnosticFamily(
-	planType: string,
-	code: string,
-): boolean {
+function planCoversDiagnosticFamily(planType: string, code: string): boolean {
 	switch (code) {
 		case "routing.text-clearance.unresolved":
 		case "routing.route-label-loop.exhausted":

@@ -732,7 +732,7 @@ export function solveDiagram(
 		),
 		...baseTextAnnotations.map((annotation) => annotation.box),
 	];
-	let initialContentBounds =
+	const initialContentBounds =
 		layoutBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(layoutBoxes);
@@ -800,7 +800,7 @@ export function solveDiagram(
 			],
 		),
 	);
-	let allBoxes = [...layoutBoxes, ...evidenceBoxes];
+	const allBoxes = [...layoutBoxes, ...evidenceBoxes];
 	let contentBounds =
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
@@ -865,7 +865,7 @@ export function solveDiagram(
 		...(resolvedPagePolicy === "lane-behavior" ? [] : titleBarObstacles),
 		...laneReservations.softCorridors,
 	];
-	let policyLabelHardObstacles = resourceFlowLabelHardObstacles(
+	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
 		baseTextAnnotations,
 		resolvedPagePolicy,
 		options,
@@ -1136,10 +1136,7 @@ export function solveDiagram(
 	let appliedExternalLabelCallouts: ExternalLabelCallout[] = [];
 	let remediationPassIterations = 0;
 	if (enterRemediation) {
-		if (
-			maxEdgeLabelReroutes > 0 &&
-			residualRouteTextDiagnostics.length > 0
-		) {
+		if (maxEdgeLabelReroutes > 0 && residualRouteTextDiagnostics.length > 0) {
 			diagnostics.push(
 				routeLabelLoopExhaustedDiagnostic(
 					residualRouteTextDiagnostics,
@@ -2024,11 +2021,7 @@ function runRemediationPass(
 	}
 	let previousFingerprint = remediationDiagnosticFingerprint(state.diagnostics);
 
-	for (
-		let iteration = 0;
-		iteration < context.maxIterations;
-		iteration += 1
-	) {
+	for (let iteration = 0; iteration < context.maxIterations; iteration += 1) {
 		state.remediationPassIterations = iteration + 1;
 		let appliedAny = false;
 
@@ -2209,9 +2202,7 @@ function applyGrowFixedGeometryRemediation(
 			const before = beforeBoxes.get(nodeId);
 			const after = state.constrainedBoxes.get(nodeId);
 			return (
-				before !== undefined &&
-				after !== undefined &&
-				!sameBox(before, after)
+				before !== undefined && after !== undefined && !sameBox(before, after)
 			);
 		})
 		.sort((left, right) => left.localeCompare(right));
@@ -2288,7 +2279,8 @@ function applyRouteRailsRemediation(
 	};
 	rerouteRemediationEdges(state, context, forcedOptions);
 	const postSnapshot = railRemediationSnapshot(state);
-	const geometryChanged = preSnapshot.railSignature !== postSnapshot.railSignature;
+	const geometryChanged =
+		preSnapshot.railSignature !== postSnapshot.railSignature;
 	const diagnosticsImproved =
 		postSnapshot.conflictCount < preSnapshot.conflictCount;
 	const capacity = capacityFromDiagnostics(state.diagnostics) ?? {
@@ -2483,7 +2475,9 @@ function rebuildRemediationGeometry(
 	];
 	state.titleBarObstacles = [];
 	if (state.frame !== undefined) {
-		state.titleBarObstacles.push(expandBox(state.frame.titleBox, context.margin));
+		state.titleBarObstacles.push(
+			expandBox(state.frame.titleBox, context.margin),
+		);
 	}
 	for (const swimlane of context.coordinatedSwimlanes) {
 		for (const lane of swimlane.lanes) {
@@ -2602,9 +2596,7 @@ function refreshRemediationDiagnostics(
 	// Keep edge-routing diagnostics from the latest remediation reroute.
 	const retained = state.diagnostics.filter(
 		(diagnostic) =>
-			state.preservedDiagnosticKeys.has(
-				remediationDiagnosticKey(diagnostic),
-			) ||
+			state.preservedDiagnosticKeys.has(remediationDiagnosticKey(diagnostic)) ||
 			!state.edgeRoutingDiagnostics.some(
 				(edgeDiagnostic) =>
 					edgeDiagnostic.code === diagnostic.code &&
