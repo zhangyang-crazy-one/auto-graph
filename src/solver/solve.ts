@@ -134,11 +134,29 @@ function metadataPagePolicy(
 	return undefined;
 }
 
+function remediationPolicyHasAuto(
+	policy: RemediationPolicy | undefined,
+): boolean {
+	if (policy === undefined) {
+		return false;
+	}
+	return (
+		policy.externalLabels === "auto" ||
+		policy.routeRails === "auto" ||
+		policy.growFixedGeometry === "auto"
+	);
+}
+
+/**
+ * Auto page-policy classification is a mutating routing side effect.
+ * Trigger only for explicit `pagePolicy: "auto"`, strict deliverability, or
+ * auto-applying remediation — not advisory `degraded-ok` / suggest-only policies.
+ */
 function shouldAutoClassifyPagePolicy(options: SolveDiagramOptions): boolean {
 	return (
 		options.pagePolicy === "auto" ||
-		options.deliverabilityMode !== undefined ||
-		options.remediationPolicy !== undefined
+		isStrictDeliverability(options) ||
+		remediationPolicyHasAuto(options.remediationPolicy)
 	);
 }
 
@@ -1215,9 +1233,12 @@ export function solveDiagram(
 			styledGroups,
 			styledSwimlanes,
 			swimlaneLayouts: swimlaneContracts.layouts,
-			softObstacles,
-			hardObstacles,
-			evidenceBoxes,
+			coordinatedMatrices,
+			coordinatedTables,
+			coordinatedEvidencePanels,
+			softObstacles: [...softObstacles],
+			hardObstacles: [...hardObstacles],
+			evidenceBoxes: [...evidenceBoxes],
 			resolvedPagePolicy,
 			options,
 			margin,
@@ -2024,6 +2045,8 @@ const REMEDIATION_ENTRY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"constraints.overlap.post-growth",
 	"routing.obstacle.unavoidable",
 	"routing.endpoint-interior.unavoidable",
+	"routing.label-hard-obstacle.unavoidable",
+	"routing.evidence.crossing_forbidden",
 	"route_obstacle_fallback",
 ]);
 
@@ -2034,9 +2057,13 @@ interface RemediationPassContext {
 	styledGroups: NormalizedGroup[];
 	styledSwimlanes: Swimlane[];
 	swimlaneLayouts: ReadonlyMap<string, SwimlaneContractLayout>;
-	softObstacles: readonly Box[];
-	hardObstacles: readonly Box[];
-	evidenceBoxes: readonly Box[];
+	coordinatedMatrices: CoordinatedMatrixBlock[];
+	coordinatedTables: CoordinatedTableBlock[];
+	coordinatedEvidencePanels: CoordinatedEvidencePanel[];
+	/** Mutable: refreshed after grow re-places evidence blocks. */
+	softObstacles: Box[];
+	hardObstacles: Box[];
+	evidenceBoxes: Box[];
 	resolvedPagePolicy: PagePolicy;
 	options: SolveDiagramOptions;
 	margin: number | Insets;
@@ -2514,6 +2541,99 @@ function rebuildRemediationGeometry(
 		),
 		...state.baseTextAnnotations.map((annotation) => annotation.box),
 	];
+	const layoutContentBounds =
+		state.layoutBoxes.length === 0
+			? { x: 0, y: 0, width: 0, height: 0 }
+			: unionBoxes(state.layoutBoxes);
+	placeEvidenceBlocks(
+		context.options.obstacleMargin ?? 0,
+		[
+			...context.coordinatedMatrices,
+			...context.coordinatedTables,
+			...context.coordinatedEvidencePanels,
+		],
+		layoutContentBounds,
+	);
+	refreshTableColumnXOffsets(context.coordinatedTables);
+	measureEvidenceTextBlocks(
+		context.coordinatedMatrices,
+		context.coordinatedTables,
+		context.coordinatedEvidencePanels,
+		context.options.textMeasurer,
+	);
+	context.evidenceBoxes.splice(
+		0,
+		context.evidenceBoxes.length,
+		...context.coordinatedMatrices.map((matrix) => matrix.box),
+		...context.coordinatedTables.map((table) => table.box),
+		...context.coordinatedEvidencePanels.map((panel) => panel.box),
+	);
+	const evidenceMargin = context.options.obstacleMargin ?? 0;
+	context.softObstacles.splice(
+		0,
+		context.softObstacles.length,
+		...context.coordinatedTables.map((table) =>
+			expandBox(table.box, evidenceMargin),
+		),
+		...context.coordinatedEvidencePanels.map((panel) =>
+			expandBox(panel.box, evidenceMargin),
+		),
+	);
+	context.hardObstacles.splice(
+		0,
+		context.hardObstacles.length,
+		...context.coordinatedMatrices.map((matrix) =>
+			expandBox(matrix.box, evidenceMargin),
+		),
+	);
+	stripDiagnosticsByCodes(
+		state.diagnostics,
+		["constraints.overlap.unresolved"],
+		state.preservedDiagnosticKeys,
+	);
+	state.diagnostics.push(
+		...reportEvidenceBlockOverlaps(
+			[
+				...context.coordinatedMatrices.map((matrix) => ({
+					id: matrix.id,
+					kind: "matrix",
+					...(matrix.position === undefined
+						? {}
+						: { position: matrix.position }),
+					box: matrix.box,
+				})),
+				...context.coordinatedTables.map((table) => ({
+					id: table.id,
+					kind: "table",
+					...(table.position === undefined ? {} : { position: table.position }),
+					box: table.box,
+				})),
+				...context.coordinatedEvidencePanels.map((panel) => ({
+					id: panel.id,
+					kind: "evidence-panel",
+					...(panel.position === undefined ? {} : { position: panel.position }),
+					box: panel.box,
+				})),
+			],
+			[
+				...state.coordinatedNodes.map((node) => ({
+					id: node.id,
+					kind: "node",
+					box: node.box,
+				})),
+				...state.coordinatedGroups.map((group) => ({
+					id: group.id,
+					kind: "group",
+					box: group.box,
+				})),
+				...state.coordinatedSwimlanes.flatMap((swimlane) =>
+					swimlane.box === undefined
+						? []
+						: [{ id: swimlane.id, kind: "swimlane", box: swimlane.box }],
+				),
+			],
+		),
+	);
 	const allBoxes = [...state.layoutBoxes, ...context.evidenceBoxes];
 	state.contentBounds =
 		allBoxes.length === 0
@@ -2759,6 +2879,7 @@ function buildRemediationPlan(
 	]);
 	const nodeIds = stableStrings([
 		...flattenDiagnosticDetailStrings(diagnostics, "nodeId"),
+		...flattenDiagnosticDetailStrings(diagnostics, "childId"),
 		...flattenDiagnosticDetailCsvStrings(diagnostics, "nodeIds"),
 		...flattenDiagnosticDetailStrings(diagnostics, "sourceId"),
 		...flattenDiagnosticDetailStrings(diagnostics, "targetId"),
@@ -2814,6 +2935,7 @@ function buildAppliedExternalLabelRemediationPlan(
 	]);
 	const nodeIds = stableStrings([
 		...flattenDiagnosticDetailStrings(diagnostics, "nodeId"),
+		...flattenDiagnosticDetailStrings(diagnostics, "childId"),
 		...flattenDiagnosticDetailCsvStrings(diagnostics, "nodeIds"),
 		...flattenDiagnosticDetailStrings(diagnostics, "sourceId"),
 		...flattenDiagnosticDetailStrings(diagnostics, "targetId"),
@@ -2922,8 +3044,15 @@ function growthDeltasFromDiagnostics(
 		{ nodeId: string; deltaWidth: number; deltaHeight: number }
 	>();
 	for (const diagnostic of diagnostics) {
-		const nodeId = diagnostic.detail?.nodeId;
-		if (typeof nodeId !== "string" || nodeId.length === 0) {
+		const nodeId =
+			typeof diagnostic.detail?.nodeId === "string" &&
+			diagnostic.detail.nodeId.length > 0
+				? diagnostic.detail.nodeId
+				: typeof diagnostic.detail?.childId === "string" &&
+						diagnostic.detail.childId.length > 0
+					? diagnostic.detail.childId
+					: undefined;
+		if (nodeId === undefined) {
 			continue;
 		}
 		const deltaWidth =
@@ -3018,7 +3147,9 @@ function remediationPlanTypesForDiagnostic(
 		case "external-label":
 			return ["external-label"];
 		case "external-label-or-split":
-			return ["external-label", "page-split"];
+			// Congestion/clearance residuals must still produce route-rail
+			// candidates when remediationPolicy.routeRails is "auto".
+			return ["external-label", "route-rail", "page-split"];
 		case "route-rail-or-page-split":
 		case "increase-rails-or-split":
 		case "adjust-anchors-or-page-split":
@@ -7841,6 +7972,7 @@ function buildExternalLabelCallouts(
 	let shelfY = bounds.y;
 	return sources.map((source, index) => {
 		const key = externalLabelKey(index);
+		const shelfText = `${key}: ${source.text}`;
 		const keyLayout = fitLabel(
 			key,
 			{
@@ -7855,6 +7987,20 @@ function buildExternalLabelCallouts(
 			},
 			measurer,
 		);
+		const shelfLayout = fitLabel(
+			shelfText,
+			{
+				font: {
+					fontFamily: source.fontFamily,
+					fontSize: source.fontSize,
+					lineHeight: source.fontSize + 2,
+				},
+				padding: source.paddings,
+				minSize: { width: 0, height: 0 },
+				maxWidth: Math.max(source.box.width, 160),
+			},
+			measurer,
+		);
 		const sourceCenter = boxCenter(source.box);
 		const keyBox = {
 			x: sourceCenter.x - keyLayout.box.width / 2,
@@ -7862,8 +8008,13 @@ function buildExternalLabelCallouts(
 			width: keyLayout.box.width,
 			height: keyLayout.box.height,
 		};
-		const calloutBox = externalLabelShelfBox(bounds, source.box, shelfY);
-		shelfY += Math.max(14, source.box.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
+		const calloutBox = {
+			x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
+			y: shelfY,
+			width: Math.max(source.box.width, shelfLayout.box.width),
+			height: Math.max(source.box.height, shelfLayout.box.height),
+		};
+		shelfY += Math.max(14, calloutBox.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
 		const callout: ExternalLabelCallout = {
 			edgeId: source.ownerId,
 			key,
@@ -7880,7 +8031,11 @@ function buildExternalLabelCallouts(
 				keyLayout,
 				callout,
 			),
-			calloutAnnotation: buildExternalLabelCalloutAnnotation(source, callout),
+			calloutAnnotation: buildExternalLabelCalloutAnnotation(
+				source,
+				callout,
+				shelfLayout,
+			),
 		};
 	});
 }
@@ -7915,19 +8070,6 @@ function externalLabelKey(index: number): string {
 	return `E${index + 1}`;
 }
 
-function externalLabelShelfBox(
-	bounds: Box,
-	sourceBox: Box,
-	shelfY: number,
-): Box {
-	return {
-		x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
-		y: shelfY,
-		width: sourceBox.width,
-		height: sourceBox.height,
-	};
-}
-
 function buildExternalLabelKeyAnnotation(
 	source: SolvedTextAnnotation,
 	keyLayout: LabelLayout,
@@ -7950,12 +8092,19 @@ function buildExternalLabelKeyAnnotation(
 function buildExternalLabelCalloutAnnotation(
 	source: SolvedTextAnnotation,
 	callout: ExternalLabelCallout,
+	shelfLayout: LabelLayout,
 ): SolvedTextAnnotation {
 	return {
 		...source,
+		text: shelfLayout.text,
 		placement: "external-callout",
 		placementDetail: externalLabelPlacementDetail(source, callout, "callout"),
 		box: callout.calloutBox,
+		paddings: shelfLayout.padding,
+		lines: shelfLayout.lines,
+		fontFamily: normalizeOutputFontFamily(shelfLayout.font),
+		fontSize: shelfLayout.font.fontSize,
+		textBackend: shelfLayout.textBackend,
 	};
 }
 
@@ -8390,6 +8539,8 @@ function isRouteLabelFeedbackHardRouteDiagnostic(
 ): boolean {
 	return (
 		diagnostic.code === "routing.evidence.crossing_forbidden" ||
+		diagnostic.code === "routing.endpoint-interior.unavoidable" ||
+		diagnostic.code === "routing.label-hard-obstacle.unavoidable" ||
 		(diagnostic.code === "route_obstacle_fallback" &&
 			diagnostic.severity === "error")
 	);

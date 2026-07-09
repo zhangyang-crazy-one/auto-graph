@@ -2634,7 +2634,7 @@ describe("solveDiagram", () => {
 			box: detail?.callouts?.[0]?.keyBox,
 		});
 		expect(alphaCallout).toMatchObject({
-			text: "alpha external callout label",
+			text: "E1: alpha external callout label",
 			placement: "external-callout",
 			box: detail?.callouts?.[0]?.calloutBox,
 		});
@@ -2686,6 +2686,146 @@ describe("solveDiagram", () => {
 		).toBe(true);
 	});
 
+	it("treats strict true like deliverabilityMode strict for page-policy auto-classify", () => {
+		const nodes = [
+			...Array.from({ length: 4 }, (_, index) =>
+				node(`src-${index}`, { x: 0, y: index * 50 }),
+			),
+			node("agg", { x: 220, y: 60 }),
+		];
+		const diagram: NormalizedDiagram = {
+			id: "strict-page-policy-equiv",
+			direction: "LR",
+			nodes,
+			edges: Array.from({ length: 4 }, (_, index) => ({
+				id: `fan-${index}`,
+				source: { nodeId: `src-${index}` },
+				target: { nodeId: "agg" },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const withStrict = resolvePagePolicy(diagram, { strict: true });
+		const withMode = resolvePagePolicy(diagram, {
+			deliverabilityMode: "strict",
+		});
+		expect(withStrict).toBe(withMode);
+		expect(withStrict).toBe("ibd-high-fan-in");
+		expect(resolvePagePolicy(diagram, {})).toBe("off");
+	});
+
+	it("does not auto-classify page policy for advisory deliverability settings", () => {
+		const diagram: NormalizedDiagram = {
+			id: "advisory-no-page-policy",
+			direction: "LR",
+			nodes: [
+				...Array.from({ length: 4 }, (_, index) =>
+					node(`src-${index}`, { x: 0, y: index * 50 }),
+				),
+				node("agg", { x: 220, y: 60 }),
+			],
+			edges: Array.from({ length: 4 }, (_, index) => ({
+				id: `fan-${index}`,
+				source: { nodeId: `src-${index}` },
+				target: { nodeId: "agg" },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		expect(
+			resolvePagePolicy(diagram, { deliverabilityMode: "degraded-ok" }),
+		).toBe("off");
+		expect(
+			resolvePagePolicy(diagram, {
+				remediationPolicy: { externalLabels: "suggest" },
+			}),
+		).toBe("off");
+		expect(
+			resolvePagePolicy(diagram, {
+				remediationPolicy: { routeRails: "auto" },
+			}),
+		).toBe("ibd-high-fan-in");
+	});
+
+	it("includes childId in grow-fixed-geometry remediation plans", () => {
+		const result = solveDiagram(
+			{
+				id: "fixed-swimlane-childid-plan",
+				direction: "LR",
+				nodes: [node("a", { x: 500, y: 500 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "lanes",
+						orientation: "vertical",
+						layout: "contract",
+						headerHeight: 20,
+						box: { x: 100, y: 40, width: 220, height: 160 },
+						lanes: [
+							{
+								id: "fixed",
+								children: ["a"],
+								box: { x: 100, y: 40, width: 220, height: 160 },
+							},
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				fixedSwimlaneGeometry: true,
+				strict: true,
+				pagePolicy: "off",
+				remediationPolicy: {
+					growFixedGeometry: "suggest",
+					externalLabels: "suggest",
+					routeRails: "suggest",
+					pageSplit: "suggest",
+				},
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const growPlan = result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		expect(growPlan?.nodeIds).toContain("a");
+	});
+
+	it("maps label congestion residuals to route-rail candidates", () => {
+		const result = solveDiagram(congestedEdgeLabelExternalizationDiagram(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "off",
+			edgeLabelRerouting: { maxIterations: 1 },
+			textIntersectionTolerance: 0,
+			strict: true,
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const plans = result.deliverability?.remediationPlans ?? [];
+		const hasCongestion = result.diagnostics.some((diagnostic) =>
+			[
+				"routing.label-congestion.unresolved",
+				"routing.text-clearance.unresolved",
+				"routing.route-label-loop.exhausted",
+			].includes(diagnostic.code),
+		);
+		if (hasCongestion) {
+			expect(plans.some((plan) => plan.type === "route-rail")).toBe(true);
+			expect(plans.some((plan) => plan.type === "external-label")).toBe(true);
+		}
+	});
+
 	it("stacks external callouts by cumulative shelf height", () => {
 		const result = solveDiagram(externalLabelAutoDiagram(), {
 			initialLayout: "positions",
@@ -2728,8 +2868,8 @@ describe("solveDiagram", () => {
 		});
 		const svg = exportSvg(result);
 		expect(svg).toContain(">E1<");
-		expect(svg).toMatch(/alpha external callout lab/);
-		expect(svg).toMatch(/middle external callout lab/);
+		expect(svg).toMatch(/E1: alpha external callout/);
+		expect(svg).toMatch(/E2: middle external callout/);
 		expect(svg).toContain('data-for="alpha"');
 		expect(
 			(svg.match(/data-for="alpha"/g) ?? []).length,
@@ -2753,7 +2893,7 @@ describe("solveDiagram", () => {
 		expect(texts.some((element) => element.text === "E1")).toBe(true);
 		expect(
 			texts.some((element) =>
-				(element.text ?? "").includes("alpha external callout"),
+				(element.text ?? "").includes("E1: alpha external callout"),
 			),
 		).toBe(true);
 		expect(
