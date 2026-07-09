@@ -4,6 +4,7 @@ import type {
 	Box,
 	Constraint,
 	CoordinatedDiagram,
+	DeliverabilityMode,
 	Diagnostic,
 	IntentDiagram,
 	IntentEdge,
@@ -12,6 +13,9 @@ import type {
 	LabelLayout,
 	NormalizedDiagram,
 	Point,
+	RemediationPlan,
+	RemediationPolicy,
+	RemediationPolicyMode,
 	ShapeGeometry,
 	TextMeasurer,
 } from "../src/index.js";
@@ -79,6 +83,28 @@ describe("public API", () => {
 	});
 
 	it("type-checks a coordinated diagram sample", () => {
+		const deliverabilityMode: DeliverabilityMode = "degraded-ok";
+		const policyMode: RemediationPolicyMode = "suggest";
+		const remediationPolicy: RemediationPolicy = {
+			externalLabels: policyMode,
+			routeRails: "suggest",
+			growFixedGeometry: "auto",
+			pageSplit: "suggest",
+		};
+		const remediationPlan: RemediationPlan = {
+			id: "remediation-01-external-label",
+			type: "external-label",
+			status: "suggested",
+			reason: "Move congested labels to keyed callouts.",
+			diagnosticCodes: ["routing.label-congestion.unresolved"],
+			edgeIds: ["edge-a-b"],
+			nodeIds: [],
+			detail: {
+				strategy: "keyed-callouts",
+				policy: remediationPolicy.externalLabels ?? "suggest",
+				labelCount: 1,
+			},
+		};
 		const sample: CoordinatedDiagram = {
 			id: "coordinated-sample",
 			direction: "LR",
@@ -110,10 +136,22 @@ describe("public API", () => {
 			groups: [],
 			diagnostics: [],
 			degraded: false,
+			deliverability: {
+				status: "clean",
+				strict: false,
+				degraded: false,
+				diagnosticCodes: [],
+				remediationTypes: [],
+				remediationPlans: [remediationPlan],
+			},
 			bounds: { x: 0, y: 0, width: 120, height: 60 },
 		};
 
 		expect(sample.bounds.width).toBe(120);
+		expect(deliverabilityMode).toBe("degraded-ok");
+		expect(sample.deliverability?.remediationPlans[0]?.id).toBe(
+			"remediation-01-external-label",
+		);
 	});
 
 	it("imports Phase 2 APIs from the package entrypoint", () => {

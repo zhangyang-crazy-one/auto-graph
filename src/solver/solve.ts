@@ -25,8 +25,15 @@ import {
 } from "../ir/diagnostics.js";
 import type {
 	CoordinatedDiagram,
+	DeliverabilityMode,
 	DeliverabilityReport,
 	NormalizedDiagram,
+	PageSplitPolicyMode,
+	RemediationPlan,
+	RemediationPlanDetail,
+	RemediationPlanType,
+	RemediationPolicy,
+	RemediationPolicyMode,
 	RoutingAllocationReport,
 	RoutingRailAllocation,
 } from "../ir/diagram.js";
@@ -109,6 +116,10 @@ export interface SolveDiagramOptions {
 	textMeasurer?: TextMeasurer;
 	/** When true, promote deliverability-breaking diagnostics to errors. */
 	strict?: boolean;
+	/** Dense deliverability gate. `strict` is equivalent to `strict: true`; `degraded-ok` preserves advisory degraded output. */
+	deliverabilityMode?: DeliverabilityMode;
+	/** Controls which structured remediation plans are suggested or executed. Execution is staged by later remediation phases. */
+	remediationPolicy?: RemediationPolicy;
 	/** Maximum greedy rerouting iterations per edge (default 5). */
 	maxRoutingAttempts?: number;
 	/** Edge label placement mode: "beside" offsets away from the edge, "on-path" (default) places at the midpoint. */
@@ -890,7 +901,7 @@ export function solveDiagram(
 	const degraded = deliverability.degraded;
 	const resultDiagnostics = diagnostics.map((diagnostic) => {
 		if (DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code)) {
-			if (options.strict) {
+			if (isStrictDeliverability(options)) {
 				return { ...diagnostic, severity: "error" as const };
 			}
 		}
@@ -1151,15 +1162,203 @@ function buildDeliverabilityReport(
 		DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
 	);
 	const degraded = blocking.length > 0;
+	const strict = isStrictDeliverability(options);
 	return {
-		status: !degraded ? "clean" : options.strict ? "unsatisfiable" : "degraded",
-		strict: options.strict === true,
+		status: !degraded ? "clean" : strict ? "unsatisfiable" : "degraded",
+		strict,
 		degraded,
 		diagnosticCodes: stableStrings(
 			blocking.map((diagnostic) => diagnostic.code),
 		),
 		remediationTypes: stableStrings(blocking.map(remediationTypeForDiagnostic)),
+		remediationPlans: buildRemediationPlans(blocking, options),
 	};
+}
+
+function isStrictDeliverability(options: SolveDiagramOptions): boolean {
+	return options.strict === true || options.deliverabilityMode === "strict";
+}
+
+function buildRemediationPlans(
+	diagnostics: readonly Diagnostic[],
+	options: SolveDiagramOptions,
+): RemediationPlan[] {
+	const policy = resolveRemediationPolicy(options.remediationPolicy);
+	const buckets = new Map<RemediationPlanType, Diagnostic[]>();
+	for (const diagnostic of diagnostics) {
+		if (diagnostic.code === "routing.deliverability.unsatisfiable") {
+			continue;
+		}
+		for (const type of remediationPlanTypesForDiagnostic(diagnostic)) {
+			if (!remediationPlanEnabled(type, policy)) {
+				continue;
+			}
+			const existing = buckets.get(type);
+			if (existing === undefined) {
+				buckets.set(type, [diagnostic]);
+			} else {
+				existing.push(diagnostic);
+			}
+		}
+	}
+	const planTypes: RemediationPlanType[] = [
+		"external-label",
+		"route-rail",
+		"grow-fixed-geometry",
+		"page-split",
+	];
+	return planTypes
+		.flatMap((type) => {
+			const bucket = buckets.get(type);
+			return bucket === undefined || bucket.length === 0
+				? []
+				: [buildRemediationPlan(type, bucket, policy)];
+		})
+		.map((plan, index) => ({
+			...plan,
+			id: `remediation-${String(index + 1).padStart(2, "0")}-${plan.type}`,
+		}));
+}
+
+function resolveRemediationPolicy(
+	policy: RemediationPolicy | undefined,
+): Required<RemediationPolicy> {
+	return {
+		externalLabels: policy?.externalLabels ?? "suggest",
+		routeRails: policy?.routeRails ?? "suggest",
+		growFixedGeometry: policy?.growFixedGeometry ?? "suggest",
+		pageSplit: policy?.pageSplit ?? "suggest",
+	};
+}
+
+function remediationPlanEnabled(
+	type: RemediationPlanType,
+	policy: Required<RemediationPolicy>,
+): boolean {
+	return remediationPlanPolicyMode(type, policy) !== "off";
+}
+
+function remediationPlanPolicyMode(
+	type: RemediationPlanType,
+	policy: Required<RemediationPolicy>,
+): RemediationPolicyMode | PageSplitPolicyMode {
+	switch (type) {
+		case "external-label":
+			return policy.externalLabels;
+		case "route-rail":
+			return policy.routeRails;
+		case "grow-fixed-geometry":
+			return policy.growFixedGeometry;
+		case "page-split":
+			return policy.pageSplit;
+	}
+}
+
+function buildRemediationPlan(
+	type: RemediationPlanType,
+	diagnostics: readonly Diagnostic[],
+	policy: Required<RemediationPolicy>,
+): Omit<RemediationPlan, "id"> {
+	const edgeIds = stableStrings([
+		...flattenDiagnosticDetailStrings(diagnostics, "edgeId"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "edgeIds"),
+	]);
+	const nodeIds = stableStrings([
+		...flattenDiagnosticDetailStrings(diagnostics, "nodeId"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "nodeIds"),
+		...flattenDiagnosticDetailStrings(diagnostics, "sourceId"),
+		...flattenDiagnosticDetailStrings(diagnostics, "targetId"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "ownerIds"),
+		...flattenDiagnosticDetailCsvStrings(diagnostics, "conflictingObjectIds"),
+	]).filter((id) => id.length > 0);
+	const diagnosticCodes = stableStrings(
+		diagnostics.map((diagnostic) => diagnostic.code),
+	);
+	return {
+		type,
+		status: "suggested",
+		reason: remediationPlanReason(type, diagnostics.length),
+		diagnosticCodes,
+		edgeIds,
+		nodeIds,
+		detail: remediationPlanDetail(type, policy, edgeIds, nodeIds),
+	};
+}
+
+function remediationPlanReason(
+	type: RemediationPlanType,
+	diagnosticCount: number,
+): string {
+	const suffix = `${diagnosticCount} deliverability diagnostic${diagnosticCount === 1 ? "" : "s"}`;
+	switch (type) {
+		case "external-label":
+			return `Move congested edge labels into deterministic keyed callouts for ${suffix}.`;
+		case "route-rail":
+			return `Reserve route rails or gutters before per-edge routing for ${suffix}.`;
+		case "grow-fixed-geometry":
+			return `Grow or relax fixed geometry constraints for ${suffix}.`;
+		case "page-split":
+			return `Split or grow the saturated page for ${suffix}.`;
+	}
+}
+
+function remediationPlanDetail(
+	type: RemediationPlanType,
+	policy: Required<RemediationPolicy>,
+	edgeIds: readonly string[],
+	nodeIds: readonly string[],
+): RemediationPlanDetail {
+	switch (type) {
+		case "external-label":
+			return {
+				strategy: "keyed-callouts",
+				policy: policy.externalLabels,
+				labelCount: edgeIds.length,
+			};
+		case "route-rail":
+			return {
+				strategy: "dependency-rails",
+				policy: policy.routeRails,
+				requiredRailCount: Math.max(1, edgeIds.length),
+			};
+		case "grow-fixed-geometry":
+			return {
+				strategy: "grow-or-relax-fixed-geometry",
+				policy: policy.growFixedGeometry,
+				affectedNodeCount: nodeIds.length,
+			};
+		case "page-split":
+			return {
+				strategy: "split-over-capacity-page",
+				policy: policy.pageSplit,
+				edgeCount: edgeIds.length,
+				nodeCount: nodeIds.length,
+			};
+	}
+}
+
+function remediationPlanTypesForDiagnostic(
+	diagnostic: Diagnostic,
+): RemediationPlanType[] {
+	const remediationType = remediationTypeForDiagnostic(diagnostic);
+	switch (remediationType) {
+		case "external-label":
+			return ["external-label"];
+		case "external-label-or-split":
+			return ["external-label", "page-split"];
+		case "route-rail-or-page-split":
+		case "increase-rails-or-split":
+		case "adjust-anchors-or-page-split":
+			return ["route-rail", "page-split"];
+		case "grow-node-anchor-capacity":
+		case "post-growth-repair":
+		case "relax-or-grow-fixed-geometry":
+			return ["grow-fixed-geometry"];
+		case "structured-remediation-required":
+			return ["page-split"];
+		default:
+			return ["page-split"];
+	}
 }
 
 function deliverabilityUnsatisfiableDiagnostic(
@@ -1224,6 +1423,16 @@ function flattenDiagnosticDetailStrings(
 	return diagnostics
 		.map((diagnostic) => diagnostic.detail?.[key])
 		.filter((value): value is string => typeof value === "string");
+}
+
+function flattenDiagnosticDetailCsvStrings(
+	diagnostics: readonly Diagnostic[],
+	key: string,
+): string[] {
+	return flattenDiagnosticDetailStrings(diagnostics, key)
+		.flatMap((value) => value.split(","))
+		.map((value) => value.trim())
+		.filter((value) => value.length > 0);
 }
 
 function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
