@@ -138,7 +138,6 @@ function shouldAutoClassifyPagePolicy(options: SolveDiagramOptions): boolean {
 	return (
 		options.pagePolicy === "auto" ||
 		options.deliverabilityMode !== undefined ||
-		options.strict === true ||
 		options.remediationPolicy !== undefined
 	);
 }

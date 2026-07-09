@@ -2655,6 +2655,7 @@ describe("solveDiagram", () => {
 		const optionsBase = {
 			initialLayout: "positions" as const,
 			routeKind: "obstacle-avoiding" as const,
+			pagePolicy: "off" as const,
 			edgeLabelRerouting: { maxIterations: 2 },
 			textMeasurer: new DeterministicTextMeasurer(),
 			textIntersectionTolerance: 0,

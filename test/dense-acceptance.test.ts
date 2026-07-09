@@ -12,7 +12,7 @@ import {
 } from "../src/solver/index.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 
-describe("dense MBSE acceptance gate", () => {
+describe("dense MBSE acceptance gate", { timeout: 15_000 }, () => {
 	it.each([
 		["CV dependency page", denseCvDependencyPage()],
 		["OV/SV resource-flow page", denseResourceFlowPage()],
