@@ -4840,6 +4840,313 @@ it("reports the twenty-fifth dependency rail as over capacity", () => {
 	).toBe(true);
 });
 
+describe("phase 17 remediation apply loop", () => {
+	it("transitions exhausted route-label loop into remediation planning", () => {
+		const result = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 1 },
+			textIntersectionTolerance: 0,
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "auto",
+				routeRails: "auto",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		const exhausted = result.diagnostics.find(
+			(diagnostic) => diagnostic.code === "routing.route-label-loop.exhausted",
+		);
+		if (exhausted !== undefined) {
+			expect(exhausted.detail).toMatchObject({
+				remediationTransition: true,
+				phase: "remediation-planning",
+			});
+		}
+		expect(result.deliverability).toBeDefined();
+		if (result.deliverability?.status === "clean") {
+			expect(
+				result.deliverability.remediationPlans.some(
+					(plan) => plan.status === "applied",
+				) ||
+					!result.diagnostics.some((diagnostic) =>
+						DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
+					),
+			).toBe(true);
+		} else {
+			expect(result.deliverability?.remediationPlans.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("marks routeRails auto as applied or blocked with snapshot semantics", () => {
+		const auto = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 2 },
+			textIntersectionTolerance: 0,
+			railRouting: false,
+			pagePolicy: "off",
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "auto",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const suggest = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 2 },
+			textIntersectionTolerance: 0,
+			railRouting: false,
+			pagePolicy: "off",
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		const autoRail = auto.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "route-rail",
+		);
+		const suggestRail = suggest.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "route-rail",
+		);
+		if (autoRail !== undefined) {
+			expect(["applied", "blocked"]).toContain(autoRail.status);
+			expect(autoRail.status).not.toBe("suggested");
+			expect(autoRail.detail).toMatchObject({
+				strategy: "dependency-rails",
+				policy: "auto",
+				required: expect.any(Number),
+				available: expect.any(Number),
+			});
+		}
+		if (suggestRail !== undefined) {
+			expect(suggestRail.status).toBe("suggested");
+		}
+	});
+
+	it("applies or blocks growFixedGeometry auto from grow-disabled IBD pressure", () => {
+		const auto = solveDiagram(denseIbdRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const suggest = solveDiagram(denseIbdRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "suggest",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+		const autoGrow = auto.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		const suggestGrow = suggest.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		expect(autoGrow).toBeDefined();
+		expect(["applied", "blocked"]).toContain(autoGrow?.status);
+		if (autoGrow?.detail.strategy === "grow-or-relax-fixed-geometry") {
+			expect(autoGrow.detail.policy).toBe("auto");
+			if (autoGrow.status === "blocked") {
+				expect((autoGrow.detail.growthDeltas?.length ?? 0) > 0).toBe(true);
+			}
+			if (autoGrow.status === "applied") {
+				expect(nodeBox(auto, "ibd-aggregator").height).toBeGreaterThan(
+					nodeBox(suggest, "ibd-aggregator").height - 0.001,
+				);
+			}
+		}
+		expect(suggestGrow?.status).toBe("suggested");
+		expect(nodeBox(suggest, "ibd-aggregator").height).toBe(40);
+	});
+
+	it("never applies page-split and keeps required/available under suggest", () => {
+		const pairCount = 25;
+		const nodes = Array.from({ length: pairCount }, (_, index) => [
+			{
+				id: `capacity-source-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: index * 70 },
+			},
+			{
+				id: `capacity-target-${index}`,
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 240, y: index * 70 },
+			},
+		]).flat();
+		const result = solveDiagram(
+			{
+				id: "page-split-never-applied",
+				direction: "LR",
+				nodes,
+				edges: Array.from({ length: pairCount }, (_, index) => ({
+					id: `capacity-edge-${index}`,
+					source: { nodeId: `capacity-source-${index}` },
+					target: { nodeId: `capacity-target-${index}` },
+				})),
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				railRouting: "dependency",
+				remediationPolicy: {
+					externalLabels: "auto",
+					routeRails: "auto",
+					growFixedGeometry: "auto",
+					pageSplit: "suggest",
+				},
+				strict: true,
+			},
+		);
+
+		const pageSplit = result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "page-split",
+		);
+		expect(pageSplit).toBeDefined();
+		expect(pageSplit?.status).not.toBe("applied");
+		expect(pageSplit?.status).toBe("suggested");
+		expect(pageSplit?.detail).toMatchObject({
+			strategy: "split-over-capacity-page",
+			required: expect.any(Number),
+			available: expect.any(Number),
+		});
+		if (pageSplit?.detail.strategy === "split-over-capacity-page") {
+			expect(pageSplit.detail.required).toBeGreaterThan(
+				pageSplit.detail.available,
+			);
+		}
+		if (result.deliverability?.status !== "clean") {
+			expect(result.deliverability?.status).toBe("unsatisfiable");
+			expect(result.deliverability?.remediationPlans.length).toBeGreaterThan(0);
+		}
+	});
+});
+
+function denseCvRemediationFixture(): NormalizedDiagram {
+	const nodeCount = 5;
+	const nodes = Array.from({ length: nodeCount }, (_, index) => [
+		{
+			id: `cv-source-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 0, y: index * 70 },
+		},
+		{
+			id: `cv-target-${index}`,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 300, y: index * 70 },
+		},
+	]).flat();
+	return {
+		id: "phase-17-cv-remediation",
+		direction: "LR",
+		nodes,
+		edges: Array.from({ length: 20 }, (_, index) => ({
+			id: `cv-dependency-${index}`,
+			source: { nodeId: `cv-source-${index % nodeCount}` },
+			target: {
+				nodeId: `cv-target-${(index * 2 + Math.floor(index / nodeCount)) % nodeCount}`,
+			},
+			label: { text: `capability dependency ${index}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		frame: {
+			kind: "sysml",
+			titleTab: "CV remediation view",
+		},
+	};
+}
+
+function denseIbdRemediationFixture(): NormalizedDiagram {
+	const sources = Array.from({ length: 10 }, (_, index) => ({
+		id: `ibd-source-${index}`,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x: 0, y: index * 46 },
+	}));
+	return {
+		id: "phase-17-ibd-remediation",
+		direction: "LR",
+		nodes: [
+			...sources,
+			{
+				id: "ibd-aggregator",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 260, y: 180 },
+			},
+			{
+				id: "ibd-sink",
+				shape: "rectangle" as const,
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 440, y: 180 },
+			},
+		],
+		edges: [
+			...sources.map((source, index) => ({
+				id: `ibd-flow-${index}`,
+				source: { nodeId: source.id },
+				target: { nodeId: "ibd-aggregator" },
+			})),
+			{
+				id: "ibd-aggregate-out",
+				source: { nodeId: "ibd-aggregator" },
+				target: { nodeId: "ibd-sink" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
 it("resolves explicit pagePolicy over heuristic classification", () => {
 	const diagram: NormalizedDiagram = {
 		id: "page-policy-explicit",

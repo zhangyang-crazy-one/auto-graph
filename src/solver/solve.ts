@@ -395,6 +395,8 @@ const DEFAULT_MIN_CJK_FONT_SIZE = 14;
 const RAIL_BAND_SOFT_OBSTACLE_MAX = 0;
 /** Maximum accepted dependency rail lanes before capacity remediation. */
 const DEFAULT_RAIL_BUDGET = 24;
+/** Hard cap on outer remediation apply iterations after route-label exhaustion. */
+const DEFAULT_MAX_REMEDIATION_ITERATIONS = 2;
 /** Reserved side-gutter width for resource-flow / IBD page policies. */
 const DEFAULT_SIDE_GUTTER_WIDTH = 48;
 const PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN = 6;
@@ -661,13 +663,13 @@ export function solveDiagram(
 		...reportPostGrowthOverlaps(beforeAnchorGrowthBoxes, constrained.boxes),
 	);
 
-	const coordinatedNodes = coordinateNodes(
+	let coordinatedNodes = coordinateNodes(
 		styledNodes,
 		constrained.boxes,
 		options,
 		diagnostics,
 	);
-	const nodeGeometryById = new Map(
+	let nodeGeometryById = new Map(
 		coordinatedNodes.map((node) => [
 			node.id,
 			computeShapeGeometry({
@@ -698,7 +700,7 @@ export function solveDiagram(
 	const groupBoxes = new Map(
 		coordinatedGroups.map((group) => [group.id, group.box]),
 	);
-	const baseTextAnnotations = coordinateBaseTextAnnotations({
+	let baseTextAnnotations = coordinateBaseTextAnnotations({
 		nodes: coordinatedNodes,
 		groups: coordinatedGroups,
 		swimlanes: coordinatedSwimlanes,
@@ -706,7 +708,7 @@ export function solveDiagram(
 			? {}
 			: { textMeasurer: options.textMeasurer }),
 	});
-	const edgeLabelEstimates =
+	let edgeLabelEstimates =
 		edgeLabelExternalizationPolicy(options) === "force"
 			? []
 			: estimateEdgeLabelAnnotations(
@@ -716,7 +718,7 @@ export function solveDiagram(
 					options.labelPlacement,
 					options.labelOffset,
 				);
-	const layoutBoxes = [
+	let layoutBoxes = [
 		...coordinatedNodes.map((node) => node.box),
 		...coordinatedNodes.flatMap((node) =>
 			(node.ports ?? []).flatMap((port) =>
@@ -729,7 +731,7 @@ export function solveDiagram(
 		),
 		...baseTextAnnotations.map((annotation) => annotation.box),
 	];
-	const initialContentBounds =
+	let initialContentBounds =
 		layoutBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(layoutBoxes);
@@ -797,8 +799,8 @@ export function solveDiagram(
 			],
 		),
 	);
-	const allBoxes = [...layoutBoxes, ...evidenceBoxes];
-	const contentBounds =
+	let allBoxes = [...layoutBoxes, ...evidenceBoxes];
+	let contentBounds =
 		allBoxes.length === 0
 			? { x: 0, y: 0, width: 0, height: 0 }
 			: unionBoxes(allBoxes);
@@ -810,7 +812,7 @@ export function solveDiagram(
 		frame === undefined
 			? []
 			: [coordinateFrameTextAnnotation(frame, options.textMeasurer)];
-	const routingTextObstacles = [
+	let routingTextObstacles = [
 		...baseTextAnnotations.filter(isPreRouteTextObstacle),
 		...frameTextAnnotation.filter(isPreRouteTextObstacle),
 		// Dry-run edge-label estimates so edges route around
@@ -830,7 +832,7 @@ export function solveDiagram(
 
 	// Include frame title box and swimlane lane header boxes so edges
 	// do not route through title bars (issue #29).
-	const titleBarObstacles: Box[] = [];
+	let titleBarObstacles: Box[] = [];
 	if (frame !== undefined) {
 		titleBarObstacles.push(expandBox(frame.titleBox, margin));
 	}
@@ -846,39 +848,39 @@ export function solveDiagram(
 		}
 	}
 
-	const reservedSideGutters = reserveSideGutters(
+	let reservedSideGutters = reserveSideGutters(
 		contentBounds,
 		diagram.direction,
 		resolvedPagePolicy,
 	);
-	const laneReservations = reserveLaneCorridors(
+	let laneReservations = reserveLaneCorridors(
 		coordinatedSwimlanes,
 		frame,
 		resolvedPagePolicy,
 		margin,
 	);
-	const policySoftObstacles = [
+	let policySoftObstacles = [
 		...softObstacles,
 		...(resolvedPagePolicy === "lane-behavior" ? [] : titleBarObstacles),
 		...laneReservations.softCorridors,
 	];
-	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
+	let policyLabelHardObstacles = resourceFlowLabelHardObstacles(
 		baseTextAnnotations,
 		resolvedPagePolicy,
 		options,
 	);
-	const policyHardObstacles = [
+	let policyHardObstacles = [
 		...hardObstacles,
 		...laneReservations.hardBands,
 		...policyLabelHardObstacles,
 	];
-	const policyHardObstacleMetadata: RouteHardObstacleMetadata[] = [
+	let policyHardObstacleMetadata: RouteHardObstacleMetadata[] = [
 		...hardObstacles.map(() => ({ kind: "evidence" as const })),
 		...laneReservations.hardBands.map(() => ({ kind: "text" as const })),
 		...policyLabelHardObstacles.map(() => ({ kind: "text" as const })),
 	];
 
-	const routeObstacleEntries = [...nodeGeometryById.entries()].map(
+	let routeObstacleEntries = [...nodeGeometryById.entries()].map(
 		([nodeId, geometry]) => ({
 			id: nodeId,
 			box:
@@ -1114,21 +1116,123 @@ export function solveDiagram(
 		...routeLabelFeedbackState.edgeRoutingDiagnostics,
 	);
 	diagnostics.push(...edgeRoutingDiagnostics);
-	const edgePointBounds = edgeBounds(coordinatedEdges);
-	const externalLabelCallouts =
-		externalLabelExecutionMode(options) === "auto"
-			? buildExternalLabelCallouts(
-					edgeTextAnnotations,
-					unionBoxes([contentBounds, ...edgePointBounds]),
-					options,
-				)
-			: [];
-	if (externalLabelCallouts.length > 0) {
-		edgeTextAnnotations = applyExternalLabelCallouts(
+
+	const residualRouteTextDiagnostics = reportRouteTextClearance(
+		coordinatedEdges,
+		routeLabelFeedbackTextAnnotations(
+			baseTextAnnotations,
+			frameTextAnnotation,
 			edgeTextAnnotations,
-			externalLabelCallouts,
+		),
+		options,
+	);
+	const enterRemediation =
+		residualRouteTextDiagnostics.length > 0 ||
+		diagnostics.some((diagnostic) =>
+			REMEDIATION_ENTRY_DIAGNOSTIC_CODES.has(diagnostic.code),
 		);
+	let appliedRemediationPlans: RemediationPlan[] = [];
+	let appliedExternalLabelCallouts: ExternalLabelCallout[] = [];
+	let remediationPassIterations = 0;
+	if (enterRemediation) {
+		if (
+			maxEdgeLabelReroutes > 0 &&
+			residualRouteTextDiagnostics.length > 0
+		) {
+			diagnostics.push(
+				routeLabelLoopExhaustedDiagnostic(
+					residualRouteTextDiagnostics,
+					routeLabelFeedbackState,
+					maxEdgeLabelReroutes,
+					{ remediationTransition: true },
+				),
+			);
+		}
+		const remediationState: RemediationPassState = {
+			coordinatedNodes,
+			nodeGeometryById,
+			constrainedBoxes: constrained.boxes,
+			baseTextAnnotations,
+			edgeLabelEstimates,
+			layoutBoxes,
+			contentBounds,
+			frame,
+			frameTextAnnotation,
+			routingTextObstacles,
+			titleBarObstacles,
+			reservedSideGutters,
+			laneReservations,
+			policySoftObstacles,
+			policyHardObstacles,
+			policyHardObstacleMetadata,
+			routeObstacleEntries,
+			coordinatedEdges,
+			edgeTextAnnotations,
+			edgeRoutingDiagnostics,
+			acceptedRailAllocations,
+			diagnostics,
+			appliedExternalLabelCallouts,
+			appliedRemediationPlans,
+			remediationPassIterations,
+			preservedDiagnosticKeys: new Set(
+				diagram.diagnostics.map(remediationDiagnosticKey),
+			),
+		};
+		runRemediationPass(remediationState, {
+			diagram,
+			styledEdges,
+			styledNodes,
+			coordinatedGroups,
+			coordinatedSwimlanes,
+			softObstacles,
+			hardObstacles,
+			evidenceBoxes,
+			resolvedPagePolicy,
+			options,
+			margin,
+			maxIterations: DEFAULT_MAX_REMEDIATION_ITERATIONS,
+		});
+		coordinatedNodes = remediationState.coordinatedNodes;
+		nodeGeometryById = remediationState.nodeGeometryById;
+		baseTextAnnotations = remediationState.baseTextAnnotations;
+		edgeLabelEstimates = remediationState.edgeLabelEstimates;
+		layoutBoxes = remediationState.layoutBoxes;
+		contentBounds = remediationState.contentBounds;
+		frame = remediationState.frame;
+		frameTextAnnotation = remediationState.frameTextAnnotation;
+		routingTextObstacles = remediationState.routingTextObstacles;
+		titleBarObstacles = remediationState.titleBarObstacles;
+		reservedSideGutters = remediationState.reservedSideGutters;
+		laneReservations = remediationState.laneReservations;
+		policySoftObstacles = remediationState.policySoftObstacles;
+		policyHardObstacles = remediationState.policyHardObstacles;
+		policyHardObstacleMetadata = remediationState.policyHardObstacleMetadata;
+		routeObstacleEntries = remediationState.routeObstacleEntries;
+		coordinatedEdges = remediationState.coordinatedEdges;
+		edgeTextAnnotations = remediationState.edgeTextAnnotations;
+		appliedExternalLabelCallouts =
+			remediationState.appliedExternalLabelCallouts;
+		appliedRemediationPlans = remediationState.appliedRemediationPlans;
+		remediationPassIterations = remediationState.remediationPassIterations;
+	} else if (externalLabelExecutionMode(options) === "auto") {
+		const edgePointBounds = edgeBounds(coordinatedEdges);
+		const externalLabelCallouts = buildExternalLabelCallouts(
+			edgeTextAnnotations,
+			unionBoxes([contentBounds, ...edgePointBounds]),
+			options,
+		);
+		if (externalLabelCallouts.length > 0) {
+			edgeTextAnnotations = applyExternalLabelCallouts(
+				edgeTextAnnotations,
+				externalLabelCallouts,
+			);
+			appliedExternalLabelCallouts = externalLabelCallouts.map(
+				(callout) => callout.callout,
+			);
+		}
 	}
+
+	const edgePointBounds = edgeBounds(coordinatedEdges);
 	const boundsBase = [
 		contentBounds,
 		...edgePointBounds,
@@ -1158,12 +1262,19 @@ export function solveDiagram(
 		options,
 	);
 	diagnostics.push(...routeTextDiagnostics);
-	if (maxEdgeLabelReroutes > 0 && routeTextDiagnostics.length > 0) {
+	if (
+		maxEdgeLabelReroutes > 0 &&
+		routeTextDiagnostics.length > 0 &&
+		!diagnostics.some(
+			(diagnostic) => diagnostic.code === "routing.route-label-loop.exhausted",
+		)
+	) {
 		diagnostics.push(
 			routeLabelLoopExhaustedDiagnostic(
 				routeTextDiagnostics,
 				routeLabelFeedbackState,
 				maxEdgeLabelReroutes,
+				enterRemediation ? { remediationTransition: true } : undefined,
 			),
 		);
 	}
@@ -1179,13 +1290,11 @@ export function solveDiagram(
 		),
 	);
 
-	const appliedExternalLabelCallouts = externalLabelCallouts.map(
-		(callout) => callout.callout,
-	);
 	let deliverability = buildDeliverabilityReport(
 		diagnostics,
 		options,
 		appliedExternalLabelCallouts,
+		appliedRemediationPlans,
 	);
 	if (deliverability.status === "unsatisfiable") {
 		diagnostics.push(
@@ -1199,6 +1308,7 @@ export function solveDiagram(
 			diagnostics,
 			options,
 			appliedExternalLabelCallouts,
+			appliedRemediationPlans,
 		);
 	}
 	const degraded = deliverability.degraded;
@@ -1736,6 +1846,7 @@ function buildDeliverabilityReport(
 	diagnostics: readonly Diagnostic[],
 	options: SolveDiagramOptions,
 	appliedExternalLabelCallouts: readonly ExternalLabelCallout[] = [],
+	appliedRemediationPlans: readonly RemediationPlan[] = [],
 ): DeliverabilityReport {
 	const blocking = diagnostics.filter((diagnostic) =>
 		DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code),
@@ -1754,6 +1865,7 @@ function buildDeliverabilityReport(
 			blocking,
 			options,
 			appliedExternalLabelCallouts,
+			appliedRemediationPlans,
 		),
 	};
 }
@@ -1766,8 +1878,13 @@ function buildRemediationPlans(
 	diagnostics: readonly Diagnostic[],
 	options: SolveDiagramOptions,
 	appliedExternalLabelCallouts: readonly ExternalLabelCallout[] = [],
+	appliedRemediationPlans: readonly RemediationPlan[] = [],
 ): RemediationPlan[] {
 	const policy = resolveRemediationPolicy(options.remediationPolicy);
+	const appliedByType = new Map<RemediationPlanType, RemediationPlan>();
+	for (const plan of appliedRemediationPlans) {
+		appliedByType.set(plan.type, plan);
+	}
 	const buckets = new Map<RemediationPlanType, Diagnostic[]>();
 	for (const diagnostic of diagnostics) {
 		if (diagnostic.code === "routing.deliverability.unsatisfiable") {
@@ -1793,6 +1910,10 @@ function buildRemediationPlans(
 	];
 	return planTypes
 		.flatMap((type) => {
+			const applied = appliedByType.get(type);
+			if (applied !== undefined) {
+				return [omitRemediationPlanId(applied)];
+			}
 			const bucket = buckets.get(type);
 			if (
 				type === "external-label" &&
@@ -1814,6 +1935,725 @@ function buildRemediationPlans(
 			...plan,
 			id: `remediation-${String(index + 1).padStart(2, "0")}-${plan.type}`,
 		}));
+}
+
+function omitRemediationPlanId(
+	plan: RemediationPlan,
+): Omit<RemediationPlan, "id"> {
+	const { id: _id, ...rest } = plan;
+	return rest;
+}
+
+interface RemediationPassState {
+	coordinatedNodes: CoordinatedNode[];
+	nodeGeometryById: Map<string, ReturnType<typeof computeShapeGeometry>>;
+	constrainedBoxes: Map<string, Box>;
+	baseTextAnnotations: SolvedTextAnnotation[];
+	edgeLabelEstimates: SolvedTextAnnotation[];
+	layoutBoxes: Box[];
+	contentBounds: Box;
+	frame: CoordinatedFrame | undefined;
+	frameTextAnnotation: SolvedTextAnnotation[];
+	routingTextObstacles: SolvedTextAnnotation[];
+	titleBarObstacles: Box[];
+	reservedSideGutters: RoutingGutterAllocation[];
+	laneReservations: { hardBands: Box[]; softCorridors: Box[] };
+	policySoftObstacles: Box[];
+	policyHardObstacles: Box[];
+	policyHardObstacleMetadata: RouteHardObstacleMetadata[];
+	routeObstacleEntries: NodeObstacleEntry[];
+	coordinatedEdges: CoordinatedEdge[];
+	edgeTextAnnotations: SolvedTextAnnotation[];
+	edgeRoutingDiagnostics: Diagnostic[];
+	acceptedRailAllocations: Map<string, RoutingRailAllocation>;
+	diagnostics: Diagnostic[];
+	appliedExternalLabelCallouts: ExternalLabelCallout[];
+	appliedRemediationPlans: RemediationPlan[];
+	remediationPassIterations: number;
+	/** Input-seeded diagnostics must survive regenerable routing refreshes. */
+	preservedDiagnosticKeys: ReadonlySet<string>;
+}
+
+/** Codes that justify entering the outer remediation pass after local routing. */
+const REMEDIATION_ENTRY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
+	"routing.text-clearance.unresolved",
+	"routing.label-congestion.unresolved",
+	"routing.label-externalization.required",
+	"routing.route-label-loop.exhausted",
+	"routing.rail-capacity.exceeded",
+	"routing.anchor-capacity.requires-resize",
+	"constraints.overlap.post-growth",
+	"routing.obstacle.unavoidable",
+	"routing.endpoint-interior.unavoidable",
+	"route_obstacle_fallback",
+]);
+
+interface RemediationPassContext {
+	diagram: NormalizedDiagram;
+	styledEdges: NormalizedEdge[];
+	styledNodes: NormalizedNode[];
+	coordinatedGroups: CoordinatedGroup[];
+	coordinatedSwimlanes: Swimlane[];
+	softObstacles: readonly Box[];
+	hardObstacles: readonly Box[];
+	evidenceBoxes: readonly Box[];
+	resolvedPagePolicy: PagePolicy;
+	options: SolveDiagramOptions;
+	margin: number | Insets;
+	maxIterations: number;
+}
+
+/**
+ * Bounded outer remediation after local route-label exhaustion.
+ * Apply order: grow → rails → external-label. Never materializes page-split.
+ */
+function runRemediationPass(
+	state: RemediationPassState,
+	context: RemediationPassContext,
+): void {
+	const policy = resolveRemediationPolicy(context.options.remediationPolicy);
+	const hasAuto =
+		policy.growFixedGeometry === "auto" ||
+		policy.routeRails === "auto" ||
+		policy.externalLabels === "auto";
+	// Suggest/off still stage plans via buildDeliverabilityReport; only auto
+	// policies mutate geometry and refresh regenerable routing diagnostics.
+	if (!hasAuto) {
+		return;
+	}
+	let previousFingerprint = remediationDiagnosticFingerprint(state.diagnostics);
+
+	for (
+		let iteration = 0;
+		iteration < context.maxIterations;
+		iteration += 1
+	) {
+		state.remediationPassIterations = iteration + 1;
+		let appliedAny = false;
+
+		const buildCandidates = (): RemediationPlan[] =>
+			buildRemediationPlans(
+				blockingRemediationDiagnostics(state.diagnostics),
+				context.options,
+				state.appliedExternalLabelCallouts,
+				state.appliedRemediationPlans,
+			);
+
+		if (
+			policy.growFixedGeometry === "auto" &&
+			!hasTerminalRemediationPlan(state, "grow-fixed-geometry")
+		) {
+			const growCandidate = buildCandidates().find(
+				(plan) => plan.type === "grow-fixed-geometry",
+			);
+			if (growCandidate !== undefined) {
+				const growPlan = applyGrowFixedGeometryRemediation(
+					growCandidate,
+					state,
+					context,
+				);
+				recordAppliedRemediationPlan(state, growPlan);
+				if (growPlan.status === "applied") {
+					appliedAny = true;
+					rebuildRemediationGeometry(state, context);
+					rerouteRemediationEdges(state, context, context.options);
+					refreshRemediationDiagnostics(state, context);
+				}
+			}
+		}
+
+		if (
+			policy.routeRails === "auto" &&
+			!hasTerminalRemediationPlan(state, "route-rail") &&
+			blockingRemediationDiagnostics(state.diagnostics).length > 0
+		) {
+			const railCandidate = buildCandidates().find(
+				(plan) => plan.type === "route-rail",
+			);
+			if (railCandidate !== undefined) {
+				const railPlan = applyRouteRailsRemediation(
+					railCandidate,
+					state,
+					context,
+				);
+				recordAppliedRemediationPlan(state, railPlan);
+				if (railPlan.status === "applied") {
+					appliedAny = true;
+					refreshRemediationDiagnostics(state, context);
+				}
+			}
+		}
+
+		if (
+			policy.externalLabels === "auto" &&
+			!hasTerminalRemediationPlan(state, "external-label") &&
+			blockingRemediationDiagnostics(state.diagnostics).length > 0
+		) {
+			const externalPlan = applyExternalLabelRemediation(state, context);
+			if (externalPlan !== undefined) {
+				recordAppliedRemediationPlan(state, externalPlan);
+				if (externalPlan.status === "applied") {
+					appliedAny = true;
+				}
+			}
+		}
+
+		refreshRemediationDiagnostics(state, context);
+		const fingerprint = remediationDiagnosticFingerprint(state.diagnostics);
+		if (!appliedAny && fingerprint === previousFingerprint) {
+			break;
+		}
+		previousFingerprint = fingerprint;
+		if (blockingRemediationDiagnostics(state.diagnostics).length === 0) {
+			break;
+		}
+	}
+}
+
+function hasTerminalRemediationPlan(
+	state: RemediationPassState,
+	type: RemediationPlanType,
+): boolean {
+	return state.appliedRemediationPlans.some(
+		(plan) =>
+			plan.type === type &&
+			(plan.status === "applied" || plan.status === "blocked"),
+	);
+}
+
+function recordAppliedRemediationPlan(
+	state: RemediationPassState,
+	plan: RemediationPlan,
+): void {
+	const existingIndex = state.appliedRemediationPlans.findIndex(
+		(candidate) => candidate.type === plan.type,
+	);
+	if (existingIndex >= 0) {
+		state.appliedRemediationPlans[existingIndex] = plan;
+	} else {
+		state.appliedRemediationPlans.push(plan);
+	}
+}
+
+function blockingRemediationDiagnostics(
+	diagnostics: readonly Diagnostic[],
+): Diagnostic[] {
+	return diagnostics.filter(
+		(diagnostic) =>
+			DELIVERABILITY_DIAGNOSTIC_CODES.has(diagnostic.code) &&
+			diagnostic.code !== "routing.deliverability.unsatisfiable",
+	);
+}
+
+function remediationDiagnosticFingerprint(
+	diagnostics: readonly Diagnostic[],
+): string {
+	return blockingRemediationDiagnostics(diagnostics)
+		.map(
+			(diagnostic) =>
+				`${diagnostic.code}:${String(diagnostic.detail?.edgeId ?? "")}:${String(diagnostic.detail?.nodeId ?? "")}:${String(diagnostic.detail?.required ?? "")}:${String(diagnostic.detail?.available ?? "")}`,
+		)
+		.sort((left, right) => left.localeCompare(right))
+		.join("|");
+}
+
+function applyGrowFixedGeometryRemediation(
+	candidate: RemediationPlan,
+	state: RemediationPassState,
+	context: RemediationPassContext,
+): RemediationPlan {
+	const policy = resolveRemediationPolicy(context.options.remediationPolicy);
+	const beforeBoxes = cloneBoxMap(state.constrainedBoxes);
+	const growthDeltas =
+		candidate.detail.strategy === "grow-or-relax-fixed-geometry" &&
+		candidate.detail.growthDeltas !== undefined
+			? candidate.detail.growthDeltas.map((delta) => ({ ...delta }))
+			: growthDeltasFromDiagnostics(state.diagnostics);
+
+	if (growthDeltas.length > 0) {
+		for (const delta of growthDeltas) {
+			const box = state.constrainedBoxes.get(delta.nodeId);
+			if (box === undefined) continue;
+			if (delta.deltaWidth > 0) {
+				box.x -= delta.deltaWidth / 2;
+				box.width += delta.deltaWidth;
+			}
+			if (delta.deltaHeight > 0) {
+				box.y -= delta.deltaHeight / 2;
+				box.height += delta.deltaHeight;
+			}
+		}
+	} else {
+		const growOptions: SolveDiagramOptions = {
+			...context.options,
+			anchorCapacity: {
+				...(typeof context.options.anchorCapacity === "object"
+					? context.options.anchorCapacity
+					: {}),
+				grow: true,
+			},
+		};
+		expandNodeBoxesForAnchorCapacity(
+			context.styledEdges,
+			context.styledNodes,
+			state.constrainedBoxes,
+			context.diagram.direction,
+			growOptions,
+			[],
+		);
+	}
+
+	const changedNodeIds = [...state.constrainedBoxes.keys()]
+		.filter((nodeId) => {
+			const before = beforeBoxes.get(nodeId);
+			const after = state.constrainedBoxes.get(nodeId);
+			return (
+				before !== undefined &&
+				after !== undefined &&
+				!sameBox(before, after)
+			);
+		})
+		.sort((left, right) => left.localeCompare(right));
+	const appliedDeltas = changedNodeIds.map((nodeId) => {
+		const before = beforeBoxes.get(nodeId);
+		const after = state.constrainedBoxes.get(nodeId);
+		return {
+			nodeId,
+			deltaWidth: Math.max(0, (after?.width ?? 0) - (before?.width ?? 0)),
+			deltaHeight: Math.max(0, (after?.height ?? 0) - (before?.height ?? 0)),
+		};
+	});
+
+	if (changedNodeIds.length > 0) {
+		state.diagnostics.push(
+			...reportPostGrowthOverlaps(beforeBoxes, state.constrainedBoxes),
+		);
+		stripDiagnosticsByCodes(
+			state.diagnostics,
+			["routing.anchor-capacity.requires-resize"],
+			state.preservedDiagnosticKeys,
+		);
+		return {
+			...candidate,
+			status: "applied",
+			reason: `Grew ${changedNodeIds.length} node(s) to restore anchor capacity during remediation.`,
+			nodeIds: stableStrings([...candidate.nodeIds, ...changedNodeIds]),
+			detail: {
+				strategy: "grow-or-relax-fixed-geometry",
+				policy: policy.growFixedGeometry,
+				affectedNodeCount: changedNodeIds.length,
+				growthDeltas: appliedDeltas,
+			},
+		};
+	}
+
+	return {
+		...candidate,
+		status: "blocked",
+		reason:
+			"growFixedGeometry auto could not expand fixed geometry enough to clear residual conflicts.",
+		detail: {
+			strategy: "grow-or-relax-fixed-geometry",
+			policy: policy.growFixedGeometry,
+			affectedNodeCount: candidate.nodeIds.length,
+			...(growthDeltas.length === 0
+				? {}
+				: {
+						growthDeltas: growthDeltas.map((delta) => ({ ...delta })),
+					}),
+		},
+	};
+}
+
+/**
+ * Phase 16 pagePolicy rails are the geometry engine; this wires
+ * remediationPolicy.routeRails auto to force/confirm that path after exhaustion.
+ */
+function applyRouteRailsRemediation(
+	candidate: RemediationPlan,
+	state: RemediationPassState,
+	context: RemediationPassContext,
+): RemediationPlan {
+	const policy = resolveRemediationPolicy(context.options.remediationPolicy);
+	const preSnapshot = railRemediationSnapshot(state);
+	const forcedOptions: SolveDiagramOptions = {
+		...context.options,
+		railRouting: "dependency",
+		pagePolicy:
+			context.options.pagePolicy === "off" ||
+			context.options.pagePolicy === undefined
+				? "dependency"
+				: context.options.pagePolicy,
+	};
+	rerouteRemediationEdges(state, context, forcedOptions);
+	const postSnapshot = railRemediationSnapshot(state);
+	const geometryChanged = preSnapshot.railSignature !== postSnapshot.railSignature;
+	const diagnosticsImproved =
+		postSnapshot.conflictCount < preSnapshot.conflictCount;
+	const capacity = capacityFromDiagnostics(state.diagnostics) ?? {
+		required:
+			candidate.detail.strategy === "dependency-rails"
+				? candidate.detail.required
+				: Math.max(1, candidate.edgeIds.length),
+		available:
+			candidate.detail.strategy === "dependency-rails"
+				? candidate.detail.available
+				: 0,
+	};
+
+	if (geometryChanged || diagnosticsImproved) {
+		return {
+			...candidate,
+			status: "applied",
+			reason:
+				"Forced dependency-rail routing during remediation and observed rail/diagnostic change.",
+			detail: {
+				strategy: "dependency-rails",
+				policy: policy.routeRails,
+				requiredRailCount: capacity.required,
+				required: capacity.required,
+				available: capacity.available,
+				edgeIds: [...candidate.edgeIds],
+			},
+		};
+	}
+
+	return {
+		...candidate,
+		status: "blocked",
+		reason:
+			"routeRails auto forced dependency rails but residual conflicts remain without measurable rail/diagnostic improvement.",
+		detail: {
+			strategy: "dependency-rails",
+			policy: policy.routeRails,
+			requiredRailCount: capacity.required,
+			required: capacity.required,
+			available: capacity.available,
+			edgeIds: [...candidate.edgeIds],
+		},
+	};
+}
+
+function applyExternalLabelRemediation(
+	state: RemediationPassState,
+	context: RemediationPassContext,
+): RemediationPlan | undefined {
+	const edgePointBounds = edgeBounds(state.coordinatedEdges);
+	const externalLabelCallouts = buildExternalLabelCallouts(
+		state.edgeTextAnnotations,
+		unionBoxes([state.contentBounds, ...edgePointBounds]),
+		context.options,
+	);
+	if (externalLabelCallouts.length === 0) {
+		const candidate = buildRemediationPlans(
+			blockingRemediationDiagnostics(state.diagnostics),
+			context.options,
+			state.appliedExternalLabelCallouts,
+			state.appliedRemediationPlans,
+		).find((plan) => plan.type === "external-label");
+		if (candidate === undefined) {
+			return undefined;
+		}
+		return {
+			...candidate,
+			status: "blocked",
+			reason:
+				"externalLabels auto found no external-callout-required labels to relocate.",
+		};
+	}
+	state.edgeTextAnnotations = applyExternalLabelCallouts(
+		state.edgeTextAnnotations,
+		externalLabelCallouts,
+	);
+	state.appliedExternalLabelCallouts = externalLabelCallouts.map(
+		(callout) => callout.callout,
+	);
+	const policy = resolveRemediationPolicy(context.options.remediationPolicy);
+	return {
+		id: "remediation-external-label",
+		...buildAppliedExternalLabelRemediationPlan(
+			blockingRemediationDiagnostics(state.diagnostics),
+			policy,
+			state.appliedExternalLabelCallouts,
+		),
+	};
+}
+
+function railRemediationSnapshot(state: RemediationPassState): {
+	railSignature: string;
+	conflictCount: number;
+} {
+	const rails = [...state.acceptedRailAllocations.values()]
+		.map(
+			(rail) =>
+				`${rail.edgeId}:${rail.side}:${rail.index}:${Math.round(rail.coordinate)}`,
+		)
+		.sort((left, right) => left.localeCompare(right));
+	const conflictCount = state.diagnostics.filter((diagnostic) =>
+		[
+			"routing.text-clearance.unresolved",
+			"routing.obstacle.unavoidable",
+			"routing.rail-capacity.exceeded",
+			"routing.label-congestion.unresolved",
+		].includes(diagnostic.code),
+	).length;
+	return {
+		railSignature: rails.join("|"),
+		conflictCount,
+	};
+}
+
+function rebuildRemediationGeometry(
+	state: RemediationPassState,
+	context: RemediationPassContext,
+): void {
+	state.coordinatedNodes = coordinateNodes(
+		context.styledNodes,
+		state.constrainedBoxes,
+		context.options,
+		state.diagnostics,
+	);
+	state.nodeGeometryById = new Map(
+		state.coordinatedNodes.map((node) => [
+			node.id,
+			computeShapeGeometry({
+				shape: node.shape,
+				box: node.box,
+				obstacleMargin: context.options.obstacleMargin ?? 0,
+			}),
+		]),
+	);
+	state.baseTextAnnotations = coordinateBaseTextAnnotations({
+		nodes: state.coordinatedNodes,
+		groups: context.coordinatedGroups,
+		swimlanes: context.coordinatedSwimlanes,
+		...(context.options.textMeasurer === undefined
+			? {}
+			: { textMeasurer: context.options.textMeasurer }),
+	});
+	state.edgeLabelEstimates =
+		edgeLabelExternalizationPolicy(context.options) === "force"
+			? []
+			: estimateEdgeLabelAnnotations(
+					context.styledEdges,
+					state.nodeGeometryById,
+					context.options.textMeasurer,
+					context.options.labelPlacement,
+					context.options.labelOffset,
+				);
+	const groupBoxes = new Map(
+		context.coordinatedGroups.map((group) => [group.id, group.box]),
+	);
+	state.layoutBoxes = [
+		...state.coordinatedNodes.map((node) => node.box),
+		...state.coordinatedNodes.flatMap((node) =>
+			(node.ports ?? []).flatMap((port) =>
+				port.label === undefined ? [port.box] : [port.box, portLabelBox(port)],
+			),
+		),
+		...groupBoxes.values(),
+		...context.coordinatedSwimlanes.flatMap((swimlane) =>
+			swimlane.box === undefined ? [] : [swimlane.box],
+		),
+		...state.baseTextAnnotations.map((annotation) => annotation.box),
+	];
+	const allBoxes = [...state.layoutBoxes, ...context.evidenceBoxes];
+	state.contentBounds =
+		allBoxes.length === 0
+			? { x: 0, y: 0, width: 0, height: 0 }
+			: unionBoxes(allBoxes);
+	state.frame =
+		context.diagram.frame === undefined
+			? undefined
+			: coordinateFrame(context.diagram.frame, state.contentBounds);
+	state.frameTextAnnotation =
+		state.frame === undefined
+			? []
+			: [
+					coordinateFrameTextAnnotation(
+						state.frame,
+						context.options.textMeasurer,
+					),
+				];
+	state.routingTextObstacles = [
+		...state.baseTextAnnotations.filter(isPreRouteTextObstacle),
+		...state.frameTextAnnotation.filter(isPreRouteTextObstacle),
+		...state.edgeLabelEstimates,
+	];
+	state.titleBarObstacles = [];
+	if (state.frame !== undefined) {
+		state.titleBarObstacles.push(expandBox(state.frame.titleBox, context.margin));
+	}
+	for (const swimlane of context.coordinatedSwimlanes) {
+		for (const lane of swimlane.lanes) {
+			if (
+				lane.headerBox !== undefined &&
+				lane.headerBox.width > 0 &&
+				lane.headerBox.height > 0
+			) {
+				state.titleBarObstacles.push(expandBox(lane.headerBox, context.margin));
+			}
+		}
+	}
+	state.reservedSideGutters = reserveSideGutters(
+		state.contentBounds,
+		context.diagram.direction,
+		context.resolvedPagePolicy,
+	);
+	state.laneReservations = reserveLaneCorridors(
+		context.coordinatedSwimlanes,
+		state.frame,
+		context.resolvedPagePolicy,
+		context.margin,
+	);
+	state.policySoftObstacles = [
+		...context.softObstacles,
+		...(context.resolvedPagePolicy === "lane-behavior"
+			? []
+			: state.titleBarObstacles),
+		...state.laneReservations.softCorridors,
+	];
+	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
+		state.baseTextAnnotations,
+		context.resolvedPagePolicy,
+		context.options,
+	);
+	state.policyHardObstacles = [
+		...context.hardObstacles,
+		...state.laneReservations.hardBands,
+		...policyLabelHardObstacles,
+	];
+	state.policyHardObstacleMetadata = [
+		...context.hardObstacles.map(() => ({ kind: "evidence" as const })),
+		...state.laneReservations.hardBands.map(() => ({ kind: "text" as const })),
+		...policyLabelHardObstacles.map(() => ({ kind: "text" as const })),
+	];
+	state.routeObstacleEntries = [...state.nodeGeometryById.entries()].map(
+		([nodeId, geometry]) => ({
+			id: nodeId,
+			box:
+				context.options.routingGutter === undefined
+					? geometry.obstacleBox
+					: expandBox(geometry.obstacleBox, context.options.routingGutter),
+		}),
+	);
+}
+
+function rerouteRemediationEdges(
+	state: RemediationPassState,
+	context: RemediationPassContext,
+	options: SolveDiagramOptions,
+): void {
+	const edgeRoutingDiagnostics: Diagnostic[] = [];
+	state.acceptedRailAllocations.clear();
+	state.coordinatedEdges = coordinateEdges(
+		context.styledEdges,
+		state.nodeGeometryById,
+		state.coordinatedNodes,
+		state.routeObstacleEntries,
+		state.policySoftObstacles,
+		state.routingTextObstacles,
+		state.policyHardObstacles,
+		context.diagram.direction,
+		options,
+		edgeRoutingDiagnostics,
+		context.coordinatedGroups,
+		state.contentBounds,
+		context.styledEdges,
+		state.frame !== undefined,
+		state.policyHardObstacleMetadata,
+		state.acceptedRailAllocations,
+	);
+	state.edgeRoutingDiagnostics.splice(
+		0,
+		state.edgeRoutingDiagnostics.length,
+		...edgeRoutingDiagnostics,
+	);
+	state.edgeTextAnnotations = coordinateEdgeTextAnnotations(
+		state.coordinatedEdges,
+		[
+			...state.coordinatedNodes.map((node) => node.box),
+			...state.baseTextAnnotations.map((annotation) => annotation.box),
+			...state.frameTextAnnotation.map((annotation) => annotation.box),
+		],
+		options,
+	);
+}
+
+function refreshRemediationDiagnostics(
+	state: RemediationPassState,
+	context: RemediationPassContext,
+): void {
+	stripDiagnosticsByCodes(
+		state.diagnostics,
+		[
+			"routing.text-clearance.unresolved",
+			"routing.label-congestion.unresolved",
+			"routing.label-externalization.required",
+			"routing.obstacle.unavoidable",
+			"routing.rail-capacity.exceeded",
+			"routing.endpoint-interior.unavoidable",
+			"route_obstacle_fallback",
+			"routing.label-hard-obstacle.unavoidable",
+		],
+		state.preservedDiagnosticKeys,
+	);
+	// Keep edge-routing diagnostics from the latest remediation reroute.
+	const retained = state.diagnostics.filter(
+		(diagnostic) =>
+			state.preservedDiagnosticKeys.has(
+				remediationDiagnosticKey(diagnostic),
+			) ||
+			!state.edgeRoutingDiagnostics.some(
+				(edgeDiagnostic) =>
+					edgeDiagnostic.code === diagnostic.code &&
+					edgeDiagnostic.detail?.edgeId === diagnostic.detail?.edgeId,
+			),
+	);
+	state.diagnostics.splice(
+		0,
+		state.diagnostics.length,
+		...retained,
+		...state.edgeRoutingDiagnostics,
+	);
+	const routeTextDiagnostics = reportRouteTextClearance(
+		state.coordinatedEdges,
+		routeLabelFeedbackTextAnnotations(
+			state.baseTextAnnotations,
+			state.frameTextAnnotation,
+			state.edgeTextAnnotations,
+		),
+		context.options,
+	);
+	state.diagnostics.push(...routeTextDiagnostics);
+	state.diagnostics.push(
+		...reportLabelCongestionDiagnostics(
+			routeTextDiagnostics,
+			state.coordinatedEdges,
+		),
+	);
+}
+
+function stripDiagnosticsByCodes(
+	diagnostics: Diagnostic[],
+	codes: readonly string[],
+	preservedKeys: ReadonlySet<string> = new Set(),
+): void {
+	const codeSet = new Set(codes);
+	for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+		const diagnostic = diagnostics[index];
+		if (
+			diagnostic !== undefined &&
+			codeSet.has(diagnostic.code) &&
+			!preservedKeys.has(remediationDiagnosticKey(diagnostic))
+		) {
+			diagnostics.splice(index, 1);
+		}
+	}
+}
+
+function remediationDiagnosticKey(diagnostic: Diagnostic): string {
+	return `${diagnostic.code}|${diagnostic.message}|${String(diagnostic.detail?.edgeId ?? "")}|${String(diagnostic.detail?.nodeId ?? "")}`;
 }
 
 function resolveRemediationPolicy(
@@ -7486,6 +8326,7 @@ function routeLabelLoopExhaustedDiagnostic(
 	routeTextDiagnostics: readonly Diagnostic[],
 	state: RouteLabelFeedbackState,
 	maxIterations: number,
+	options?: { remediationTransition?: boolean },
 ): Diagnostic {
 	const edgeIds = edgeIdsFromRouteTextDiagnostics(routeTextDiagnostics);
 	const ownerIds = stableStrings(
@@ -7517,6 +8358,12 @@ function routeLabelLoopExhaustedDiagnostic(
 			textSurfaceKinds: surfaceKinds.join(","),
 			suggestedRemedy:
 				"Increase route clearance, grow label/node spacing, split the dense view, or reduce label area near routed edges.",
+			...(options?.remediationTransition === true
+				? {
+						remediationTransition: true,
+						phase: "remediation-planning",
+					}
+				: {}),
 		}),
 	};
 }
