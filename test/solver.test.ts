@@ -2650,6 +2650,119 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("honors deliverabilityMode strict for congested label externalization", () => {
+		const diagram = congestedEdgeLabelExternalizationDiagram();
+		const optionsBase = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			edgeLabelRerouting: { maxIterations: 2 },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		};
+		const withFlag = solveDiagram(diagram, {
+			...optionsBase,
+			strict: true,
+		});
+		const withMode = solveDiagram(diagram, {
+			...optionsBase,
+			deliverabilityMode: "strict",
+		});
+		const placements = (result: typeof withFlag) =>
+			result.textAnnotations
+				?.filter((annotation) => annotation.surfaceKind === "edge-label")
+				.map((annotation) => ({
+					ownerId: annotation.ownerId,
+					placement: annotation.placement,
+				}))
+				.sort((left, right) => left.ownerId.localeCompare(right.ownerId));
+		expect(placements(withMode)).toEqual(placements(withFlag));
+		expect(
+			withMode.textAnnotations?.some(
+				(annotation) =>
+					annotation.placement === "external-callout-required" ||
+					annotation.placement === "external-callout",
+			),
+		).toBe(true);
+	});
+
+	it("stacks external callouts by cumulative shelf height", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const callouts = result.textAnnotations
+			?.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "callout",
+			)
+			.sort((left, right) => left.box.y - right.box.y);
+		expect((callouts?.length ?? 0) >= 2).toBe(true);
+		if (callouts !== undefined && callouts.length >= 2) {
+			for (let index = 0; index < callouts.length - 1; index += 1) {
+				const current = callouts[index];
+				const next = callouts[index + 1];
+				if (current === undefined || next === undefined) continue;
+				expect(next.box.y).toBeGreaterThanOrEqual(
+					current.box.y + current.box.height,
+				);
+			}
+		}
+	});
+
+	it("exports both key and shelf callout annotations in SVG", async () => {
+		const { exportSvg } = await import("../src/exporters/svg.js");
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const svg = exportSvg(result);
+		expect(svg).toContain(">E1<");
+		expect(svg).toMatch(/alpha external callout lab/);
+		expect(svg).toMatch(/middle external callout lab/);
+		expect(svg).toContain('data-for="alpha"');
+		expect(
+			(svg.match(/data-for="alpha"/g) ?? []).length,
+		).toBeGreaterThanOrEqual(2);
+	});
+
+	it("does not keep route-label-loop.exhausted when remediation clears conflicts", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 1 },
+			externalLabels: true,
+			remediationPolicy: {
+				externalLabels: "auto",
+				routeRails: "auto",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+			strict: true,
+		});
+		const hasResidualText = result.diagnostics.some(
+			(diagnostic) => diagnostic.code === "routing.text-clearance.unresolved",
+		);
+		if (!hasResidualText && result.deliverability?.status === "clean") {
+			expect(result.diagnostics).not.toContainEqual(
+				expect.objectContaining({
+					code: "routing.route-label-loop.exhausted",
+				}),
+			);
+		}
+	});
+
 	it("keeps suggest and off external-label policies non-executing", () => {
 		const suggest = solveDiagram(externalLabelAutoDiagram(), {
 			initialLayout: "positions",
@@ -5891,6 +6004,32 @@ function externalLabelAutoDiagram(): NormalizedDiagram {
 				label: { text: "middle external callout label" },
 			},
 		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+}
+
+function congestedEdgeLabelExternalizationDiagram(): NormalizedDiagram {
+	const nodes: NormalizedDiagram["nodes"] = [];
+	const edges: NormalizedDiagram["edges"] = [];
+	for (let index = 0; index < 5; index += 1) {
+		nodes.push(node(`s${index}`, { x: 0, y: index * 70 }));
+		nodes.push(node(`t${index}`, { x: 300, y: index * 70 }));
+	}
+	for (let index = 0; index < 20; index += 1) {
+		edges.push({
+			id: `e${index}`,
+			source: { nodeId: `s${index % 5}` },
+			target: { nodeId: `t${(index * 2) % 5}` },
+			label: { text: `capability dependency ${index} with long text` },
+		});
+	}
+	return {
+		id: "congested-edge-label-externalization",
+		direction: "LR",
+		nodes,
+		edges,
 		groups: [],
 		constraints: [],
 		diagnostics: [],

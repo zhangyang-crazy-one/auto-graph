@@ -138,31 +138,50 @@ function shouldAutoClassifyPagePolicy(options: SolveDiagramOptions): boolean {
 	return (
 		options.pagePolicy === "auto" ||
 		options.deliverabilityMode !== undefined ||
+		options.strict === true ||
 		options.remediationPolicy !== undefined
 	);
 }
 
 function classifyPagePolicy(diagram: NormalizedDiagram): PagePolicy {
+	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
+	const boxes = new Map(
+		diagram.nodes.map((node) => [node.id, nodeBoxFromNormalized(node)]),
+	);
+	return classifyPagePolicyFromBoxes(diagram, boxes, nodeById);
+}
+
+function classifyPagePolicyFromBoxes(
+	diagram: NormalizedDiagram,
+	boxes: ReadonlyMap<string, Box>,
+	nodeById: ReadonlyMap<string, NormalizedNode> = new Map(
+		diagram.nodes.map((node) => [node.id, node]),
+	),
+): PagePolicy {
 	const swimlanes = diagram.swimlanes ?? [];
 	if (swimlanes.length > 0) {
 		return "lane-behavior";
 	}
 	const direction = diagram.direction;
-	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
 	const edges = [...diagram.edges].sort((a, b) => a.id.localeCompare(b.id));
-	const sameSideFanIn = maxSameSideFanIn(edges, nodeById, direction);
+	const sameSideFanIn = maxSameSideFanInFromBoxes(
+		edges,
+		boxes,
+		nodeById,
+		direction,
+	);
 	if (sameSideFanIn >= PAGE_POLICY_SAME_SIDE_FAN_IN_MIN) {
 		return "ibd-high-fan-in";
 	}
-	const labeledFlowCount = countLabeledNonSameRankEdges(
+	const labeledFlowCount = countLabeledNonSameRankEdgesFromBoxes(
 		edges,
-		nodeById,
+		boxes,
 		direction,
 	);
 	if (labeledFlowCount >= PAGE_POLICY_LABELED_FLOW_MIN) {
 		return "resource-flow";
 	}
-	const sameRankCount = countSameRankEdges(edges, nodeById, direction);
+	const sameRankCount = countSameRankEdgesFromBoxes(edges, boxes, direction);
 	if (sameRankCount >= PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN) {
 		return "dependency";
 	}
@@ -174,18 +193,26 @@ function countSameRankEdges(
 	nodeById: ReadonlyMap<string, NormalizedNode>,
 	direction: NormalizedDiagram["direction"],
 ): number {
+	const boxes = new Map(
+		[...nodeById.entries()].map(([id, node]) => [
+			id,
+			nodeBoxFromNormalized(node),
+		]),
+	);
+	return countSameRankEdgesFromBoxes(edges, boxes, direction);
+}
+
+function countSameRankEdgesFromBoxes(
+	edges: readonly NormalizedEdge[],
+	boxes: ReadonlyMap<string, Box>,
+	direction: NormalizedDiagram["direction"],
+): number {
 	let count = 0;
 	for (const edge of edges) {
-		const source = nodeById.get(edge.source.nodeId);
-		const target = nodeById.get(edge.target.nodeId);
+		const source = boxes.get(edge.source.nodeId);
+		const target = boxes.get(edge.target.nodeId);
 		if (source === undefined || target === undefined) continue;
-		if (
-			isSameRankByNodeBoxes(
-				nodeBoxFromNormalized(source),
-				nodeBoxFromNormalized(target),
-				direction,
-			)
-		) {
+		if (isSameRankByNodeBoxes(source, target, direction)) {
 			count += 1;
 		}
 	}
@@ -197,20 +224,28 @@ function countLabeledNonSameRankEdges(
 	nodeById: ReadonlyMap<string, NormalizedNode>,
 	direction: NormalizedDiagram["direction"],
 ): number {
+	const boxes = new Map(
+		[...nodeById.entries()].map(([id, node]) => [
+			id,
+			nodeBoxFromNormalized(node),
+		]),
+	);
+	return countLabeledNonSameRankEdgesFromBoxes(edges, boxes, direction);
+}
+
+function countLabeledNonSameRankEdgesFromBoxes(
+	edges: readonly NormalizedEdge[],
+	boxes: ReadonlyMap<string, Box>,
+	direction: NormalizedDiagram["direction"],
+): number {
 	let count = 0;
 	for (const edge of edges) {
 		const labelText = edge.label?.text?.trim() ?? "";
 		if (labelText.length === 0) continue;
-		const source = nodeById.get(edge.source.nodeId);
-		const target = nodeById.get(edge.target.nodeId);
+		const source = boxes.get(edge.source.nodeId);
+		const target = boxes.get(edge.target.nodeId);
 		if (source === undefined || target === undefined) continue;
-		if (
-			isSameRankByNodeBoxes(
-				nodeBoxFromNormalized(source),
-				nodeBoxFromNormalized(target),
-				direction,
-			)
-		) {
+		if (isSameRankByNodeBoxes(source, target, direction)) {
 			continue;
 		}
 		count += 1;
@@ -223,17 +258,30 @@ function maxSameSideFanIn(
 	nodeById: ReadonlyMap<string, NormalizedNode>,
 	direction: NormalizedDiagram["direction"],
 ): number {
+	const boxes = new Map(
+		[...nodeById.entries()].map(([id, node]) => [
+			id,
+			nodeBoxFromNormalized(node),
+		]),
+	);
+	return maxSameSideFanInFromBoxes(edges, boxes, nodeById, direction);
+}
+
+function maxSameSideFanInFromBoxes(
+	edges: readonly NormalizedEdge[],
+	boxes: ReadonlyMap<string, Box>,
+	nodeById: ReadonlyMap<string, NormalizedNode>,
+	direction: NormalizedDiagram["direction"],
+): number {
 	const counts = new Map<string, number>();
 	for (const edge of edges) {
-		const target = nodeById.get(edge.target.nodeId);
-		const source = nodeById.get(edge.source.nodeId);
+		if (!nodeById.has(edge.target.nodeId) || !nodeById.has(edge.source.nodeId)) {
+			continue;
+		}
+		const target = boxes.get(edge.target.nodeId);
+		const source = boxes.get(edge.source.nodeId);
 		if (target === undefined || source === undefined) continue;
-		const side = inferredEndpointSide(
-			nodeBoxFromNormalized(source),
-			nodeBoxFromNormalized(target),
-			direction,
-			"target",
-		);
+		const side = inferredEndpointSide(source, target, direction, "target");
 		const key = `${edge.target.nodeId}:${side}`;
 		counts.set(key, (counts.get(key) ?? 0) + 1);
 	}
@@ -465,8 +513,18 @@ export function solveDiagram(
 	diagram: NormalizedDiagram,
 	inputOptions: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
-	const resolvedPagePolicy = resolvePagePolicy(diagram, inputOptions);
-	const options: SolveDiagramOptions = {
+	const explicitPagePolicy =
+		inputOptions.pagePolicy ?? metadataPagePolicy(diagram.metadata);
+	const deferAutoPagePolicy =
+		explicitPagePolicy === "auto" ||
+		(explicitPagePolicy === undefined &&
+			shouldAutoClassifyPagePolicy(inputOptions));
+	// Defer auto classification until node boxes exist (after layout). Explicit
+	// concrete policies still resolve immediately.
+	let resolvedPagePolicy: PagePolicy = deferAutoPagePolicy
+		? "off"
+		: resolvePagePolicy(diagram, inputOptions);
+	let options: SolveDiagramOptions = {
 		...inputOptions,
 		pagePolicy: resolvedPagePolicy,
 	};
@@ -664,6 +722,17 @@ export function solveDiagram(
 		...reportPostGrowthOverlaps(beforeAnchorGrowthBoxes, constrained.boxes),
 	);
 
+	if (deferAutoPagePolicy) {
+		resolvedPagePolicy = classifyPagePolicyFromBoxes(
+			diagram,
+			constrained.boxes,
+		);
+		options = {
+			...options,
+			pagePolicy: resolvedPagePolicy,
+		};
+	}
+
 	let coordinatedNodes = coordinateNodes(
 		styledNodes,
 		constrained.boxes,
@@ -680,13 +749,13 @@ export function solveDiagram(
 			}),
 		]),
 	);
-	const coordinatedGroups = coordinateGroups(
+	let coordinatedGroups = coordinateGroups(
 		styledGroups,
 		constrained.boxes,
 		options,
 		diagnostics,
 	);
-	const coordinatedSwimlanes = coordinateSwimlanes(
+	let coordinatedSwimlanes = coordinateSwimlanes(
 		styledSwimlanes,
 		constrained.boxes,
 		swimlaneContracts.layouts,
@@ -990,13 +1059,22 @@ export function solveDiagram(
 				baselineTextAnnotations,
 				options,
 			);
+			const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
+				baselineTextAnnotations,
+				resolvedPagePolicy,
+				options,
+			);
 			const rerouteHardObstacles = [
 				...hardObstacles,
 				...hardTextObstacleEntries.map((entry) => entry.box),
+				...laneReservations.hardBands,
+				...policyLabelHardObstacles,
 			];
 			const rerouteHardObstacleMetadata: RouteHardObstacleMetadata[] = [
 				...hardObstacles.map(() => ({ kind: "evidence" as const })),
 				...hardTextObstacleEntries.map((entry) => entry.metadata),
+				...laneReservations.hardBands.map(() => ({ kind: "text" as const })),
+				...policyLabelHardObstacles.map(() => ({ kind: "text" as const })),
 			];
 			const candidateRailAllocations = new Map(acceptedRailAllocations);
 			const reroutedEdge = coordinateEdges(
@@ -1006,15 +1084,7 @@ export function solveDiagram(
 				routeObstacleEntries,
 				policySoftObstacles,
 				baselineTextAnnotations,
-				[
-					...rerouteHardObstacles,
-					...laneReservations.hardBands,
-					...resourceFlowLabelHardObstacles(
-						baselineTextAnnotations,
-						resolvedPagePolicy,
-						options,
-					),
-				],
+				rerouteHardObstacles,
 				diagram.direction,
 				options,
 				rerouteDiagnostics,
@@ -1150,6 +1220,8 @@ export function solveDiagram(
 			coordinatedNodes,
 			nodeGeometryById,
 			constrainedBoxes: constrained.boxes,
+			coordinatedGroups,
+			coordinatedSwimlanes,
 			baseTextAnnotations,
 			edgeLabelEstimates,
 			layoutBoxes,
@@ -1180,8 +1252,9 @@ export function solveDiagram(
 			diagram,
 			styledEdges,
 			styledNodes,
-			coordinatedGroups,
-			coordinatedSwimlanes,
+			styledGroups,
+			styledSwimlanes,
+			swimlaneLayouts: swimlaneContracts.layouts,
 			softObstacles,
 			hardObstacles,
 			evidenceBoxes,
@@ -1192,6 +1265,8 @@ export function solveDiagram(
 		});
 		coordinatedNodes = remediationState.coordinatedNodes;
 		nodeGeometryById = remediationState.nodeGeometryById;
+		coordinatedGroups = remediationState.coordinatedGroups;
+		coordinatedSwimlanes = remediationState.coordinatedSwimlanes;
 		baseTextAnnotations = remediationState.baseTextAnnotations;
 		edgeLabelEstimates = remediationState.edgeLabelEstimates;
 		layoutBoxes = remediationState.layoutBoxes;
@@ -1946,6 +2021,8 @@ interface RemediationPassState {
 	coordinatedNodes: CoordinatedNode[];
 	nodeGeometryById: Map<string, ReturnType<typeof computeShapeGeometry>>;
 	constrainedBoxes: Map<string, Box>;
+	coordinatedGroups: CoordinatedGroup[];
+	coordinatedSwimlanes: Swimlane[];
 	baseTextAnnotations: SolvedTextAnnotation[];
 	edgeLabelEstimates: SolvedTextAnnotation[];
 	layoutBoxes: Box[];
@@ -1990,8 +2067,9 @@ interface RemediationPassContext {
 	diagram: NormalizedDiagram;
 	styledEdges: NormalizedEdge[];
 	styledNodes: NormalizedNode[];
-	coordinatedGroups: CoordinatedGroup[];
-	coordinatedSwimlanes: Swimlane[];
+	styledGroups: NormalizedGroup[];
+	styledSwimlanes: Swimlane[];
+	swimlaneLayouts: ReadonlyMap<string, SwimlaneContractLayout>;
 	softObstacles: readonly Box[];
 	hardObstacles: readonly Box[];
 	evidenceBoxes: readonly Box[];
@@ -2416,10 +2494,23 @@ function rebuildRemediationGeometry(
 			}),
 		]),
 	);
+	state.coordinatedGroups = coordinateGroups(
+		context.styledGroups,
+		state.constrainedBoxes,
+		context.options,
+		state.diagnostics,
+	);
+	state.coordinatedSwimlanes = coordinateSwimlanes(
+		context.styledSwimlanes,
+		state.constrainedBoxes,
+		context.swimlaneLayouts,
+		context.options,
+		state.diagnostics,
+	);
 	state.baseTextAnnotations = coordinateBaseTextAnnotations({
 		nodes: state.coordinatedNodes,
-		groups: context.coordinatedGroups,
-		swimlanes: context.coordinatedSwimlanes,
+		groups: state.coordinatedGroups,
+		swimlanes: state.coordinatedSwimlanes,
 		...(context.options.textMeasurer === undefined
 			? {}
 			: { textMeasurer: context.options.textMeasurer }),
@@ -2435,7 +2526,7 @@ function rebuildRemediationGeometry(
 					context.options.labelOffset,
 				);
 	const groupBoxes = new Map(
-		context.coordinatedGroups.map((group) => [group.id, group.box]),
+		state.coordinatedGroups.map((group) => [group.id, group.box]),
 	);
 	state.layoutBoxes = [
 		...state.coordinatedNodes.map((node) => node.box),
@@ -2445,7 +2536,7 @@ function rebuildRemediationGeometry(
 			),
 		),
 		...groupBoxes.values(),
-		...context.coordinatedSwimlanes.flatMap((swimlane) =>
+		...state.coordinatedSwimlanes.flatMap((swimlane) =>
 			swimlane.box === undefined ? [] : [swimlane.box],
 		),
 		...state.baseTextAnnotations.map((annotation) => annotation.box),
@@ -2479,7 +2570,7 @@ function rebuildRemediationGeometry(
 			expandBox(state.frame.titleBox, context.margin),
 		);
 	}
-	for (const swimlane of context.coordinatedSwimlanes) {
+	for (const swimlane of state.coordinatedSwimlanes) {
 		for (const lane of swimlane.lanes) {
 			if (
 				lane.headerBox !== undefined &&
@@ -2496,7 +2587,7 @@ function rebuildRemediationGeometry(
 		context.resolvedPagePolicy,
 	);
 	state.laneReservations = reserveLaneCorridors(
-		context.coordinatedSwimlanes,
+		state.coordinatedSwimlanes,
 		state.frame,
 		context.resolvedPagePolicy,
 		context.margin,
@@ -2552,7 +2643,7 @@ function rerouteRemediationEdges(
 		context.diagram.direction,
 		options,
 		edgeRoutingDiagnostics,
-		context.coordinatedGroups,
+		state.coordinatedGroups,
 		state.contentBounds,
 		context.styledEdges,
 		state.frame !== undefined,
@@ -2585,6 +2676,7 @@ function refreshRemediationDiagnostics(
 			"routing.text-clearance.unresolved",
 			"routing.label-congestion.unresolved",
 			"routing.label-externalization.required",
+			"routing.route-label-loop.exhausted",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
 			"routing.endpoint-interior.unavoidable",
@@ -7768,6 +7860,7 @@ function buildExternalLabelCallouts(
 	}
 
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
+	let shelfY = bounds.y;
 	return sources.map((source, index) => {
 		const key = externalLabelKey(index);
 		const keyLayout = fitLabel(
@@ -7791,7 +7884,9 @@ function buildExternalLabelCallouts(
 			width: keyLayout.box.width,
 			height: keyLayout.box.height,
 		};
-		const calloutBox = externalLabelShelfBox(bounds, source.box, index);
+		const calloutBox = externalLabelShelfBox(bounds, source.box, shelfY);
+		shelfY +=
+			Math.max(14, source.box.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
 		const callout: ExternalLabelCallout = {
 			edgeId: source.ownerId,
 			key,
@@ -7846,13 +7941,11 @@ function externalLabelKey(index: number): string {
 function externalLabelShelfBox(
 	bounds: Box,
 	sourceBox: Box,
-	index: number,
+	shelfY: number,
 ): Box {
 	return {
 		x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
-		y:
-			bounds.y +
-			index * (Math.max(14, sourceBox.height) + EXTERNAL_LABEL_SHELF_ROW_GAP),
+		y: shelfY,
 		width: sourceBox.width,
 		height: sourceBox.height,
 	};
@@ -8995,7 +9088,7 @@ function edgeLabelExternalizationPolicy(
 	if (remediationMode === "auto") {
 		return "congested";
 	}
-	return options.strict === true ? "congested" : "off";
+	return isStrictDeliverability(options) ? "congested" : "off";
 }
 
 function labelPlacementOnPolyline(
