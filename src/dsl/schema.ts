@@ -407,6 +407,16 @@ export const diagramDslSchema = z
 				railRouting: z
 					.union([z.literal(false), z.literal("auto"), z.literal("dependency")])
 					.optional(),
+				pagePolicy: z
+					.enum([
+						"off",
+						"auto",
+						"dependency",
+						"resource-flow",
+						"lane-behavior",
+						"ibd-high-fan-in",
+					])
+					.optional(),
 				externalLabels: z
 					.union([
 						z.boolean(),

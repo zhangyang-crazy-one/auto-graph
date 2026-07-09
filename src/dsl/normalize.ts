@@ -145,6 +145,9 @@ function normalizeDenseRoutingOptions(
 	if (routing.railRouting !== undefined) {
 		options.railRouting = routing.railRouting;
 	}
+	if (routing.pagePolicy !== undefined) {
+		options.pagePolicy = routing.pagePolicy;
+	}
 	if (routing.externalLabels !== undefined) {
 		options.externalLabels =
 			typeof routing.externalLabels === "boolean"

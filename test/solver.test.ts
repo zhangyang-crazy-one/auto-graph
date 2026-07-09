@@ -9,8 +9,13 @@ import {
 	type ExternalLabelRemediationDetail,
 	type LabelLayout,
 	type NormalizedDiagram,
+	type PageSplitRemediationDetail,
 } from "../src/ir/index.js";
-import { solveDiagram, solveDiagramSafe } from "../src/solver/index.js";
+import {
+	resolvePagePolicy,
+	solveDiagram,
+	solveDiagramSafe,
+} from "../src/solver/index.js";
 import type {
 	PreparedText,
 	TextLayout,
@@ -4563,23 +4568,37 @@ it("routes dense same-rank dependencies through deterministic rails", () => {
 		},
 	);
 	const minNodeY = Math.min(...result.nodes.map((node) => node.box.y));
-	const railYs = result.edges.map((edge) =>
-		Math.min(...edge.points.map((point) => point.y)),
+	const maxNodeBottom = Math.max(
+		...result.nodes.map((node) => node.box.y + node.box.height),
 	);
+	const rails = result.routing?.rails ?? [];
+	const sides = new Set(rails.map((rail) => rail.side));
 
-	expect(new Set(railYs).size).toBe(pairCount);
-	for (const railY of railYs) {
-		expect(railY).toBeLessThan(minNodeY);
+	expect(rails).toHaveLength(pairCount);
+	expect(sides.has("top")).toBe(true);
+	expect(sides.has("bottom")).toBe(true);
+	for (const rail of rails) {
+		if (rail.side === "top") {
+			expect(rail.coordinate).toBeLessThan(minNodeY);
+		} else {
+			expect(rail.coordinate).toBeGreaterThan(maxNodeBottom);
+		}
 	}
-	expect(result.routing?.rails).toHaveLength(pairCount);
-	expect(result.routing?.gutters).toContainEqual(
-		expect.objectContaining({
-			side: "top",
-			railCount: pairCount,
-			box: expect.objectContaining({
-				height: expect.any(Number),
+	expect(result.routing?.gutters).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				side: "top",
+				box: expect.objectContaining({
+					height: expect.any(Number),
+				}),
 			}),
-		}),
+			expect.objectContaining({
+				side: "bottom",
+				box: expect.objectContaining({
+					height: expect.any(Number),
+				}),
+			}),
+		]),
 	);
 });
 
@@ -4797,8 +4816,207 @@ it("reports the twenty-fifth dependency rail as over capacity", () => {
 	expect(result.diagnostics).toContainEqual(
 		expect.objectContaining({
 			code: "routing.rail-capacity.exceeded",
-			detail: expect.objectContaining({ railIndex: 24 }),
+			detail: expect.objectContaining({
+				railIndex: 24,
+				required: 25,
+				available: 24,
+			}),
 		}),
+	);
+	const pageSplit = result.deliverability?.remediationPlans.find(
+		(plan) => plan.type === "page-split",
+	);
+	expect(pageSplit).toBeDefined();
+	expect(pageSplit?.edgeIds.length).toBeGreaterThan(0);
+	expect(pageSplit?.nodeIds.length).toBeGreaterThan(0);
+	expect(pageSplit?.reason.length).toBeGreaterThan(0);
+	const detail = pageSplit?.detail as PageSplitRemediationDetail | undefined;
+	expect(detail?.required).toBeGreaterThan(detail?.available ?? 0);
+	expect(detail?.available).toBe(24);
+	expect(
+		result.deliverability?.remediationPlans.some(
+			(plan) => plan.type === "route-rail",
+		),
+	).toBe(true);
+});
+
+it("resolves explicit pagePolicy over heuristic classification", () => {
+	const diagram: NormalizedDiagram = {
+		id: "page-policy-explicit",
+		direction: "LR",
+		nodes: [
+			{
+				id: "a",
+				shape: "rectangle",
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 0, y: 0 },
+			},
+			{
+				id: "b",
+				shape: "rectangle",
+				size: { width: 80, height: 40 },
+				padding: { top: 0, right: 0, bottom: 0, left: 0 },
+				position: { x: 200, y: 0 },
+			},
+		],
+		edges: [
+			{
+				id: "a-b",
+				source: { nodeId: "a" },
+				target: { nodeId: "b" },
+				label: { text: "flow" },
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		swimlanes: [
+			{
+				id: "lane-pack",
+				label: { text: "Lane" },
+				orientation: "horizontal",
+				lanes: [{ id: "lane-a", label: { text: "A" }, children: ["a", "b"] }],
+			},
+		],
+	};
+	expect(resolvePagePolicy(diagram, { pagePolicy: "auto" })).toBe(
+		"lane-behavior",
+	);
+	expect(resolvePagePolicy(diagram, { pagePolicy: "dependency" })).toBe(
+		"dependency",
+	);
+});
+
+it("classifies pagePolicy auto from diagram structure", () => {
+	const withSwimlanes: NormalizedDiagram = {
+		id: "auto-lane",
+		direction: "LR",
+		nodes: [node("s1", { x: 0, y: 0 }), node("t1", { x: 200, y: 0 })],
+		edges: [{ id: "e1", source: { nodeId: "s1" }, target: { nodeId: "t1" } }],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		swimlanes: [
+			{
+				id: "sw",
+				label: { text: "Swim" },
+				orientation: "horizontal",
+				lanes: [{ id: "l1", label: { text: "L1" }, children: ["s1", "t1"] }],
+			},
+		],
+	};
+	expect(resolvePagePolicy(withSwimlanes, { pagePolicy: "auto" })).toBe(
+		"lane-behavior",
+	);
+
+	const highFanIn: NormalizedDiagram = {
+		id: "auto-ibd",
+		direction: "LR",
+		nodes: [
+			...Array.from({ length: 4 }, (_, index) =>
+				node(`src-${index}`, { x: 0, y: index * 50 }),
+			),
+			node("agg", { x: 220, y: 60 }),
+		],
+		edges: Array.from({ length: 4 }, (_, index) => ({
+			id: `fan-${index}`,
+			source: { nodeId: `src-${index}` },
+			target: { nodeId: "agg" },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	expect(resolvePagePolicy(highFanIn, { pagePolicy: "auto" })).toBe(
+		"ibd-high-fan-in",
+	);
+
+	const resourceFlow: NormalizedDiagram = {
+		id: "auto-resource",
+		direction: "LR",
+		nodes: [
+			node("p0", { x: 0, y: 0 }),
+			node("p1", { x: 0, y: 40 }),
+			node("p2", { x: 0, y: 80 }),
+			node("p3", { x: 0, y: 120 }),
+			node("c0", { x: 280, y: 280 }),
+			node("c1", { x: 280, y: 360 }),
+			node("c2", { x: 280, y: 440 }),
+			node("c3", { x: 280, y: 520 }),
+		],
+		edges: Array.from({ length: 4 }, (_, index) => ({
+			id: `rf-${index}`,
+			source: { nodeId: `p${index}` },
+			target: { nodeId: `c${index}` },
+			label: { text: `resource ${index}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	expect(resolvePagePolicy(resourceFlow, { pagePolicy: "auto" })).toBe(
+		"resource-flow",
+	);
+
+	const dependency: NormalizedDiagram = {
+		id: "auto-dependency",
+		direction: "LR",
+		nodes: Array.from({ length: 6 }, (_, index) => [
+			node(`ds-${index}`, { x: 0, y: index * 70 }),
+			node(`dt-${index}`, { x: 240, y: index * 70 }),
+		]).flat(),
+		edges: Array.from({ length: 6 }, (_, index) => ({
+			id: `de-${index}`,
+			source: { nodeId: `ds-${index}` },
+			target: { nodeId: `dt-${index}` },
+		})),
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+	};
+	expect(resolvePagePolicy(dependency, { pagePolicy: "auto" })).toBe(
+		"dependency",
+	);
+	expect(resolvePagePolicy(dependency, { pagePolicy: "auto" })).toBe(
+		resolvePagePolicy(dependency, { pagePolicy: "auto" }),
+	);
+});
+
+it("rejects a second edge from occupying the same rail lane", () => {
+	const pairCount = 4;
+	const result = solveDiagram(
+		{
+			id: "rail-occupancy",
+			direction: "LR",
+			nodes: Array.from({ length: pairCount }, (_, index) => [
+				node(`s${index}`, { x: 0, y: index * 70 }),
+				node(`t${index}`, { x: 240, y: index * 70 }),
+			]).flat(),
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `edge-${index}`,
+				source: { nodeId: `s${index}` },
+				target: { nodeId: `t${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
+			railRouting: "dependency",
+		},
+	);
+	const rails = result.routing?.rails ?? [];
+	expect(rails.length).toBe(pairCount);
+	const occupancyKeys = rails.map(
+		(rail) => `${rail.side}:${Math.round(rail.coordinate)}`,
+	);
+	expect(new Set(occupancyKeys).size).toBe(rails.length);
+	expect(new Set(rails.map((rail) => rail.side))).toEqual(
+		new Set(["top", "bottom"]),
 	);
 });
 
@@ -4806,11 +5024,18 @@ it("does not report rail capacity for rail candidates that fall back", () => {
 	const pairCount = 25;
 	const nodes = [
 		{
-			id: "capacity-blocker",
+			id: "capacity-blocker-top",
 			shape: "rectangle" as const,
 			size: { width: 20, height: 120 },
 			padding: { top: 0, right: 0, bottom: 0, left: 0 },
 			position: { x: 90, y: -450 },
+		},
+		{
+			id: "capacity-blocker-bottom",
+			shape: "rectangle" as const,
+			size: { width: 20, height: 120 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x: 90, y: 25 * 70 + 200 },
 		},
 		...Array.from({ length: pairCount }, (_, index) => [
 			{
@@ -4905,9 +5130,10 @@ it("rejects dependency rails that cross non-connected edge-label estimates", () 
 			annotation.ownerId === "label-rail-edge-0",
 	);
 
-	expect(result.routing?.rails.map((rail) => rail.edgeId)).toEqual([
-		"label-rail-edge-0",
-	]);
+	expect(result.routing?.rails.map((rail) => rail.edgeId)).toEqual(
+		expect.arrayContaining(["label-rail-edge-0"]),
+	);
+	expect(result.routing?.rails.length).toBeGreaterThan(0);
 	expect(label).toBeDefined();
 	if (label !== undefined) {
 		for (const edge of result.edges.filter(

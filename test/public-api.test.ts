@@ -12,6 +12,7 @@ import type {
 	Label,
 	LabelLayout,
 	NormalizedDiagram,
+	PagePolicy,
 	Point,
 	RemediationPlan,
 	RemediationPolicy,
@@ -85,12 +86,14 @@ describe("public API", () => {
 	it("type-checks a coordinated diagram sample", () => {
 		const deliverabilityMode: DeliverabilityMode = "degraded-ok";
 		const policyMode: RemediationPolicyMode = "suggest";
+		const pagePolicy: PagePolicy = "dependency";
 		const remediationPolicy: RemediationPolicy = {
 			externalLabels: policyMode,
 			routeRails: "suggest",
 			growFixedGeometry: "auto",
 			pageSplit: "suggest",
 		};
+		expect(pagePolicy).toBe("dependency");
 		const remediationPlan: RemediationPlan = {
 			id: "remediation-01-external-label",
 			type: "external-label",

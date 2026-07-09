@@ -35,6 +35,17 @@ export type RemediationPolicyMode = "off" | "suggest" | "auto";
 
 export type PageSplitPolicyMode = Exclude<RemediationPolicyMode, "auto">;
 
+/** Page-level dense routing policy (Phase 16). */
+export type PagePolicy =
+	| "off"
+	| "dependency"
+	| "resource-flow"
+	| "lane-behavior"
+	| "ibd-high-fan-in";
+
+/** Explicit policy, auto classification, or unset (treated like auto when dense knobs apply). */
+export type PagePolicyOption = PagePolicy | "auto";
+
 export interface RemediationPolicy {
 	externalLabels?: RemediationPolicyMode;
 	routeRails?: RemediationPolicyMode;
@@ -70,12 +81,21 @@ export interface RouteRailRemediationDetail {
 	strategy: "dependency-rails";
 	policy: RemediationPolicyMode;
 	requiredRailCount: number;
+	required: number;
+	available: number;
+	side?: RoutingRailAllocation["side"];
+	edgeIds?: string[];
 }
 
 export interface GrowFixedGeometryRemediationDetail {
 	strategy: "grow-or-relax-fixed-geometry";
 	policy: RemediationPolicyMode;
 	affectedNodeCount: number;
+	growthDeltas?: Array<{
+		nodeId: string;
+		deltaWidth: number;
+		deltaHeight: number;
+	}>;
 }
 
 export interface PageSplitRemediationDetail {
@@ -83,6 +103,9 @@ export interface PageSplitRemediationDetail {
 	policy: PageSplitPolicyMode;
 	edgeCount: number;
 	nodeCount: number;
+	required: number;
+	available: number;
+	reason: string;
 }
 
 export type RemediationPlanDetail =

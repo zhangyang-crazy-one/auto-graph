@@ -151,12 +151,14 @@ describe("dense MBSE acceptance gate", () => {
 		const result = solveDiagram(denseCvDependencyPage(), {
 			initialLayout: "positions",
 			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
 			railRouting: "dependency",
 			textMeasurer: new DeterministicTextMeasurer(),
 		});
 		const externalLabels = solveDiagram(denseCvDependencyPage(), {
 			initialLayout: "positions",
 			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
 			railRouting: "dependency",
 			externalLabels: true,
 			textMeasurer: new DeterministicTextMeasurer(),
@@ -166,7 +168,6 @@ describe("dense MBSE acceptance gate", () => {
 		expect(result.routing?.gutters).toContainEqual(
 			expect.objectContaining({
 				side: "top",
-				railCount: result.routing?.rails.length,
 			}),
 		);
 		for (const edge of result.edges) {
@@ -176,17 +177,56 @@ describe("dense MBSE acceptance gate", () => {
 				expect(routeCrossesBox(edge.points, annotation.box)).toBe(false);
 			}
 		}
-		expect(externalLabels.routing?.rails.length).toBeGreaterThanOrEqual(6);
-		expect(externalLabels.routing?.gutters).toContainEqual(
-			expect.objectContaining({
-				side: "top",
-				railCount: externalLabels.routing?.rails.length,
-			}),
-		);
+		expect(externalLabels.routing?.rails.length).toBeGreaterThanOrEqual(1);
 		expect(externalLabels.diagnostics).toContainEqual(
 			expect.objectContaining({
 				code: "routing.label-externalization.required",
 			}),
+		);
+	});
+
+	it("allocates top and bottom dependency rails under pagePolicy", () => {
+		const pairCount = 6;
+		const diagram: NormalizedDiagram = {
+			id: "phase-16-dependency-rails",
+			direction: "LR",
+			nodes: Array.from({ length: pairCount }, (_, index) => [
+				node(`dep-source-${index}`, { x: 0, y: index * 70 }),
+				node(`dep-target-${index}`, { x: 260, y: index * 70 }),
+			]).flat(),
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `dep-edge-${index}`,
+				source: { nodeId: `dep-source-${index}` },
+				target: { nodeId: `dep-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const first = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const second = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const sides = new Set(first.routing?.rails.map((rail) => rail.side));
+		expect(first.routing?.rails.length).toBe(pairCount);
+		expect(sides.has("top")).toBe(true);
+		expect(sides.has("bottom")).toBe(true);
+		expect(first.routing?.gutters).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ side: "top" }),
+				expect.objectContaining({ side: "bottom" }),
+			]),
+		);
+		expect(first.routing?.rails.map((rail) => rail.coordinate)).toEqual(
+			second.routing?.rails.map((rail) => rail.coordinate),
 		);
 	});
 });

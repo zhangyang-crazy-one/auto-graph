@@ -173,6 +173,7 @@ function solveDenseRoutingOptions(
 			| "fixedSwimlaneGeometry"
 			| "anchorCapacity"
 			| "railRouting"
+			| "pagePolicy"
 			| "externalLabels"
 			| "deliverabilityMode"
 			| "remediationPolicy"
@@ -190,6 +191,7 @@ function solveDenseRoutingOptions(
 		| "fixedSwimlaneGeometry"
 		| "anchorCapacity"
 		| "railRouting"
+		| "pagePolicy"
 		| "externalLabels"
 		| "deliverabilityMode"
 		| "remediationPolicy"
@@ -230,6 +232,10 @@ function solveDenseRoutingOptions(
 		metadata.railRouting === "dependency"
 	) {
 		options.railRouting = metadata.railRouting;
+	}
+	const pagePolicy = metadata.pagePolicy;
+	if (isPagePolicyOption(pagePolicy)) {
+		options.pagePolicy = pagePolicy;
 	}
 	if (
 		typeof metadata.externalLabels === "boolean" ||
@@ -275,6 +281,19 @@ function isExternalLabelsOptions(
 	return (
 		isJsonObject(value) &&
 		(value.edgeLabels === undefined || typeof value.edgeLabels === "boolean")
+	);
+}
+
+function isPagePolicyOption(
+	value: unknown,
+): value is NonNullable<SolveDiagramOptions["pagePolicy"]> {
+	return (
+		value === "off" ||
+		value === "auto" ||
+		value === "dependency" ||
+		value === "resource-flow" ||
+		value === "lane-behavior" ||
+		value === "ibd-high-fan-in"
 	);
 }
 

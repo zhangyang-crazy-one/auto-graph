@@ -29,6 +29,8 @@ import type {
 	DeliverabilityReport,
 	ExternalLabelCallout,
 	NormalizedDiagram,
+	PagePolicy,
+	PagePolicyOption,
 	PageSplitPolicyMode,
 	RemediationPlan,
 	RemediationPlanDetail,
@@ -83,6 +85,211 @@ import { scoreLayoutQuality } from "./pipeline/quality.js";
 import type { LayoutState } from "./pipeline/types.js";
 
 export type InitialLayoutMode = "dagre" | "positions";
+
+/**
+ * Resolve the effective page policy. Explicit concrete values win; `"auto"`
+ * classifies deterministically from diagram structure; unset/`"off"` preserve
+ * legacy railRouting/anchorCapacity behavior.
+ */
+export function resolvePagePolicy(
+	diagram: NormalizedDiagram,
+	options: SolveDiagramOptions = {},
+): PagePolicy {
+	const explicit = options.pagePolicy ?? metadataPagePolicy(diagram.metadata);
+	if (
+		explicit === "off" ||
+		explicit === "dependency" ||
+		explicit === "resource-flow" ||
+		explicit === "lane-behavior" ||
+		explicit === "ibd-high-fan-in"
+	) {
+		return explicit;
+	}
+	if (explicit !== "auto" && explicit !== undefined) {
+		return "off";
+	}
+	if (explicit === undefined && !shouldAutoClassifyPagePolicy(options)) {
+		return "off";
+	}
+	return classifyPagePolicy(diagram);
+}
+
+function metadataPagePolicy(
+	metadata: NormalizedDiagram["metadata"],
+): PagePolicyOption | undefined {
+	const value = metadata?.pagePolicy;
+	if (
+		value === "off" ||
+		value === "auto" ||
+		value === "dependency" ||
+		value === "resource-flow" ||
+		value === "lane-behavior" ||
+		value === "ibd-high-fan-in"
+	) {
+		return value;
+	}
+	return undefined;
+}
+
+function shouldAutoClassifyPagePolicy(options: SolveDiagramOptions): boolean {
+	return (
+		options.pagePolicy === "auto" ||
+		options.deliverabilityMode !== undefined ||
+		options.remediationPolicy !== undefined
+	);
+}
+
+function classifyPagePolicy(diagram: NormalizedDiagram): PagePolicy {
+	const swimlanes = diagram.swimlanes ?? [];
+	if (swimlanes.length > 0) {
+		return "lane-behavior";
+	}
+	const direction = diagram.direction;
+	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
+	const edges = [...diagram.edges].sort((a, b) => a.id.localeCompare(b.id));
+	const sameSideFanIn = maxSameSideFanIn(edges, nodeById, direction);
+	if (sameSideFanIn >= PAGE_POLICY_SAME_SIDE_FAN_IN_MIN) {
+		return "ibd-high-fan-in";
+	}
+	const labeledFlowCount = countLabeledNonSameRankEdges(
+		edges,
+		nodeById,
+		direction,
+	);
+	if (labeledFlowCount >= PAGE_POLICY_LABELED_FLOW_MIN) {
+		return "resource-flow";
+	}
+	const sameRankCount = countSameRankEdges(edges, nodeById, direction);
+	if (sameRankCount >= PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN) {
+		return "dependency";
+	}
+	return "off";
+}
+
+function countSameRankEdges(
+	edges: readonly NormalizedEdge[],
+	nodeById: ReadonlyMap<string, NormalizedNode>,
+	direction: NormalizedDiagram["direction"],
+): number {
+	let count = 0;
+	for (const edge of edges) {
+		const source = nodeById.get(edge.source.nodeId);
+		const target = nodeById.get(edge.target.nodeId);
+		if (source === undefined || target === undefined) continue;
+		if (
+			isSameRankByNodeBoxes(
+				nodeBoxFromNormalized(source),
+				nodeBoxFromNormalized(target),
+				direction,
+			)
+		) {
+			count += 1;
+		}
+	}
+	return count;
+}
+
+function countLabeledNonSameRankEdges(
+	edges: readonly NormalizedEdge[],
+	nodeById: ReadonlyMap<string, NormalizedNode>,
+	direction: NormalizedDiagram["direction"],
+): number {
+	let count = 0;
+	for (const edge of edges) {
+		const labelText = edge.label?.text?.trim() ?? "";
+		if (labelText.length === 0) continue;
+		const source = nodeById.get(edge.source.nodeId);
+		const target = nodeById.get(edge.target.nodeId);
+		if (source === undefined || target === undefined) continue;
+		if (
+			isSameRankByNodeBoxes(
+				nodeBoxFromNormalized(source),
+				nodeBoxFromNormalized(target),
+				direction,
+			)
+		) {
+			continue;
+		}
+		count += 1;
+	}
+	return count;
+}
+
+function maxSameSideFanIn(
+	edges: readonly NormalizedEdge[],
+	nodeById: ReadonlyMap<string, NormalizedNode>,
+	direction: NormalizedDiagram["direction"],
+): number {
+	const counts = new Map<string, number>();
+	for (const edge of edges) {
+		const target = nodeById.get(edge.target.nodeId);
+		const source = nodeById.get(edge.source.nodeId);
+		if (target === undefined || source === undefined) continue;
+		const side = inferredEndpointSide(
+			nodeBoxFromNormalized(source),
+			nodeBoxFromNormalized(target),
+			direction,
+			"target",
+		);
+		const key = `${edge.target.nodeId}:${side}`;
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+	let max = 0;
+	for (const value of counts.values()) {
+		if (value > max) max = value;
+	}
+	return max;
+}
+
+function nodeBoxFromNormalized(node: NormalizedNode): Box {
+	const position = node.position ?? { x: 0, y: 0 };
+	return {
+		x: position.x,
+		y: position.y,
+		width: node.size.width,
+		height: node.size.height,
+	};
+}
+
+function isSameRankByNodeBoxes(
+	source: Box,
+	target: Box,
+	direction: NormalizedDiagram["direction"],
+): boolean {
+	const sourceCenter = {
+		x: source.x + source.width / 2,
+		y: source.y + source.height / 2,
+	};
+	const targetCenter = {
+		x: target.x + target.width / 2,
+		y: target.y + target.height / 2,
+	};
+	const dx = Math.abs(targetCenter.x - sourceCenter.x);
+	const dy = Math.abs(targetCenter.y - sourceCenter.y);
+	const maxHeight = Math.max(source.height, target.height);
+	const maxWidth = Math.max(source.width, target.width);
+	return direction === "LR" || direction === "RL"
+		? dx >= maxWidth && dy <= maxHeight * 1.5
+		: dy >= maxHeight && dx <= maxWidth * 1.5;
+}
+
+function inferredEndpointSide(
+	source: Box,
+	target: Box,
+	direction: NormalizedDiagram["direction"],
+	endpoint: "source" | "target",
+): RoutingRailAllocation["side"] {
+	if (direction === "LR" || direction === "RL") {
+		if (endpoint === "source") {
+			return direction === "RL" ? "left" : "right";
+		}
+		return direction === "RL" ? "right" : "left";
+	}
+	if (endpoint === "source") {
+		return direction === "BT" ? "top" : "bottom";
+	}
+	return direction === "BT" ? "bottom" : "top";
+}
 
 export interface SolveDiagramOptions {
 	/** Selects the seed coordinates before constraints, routing, and export. */
@@ -141,6 +348,11 @@ export interface SolveDiagramOptions {
 	anchorCapacity?: boolean | { minSpacing?: number; grow?: boolean };
 	/** Dense dependency rail routing policy. */
 	railRouting?: false | "auto" | "dependency";
+	/**
+	 * Page-level dense routing policy. Explicit concrete values override
+	 * heuristic classification; `"auto"` classifies from diagram structure.
+	 */
+	pagePolicy?: PagePolicyOption;
 	/** Mark congested edge labels as external-callout-required instead of silently accepting local collisions. */
 	externalLabels?: boolean | { edgeLabels?: boolean };
 	/** Corridor expansion margin for corner-graph prefilter.
@@ -177,6 +389,13 @@ const EXTERNAL_LABEL_SHELF_GAP = 48;
 const EXTERNAL_LABEL_SHELF_ROW_GAP = 8;
 const DEFAULT_CJK_FONT_FAMILY = "YaHei,SimSun,sans-serif";
 const DEFAULT_MIN_CJK_FONT_SIZE = 14;
+/** Soft-obstacle count allowed inside a proposed rail band before reject (0 = any soft obstacle rejects). */
+const RAIL_BAND_SOFT_OBSTACLE_MAX = 0;
+/** Maximum accepted dependency rail lanes before capacity remediation. */
+const DEFAULT_RAIL_BUDGET = 24;
+const PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN = 6;
+const PAGE_POLICY_SAME_SIDE_FAN_IN_MIN = 4;
+const PAGE_POLICY_LABELED_FLOW_MIN = 4;
 // Reuse DSL defaults — these are the same values as DEFAULT_FONT,
 // DEFAULT_NODE_PADDING, DEFAULT_NODE_MIN_SIZE, DEFAULT_LABEL_MAX_WIDTH
 // imported from normalize.ts above.
@@ -237,8 +456,13 @@ interface BuiltExternalLabelCallout {
 
 export function solveDiagram(
 	diagram: NormalizedDiagram,
-	options: SolveDiagramOptions = {},
+	inputOptions: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
+	const resolvedPagePolicy = resolvePagePolicy(diagram, inputOptions);
+	const options: SolveDiagramOptions = {
+		...inputOptions,
+		pagePolicy: resolvedPagePolicy,
+	};
 	const diagnostics: Diagnostic[] = [...diagram.diagnostics];
 	const nodes = stableUniqueById(
 		diagram.nodes,
@@ -1176,15 +1400,20 @@ function railAllocationForRoute(
 	points: readonly Point[],
 	direction: NormalizedDiagram["direction"],
 	railIndex: number,
+	side: RoutingRailAllocation["side"],
 ): RoutingRailAllocation {
 	const horizontal = direction === "LR" || direction === "RL";
 	return {
 		edgeId,
 		axis: horizontal ? "y" : "x",
-		side: horizontal ? "top" : "left",
+		side,
 		coordinate: horizontal
-			? Math.min(...points.map((point) => point.y))
-			: Math.min(...points.map((point) => point.x)),
+			? side === "bottom"
+				? Math.max(...points.map((point) => point.y))
+				: Math.min(...points.map((point) => point.y))
+			: side === "right"
+				? Math.max(...points.map((point) => point.x))
+				: Math.min(...points.map((point) => point.x)),
 		index: railIndex,
 	};
 }
@@ -1327,14 +1556,26 @@ function buildRemediationPlan(
 	const diagnosticCodes = stableStrings(
 		diagnostics.map((diagnostic) => diagnostic.code),
 	);
+	const capacity = capacityFromDiagnostics(diagnostics);
+	const reason =
+		type === "page-split" && capacity !== undefined
+			? `Page capacity exceeded: required ${capacity.required} lanes but only ${capacity.available} available; split or grow the saturated page.`
+			: remediationPlanReason(type, diagnostics.length);
 	return {
 		type,
 		status: "suggested",
-		reason: remediationPlanReason(type, diagnostics.length),
+		reason,
 		diagnosticCodes,
 		edgeIds,
 		nodeIds,
-		detail: remediationPlanDetail(type, policy, edgeIds, nodeIds),
+		detail: remediationPlanDetail(
+			type,
+			policy,
+			edgeIds,
+			nodeIds,
+			capacity,
+			reason,
+		),
 	};
 }
 
@@ -1401,7 +1642,11 @@ function remediationPlanDetail(
 	policy: Required<RemediationPolicy>,
 	edgeIds: readonly string[],
 	nodeIds: readonly string[],
+	capacity?: { required: number; available: number },
+	pageSplitReason?: string,
 ): RemediationPlanDetail {
+	const required = capacity?.required ?? Math.max(1, edgeIds.length);
+	const available = capacity?.available ?? 0;
 	switch (type) {
 		case "external-label":
 			return {
@@ -1413,7 +1658,10 @@ function remediationPlanDetail(
 			return {
 				strategy: "dependency-rails",
 				policy: policy.routeRails,
-				requiredRailCount: Math.max(1, edgeIds.length),
+				requiredRailCount: required,
+				required,
+				available,
+				edgeIds: [...edgeIds],
 			};
 		case "grow-fixed-geometry":
 			return {
@@ -1427,8 +1675,40 @@ function remediationPlanDetail(
 				policy: policy.pageSplit,
 				edgeCount: edgeIds.length,
 				nodeCount: nodeIds.length,
+				required,
+				available,
+				reason:
+					pageSplitReason ??
+					`Split or grow the saturated page for ${edgeIds.length} edge(s).`,
 			};
 	}
+}
+
+function capacityFromDiagnostics(
+	diagnostics: readonly Diagnostic[],
+): { required: number; available: number } | undefined {
+	let required: number | undefined;
+	let available: number | undefined;
+	for (const diagnostic of diagnostics) {
+		const detailRequired = diagnostic.detail?.required;
+		const detailAvailable = diagnostic.detail?.available;
+		if (typeof detailRequired === "number") {
+			required =
+				required === undefined
+					? detailRequired
+					: Math.max(required, detailRequired);
+		}
+		if (typeof detailAvailable === "number") {
+			available =
+				available === undefined
+					? detailAvailable
+					: Math.min(available, detailAvailable);
+		}
+	}
+	if (required === undefined || available === undefined) {
+		return undefined;
+	}
+	return { required, available };
 }
 
 function remediationPlanTypesForDiagnostic(
@@ -5006,6 +5286,7 @@ function coordinateEdges(
 		direction,
 		options,
 	);
+	const railOccupancy = createRailOccupancyState();
 	const distributedAnchors = distributedAnchorPointsByEndpoint(
 		allocationEdges,
 		nodes,
@@ -5076,18 +5357,8 @@ function coordinateEdges(
 			groups,
 			options.obstacleMargin ?? 0,
 		);
-		const railIndex = railIndexByEdgeId.get(edge.id);
-		if (railIndex !== undefined) {
-			const railPoints = railRoutePoints(
-				sourceGeometry,
-				targetGeometry,
-				sourceAnchor,
-				targetAnchor,
-				direction,
-				contentBounds,
-				railIndex,
-				avoidFrameTitleRails,
-			);
+		const railCandidate = railIndexByEdgeId.get(edge.id);
+		if (railCandidate !== undefined) {
 			const railNodeObstacles = nodeObstacles
 				.filter(
 					(obstacle) =>
@@ -5101,21 +5372,40 @@ function coordinateEdges(
 				...routeGroupObstacles,
 				...railTextObstacles,
 			];
-			if (
-				railPoints !== undefined &&
-				!routeCrossesBoxes(railPoints, railSoftObstacles) &&
-				!routeCrossesBoxes(railPoints, hardObstacles)
-			) {
-				railAllocations?.set(
-					edge.id,
-					railAllocationForRoute(edge.id, railPoints, direction, railIndex),
-				);
-				if (railIndex >= 24) {
-					diagnostics.push(railCapacityDiagnostic(edge.id, railIndex));
+			const acceptedRail = tryAcceptDependencyRail({
+				edgeId: edge.id,
+				source: sourceGeometry,
+				target: targetGeometry,
+				sourceAnchor,
+				targetAnchor,
+				direction,
+				contentBounds,
+				candidateIndex: railCandidate.index,
+				side: railCandidate.side,
+				laneIndex: railCandidate.laneIndex,
+				avoidFrameTitleRails,
+				railSoftObstacles,
+				railBandObstacles: railTextObstacles,
+				hardObstacles,
+				occupancy: railOccupancy,
+			});
+			if (acceptedRail !== undefined) {
+				railAllocations?.set(edge.id, acceptedRail.allocation);
+				if (acceptedRail.overBudget) {
+					diagnostics.push(
+						railCapacityDiagnostic(
+							edge.id,
+							acceptedRail.allocation.index,
+							acceptedRail.required,
+							acceptedRail.available,
+							edge.source.nodeId,
+							edge.target.nodeId,
+						),
+					);
 				}
 				coordinated.push({
 					...edge,
-					points: railPoints,
+					points: acceptedRail.points,
 				});
 				continue;
 			}
@@ -5166,15 +5456,193 @@ function coordinateEdges(
 	return coordinated;
 }
 
-function railCapacityDiagnostic(edgeId: string, railIndex: number): Diagnostic {
+type RailOccupancyState = Map<RoutingRailAllocation["side"], Set<number>>;
+
+interface RailRouteCandidate {
+	index: number;
+	side: RoutingRailAllocation["side"];
+	laneIndex: number;
+}
+
+function createRailOccupancyState(): RailOccupancyState {
+	return new Map();
+}
+
+function isRailLaneOccupied(
+	occupancy: RailOccupancyState,
+	side: RoutingRailAllocation["side"],
+	laneIndex: number,
+): boolean {
+	return occupancy.get(side)?.has(laneIndex) === true;
+}
+
+function markRailLaneOccupied(
+	occupancy: RailOccupancyState,
+	side: RoutingRailAllocation["side"],
+	laneIndex: number,
+): void {
+	const lanes = occupancy.get(side);
+	if (lanes === undefined) {
+		occupancy.set(side, new Set([laneIndex]));
+		return;
+	}
+	lanes.add(laneIndex);
+}
+
+function scoreRailBandOccupancy(
+	railPoints: readonly Point[],
+	softObstacles: readonly Box[],
+	side: RoutingRailAllocation["side"],
+	direction: NormalizedDiagram["direction"],
+): number {
+	const band = railBandBox(railPoints, side, direction);
+	if (band === undefined) {
+		return Number.POSITIVE_INFINITY;
+	}
+	let count = 0;
+	for (const obstacle of softObstacles) {
+		if (intersectsAabb(band, obstacle)) {
+			count += 1;
+		}
+	}
+	return count;
+}
+
+function railBandBox(
+	railPoints: readonly Point[],
+	side: RoutingRailAllocation["side"],
+	direction: NormalizedDiagram["direction"],
+): Box | undefined {
+	const horizontal = direction === "LR" || direction === "RL";
+	if (horizontal) {
+		const railYs = railPoints
+			.map((point) => point.y)
+			.filter((y, index, values) => values.indexOf(y) === index);
+		const railY =
+			side === "bottom"
+				? Math.max(...railPoints.map((point) => point.y))
+				: Math.min(...railPoints.map((point) => point.y));
+		if (!railYs.includes(railY)) {
+			return undefined;
+		}
+		const xs = railPoints.map((point) => point.x);
+		return {
+			x: Math.min(...xs),
+			y: railY - 4,
+			width: Math.max(0, Math.max(...xs) - Math.min(...xs)),
+			height: 8,
+		};
+	}
+	const railX =
+		side === "right"
+			? Math.max(...railPoints.map((point) => point.x))
+			: Math.min(...railPoints.map((point) => point.x));
+	const ys = railPoints.map((point) => point.y);
+	return {
+		x: railX - 4,
+		y: Math.min(...ys),
+		width: 8,
+		height: Math.max(0, Math.max(...ys) - Math.min(...ys)),
+	};
+}
+
+function tryAcceptDependencyRail(input: {
+	edgeId: string;
+	source: ReturnType<typeof computeShapeGeometry>;
+	target: ReturnType<typeof computeShapeGeometry>;
+	sourceAnchor: AnchorName | undefined;
+	targetAnchor: AnchorName | undefined;
+	direction: NormalizedDiagram["direction"];
+	contentBounds: Box;
+	candidateIndex: number;
+	side: RoutingRailAllocation["side"];
+	laneIndex: number;
+	avoidFrameTitleRails: boolean;
+	railSoftObstacles: readonly Box[];
+	railBandObstacles: readonly Box[];
+	hardObstacles: readonly Box[];
+	occupancy: RailOccupancyState;
+}):
+	| {
+			points: Point[];
+			allocation: RoutingRailAllocation;
+			overBudget: boolean;
+			required: number;
+			available: number;
+	  }
+	| undefined {
+	const { side, laneIndex } = input;
+	if (isRailLaneOccupied(input.occupancy, side, laneIndex)) {
+		return undefined;
+	}
+	const railPoints = railRoutePoints(
+		input.source,
+		input.target,
+		input.sourceAnchor,
+		input.targetAnchor,
+		input.direction,
+		input.contentBounds,
+		laneIndex,
+		side,
+		input.avoidFrameTitleRails,
+	);
+	if (railPoints === undefined) {
+		return undefined;
+	}
+	const softDensity = scoreRailBandOccupancy(
+		railPoints,
+		input.railBandObstacles,
+		side,
+		input.direction,
+	);
+	if (softDensity > RAIL_BAND_SOFT_OBSTACLE_MAX) {
+		return undefined;
+	}
+	if (
+		routeCrossesBoxes(railPoints, input.railSoftObstacles) ||
+		routeCrossesBoxes(railPoints, input.hardObstacles)
+	) {
+		return undefined;
+	}
+	markRailLaneOccupied(input.occupancy, side, laneIndex);
+	const required = input.candidateIndex + 1;
+	const available = DEFAULT_RAIL_BUDGET;
+	return {
+		points: railPoints,
+		allocation: railAllocationForRoute(
+			input.edgeId,
+			railPoints,
+			input.direction,
+			input.candidateIndex,
+			side,
+		),
+		overBudget: required > available,
+		required,
+		available,
+	};
+}
+
+function railCapacityDiagnostic(
+	edgeId: string,
+	railIndex: number,
+	required: number,
+	available: number,
+	sourceId: string,
+	targetId: string,
+): Diagnostic {
 	return {
 		severity: "warning",
 		code: "routing.rail-capacity.exceeded",
-		message: `Rail routing for edge ${edgeId} exceeded the recommended 24-lane budget.`,
+		message: `Rail routing for edge ${edgeId} exceeded the recommended ${available}-lane budget (required ${required}).`,
 		path: ["edges", edgeId],
 		detail: {
 			edgeId,
 			railIndex,
+			required,
+			available,
+			sourceId,
+			targetId,
+			remediationType: "increase-rails-or-split",
 			suggestedRemedy:
 				"Split the dependency group, increase page bounds, or use explicit constraints.",
 		},
@@ -5186,14 +5654,8 @@ function railRouteIndexByEdgeId(
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
-): Map<string, number> {
-	if (options.railRouting === false || options.railRouting === undefined) {
-		return new Map();
-	}
-	if (
-		options.railRouting === "auto" &&
-		(options.routeKind ?? "orthogonal") !== "obstacle-avoiding"
-	) {
+): Map<string, RailRouteCandidate> {
+	if (!dependencyRailsEnabled(options)) {
 		return new Map();
 	}
 	const candidates = edges
@@ -5202,19 +5664,72 @@ function railRouteIndexByEdgeId(
 			const target = nodes.get(edge.target.nodeId);
 			if (source === undefined || target === undefined) return false;
 			if (source.box === target.box) return false;
-			const dx = Math.abs(target.center.x - source.center.x);
-			const dy = Math.abs(target.center.y - source.center.y);
-			const maxHeight = Math.max(source.box.height, target.box.height);
-			const maxWidth = Math.max(source.box.width, target.box.width);
-			return direction === "LR" || direction === "RL"
-				? dx >= maxWidth && dy <= maxHeight * 1.5
-				: dy >= maxHeight && dx <= maxWidth * 1.5;
+			return isSameRankEdge(source, target, direction);
 		})
 		.sort((a, b) => a.id.localeCompare(b.id));
-	if (options.railRouting === "auto" && candidates.length < 6) {
+	if (
+		options.railRouting === "auto" &&
+		options.pagePolicy !== "dependency" &&
+		candidates.length < PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN
+	) {
 		return new Map();
 	}
-	return new Map(candidates.map((edge, index) => [edge.id, index]));
+	const horizontal = direction === "LR" || direction === "RL";
+	return new Map(
+		candidates.map((edge, index) => {
+			const useSecondary = index % 2 === 1;
+			const side: RoutingRailAllocation["side"] = horizontal
+				? useSecondary
+					? "bottom"
+					: "top"
+				: useSecondary
+					? "right"
+					: "left";
+			return [
+				edge.id,
+				{
+					index,
+					side,
+					laneIndex: Math.floor(index / 2),
+				} satisfies RailRouteCandidate,
+			];
+		}),
+	);
+}
+
+function dependencyRailsEnabled(options: SolveDiagramOptions): boolean {
+	if (options.pagePolicy === "dependency") {
+		return true;
+	}
+	if (options.pagePolicy === "off") {
+		return (
+			options.railRouting === "dependency" || options.railRouting === "auto"
+		);
+	}
+	if (options.railRouting === false || options.railRouting === undefined) {
+		return false;
+	}
+	if (
+		options.railRouting === "auto" &&
+		(options.routeKind ?? "orthogonal") !== "obstacle-avoiding"
+	) {
+		return false;
+	}
+	return options.railRouting === "dependency" || options.railRouting === "auto";
+}
+
+function isSameRankEdge(
+	source: ReturnType<typeof computeShapeGeometry>,
+	target: ReturnType<typeof computeShapeGeometry>,
+	direction: NormalizedDiagram["direction"],
+): boolean {
+	const dx = Math.abs(target.center.x - source.center.x);
+	const dy = Math.abs(target.center.y - source.center.y);
+	const maxHeight = Math.max(source.box.height, target.box.height);
+	const maxWidth = Math.max(source.box.width, target.box.width);
+	return direction === "LR" || direction === "RL"
+		? dx >= maxWidth && dy <= maxHeight * 1.5
+		: dy >= maxHeight && dx <= maxWidth * 1.5;
 }
 
 function railRoutePoints(
@@ -5224,7 +5739,8 @@ function railRoutePoints(
 	targetAnchor: AnchorName | undefined,
 	direction: NormalizedDiagram["direction"],
 	contentBounds: Box,
-	railIndex: number,
+	laneIndex: number,
+	side: RoutingRailAllocation["side"],
 	avoidFrameTitleRails: boolean,
 ): Point[] | undefined {
 	const gap = 18;
@@ -5263,19 +5779,41 @@ function railRoutePoints(
 			sourceAnchor ?? sourceSide,
 		);
 		const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
+		const sourceOutward =
+			side === "bottom"
+				? sourceSide === "left"
+					? contentBounds.x - 64
+					: contentBounds.x + contentBounds.width + 64
+				: sourceSide === "left"
+					? start.x - gap
+					: start.x + gap;
+		const targetOutward =
+			side === "bottom"
+				? targetSide === "left"
+					? contentBounds.x - 64
+					: contentBounds.x + contentBounds.width + 64
+				: targetSide === "left"
+					? end.x - gap
+					: end.x + gap;
 		const sourceJogX = avoidFrameTitleJogX(
-			sourceSide === "left" ? start.x - gap : start.x + gap,
+			sourceOutward,
 			contentBounds,
 			gap,
 			avoidFrameTitleRails,
 		);
 		const targetJogX = avoidFrameTitleJogX(
-			targetSide === "left" ? end.x - gap : end.x + gap,
+			targetOutward,
 			contentBounds,
 			gap,
 			avoidFrameTitleRails,
 		);
-		const railY = contentBounds.y - 64 - railIndex * gap;
+		const railY =
+			side === "bottom"
+				? contentBounds.y + contentBounds.height + 64 + laneIndex * gap
+				: contentBounds.y -
+					64 -
+					(avoidFrameTitleRails ? 48 : 0) -
+					laneIndex * gap;
 		return compactRoutePoints([
 			start,
 			{ x: sourceJogX, y: start.y },
@@ -5305,9 +5843,26 @@ function railRoutePoints(
 	}
 	const start = getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
 	const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
-	const sourceJogY = sourceSide === "top" ? start.y - gap : start.y + gap;
-	const targetJogY = targetSide === "top" ? end.y - gap : end.y + gap;
-	const railX = contentBounds.x - 64 - railIndex * gap;
+	const sourceJogY =
+		side === "right"
+			? sourceSide === "top"
+				? contentBounds.y - 64
+				: contentBounds.y + contentBounds.height + 64
+			: sourceSide === "top"
+				? start.y - gap
+				: start.y + gap;
+	const targetJogY =
+		side === "right"
+			? targetSide === "top"
+				? contentBounds.y - 64
+				: contentBounds.y + contentBounds.height + 64
+			: targetSide === "top"
+				? end.y - gap
+				: end.y + gap;
+	const railX =
+		side === "right"
+			? contentBounds.x + contentBounds.width + 64 + laneIndex * gap
+			: contentBounds.x - 64 - laneIndex * gap;
 	return compactRoutePoints([
 		start,
 		{ x: start.x, y: sourceJogY },

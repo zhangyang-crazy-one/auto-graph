@@ -119,6 +119,44 @@ describe("solver determinism", () => {
 		expect(stringifyCanonical(first)).toBe(stringifyCanonical(second));
 	});
 
+	it("serializes over-budget page-split remediation plans byte-identically", () => {
+		const pairCount = 25;
+		const input: NormalizedDiagram = {
+			id: "rail-capacity-determinism",
+			direction: "LR",
+			nodes: Array.from({ length: pairCount }, (_, index) => [
+				node(`capacity-source-${index}`, { x: 0, y: index * 70 }),
+				node(`capacity-target-${index}`, { x: 240, y: index * 70 }),
+			]).flat(),
+			edges: Array.from({ length: pairCount }, (_, index) => ({
+				id: `capacity-edge-${index}`,
+				source: { nodeId: `capacity-source-${index}` },
+				target: { nodeId: `capacity-target-${index}` },
+			})),
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		};
+		const options = {
+			initialLayout: "positions" as const,
+			routeKind: "obstacle-avoiding" as const,
+			railRouting: "dependency" as const,
+		};
+		const first = solveDiagram(input, options);
+		const second = solveDiagram(input, options);
+		expect(first.deliverability?.remediationPlans).toEqual(
+			second.deliverability?.remediationPlans,
+		);
+		expect(
+			first.deliverability?.remediationPlans.some(
+				(plan) => plan.type === "page-split",
+			),
+		).toBe(true);
+		expect(stringifyCanonical(first.deliverability?.remediationPlans)).toBe(
+			stringifyCanonical(second.deliverability?.remediationPlans),
+		);
+	});
+
 	it.each([
 		["dagre-directions.canonical.json", dagreDirectionsDiagram()],
 		["hybrid-layout.canonical.json", hybridLayoutDiagram()],

@@ -368,6 +368,7 @@ routing:
   fixedSwimlaneGeometry: true
   anchorCapacity: { minSpacing: 18, grow: false }
   railRouting: dependency
+  pagePolicy: dependency
   externalLabels: { edgeLabels: true }
   deliverabilityMode: degraded-ok
   remediationPolicy:
@@ -407,6 +408,7 @@ output:
 			fixedSwimlaneGeometry: true,
 			anchorCapacity: { minSpacing: 18, grow: false },
 			railRouting: "dependency",
+			pagePolicy: "dependency",
 			externalLabels: { edgeLabels: true },
 			deliverabilityMode: "degraded-ok",
 			remediationPolicy: {
