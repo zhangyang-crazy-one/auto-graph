@@ -4,6 +4,18 @@ export type DiagnosticSeverity = "info" | "warning" | "error";
 
 export type DiagnosticPathSegment = string | number;
 
+/**
+ * Stable taxonomy for deliverability-relevant route/text conflicts.
+ * Attached via `detail.conflictClass` without changing diagnostic codes.
+ */
+export type RouteConflictClass =
+	| "node-label-strike"
+	| "edge-label-pileup"
+	| "label-bbox-graze"
+	| "fixed-geometry-block"
+	| "rail-lane-overflow"
+	| "evidence-crossing";
+
 export interface Diagnostic {
 	severity: DiagnosticSeverity;
 	code: string;

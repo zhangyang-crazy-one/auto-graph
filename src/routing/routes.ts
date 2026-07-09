@@ -364,6 +364,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				severity: "warning",
 				code: "routing.obstacle.unavoidable",
 				message: "Straight route crosses soft obstacles.",
+				detail: {
+					conflictClass: "fixed-geometry-block",
+				},
 			});
 		}
 		return { points, diagnostics };
@@ -792,6 +795,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			code: "routing.obstacle.unavoidable",
 			message:
 				"No bounded orthogonal route candidate avoided all soft obstacles.",
+			detail: {
+				conflictClass: "fixed-geometry-block",
+			},
 		});
 
 		// Prefer the path with fewer soft-obstacle crossings between the A*
@@ -903,6 +909,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				code: "routing.obstacle.unavoidable",
 				message:
 					"Using A* route with minor soft-obstacle crossings to avoid hard evidence obstacles.",
+				detail: {
+					conflictClass: "fixed-geometry-block",
+				},
 			});
 			return {
 				points: finalizeRoute(
@@ -988,6 +997,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		severity: "warning",
 		code: "routing.obstacle.unavoidable",
 		message: "No bounded orthogonal route candidate avoided all obstacles.",
+		detail: {
+			conflictClass: "fixed-geometry-block",
+		},
 	});
 
 	// Prefer the path with fewer soft-obstacle crossings between the A*
@@ -1845,6 +1857,7 @@ function endpointInteriorFailureDiagnostic(): Diagnostic {
 		message:
 			"No bounded orthogonal route candidate avoided endpoint node interiors.",
 		detail: {
+			conflictClass: "fixed-geometry-block",
 			remediationType: "adjust-anchors-or-page-split",
 			suggestedRemedy:
 				"Move the explicit anchor, add endpoint-side clearance, or split the dense view.",
@@ -1875,6 +1888,7 @@ function hardObstacleFailureDiagnostic(input: {
 			detail: {
 				obstacleSource: "text",
 				hardObstacleKinds: kinds.join(","),
+				conflictClass: "edge-label-pileup",
 				ownerIds: stableUniqueStrings(
 					sources
 						.map((source) => source.ownerId)
@@ -1899,6 +1913,7 @@ function hardObstacleFailureDiagnostic(input: {
 			obstacleSource:
 				sources.length > 0 && kinds.includes("text") ? "mixed" : "evidence",
 			hardObstacleKinds: kinds.length === 0 ? "evidence" : kinds.join(","),
+			conflictClass: "evidence-crossing",
 		},
 	};
 }

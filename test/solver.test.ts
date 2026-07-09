@@ -4841,6 +4841,43 @@ it("reports the twenty-fifth dependency rail as over capacity", () => {
 });
 
 describe("phase 17 remediation apply loop", () => {
+	it("classifies route/text conflicts without rewriting diagnostic codes", () => {
+		const result = solveDiagram(denseCvRemediationFixture(), {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			edgeLabelRerouting: { maxIterations: 1 },
+			textIntersectionTolerance: 0,
+			externalLabels: true,
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const textClearance = result.diagnostics.filter(
+			(diagnostic) => diagnostic.code === "routing.text-clearance.unresolved",
+		);
+		for (const diagnostic of textClearance) {
+			expect(diagnostic.detail?.conflictClass).toBeDefined();
+			expect([
+				"node-label-strike",
+				"edge-label-pileup",
+				"label-bbox-graze",
+			]).toContain(diagnostic.detail?.conflictClass);
+		}
+		const railOverflow = result.diagnostics.find(
+			(diagnostic) => diagnostic.code === "routing.rail-capacity.exceeded",
+		);
+		if (railOverflow !== undefined) {
+			expect(railOverflow.detail?.conflictClass).toBe("rail-lane-overflow");
+		}
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "routing.evidence.crossing_forbidden",
+				detail: expect.objectContaining({
+					conflictClass: "edge-label-pileup",
+				}),
+			}),
+		);
+	});
+
 	it("transitions exhausted route-label loop into remediation planning", () => {
 		const result = solveDiagram(denseCvRemediationFixture(), {
 			initialLayout: "positions",

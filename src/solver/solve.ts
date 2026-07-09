@@ -22,6 +22,7 @@ import type { Constraint } from "../ir/constraints.js";
 import {
 	DELIVERABILITY_DIAGNOSTIC_CODES,
 	type Diagnostic,
+	type RouteConflictClass,
 } from "../ir/diagnostics.js";
 import type {
 	CoordinatedDiagram,
@@ -2716,10 +2717,16 @@ function buildRemediationPlan(
 		type === "page-split" && capacity !== undefined
 			? `Page capacity exceeded: required ${capacity.required} lanes but only ${capacity.available} available; split or grow the saturated page.`
 			: remediationPlanReason(type, diagnostics.length);
+	const policyMode = remediationPlanPolicyMode(type, policy);
+	const status =
+		type !== "page-split" && policyMode === "auto" ? "blocked" : "suggested";
 	return {
 		type,
-		status: "suggested",
-		reason,
+		status,
+		reason:
+			status === "blocked"
+				? `${reason} Auto remediation could not clear the residual conflicts.`
+				: reason,
 		diagnosticCodes,
 		edgeIds,
 		nodeIds,
@@ -5128,6 +5135,7 @@ function expandNodeBoxesForAnchorCapacity(
 						deltaWidth,
 						deltaHeight,
 						minSpacing,
+						conflictClass: "fixed-geometry-block",
 						remediationType: "grow-node-anchor-capacity",
 						suggestedRemedy:
 							"Increase node size, reduce same-side fanout, or enable anchorCapacity.grow.",
@@ -6894,6 +6902,7 @@ function railCapacityDiagnostic(
 			available,
 			sourceId,
 			targetId,
+			conflictClass: "rail-lane-overflow",
 			remediationType: "increase-rails-or-split",
 			suggestedRemedy:
 				"Split the dependency group, increase page bounds, or use explicit constraints.",
@@ -7982,19 +7991,15 @@ function reportRouteTextClearance(
 ): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 	const relevantAnnotations = annotations.filter(isLocalRouteClearanceText);
+	const tolerance = options.textIntersectionTolerance ?? 2;
 
 	for (const edge of edges) {
 		for (const annotation of relevantAnnotations) {
 			if (isEdgeConnectedTextAnnotation(edge, annotation)) {
 				continue;
 			}
-			if (
-				!routeIntersectsTextBox(
-					edge.points,
-					textObstacleBox(annotation, options),
-					options.textIntersectionTolerance ?? 2,
-				)
-			) {
+			const obstacle = textObstacleBox(annotation, options);
+			if (!routeIntersectsTextBox(edge.points, obstacle, tolerance)) {
 				continue;
 			}
 			diagnostics.push({
@@ -8008,12 +8013,38 @@ function reportRouteTextClearance(
 					conflictingObjectId: annotation.ownerId,
 					surfaceIndex: annotation.surfaceIndex,
 					textBackend: annotation.textBackend,
+					conflictClass: classifyRouteTextConflict(
+						edge.points,
+						annotation,
+						obstacle,
+						tolerance,
+					),
 				}),
 			});
 		}
 	}
 
 	return diagnostics;
+}
+
+function classifyRouteTextConflict(
+	points: readonly Point[],
+	annotation: SolvedTextAnnotation,
+	obstacle: Box,
+	tolerance: number,
+): RouteConflictClass {
+	// Caller already observed an intersection at `tolerance`. A graze is a
+	// shallow bbox touch that disappears once the box is inset further.
+	if (!routeIntersectsTextBox(points, obstacle, tolerance + 2)) {
+		return "label-bbox-graze";
+	}
+	if (annotation.surfaceKind === "node-label") {
+		return "node-label-strike";
+	}
+	if (annotation.surfaceKind === "edge-label") {
+		return "edge-label-pileup";
+	}
+	return "label-bbox-graze";
 }
 
 function reportExternalizedLabelDiagnostics(
