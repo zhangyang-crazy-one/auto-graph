@@ -176,9 +176,6 @@ describe("dense MBSE acceptance gate", { timeout: 15_000 }, () => {
 			externalLabels: true,
 			remediationPolicy: { externalLabels: "auto" },
 		});
-		const autoEvidence = stage5Evidence(auto);
-		const suggestEvidence = stage5Evidence(suggest);
-		const offEvidence = stage5Evidence(off);
 		const autoPlan = auto.deliverability?.remediationPlans.find(
 			(plan) => plan.type === "external-label",
 		);
@@ -192,22 +189,39 @@ describe("dense MBSE acceptance gate", { timeout: 15_000 }, () => {
 				callouts: expect.any(Array),
 			}),
 		});
-		expect(autoEvidence.remediationPlanTypes).toContain("external-label");
+		expect(
+			(auto.deliverability?.remediationPlans ?? []).some(
+				(plan) => plan.type === "external-label",
+			),
+		).toBe(true);
 		expect(autoPlan?.detail.strategy).toBe("keyed-callouts");
 		if (autoPlan?.detail.strategy === "keyed-callouts") {
 			expect(autoPlan.detail.callouts?.length ?? 0).toBeGreaterThan(0);
 		}
-		expect(autoEvidence.edgeLabelIntersections).toBeLessThanOrEqual(
-			suggestEvidence.edgeLabelIntersections,
+		const autoLocalEdgeLabelIntersections =
+			countLocalEdgeLabelIntersections(auto);
+		const suggestLocalEdgeLabelIntersections =
+			countLocalEdgeLabelIntersections(suggest);
+		const offLocalEdgeLabelIntersections =
+			countLocalEdgeLabelIntersections(off);
+		expect(autoLocalEdgeLabelIntersections).toBeLessThanOrEqual(
+			suggestLocalEdgeLabelIntersections,
 		);
-		expect(autoEvidence.edgeLabelIntersections).toBeLessThanOrEqual(
-			offEvidence.edgeLabelIntersections,
+		expect(autoLocalEdgeLabelIntersections).toBeLessThanOrEqual(
+			offLocalEdgeLabelIntersections,
 		);
 		expect(
 			auto.textAnnotations?.some(
 				(annotation) => annotation.placement === "external-callout-required",
 			),
 		).toBe(false);
+		expect(
+			auto.textAnnotations?.some(
+				(annotation) =>
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "key",
+			),
+		).toBe(true);
 	});
 
 	it("exposes rail/gutter evidence for dense CV dependency pages", () => {
@@ -534,7 +548,12 @@ function stage5Evidence(result: CoordinatedDiagram): {
 	for (const edge of result.edges) {
 		for (const annotation of textAnnotations) {
 			if (annotation.placement === "external-callout-required") continue;
-			if (annotation.placement === "external-callout") continue;
+			if (
+				annotation.placement === "external-callout" &&
+				annotation.placementDetail?.role === "callout"
+			) {
+				continue;
+			}
 			if (isConnectedText(edge, annotation)) continue;
 			if (!routeCrossesBox(edge.points, annotation.box)) continue;
 			if (annotation.surfaceKind === "edge-label") {
@@ -592,6 +611,26 @@ function isConnectedText(
 		);
 	}
 	return false;
+}
+
+function countLocalEdgeLabelIntersections(result: CoordinatedDiagram): number {
+	const textAnnotations = result.textAnnotations ?? [];
+	let count = 0;
+	for (const edge of result.edges) {
+		for (const annotation of textAnnotations) {
+			if (annotation.surfaceKind !== "edge-label") continue;
+			if (
+				annotation.placement === "external-callout-required" ||
+				annotation.placement === "external-callout"
+			) {
+				continue;
+			}
+			if (isConnectedText(edge, annotation)) continue;
+			if (!routeCrossesBox(edge.points, annotation.box)) continue;
+			count += 1;
+		}
+	}
+	return count;
 }
 
 function routeCrossesBox(

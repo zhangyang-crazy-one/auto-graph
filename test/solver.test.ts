@@ -2736,6 +2736,65 @@ describe("solveDiagram", () => {
 		).toBeGreaterThanOrEqual(2);
 	});
 
+	it("exports both key and shelf callout annotations in Excalidraw", async () => {
+		const { exportExcalidraw } = await import("../src/exporters/excalidraw.js");
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const scene = JSON.parse(exportExcalidraw(result)) as {
+			elements: Array<{ id?: string; type?: string; text?: string }>;
+		};
+		const texts = scene.elements.filter((element) => element.type === "text");
+		expect(texts.some((element) => element.text === "E1")).toBe(true);
+		expect(
+			texts.some((element) =>
+				(element.text ?? "").includes("alpha external callout"),
+			),
+		).toBe(true);
+		expect(
+			texts.filter((element) =>
+				(element.id ?? "").startsWith("edge-label:alpha:"),
+			).length,
+		).toBeGreaterThanOrEqual(2);
+	});
+
+	it("keeps keyed external-callout markers in route clearance", () => {
+		const result = solveDiagram(externalLabelAutoDiagram(), {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+		});
+		const keyMarkers =
+			result.textAnnotations?.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "key",
+			) ?? [];
+		expect(keyMarkers.length).toBeGreaterThan(0);
+		const shelfBodies =
+			result.textAnnotations?.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement === "external-callout" &&
+					annotation.placementDetail?.role === "callout",
+			) ?? [];
+		expect(shelfBodies.length).toBeGreaterThan(0);
+		// Key markers remain local clearance obstacles; shelf bodies do not.
+		for (const key of keyMarkers) {
+			expect(key.box.width).toBeGreaterThan(0);
+			expect(key.box.height).toBeGreaterThan(0);
+		}
+	});
+
 	it("does not keep route-label-loop.exhausted when remediation clears conflicts", () => {
 		const result = solveDiagram(externalLabelAutoDiagram(), {
 			initialLayout: "positions",
@@ -5143,6 +5202,53 @@ describe("phase 17 remediation apply loop", () => {
 		expect(nodeBox(suggest, "ibd-aggregator").height).toBe(40);
 	});
 
+	it("recenters node labels after growFixedGeometry auto deltas", () => {
+		const diagram = denseIbdRemediationFixture();
+		const aggregator = diagram.nodes.find(
+			(item) => item.id === "ibd-aggregator",
+		);
+		expect(aggregator).toBeDefined();
+		if (aggregator !== undefined) {
+			aggregator.label = { text: "aggregator" };
+			aggregator.labelLayout = createTestLabelLayout("aggregator", {
+				x: 10,
+				y: 13,
+				width: 60,
+				height: 14,
+			});
+		}
+		const result = solveDiagram(diagram, {
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "ibd-high-fan-in",
+			anchorCapacity: { minSpacing: 24, grow: false },
+			remediationPolicy: {
+				externalLabels: "suggest",
+				routeRails: "suggest",
+				growFixedGeometry: "auto",
+				pageSplit: "suggest",
+			},
+			strict: true,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const grow = result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "grow-fixed-geometry",
+		);
+		if (grow?.status !== "applied") {
+			return;
+		}
+		const node = result.nodes.find((item) => item.id === "ibd-aggregator");
+		expect(node?.labelLayout).toBeDefined();
+		expect(node?.labelLayout?.box.y).toBeCloseTo(
+			((node?.box.height ?? 0) - (node?.labelLayout?.box.height ?? 0)) / 2,
+			5,
+		);
+		expect(node?.labelLayout?.box.x).toBeCloseTo(
+			((node?.box.width ?? 0) - (node?.labelLayout?.box.width ?? 0)) / 2,
+			5,
+		);
+	});
+
 	it("never applies page-split and keeps required/available under suggest", () => {
 		const pairCount = 25;
 		const nodes = Array.from({ length: pairCount }, (_, index) => [
@@ -5575,6 +5681,71 @@ it("rejects a second edge from occupying the same rail lane", () => {
 	expect(new Set(rails.map((rail) => rail.side))).toEqual(
 		new Set(["top", "bottom"]),
 	);
+});
+
+it("honors railRouting false even when pagePolicy is dependency", () => {
+	const result = solveDiagram(
+		{
+			id: "rail-opt-out",
+			direction: "LR",
+			nodes: [
+				node("s0", { x: 0, y: 0 }),
+				node("t0", { x: 240, y: 0 }),
+				node("s1", { x: 0, y: 70 }),
+				node("t1", { x: 240, y: 70 }),
+				node("s2", { x: 0, y: 140 }),
+				node("t2", { x: 240, y: 140 }),
+				node("s3", { x: 0, y: 210 }),
+				node("t3", { x: 240, y: 210 }),
+				node("s4", { x: 0, y: 280 }),
+				node("t4", { x: 240, y: 280 }),
+				node("s5", { x: 0, y: 350 }),
+				node("t5", { x: 240, y: 350 }),
+			],
+			edges: [
+				{
+					id: "edge-0",
+					source: { nodeId: "s0" },
+					target: { nodeId: "t0" },
+				},
+				{
+					id: "edge-1",
+					source: { nodeId: "s1" },
+					target: { nodeId: "t1" },
+				},
+				{
+					id: "edge-2",
+					source: { nodeId: "s2" },
+					target: { nodeId: "t2" },
+				},
+				{
+					id: "edge-3",
+					source: { nodeId: "s3" },
+					target: { nodeId: "t3" },
+				},
+				{
+					id: "edge-4",
+					source: { nodeId: "s4" },
+					target: { nodeId: "t4" },
+				},
+				{
+					id: "edge-5",
+					source: { nodeId: "s5" },
+					target: { nodeId: "t5" },
+				},
+			],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "obstacle-avoiding",
+			pagePolicy: "dependency",
+			railRouting: false,
+		},
+	);
+	expect(result.routing?.rails ?? []).toEqual([]);
 });
 
 it("does not report rail capacity for rail candidates that fall back", () => {

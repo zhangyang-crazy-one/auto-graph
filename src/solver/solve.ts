@@ -1307,7 +1307,11 @@ export function solveDiagram(
 				routeTextDiagnostics,
 				routeLabelFeedbackState,
 				maxEdgeLabelReroutes,
-				enterRemediation ? { remediationTransition: true } : undefined,
+				enterRemediation ||
+					remediationPassIterations > 0 ||
+					appliedExternalLabelCallouts.length > 0
+					? { remediationTransition: true }
+					: undefined,
 			),
 		);
 	}
@@ -2203,6 +2207,9 @@ function applyGrowFixedGeometryRemediation(
 			: growthDeltasFromDiagnostics(state.diagnostics);
 
 	if (growthDeltas.length > 0) {
+		const nodesById = new Map(
+			context.styledNodes.map((node) => [node.id, node]),
+		);
 		for (const delta of growthDeltas) {
 			const box = state.constrainedBoxes.get(delta.nodeId);
 			if (box === undefined) continue;
@@ -2213,6 +2220,12 @@ function applyGrowFixedGeometryRemediation(
 			if (delta.deltaHeight > 0) {
 				box.y -= delta.deltaHeight / 2;
 				box.height += delta.deltaHeight;
+			}
+			if (delta.deltaWidth > 0 || delta.deltaHeight > 0) {
+				const node = nodesById.get(delta.nodeId);
+				if (node !== undefined) {
+					recenterNodeLabelLayout(node, box);
+				}
 			}
 		}
 	} else {
@@ -7003,6 +7016,11 @@ function railRouteIndexByEdgeId(
 }
 
 function dependencyRailsEnabled(options: SolveDiagramOptions): boolean {
+	// Explicit opt-out wins over pagePolicy so callers can disable rails on
+	// dependency pages without changing the classified policy.
+	if (options.railRouting === false) {
+		return false;
+	}
 	if (options.pagePolicy === "dependency") {
 		return true;
 	}
@@ -7011,7 +7029,7 @@ function dependencyRailsEnabled(options: SolveDiagramOptions): boolean {
 			options.railRouting === "dependency" || options.railRouting === "auto"
 		);
 	}
-	if (options.railRouting === false || options.railRouting === undefined) {
+	if (options.railRouting === undefined) {
 		return false;
 	}
 	if (
@@ -8503,11 +8521,21 @@ function isPreRouteTextObstacle(annotation: SolvedTextAnnotation): boolean {
 }
 
 function isLocalRouteClearanceText(annotation: SolvedTextAnnotation): boolean {
-	return (
-		isRouteClearanceText(annotation) &&
-		annotation.placement !== "external-callout-required" &&
-		annotation.placement !== "external-callout"
-	);
+	if (!isRouteClearanceText(annotation)) {
+		return false;
+	}
+	if (annotation.placement === "external-callout-required") {
+		return false;
+	}
+	// Shelf callout bodies live off-diagram; keyed markers stay on the route
+	// and must remain clearance obstacles.
+	if (
+		annotation.placement === "external-callout" &&
+		annotation.placementDetail?.role === "callout"
+	) {
+		return false;
+	}
+	return true;
 }
 
 function externalLabelExecutionMode(
