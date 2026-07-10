@@ -32,8 +32,46 @@ prepare → initial-layout → ports-and-constraints → coordinate
 
 Default phase bodies keep one behavior-preserving `solveDiagram` run (mirrored into `LayoutState` during `labels-and-remediate`) so the direct API and pipeline stay aligned. Use `LayoutPipeline.replacePhase(name, phase)` to override a named stage.
 
+## Dependency DAG (required)
+
+Solver modules must form a **directed acyclic graph**. Lower layers must not import higher layers.
+
+```text
+options / page-policy / cjk-typography / helpers
+  → initial-layout / swimlane-contracts / evidence
+  → ports → coordinate
+  → route-edges
+  → labels
+  → remediation
+  → solve (orchestrator) / index
+```
+
+Routing primitives stay in `src/routing/*` and are imported by `ports` / `route-edges` only — they must not import `src/solver/*`.
+
+### Cycle-break rules
+
+| Shared concern | Lives in | Why |
+|----------------|----------|-----|
+| `resolveRemediationPolicy` | `options.ts` | `labels` needs policy mode without importing `remediation` |
+| `labelOffset`, `recenterNodeLabelLayout`, `isEdgeConnectedTextAnnotation` | `helpers.ts` | `ports` / `route-edges` / `remediation` share leaf helpers |
+| `buildCenteredTextAnnotation`, `normalizeOutputFontFamily` | `ports.ts` | annotation builders used before label placement |
+
+### Forbidden edges
+
+- `labels` ↛ `remediation`
+- `route-edges` / `ports` / `coordinate` / `helpers` / `options` ↛ `labels` or `remediation`
+- `helpers` ↛ `ports` / `route-edges` / `labels` / `remediation`
+- Any reverse edge that would close a cycle with `solve`
+
+`test/solver-architecture.test.ts` asserts the solver-local import graph has no cycles and none of the forbidden edges above.
+
+## Guardrails (auto-graph-dev)
+
+- **Determinism**: stable id sorts / fingerprints; same input → stable coordinates.
+- **Prepare → solve → export**: solver owns geometry; exporters consume IR, they do not re-solve.
+- **#76 algorithm work**: primarily `ports.ts` / `route-edges.ts` / `src/routing/*`.
+- **#75 remediation work**: primarily `remediation.ts` / `labels.ts`.
+
 ## Follow-ups
 
 - Push per-phase `LayoutState` mutation so early phases stop being extension-point no-ops.
-- Algorithm work for #76 should land primarily in `ports.ts` / `route-edges.ts` / `src/routing/*`.
-- Dense remediation work for #75 should land primarily in `remediation.ts` / `labels.ts`.
