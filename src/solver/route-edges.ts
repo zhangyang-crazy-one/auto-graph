@@ -180,6 +180,7 @@ export function coordinateEdges(
 				nodes,
 				direction,
 				options,
+				diagnostics,
 			);
 	const routeHardObstacleMetadata =
 		hardObstacleMetadata ??
@@ -223,8 +224,10 @@ export function coordinateEdges(
 			portGeometry(target, targetPort),
 			targetDistributedAnchor,
 		);
-		const sourceAnchor = edge.source.anchor ?? sourceDistributedAnchor?.anchor;
-		const targetAnchor = edge.target.anchor ?? targetDistributedAnchor?.anchor;
+		const sourceAnchor =
+			edge.source.anchor ?? sourceDistributedAnchor?.anchor ?? sourcePort?.side;
+		const targetAnchor =
+			edge.target.anchor ?? targetDistributedAnchor?.anchor ?? targetPort?.side;
 		const routeTextObstacles = textObstacles
 			.filter(isLocalRouteClearanceText)
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
@@ -325,6 +328,26 @@ export function coordinateEdges(
 			...(options.maxBacktrackingRatio === undefined
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
+			...(() => {
+				const densePolicy =
+					options.deliverabilityMode === "strict" ||
+					options.pagePolicy === "dependency" ||
+					options.pagePolicy === "resource-flow" ||
+					options.pagePolicy === "ibd-high-fan-in";
+				const maxDetourRatio =
+					options.maxDetourRatio ?? (densePolicy ? 3 : undefined);
+				const maxAttachPointsPerSide =
+					options.maxAttachPointsPerSide ?? (densePolicy ? 3 : undefined);
+				return {
+					...(maxDetourRatio === undefined ? {} : { maxDetourRatio }),
+					...(maxAttachPointsPerSide === undefined
+						? {}
+						: { maxAttachPointsPerSide }),
+				};
+			})(),
+			...(options.deliverabilityMode === "degraded-ok"
+				? { fallbackSeverity: "warning" as const }
+				: {}),
 			...(options.textObstacleVertices === undefined
 				? {}
 				: { textObstacleVertices: options.textObstacleVertices }),

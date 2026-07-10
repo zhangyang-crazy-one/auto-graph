@@ -2264,6 +2264,55 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("does not promote label-hard obstacles to fatal evidence crossings (#74)", () => {
+		const result = solveDiagram(
+			{
+				id: "issue-74-label-hard-not-evidence",
+				direction: "LR",
+				nodes: [
+					{
+						id: "source",
+						shape: "rectangle" as const,
+						size: { width: 80, height: 40 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 0, y: 0 },
+					},
+					{
+						id: "target",
+						shape: "rectangle" as const,
+						size: { width: 80, height: 40 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 280, y: 180 },
+					},
+				],
+				edges: [
+					{
+						id: "labeled",
+						source: { nodeId: "source" },
+						target: { nodeId: "target" },
+						label: { text: "blocking label that fills the corridor" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				edgeLabelRerouting: { maxIterations: 1 },
+				strict: true,
+			},
+		);
+
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "routing.evidence.crossing_forbidden",
+			}),
+		);
+	});
+
 	it("scores feedback hard-route diagnostics ahead of text-clearance gains", () => {
 		const source = readFileSync(
 			new URL("../src/solver/route-edges.ts", import.meta.url),

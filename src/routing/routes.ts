@@ -129,10 +129,10 @@ function compareRouteQuality(left: RouteQuality, right: RouteQuality): number {
 		left.softCrossings - right.softCrossings ||
 		left.softCrossingLength - right.softCrossingLength ||
 		left.excessiveLength - right.excessiveLength ||
-		left.backtrackDistance - right.backtrackDistance ||
-		left.anchorPenalty - right.anchorPenalty ||
+		left.routeLength - right.routeLength ||
 		left.bendCount - right.bendCount ||
-		left.routeLength - right.routeLength
+		left.backtrackDistance - right.backtrackDistance ||
+		left.anchorPenalty - right.anchorPenalty
 	);
 }
 
@@ -239,6 +239,14 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const softObstacles = input.obstacles ?? [];
 	const hardObstacles = input.hardObstacles ?? [];
 	const hardObstacleMetadata = input.hardObstacleMetadata ?? [];
+	const fallbackDetail: Record<string, string | number | boolean | undefined> =
+		{
+			fallbackSeverity: input.fallbackSeverity,
+		};
+	const maxAttachPoints = Math.min(
+		5,
+		Math.max(1, input.maxAttachPointsPerSide ?? 1),
+	);
 	// Best rejected path from A* routing — used as fallback when all
 	// heuristic candidates also fail, to avoid returning a 2-point
 	// direct connection that is always worse than a path with minor
@@ -338,13 +346,17 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			input.source.center,
 			input.targetAnchor ?? defaultAnchors.targetAnchor,
 		);
-		const points = finalizeRoute(
-			[source, target],
-			softObstacles,
-			hardObstacles,
+		const points = commitFinalizedRoute(
+			finalizeRoute(
+				[source, target],
+				softObstacles,
+				hardObstacles,
+				diagnostics,
+				softObstacleIndex,
+				hardObstacleIndex,
+				fallbackDetail,
+			),
 			diagnostics,
-			softObstacleIndex,
-			hardObstacleIndex,
 		);
 		if (routeCrossesBoxes(points, hardObstacles, hardObstacleIndex)) {
 			diagnostics.push(
@@ -374,56 +386,71 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 	// For obstacle-avoiding edges, try A* visibility-graph routing
 	// first.  Fall through to heuristic candidates if it fails (#39).
+	// Collect clearance-feasible candidates across attach-point pairs and
+	// pick the shortest feasible (#76 tournament) instead of first-clean.
 	if ((input.kind ?? "orthogonal") === "obstacle-avoiding") {
 		const endpointObstacles = endpointInteriorObstacles(input);
-		for (const { sourceAnchor, targetAnchor } of routeAnchorPairs(
+		const cleanTournament: Array<{
+			points: Point[];
+			source: Point;
+			target: Point;
+			quality: RouteQuality;
+		}> = [];
+		const allObstacles = [...softObstacles, ...hardObstacles];
+		const corridorMargin = input.corridorMargin ?? 32;
+		const cornerBudget = (obstacleCount: number): number =>
+			resolveMaxCorners(input.maxCorners, {
+				corridorMargin,
+				obstacleCount,
+			});
+		const gridBudget = resolveMaxNodes(input.maxNodes, {
+			corridorMargin,
+			obstacleCount: allObstacles.length + endpointObstacles.length,
+		});
+		const considerClean = (
+			candidate: Point[],
+			source: Point,
+			target: Point,
+			anchorPenalty: number,
+		): void => {
+			if (
+				routeIntersectsObstacles(candidate, softObstacles, softObstacleIndex) ||
+				routeIntersectsObstacles(candidate, hardObstacles, hardObstacleIndex) ||
+				routeIntersectsEndpointInteriors(candidate, endpointObstacles)
+			) {
+				recordRejected(candidate, source, target, endpointObstacles);
+				return;
+			}
+			const quality = routeQuality(
+				candidate,
+				source,
+				target,
+				softObstacles,
+				hardObstacles,
+				endpointObstacles,
+				input.maxBacktrackingRatio,
+				anchorPenalty,
+			);
+			cleanTournament.push({ points: candidate, source, target, quality });
+		};
+
+		for (const pair of routeTournamentPairs(
 			input,
 			defaultAnchors,
+			maxAttachPoints,
 		)) {
-			const source = getEdgePort(
-				input.source,
-				input.target.center,
-				sourceAnchor,
-			);
-			const target = getEdgePort(
-				input.target,
-				input.source.center,
-				targetAnchor,
-			);
-			// Try corner visibility graph first (Issue #54, 方案 B).
-			// Use margin 2 so the resulting path stays outside the
-			// obstacle boundary and avoids tangent-touch rejections
-			// by the loose AABB intersection check.
-			// Corridor prefilter reduces obstacle count for the corner
-			// graph, preventing maxCorners overflow (Issue #62).
-			const allObstacles = [...softObstacles, ...hardObstacles];
-			const corridorMargin = input.corridorMargin ?? 32;
+			const { source, target, anchorPenalty } = pair;
 			const corridorObstacles = filterObstaclesByCorridor(
 				source,
 				target,
 				allObstacles,
-				[], // endpointObstacles passed separately via options
+				[],
 				corridorMargin,
 			);
-			// When the corridor filter removes every obstacle but the
-			// diagram still has obstacles, an empty set makes the corner
-			// router take its no-obstacle fast path (a diagonal source→
-			// target segment), regressing orthogonality. Use the full set
-			// in that case so projection vertices still yield an orthogonal
-			// path (Codex P2).
 			const cornerObstacles =
 				corridorObstacles.length === 0 && allObstacles.length > 0
 					? allObstacles
 					: corridorObstacles;
-			const cornerBudget = (obstacleCount: number): number =>
-				resolveMaxCorners(input.maxCorners, {
-					corridorMargin,
-					obstacleCount,
-				});
-			const gridBudget = resolveMaxNodes(input.maxNodes, {
-				corridorMargin,
-				obstacleCount: allObstacles.length + endpointObstacles.length,
-			});
 			let cornerPath = findCornerGraphPath(
 				source,
 				target,
@@ -436,8 +463,6 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				},
 				diagnostics,
 			);
-			// If corridor-filtered call failed and excluded some obstacles,
-			// retry with the full set (mirrors grid A* full-retry pattern).
 			if (cornerPath === null && cornerObstacles.length < allObstacles.length) {
 				cornerPath = findCornerGraphPath(
 					source,
@@ -452,7 +477,6 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					diagnostics,
 				);
 			}
-			// Fall back to grid A* if corner graph fails or is rejected.
 			const path =
 				cornerPath ??
 				findObstacleFreePath(
@@ -468,142 +492,158 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					},
 					diagnostics,
 				);
-			if (path !== null && path.length >= 2) {
-				const finalized = finalizeRoute(
-					path,
+			if (path === null || path.length < 2) {
+				continue;
+			}
+			const finalized = finalizeRoutePoints(
+				path,
+				softObstacles,
+				hardObstacles,
+				diagnostics,
+				softObstacleIndex,
+				hardObstacleIndex,
+			);
+			if (
+				!routeIntersectsObstacles(
+					finalized,
+					softObstacles,
+					softObstacleIndex,
+				) &&
+				!routeIntersectsObstacles(
+					finalized,
+					hardObstacles,
+					hardObstacleIndex,
+				) &&
+				!routeIntersectsEndpointInteriors(finalized, endpointObstacles)
+			) {
+				considerClean(finalized, source, target, anchorPenalty);
+				continue;
+			}
+			recordRejected(finalized, source, target, endpointObstacles);
+			if (cornerPath === null) {
+				continue;
+			}
+			const fullCornerPath =
+				cornerObstacles.length < allObstacles.length
+					? findCornerGraphPath(
+							source,
+							target,
+							allObstacles,
+							{
+								endpointObstacles,
+								margin: 2,
+								maxCorners: cornerBudget(allObstacles.length),
+								textObstacleVertices: input.textObstacleVertices === true,
+							},
+							diagnostics,
+						)
+					: null;
+			if (fullCornerPath !== null && fullCornerPath.length >= 2) {
+				const fullFinalized = finalizeRoutePoints(
+					fullCornerPath,
 					softObstacles,
 					hardObstacles,
 					diagnostics,
 					softObstacleIndex,
 					hardObstacleIndex,
 				);
-				// Verify the A* path against the router.s AABB
-				// collision contract (segmentBox with 1 px floor)
-				// so we do not accept routes that the existing
-				// non-A* path would reject (Codex P2).
 				if (
 					!routeIntersectsObstacles(
-						finalized,
+						fullFinalized,
 						softObstacles,
 						softObstacleIndex,
 					) &&
 					!routeIntersectsObstacles(
-						finalized,
+						fullFinalized,
 						hardObstacles,
 						hardObstacleIndex,
 					) &&
-					!routeIntersectsEndpointInteriors(finalized, endpointObstacles)
+					!routeIntersectsEndpointInteriors(fullFinalized, endpointObstacles)
 				) {
-					const accepted = acceptCleanRoute(finalized, source, target);
-					if (accepted !== undefined) {
-						return accepted;
-					}
+					considerClean(fullFinalized, source, target, anchorPenalty);
 					continue;
 				}
-				// Save rejected finalized path as best-effort fallback —
-				// it has minor crossings but is far better than a 2-point
-				// direct connection (Issue #66). Only hard-clear paths are
-				// kept, and the fewest-crossings one wins (Codex P1/P2).
-				recordRejected(finalized, source, target, endpointObstacles);
-				// Corner path was rejected — retry full-obstacle corner graph
-				// first (it may still be under maxCorners and can route around
-				// the excluded obstacle), then fall back to grid A* (Codex P2).
-				if (cornerPath !== null) {
-					const fullCornerPath =
-						cornerObstacles.length < allObstacles.length
-							? findCornerGraphPath(
-									source,
-									target,
-									allObstacles,
-									{
-										endpointObstacles,
-										margin: 2,
-										maxCorners: cornerBudget(allObstacles.length),
-										textObstacleVertices: input.textObstacleVertices === true,
-									},
-									diagnostics,
-								)
-							: null;
-					if (fullCornerPath !== null && fullCornerPath.length >= 2) {
-						const fullFinalized = finalizeRoute(
-							fullCornerPath,
-							softObstacles,
-							hardObstacles,
-							diagnostics,
-							softObstacleIndex,
-							hardObstacleIndex,
-						);
-						if (
-							!routeIntersectsObstacles(
-								fullFinalized,
-								softObstacles,
-								softObstacleIndex,
-							) &&
-							!routeIntersectsObstacles(
-								fullFinalized,
-								hardObstacles,
-								hardObstacleIndex,
-							) &&
-							!routeIntersectsEndpointInteriors(
-								fullFinalized,
-								endpointObstacles,
-							)
-						) {
-							const accepted = acceptCleanRoute(fullFinalized, source, target);
-							if (accepted !== undefined) {
-								return accepted;
-							}
-							continue;
-						}
-						// Record hard-clear full-retry path as fallback (Codex P2).
-						recordRejected(fullFinalized, source, target, endpointObstacles);
-					}
-					const gridPath = findObstacleFreePath(
-						source,
-						target,
-						allObstacles,
-						{
-							endpointObstacles,
-							margin: 0,
-							corridorMargin,
-							maxNodes: gridBudget,
-							textObstacleVertices: input.textObstacleVertices === true,
+				recordRejected(fullFinalized, source, target, endpointObstacles);
+			}
+			const gridPath = findObstacleFreePath(
+				source,
+				target,
+				allObstacles,
+				{
+					endpointObstacles,
+					margin: 0,
+					corridorMargin,
+					maxNodes: gridBudget,
+					textObstacleVertices: input.textObstacleVertices === true,
+				},
+				diagnostics,
+			);
+			if (gridPath !== null && gridPath.length >= 2) {
+				const gridFinalized = finalizeRoutePoints(
+					gridPath,
+					softObstacles,
+					hardObstacles,
+					diagnostics,
+					softObstacleIndex,
+					hardObstacleIndex,
+				);
+				if (
+					!routeIntersectsObstacles(
+						gridFinalized,
+						softObstacles,
+						softObstacleIndex,
+					) &&
+					!routeIntersectsObstacles(
+						gridFinalized,
+						hardObstacles,
+						hardObstacleIndex,
+					) &&
+					!routeIntersectsEndpointInteriors(gridFinalized, endpointObstacles)
+				) {
+					considerClean(gridFinalized, source, target, anchorPenalty);
+				} else {
+					recordRejected(gridFinalized, source, target, endpointObstacles);
+				}
+			}
+		}
+
+		if (cleanTournament.length > 0) {
+			cleanTournament.sort((left, right) =>
+				compareRouteQuality(left.quality, right.quality),
+			);
+			const best = cleanTournament[0];
+			if (best !== undefined) {
+				const detour = detourRatio(best.points, best.source, best.target);
+				if (
+					input.maxDetourRatio !== undefined &&
+					detour > input.maxDetourRatio
+				) {
+					diagnostics.push({
+						severity: "warning",
+						code: "routing.obstacle.unavoidable",
+						message: `Shortest clearance-feasible route exceeds maxDetourRatio ${input.maxDetourRatio} (detour ${detour.toFixed(2)}).`,
+						detail: {
+							conflictClass: "fixed-geometry-block",
+							remediationType: "route-rail-or-page-split",
+							detourRatio: Number(detour.toFixed(2)),
+							maxDetourRatio: input.maxDetourRatio,
+							routeLength: Math.round(best.quality.routeLength),
 						},
-						diagnostics,
+					});
+					recordRejected(
+						best.points,
+						best.source,
+						best.target,
+						endpointObstacles,
 					);
-					if (gridPath !== null && gridPath.length >= 2) {
-						const gridFinalized = finalizeRoute(
-							gridPath,
-							softObstacles,
-							hardObstacles,
-							diagnostics,
-							softObstacleIndex,
-							hardObstacleIndex,
-						);
-						if (
-							!routeIntersectsObstacles(
-								gridFinalized,
-								softObstacles,
-								softObstacleIndex,
-							) &&
-							!routeIntersectsObstacles(
-								gridFinalized,
-								hardObstacles,
-								hardObstacleIndex,
-							) &&
-							!routeIntersectsEndpointInteriors(
-								gridFinalized,
-								endpointObstacles,
-							)
-						) {
-							const accepted = acceptCleanRoute(gridFinalized, source, target);
-							if (accepted !== undefined) {
-								return accepted;
-							}
-							continue;
-						}
-						// Record hard-clear grid-retry path as fallback (Codex P2).
-						recordRejected(gridFinalized, source, target, endpointObstacles);
+				} else {
+					const accepted = acceptCleanRoute(
+						best.points,
+						best.source,
+						best.target,
+					);
+					if (accepted !== undefined) {
+						return accepted;
 					}
 				}
 			}
@@ -686,7 +726,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				candidate.endpointObstacles,
 			)
 		) {
-			const finalizedClean = finalizeRoute(
+			const finalizedClean = finalizeRoutePoints(
 				candidate.points,
 				softObstacles,
 				hardObstacles,
@@ -749,7 +789,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						candidate.endpointObstacles,
 					)
 				) {
-					const finalized = finalizeRoute(
+					const finalized = finalizeRoutePoints(
 						rerouted,
 						softObstacles,
 						hardObstacles,
@@ -802,43 +842,59 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 
 		// Prefer the path with fewer soft-obstacle crossings between the A*
 		// rejected path and the heuristic candidate (Codex P2). Compare AFTER
-		// finalization — only prefer rejected when strictly better.
-		const finalizedSoftBest = finalizeRoute(
-			bestPoints,
+		// finalization — only prefer rejected when strictly better. Commit the
+		// chosen path's fallback diagnostic only (#75 Stage-3).
+		const softBestResult = preferHardClearOverFatalFallback(
+			finalizeRoute(
+				bestPoints,
+				softObstacles,
+				hardObstacles,
+				undefined,
+				softObstacleIndex,
+				hardObstacleIndex,
+				fallbackDetail,
+			),
+			bestRejectedPath,
 			softObstacles,
 			hardObstacles,
-			diagnostics,
+			softObstacleIndex,
+			hardObstacleIndex,
+			fallbackDetail,
 		);
-		let softFallback = finalizedSoftBest;
+		let chosenSoft = softBestResult;
 		if (bestRejectedPath !== undefined) {
-			const finalizedRejected = finalizeRoute(
+			const rejectedResult = finalizeRoute(
 				bestRejectedPath,
 				softObstacles,
 				hardObstacles,
-				diagnostics,
+				undefined,
+				softObstacleIndex,
+				hardObstacleIndex,
+				fallbackDetail,
 			);
 			const rejectedQuality = routeQuality(
-				finalizedRejected,
-				finalizedRejected[0] as Point,
-				finalizedRejected[finalizedRejected.length - 1] as Point,
+				rejectedResult.points,
+				rejectedResult.points[0] as Point,
+				rejectedResult.points[rejectedResult.points.length - 1] as Point,
 				softObstacles,
 				hardObstacles,
 				hardClearCandidate.endpointObstacles,
 				input.maxBacktrackingRatio,
 			);
 			const heuristicQuality = routeQuality(
-				finalizedSoftBest,
-				finalizedSoftBest[0] as Point,
-				finalizedSoftBest[finalizedSoftBest.length - 1] as Point,
+				softBestResult.points,
+				softBestResult.points[0] as Point,
+				softBestResult.points[softBestResult.points.length - 1] as Point,
 				softObstacles,
 				hardObstacles,
 				hardClearCandidate.endpointObstacles,
 				input.maxBacktrackingRatio,
 			);
 			if (compareRouteQuality(rejectedQuality, heuristicQuality) < 0) {
-				softFallback = finalizedRejected;
+				chosenSoft = rejectedResult;
 			}
 		}
+		const softFallback = commitFinalizedRoute(chosenSoft, diagnostics);
 
 		// Run backtracking check on the chosen fallback too (Codex P2).
 		checkBacktracking(
@@ -873,7 +929,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 						candidate.endpointObstacles,
 					)
 				) {
-					const finalized = finalizeRoute(
+					const finalized = finalizeRoutePoints(
 						rerouted,
 						softObstacles,
 						hardObstacles,
@@ -913,22 +969,41 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					conflictClass: "fixed-geometry-block",
 				},
 			});
-			return {
-				points: finalizeRoute(
+			const rejectedFinal = commitFinalizedRoute(
+				finalizeRoute(
 					bestRejectedPath,
 					softObstacles,
 					hardObstacles,
-					diagnostics,
+					undefined,
+					softObstacleIndex,
+					hardObstacleIndex,
+					fallbackDetail,
 				),
+				diagnostics,
+			);
+			return {
+				points: rejectedFinal,
 				diagnostics,
 			};
 		}
-		const finalPoints = finalizeRoute(
-			bestPoints,
+		const finalResult = preferHardClearOverFatalFallback(
+			finalizeRoute(
+				bestPoints,
+				softObstacles,
+				hardObstacles,
+				undefined,
+				softObstacleIndex,
+				hardObstacleIndex,
+				fallbackDetail,
+			),
+			bestRejectedPath,
 			softObstacles,
 			hardObstacles,
-			diagnostics,
+			softObstacleIndex,
+			hardObstacleIndex,
+			fallbackDetail,
 		);
+		const finalPoints = commitFinalizedRoute(finalResult, diagnostics);
 		const finalEndpointObstacles =
 			rankedCandidateRoutes[0]?.endpointObstacles ??
 			endpointInteriorObstacles(input);
@@ -970,7 +1045,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				!routeCrossesBoxes(rerouted, allObstacles) &&
 				!routeIntersectsEndpointInteriors(rerouted, candidate.endpointObstacles)
 			) {
-				const finalized = finalizeRoute(
+				const finalized = finalizeRoutePoints(
 					rerouted,
 					softObstacles,
 					hardObstacles,
@@ -1007,43 +1082,58 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	// finalization — finalizeRoute can expand/simplify routes to avoid
 	// obstacles, so raw crossing counts on unfinalized paths are misleading.
 	// Only prefer the A* path when it is strictly better after finalization.
-	const finalizedBestPoints = finalizeRoute(
-		bestPoints,
+	const finalizedBest = preferHardClearOverFatalFallback(
+		finalizeRoute(
+			bestPoints,
+			softObstacles,
+			hardObstacles,
+			undefined,
+			softObstacleIndex,
+			hardObstacleIndex,
+			fallbackDetail,
+		),
+		bestRejectedPath,
 		softObstacles,
 		hardObstacles,
-		diagnostics,
+		softObstacleIndex,
+		hardObstacleIndex,
+		fallbackDetail,
 	);
-	let fallbackPoints = finalizedBestPoints;
+	let chosenFallback = finalizedBest;
 	if (bestRejectedPath !== undefined) {
 		const finalizedRejected = finalizeRoute(
 			bestRejectedPath,
 			softObstacles,
 			hardObstacles,
-			diagnostics,
+			undefined,
+			softObstacleIndex,
+			hardObstacleIndex,
+			fallbackDetail,
 		);
 		const endpointObstacles = endpointInteriorObstacles(input);
 		const rejectedQuality = routeQuality(
-			finalizedRejected,
-			finalizedRejected[0] as Point,
-			finalizedRejected[finalizedRejected.length - 1] as Point,
+			finalizedRejected.points,
+			finalizedRejected.points[0] as Point,
+			finalizedRejected.points[finalizedRejected.points.length - 1] as Point,
 			softObstacles,
 			hardObstacles,
 			endpointObstacles,
 			input.maxBacktrackingRatio,
 		);
 		const heuristicQuality = routeQuality(
-			finalizedBestPoints,
-			finalizedBestPoints[0] as Point,
-			finalizedBestPoints[finalizedBestPoints.length - 1] as Point,
+			finalizedBest.points,
+			finalizedBest.points[0] as Point,
+			finalizedBest.points[finalizedBest.points.length - 1] as Point,
 			softObstacles,
 			hardObstacles,
 			endpointObstacles,
 			input.maxBacktrackingRatio,
 		);
 		if (compareRouteQuality(rejectedQuality, heuristicQuality) < 0) {
-			fallbackPoints = finalizedRejected;
+			chosenFallback = finalizedRejected;
 		}
 	}
+	const fallbackPoints = commitFinalizedRoute(chosenFallback, diagnostics);
 
 	// Run backtracking check on the chosen fallback too (Codex P2).
 	checkBacktracking(
@@ -1059,17 +1149,28 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	};
 }
 
+interface FinalizeRouteResult {
+	points: Point[];
+	/** Attach only when this path is the chosen route result (#75 Stage-3). */
+	fallbackDiagnostic?: Diagnostic;
+}
+
+/**
+ * Finalize a candidate polyline. Does not mutate diagnostics — callers must
+ * push `fallbackDiagnostic` only when returning this path as the result.
+ */
 function finalizeRoute(
 	points: readonly Point[],
 	softObstacles: readonly Box[],
 	hardObstacles: readonly Box[],
-	diagnostics: Diagnostic[],
+	_diagnostics: Diagnostic[] | undefined,
 	softObstacleIndex?: BoxSpatialIndex,
 	hardObstacleIndex?: BoxSpatialIndex,
-): Point[] {
+	detail: Record<string, string | number | boolean | undefined> = {},
+): FinalizeRouteResult {
 	const simplified = simplifyRoute(points);
 	if (simplified.length >= 3) {
-		return simplified;
+		return { points: simplified };
 	}
 	const crossesHardObstacles = routeCrossesBoxes(
 		simplified,
@@ -1082,7 +1183,7 @@ function finalizeRoute(
 		softObstacleIndex,
 	);
 	if (!crossesHardObstacles && !crossesSoftObstacles) {
-		return simplified;
+		return { points: simplified };
 	}
 	const expanded = expandFallbackRoute(simplified, [
 		...softObstacles,
@@ -1099,15 +1200,94 @@ function finalizeRoute(
 		softObstacleIndex,
 	);
 	if (expandedCrossesHard || expandedCrossesSoft) {
-		diagnostics.push({
-			severity: expandedCrossesHard ? "error" : "warning",
-			code: "route_obstacle_fallback",
-			message:
-				"Obstacle-aware routing fell back to fewer than three route points.",
-			detail: { pointCount: simplified.length },
-		});
+		const severity: Diagnostic["severity"] =
+			expandedCrossesHard && detail.fallbackSeverity !== "warning"
+				? "error"
+				: "warning";
+		const { fallbackSeverity: _ignored, ...restDetail } = detail;
+		return {
+			points: expanded,
+			fallbackDiagnostic: {
+				severity,
+				code: "route_obstacle_fallback",
+				message:
+					"Obstacle-aware routing fell back to fewer than three route points.",
+				detail: {
+					pointCount: simplified.length,
+					conflictClass: expandedCrossesHard
+						? "fixed-geometry-block"
+						: "soft-obstacle",
+					remediationType: "route-rail-or-page-split",
+					...Object.fromEntries(
+						Object.entries(restDetail).filter(
+							([, value]) => value !== undefined,
+						),
+					),
+				},
+			},
+		};
 	}
-	return expanded;
+	return { points: expanded };
+}
+
+function finalizeRoutePoints(
+	points: readonly Point[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
+	diagnostics: Diagnostic[] | undefined,
+	softObstacleIndex?: BoxSpatialIndex,
+	hardObstacleIndex?: BoxSpatialIndex,
+	detail: Record<string, string | number | boolean | undefined> = {},
+): Point[] {
+	return finalizeRoute(
+		points,
+		softObstacles,
+		hardObstacles,
+		diagnostics,
+		softObstacleIndex,
+		hardObstacleIndex,
+		detail,
+	).points;
+}
+
+function commitFinalizedRoute(
+	finalized: FinalizeRouteResult,
+	diagnostics: Diagnostic[],
+): Point[] {
+	if (finalized.fallbackDiagnostic !== undefined) {
+		diagnostics.push(finalized.fallbackDiagnostic);
+	}
+	return finalized.points;
+}
+
+function preferHardClearOverFatalFallback(
+	candidate: FinalizeRouteResult,
+	rejectedPath: Point[] | undefined,
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
+	softObstacleIndex: BoxSpatialIndex | undefined,
+	hardObstacleIndex: BoxSpatialIndex | undefined,
+	detail: Record<string, string | number | boolean | undefined>,
+): FinalizeRouteResult {
+	if (
+		candidate.fallbackDiagnostic?.severity !== "error" ||
+		rejectedPath === undefined
+	) {
+		return candidate;
+	}
+	const rejected = finalizeRoute(
+		rejectedPath,
+		softObstacles,
+		hardObstacles,
+		undefined,
+		softObstacleIndex,
+		hardObstacleIndex,
+		detail,
+	);
+	if (rejected.fallbackDiagnostic?.severity === "error") {
+		return candidate;
+	}
+	return rejected;
 }
 
 function expandFallbackRoute(
@@ -1384,6 +1564,131 @@ function fallbackRoute(
 			input.targetAnchor ?? defaultAnchors.targetAnchor,
 		),
 	];
+}
+
+function detourRatio(
+	points: readonly Point[],
+	source: Point,
+	target: Point,
+): number {
+	const direct = Math.hypot(target.x - source.x, target.y - source.y);
+	if (direct <= 0) {
+		return 0;
+	}
+	return routeLength(points) / direct;
+}
+
+function fractionalSidePoints(
+	box: Box,
+	side: AnchorName,
+	count: number,
+): Point[] {
+	const n = Math.max(1, count);
+	const fractions =
+		n === 1
+			? [0.5]
+			: n === 3
+				? [0.5, 0.25, 0.75]
+				: Array.from({ length: n }, (_, index) => (index + 1) / (n + 1));
+	return fractions.map((fraction) => sidePointAtFraction(box, side, fraction));
+}
+
+function sidePointAtFraction(
+	box: Box,
+	side: AnchorName,
+	fraction: number,
+): Point {
+	const t = Math.min(1, Math.max(0, fraction));
+	switch (side) {
+		case "left":
+			return { x: box.x, y: box.y + box.height * t };
+		case "right":
+			return { x: box.x + box.width, y: box.y + box.height * t };
+		case "top":
+			return { x: box.x + box.width * t, y: box.y };
+		case "bottom":
+			return { x: box.x + box.width * t, y: box.y + box.height };
+		default:
+			return {
+				x: box.x + box.width / 2,
+				y: box.y + box.height / 2,
+			};
+	}
+}
+
+function routeTournamentPairs(
+	input: RouteEdgeInput,
+	defaultAnchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+	maxAttachPoints: number,
+): Array<{
+	source: Point;
+	target: Point;
+	sourceAnchor: AnchorName;
+	targetAnchor: AnchorName;
+	anchorPenalty: number;
+}> {
+	const pairs = routeAnchorPairs(input, defaultAnchors);
+	const results: Array<{
+		source: Point;
+		target: Point;
+		sourceAnchor: AnchorName;
+		targetAnchor: AnchorName;
+		anchorPenalty: number;
+	}> = [];
+	const seen = new Set<string>();
+	for (const pair of pairs) {
+		const sourceIsPrimary = pair.sourceAnchor === defaultAnchors.sourceAnchor;
+		const targetIsPrimary = pair.targetAnchor === defaultAnchors.targetAnchor;
+		const sourcePoints =
+			input.sourceAnchor !== undefined ||
+			!sourceIsPrimary ||
+			!isCardinalAnchor(pair.sourceAnchor)
+				? [getEdgePort(input.source, input.target.center, pair.sourceAnchor)]
+				: fractionalSidePoints(
+						input.source.box,
+						pair.sourceAnchor,
+						maxAttachPoints,
+					);
+		const targetPoints =
+			input.targetAnchor !== undefined ||
+			!targetIsPrimary ||
+			!isCardinalAnchor(pair.targetAnchor)
+				? [getEdgePort(input.target, input.source.center, pair.targetAnchor)]
+				: fractionalSidePoints(
+						input.target.box,
+						pair.targetAnchor,
+						maxAttachPoints,
+					);
+		for (let si = 0; si < sourcePoints.length; si += 1) {
+			for (let ti = 0; ti < targetPoints.length; ti += 1) {
+				const source = sourcePoints[si];
+				const target = targetPoints[ti];
+				if (source === undefined || target === undefined) continue;
+				const key = `${source.x},${source.y}->${target.x},${target.y}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				results.push({
+					source,
+					target,
+					sourceAnchor: pair.sourceAnchor,
+					targetAnchor: pair.targetAnchor,
+					anchorPenalty: pair.anchorPenalty + si + ti,
+				});
+			}
+		}
+	}
+	return results;
+}
+
+function isCardinalAnchor(
+	anchor: AnchorName,
+): anchor is "top" | "right" | "bottom" | "left" {
+	return (
+		anchor === "top" ||
+		anchor === "right" ||
+		anchor === "bottom" ||
+		anchor === "left"
+	);
 }
 
 function routeAnchorPairs(

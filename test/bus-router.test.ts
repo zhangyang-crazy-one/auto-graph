@@ -113,4 +113,15 @@ describe("bus-router", () => {
 			expect(anchor!.x).toBeLessThanOrEqual(maxX);
 		}
 	});
+
+	it("reserves at least 3 slots on a used side (#76)", () => {
+		const result = computeFanOutPorts(
+			["e1", "e2"],
+			{ x: 0, y: 0, width: 80, height: 40 },
+			"bottom",
+			8,
+		);
+		expect(result.get("e1")?.slotCount).toBe(3);
+		expect(result.get("e2")?.slotCount).toBe(3);
+	});
 });

@@ -48,6 +48,23 @@ export interface RouteEdgeInput {
 	/** Route-length / direct-distance ratio above which a backtracking
 	 * warning is emitted (default 20). */
 	maxBacktrackingRatio?: number;
+	/**
+	 * Maximum accepted routeLength/direct ratio among clearance-feasible
+	 * candidates (#76). When every feasible path exceeds this budget, emit a
+	 * structured capacity/rail remediation diagnostic instead of accepting a
+	 * flying detour. Dense deliverable default is 3; omit for legacy behavior.
+	 */
+	maxDetourRatio?: number;
+	/**
+	 * Attach-point tournament size per preferred side (#76). Defaults to 3
+	 * (≈25%/50%/75%). Capped at 5 to bound source×target combinations.
+	 */
+	maxAttachPointsPerSide?: number;
+	/**
+	 * Severity for fatal `route_obstacle_fallback` when expand still crosses
+	 * hard obstacles. Use `"warning"` under `deliverabilityMode: "degraded-ok"`.
+	 */
+	fallbackSeverity?: "error" | "warning";
 	/** Add mid-edge vertices around compact text obstacles to improve clearance. */
 	textObstacleVertices?: boolean;
 }
