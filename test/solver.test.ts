@@ -2128,7 +2128,7 @@ describe("solveDiagram", () => {
 
 	it("scores feedback hard-route diagnostics ahead of text-clearance gains", () => {
 		const source = readFileSync(
-			new URL("../src/solver/solve.ts", import.meta.url),
+			new URL("../src/solver/route-edges.ts", import.meta.url),
 			"utf8",
 		);
 		const comparatorStart = source.indexOf(
@@ -2153,7 +2153,7 @@ describe("solveDiagram", () => {
 
 		const hardPredicate = source.slice(
 			hardPredicateStart,
-			source.indexOf("function routeLabelFeedbackPublicRouteDiagnostics("),
+			source.indexOf("function replaceRouteDiagnosticsForEdge("),
 		);
 		expect(hardPredicate).toContain(
 			'diagnostic.code === "routing.evidence.crossing_forbidden"',

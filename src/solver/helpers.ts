@@ -10,8 +10,10 @@ import type {
 	RoutingGutterAllocation,
 } from "../ir/diagram.js";
 import type {
+	CoordinatedEdge,
 	CoordinatedGroup,
 	CoordinatedNode,
+	NormalizedEdge,
 	NormalizedNode,
 } from "../ir/elements.js";
 import type { Box, Insets, Point } from "../ir/geometry.js";
@@ -710,5 +712,63 @@ export function groupReferenceMissing(
 		message: `Group ${groupId} references a missing ${referenceKind}.`,
 		path: ["groups", groupId],
 		detail: id === undefined ? { groupId } : { groupId, id },
+	};
+}
+
+// --- label primitives (shared by ports / route-edges; #77 PR3) ---
+
+export function recenterNodeLabelLayout(node: NormalizedNode, box: Box): void {
+	if (node.labelLayout === undefined) return;
+	const layout = node.labelLayout;
+	const newOffsetX = Math.max(0, (box.width - layout.box.width) / 2);
+	const newOffsetY = Math.max(0, (box.height - layout.box.height) / 2);
+	(node as NormalizedNode).labelLayout = {
+		...layout,
+		box: {
+			...layout.box,
+			x: newOffsetX,
+			y: newOffsetY,
+		},
+	};
+}
+
+export function isEdgeConnectedTextAnnotation(
+	edge: NormalizedEdge | CoordinatedEdge,
+	annotation: SolvedTextAnnotation,
+): boolean {
+	switch (annotation.surfaceKind) {
+		case "edge-label":
+			return annotation.ownerId === edge.id;
+		case "node-label":
+		case "compartment-row":
+			return (
+				annotation.ownerId === edge.source.nodeId ||
+				annotation.ownerId === edge.target.nodeId
+			);
+		case "port-label":
+			return (
+				(edge.source.portId !== undefined &&
+					annotation.ownerId ===
+						`${edge.source.nodeId}.${edge.source.portId}`) ||
+				(edge.target.portId !== undefined &&
+					annotation.ownerId === `${edge.target.nodeId}.${edge.target.portId}`)
+			);
+		case "group-label":
+		case "swimlane-label":
+		case "frame-title":
+			return false;
+	}
+}
+
+export function labelOffset(
+	segment: { start: Point; end: Point; length: number },
+	baseOffset = 10,
+): Point {
+	const offset = baseOffset;
+	const dx = segment.end.x - segment.start.x;
+	const dy = segment.end.y - segment.start.y;
+	return {
+		x: (-dy / segment.length) * offset,
+		y: (dx / segment.length) * offset,
 	};
 }
