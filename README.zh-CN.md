@@ -81,6 +81,8 @@ const svg = exportSvg(coordinated, { title: "Architecture" });
 const excalidraw = exportExcalidraw(coordinated);
 ```
 
+求解器按职责拆分（`ports`、`route-edges`、`labels`、`remediation` 等）。模块归属与默认管线阶段顺序见 [`src/solver/ARCHITECTURE.md`](./src/solver/ARCHITECTURE.md)。
+
 ## DSL 示例
 
 ```yaml

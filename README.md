@@ -81,6 +81,8 @@ const svg = exportSvg(coordinated, { title: "Architecture" });
 const excalidraw = exportExcalidraw(coordinated);
 ```
 
+Solver internals are split by concern (`ports`, `route-edges`, `labels`, `remediation`, …). See [`src/solver/ARCHITECTURE.md`](./src/solver/ARCHITECTURE.md) for module ownership and the default pipeline phase order.
+
 ## DSL Example
 
 ```yaml

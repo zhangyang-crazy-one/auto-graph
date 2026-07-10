@@ -12,10 +12,12 @@ import {
 	type PageSplitRemediationDetail,
 } from "../src/ir/index.js";
 import {
+	createDefaultPipeline,
 	resolvePagePolicy,
 	solveDiagram,
 	solveDiagramSafe,
 } from "../src/solver/index.js";
+import { createInitialState } from "../src/solver/pipeline/state.js";
 import type {
 	PreparedText,
 	TextLayout,
@@ -23,6 +25,33 @@ import type {
 	TextStyleOptions,
 } from "../src/text/index.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
+
+describe("createDefaultPipeline", () => {
+	it("exposes the named #77 phases and mirrors solveDiagram output", () => {
+		const pipeline = createDefaultPipeline();
+		const state = createInitialState(sampleDiagram(), {});
+		pipeline.run(state);
+
+		expect(state.phaseTrace.map((entry) => entry.phase)).toEqual([
+			"prepare",
+			"initial-layout",
+			"ports-and-constraints",
+			"coordinate",
+			"route-edges",
+			"labels-and-remediate",
+			"quality-score",
+		]);
+
+		const direct = solveDiagram(sampleDiagram());
+		expect(state.coordinatedNodes.map((node) => node.id)).toEqual(
+			direct.nodes.map((node) => node.id),
+		);
+		expect(state.coordinatedEdges.map((edge) => edge.id)).toEqual(
+			direct.edges.map((edge) => edge.id),
+		);
+		expect(state.bounds).toEqual(direct.bounds);
+	});
+});
 
 describe("solveDiagram", () => {
 	it("returns coordinated nodes, routed edges, groups, bounds, and diagnostics", () => {

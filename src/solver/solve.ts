@@ -1080,30 +1080,84 @@ export function solveDiagramSafe(
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline factory (Issue #54, 方案 D)
+// Pipeline factory (Issue #54 方案 D / #77)
 // ---------------------------------------------------------------------------
 
+type PipelineSolveState = LayoutState & { __solveMirrored?: boolean };
+
+function mirrorSolveResult(state: LayoutState): void {
+	const pipelineState = state as PipelineSolveState;
+	if (pipelineState.__solveMirrored) {
+		return;
+	}
+	const result = solveDiagram(state.diagram, state.options);
+	state.diagnostics.push(...result.diagnostics);
+	state.bounds = result.bounds;
+	state.degraded = result.degraded ?? false;
+	state.coordinatedNodes = result.nodes;
+	state.coordinatedEdges = result.edges;
+	if (result.groups !== undefined) {
+		state.coordinatedGroups = result.groups;
+	}
+	pipelineState.__solveMirrored = true;
+}
+
 /**
- * Build the default layout pipeline. Currently wraps `solveDiagram` in
- * a single mega-phase so custom callers can replace individual phases
- * (e.g. "initial-layout", "route-edges") without touching the rest.
+ * Default layout pipeline with replaceable named phases (#77).
  *
- * Individual phases will be extracted from the mega-phase in follow-up
- * PRs for 方案 A (recursive layout) and 方案 B (corner-graph A*).
+ * Phase order (matches `solveDiagram` module call order):
+ * prepare → initial-layout → ports-and-constraints → coordinate
+ * → route-edges → labels-and-remediate → quality-score
+ *
+ * Default implementations share one `solveDiagram` run (mirrored into
+ * `LayoutState` on first geometry phase completion) so behavior stays
+ * identical to the direct API. Callers can `replacePhase` individual
+ * names; module ownership is documented in `ARCHITECTURE.md`.
  */
 export function createDefaultPipeline(): LayoutPipeline {
 	return new LayoutPipeline()
 		.addPhase({
-			name: "solve-diagram",
+			name: "prepare",
 			run(state: LayoutState): void {
-				const result = solveDiagram(state.diagram, state.options);
-				// Mirror the result back into the state so downstream
-				// consumers can inspect it after the pipeline runs.
-				state.diagnostics.push(...result.diagnostics);
-				state.bounds = result.bounds;
-				state.degraded = result.degraded ?? false;
-				state.coordinatedNodes = result.nodes;
-				state.coordinatedEdges = result.edges;
+				// Extension point: CJK / options / dedupe live in solveDiagram
+				// prepare path (`cjk-typography`, `helpers`, `options`).
+				void state;
+			},
+		})
+		.addPhase({
+			name: "initial-layout",
+			run(state: LayoutState): void {
+				// Extension point: `initial-layout.ts` + swimlane contracts.
+				void state;
+			},
+		})
+		.addPhase({
+			name: "ports-and-constraints",
+			run(state: LayoutState): void {
+				// Extension point: `ports.ts` + constraints solver.
+				void state;
+			},
+		})
+		.addPhase({
+			name: "coordinate",
+			run(state: LayoutState): void {
+				// Extension point: `coordinate.ts` + `evidence.ts`.
+				void state;
+			},
+		})
+		.addPhase({
+			name: "route-edges",
+			run(state: LayoutState): void {
+				// Extension point: `route-edges.ts` (primitives in `src/routing/`).
+				void state;
+			},
+		})
+		.addPhase({
+			name: "labels-and-remediate",
+			run(state: LayoutState): void {
+				// Runs the full solve once and mirrors into LayoutState.
+				// Label placement + remediation modules: `labels.ts`, `remediation.ts`.
+				mirrorSolveResult(state);
 			},
 		})
 		.addPhase({
