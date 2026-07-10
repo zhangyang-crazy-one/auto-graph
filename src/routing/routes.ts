@@ -433,12 +433,35 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			);
 			cleanTournament.push({ points: candidate, source, target, quality });
 		};
+		const detourBudget = input.maxDetourRatio ?? 3;
+		const hasGoodEnoughClean = (): boolean =>
+			cleanTournament.some(
+				(candidate) =>
+					candidate.quality.softCrossings === 0 &&
+					candidate.quality.hardCrossings === 0 &&
+					detourRatio(candidate.points, candidate.source, candidate.target) <=
+						detourBudget,
+			);
+		let previousSideKey: string | undefined;
 
 		for (const pair of routeTournamentPairs(
 			input,
 			defaultAnchors,
 			maxAttachPoints,
 		)) {
+			const sideKey = `${pair.sourceAnchor}->${pair.targetAnchor}`;
+			// Finish the current side-pair's attach-point tournament, then stop
+			// once a soft/hard-clear path is within detour budget. This keeps
+			// #76 multi-port selection without multiplying A* across every
+			// alternate side on sparse diagrams (CI stress).
+			if (
+				previousSideKey !== undefined &&
+				sideKey !== previousSideKey &&
+				hasGoodEnoughClean()
+			) {
+				break;
+			}
+			previousSideKey = sideKey;
 			const { source, target, anchorPenalty } = pair;
 			const corridorObstacles = filterObstaclesByCorridor(
 				source,
