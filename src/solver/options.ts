@@ -98,3 +98,14 @@ export interface PortShiftingOptions {
 	enabled?: boolean;
 	spacing?: number;
 }
+
+export function resolveRemediationPolicy(
+	policy: RemediationPolicy | undefined,
+): Required<RemediationPolicy> {
+	return {
+		externalLabels: policy?.externalLabels ?? "suggest",
+		routeRails: policy?.routeRails ?? "suggest",
+		growFixedGeometry: policy?.growFixedGeometry ?? "suggest",
+		pageSplit: policy?.pageSplit ?? "suggest",
+	};
+}
