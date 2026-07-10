@@ -51,6 +51,115 @@ describe("createDefaultPipeline", () => {
 		);
 		expect(state.bounds).toEqual(direct.bounds);
 	});
+
+	it("accepts full SolveDiagramOptions literals on resolvePagePolicy", () => {
+		const diagram = sampleDiagram();
+		// Excess fields beyond page-policy must type-check and be ignored.
+		expect(
+			resolvePagePolicy(diagram, {
+				pagePolicy: "auto",
+				initialLayout: "positions",
+				labelPlacement: "beside",
+			}),
+		).toBe(resolvePagePolicy(diagram, { pagePolicy: "auto" }));
+	});
+
+	it("mirrors matrices, tables, evidence panels, and frame into LayoutState", () => {
+		const diagram: NormalizedDiagram = {
+			...sampleDiagram(),
+			matrices: [
+				{
+					id: "verification-matrix",
+					rows: ["R1"],
+					cols: ["C1"],
+					cells: [[{ text: "covered" }]],
+					position: { x: 520, y: 40 },
+					size: { width: 180, height: 96 },
+				},
+			],
+			tables: [
+				{
+					id: "parameter-table",
+					columns: [
+						{ id: "param", label: { text: "Parameter" } },
+						{ id: "value", label: { text: "Value" } },
+					],
+					rows: [
+						{
+							id: "mass",
+							cells: {
+								param: { text: "mass" },
+								value: { text: "12kg" },
+							},
+						},
+					],
+					position: { x: -220, y: 160 },
+					size: { width: 240, height: 88 },
+				},
+			],
+			evidencePanels: [
+				{
+					id: "legend",
+					kind: "legend",
+					items: [{ label: { text: "solid = verified" } }],
+					position: { x: 140, y: 360 },
+					size: { width: 220, height: 64 },
+				},
+			],
+			frame: {
+				kind: "block",
+				titleTab: "System",
+				padding: { top: 16, right: 16, bottom: 16, left: 16 },
+			},
+		};
+		const pipeline = createDefaultPipeline();
+		const state = createInitialState(diagram, {});
+		pipeline.run(state);
+		const direct = solveDiagram(diagram);
+
+		expect(state.coordinatedMatrices.map((block) => block.id)).toEqual(
+			(direct.matrices ?? []).map((block) => block.id),
+		);
+		expect(state.coordinatedTables.map((block) => block.id)).toEqual(
+			(direct.tables ?? []).map((block) => block.id),
+		);
+		expect(state.coordinatedEvidencePanels.map((panel) => panel.id)).toEqual(
+			(direct.evidencePanels ?? []).map((panel) => panel.id),
+		);
+		expect(state.frame?.kind).toBe(direct.frame?.kind);
+		expect(state.frame?.titleTab).toBe(direct.frame?.titleTab);
+		expect(state.baseTextAnnotations.length).toBe(
+			direct.textAnnotations?.length ?? 0,
+		);
+	});
+
+	it("documents that early replacePhase overrides are overwritten by mirror", () => {
+		const pipeline = createDefaultPipeline().replacePhase("route-edges", {
+			name: "route-edges",
+			run(state) {
+				state.coordinatedEdges = [
+					{
+						id: "custom-only",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 0, y: 0 },
+							{ x: 1, y: 1 },
+						],
+					},
+				];
+			},
+		});
+		const state = createInitialState(sampleDiagram(), {});
+		pipeline.run(state);
+		// Reserved early phases currently no-op for observable output; mirror wins.
+		expect(state.coordinatedEdges.map((edge) => edge.id)).toEqual(
+			solveDiagram(sampleDiagram()).edges.map((edge) => edge.id),
+		);
+		expect(state.coordinatedEdges.map((edge) => edge.id)).not.toContain(
+			"custom-only",
+		);
+	});
 });
 
 describe("solveDiagram", () => {

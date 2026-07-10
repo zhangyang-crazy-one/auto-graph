@@ -1,5 +1,4 @@
 import type {
-	DeliverabilityMode,
 	NormalizedDiagram,
 	PagePolicy,
 	PagePolicyOption,
@@ -8,14 +7,17 @@ import type {
 } from "../ir/diagram.js";
 import type { NormalizedEdge, NormalizedNode } from "../ir/elements.js";
 import type { Box } from "../ir/geometry.js";
+import type { SolveDiagramOptions } from "./options.js";
 
-/** Minimal options surface needed for page-policy resolution. */
-export type PagePolicySolveOptions = {
-	pagePolicy?: PagePolicyOption;
-	strict?: boolean;
-	deliverabilityMode?: DeliverabilityMode;
-	remediationPolicy?: RemediationPolicy;
-};
+/**
+ * Fields consulted for page-policy resolution. Public APIs accept the full
+ * {@link SolveDiagramOptions} object so callers can pass option literals
+ * without excess-property errors (Codex #78 P2).
+ */
+export type PagePolicySolveOptions = Pick<
+	SolveDiagramOptions,
+	"pagePolicy" | "strict" | "deliverabilityMode" | "remediationPolicy"
+>;
 
 export const PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN = 6;
 const PAGE_POLICY_SAME_SIDE_FAN_IN_MIN = 4;
@@ -23,7 +25,7 @@ const PAGE_POLICY_LABELED_FLOW_MIN = 4;
 
 export function resolvePagePolicy(
 	diagram: NormalizedDiagram,
-	options: PagePolicySolveOptions = {},
+	options: SolveDiagramOptions = {},
 ): PagePolicy {
 	const explicit = options.pagePolicy ?? metadataPagePolicy(diagram.metadata);
 	if (

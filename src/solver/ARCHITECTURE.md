@@ -23,14 +23,16 @@
 
 ## Pipeline phase order
 
-`createDefaultPipeline()` exposes replaceable named phases:
+`createDefaultPipeline()` exposes named phases:
 
 ```text
 prepare → initial-layout → ports-and-constraints → coordinate
   → route-edges → labels-and-remediate → quality-score
 ```
 
-Default phase bodies keep one behavior-preserving `solveDiagram` run (mirrored into `LayoutState` during `labels-and-remediate`) so the direct API and pipeline stay aligned. Use `LayoutPipeline.replacePhase(name, phase)` to override a named stage.
+Default bodies keep one behavior-preserving `solveDiagram` run (mirrored into `LayoutState` during `labels-and-remediate`, including matrices / tables / evidence panels / frame / text annotations) so the direct API and pipeline stay aligned.
+
+**Replaceability today:** early phases are reserved extension-point names that currently no-op. `replacePhase` on them has no observable effect because `labels-and-remediate` still runs full `solveDiagram` and overwrites coordinated geometry. Effective overrides: `labels-and-remediate` and `quality-score`. Per-phase `LayoutState` mutation is a follow-up.
 
 ## Dependency DAG (required)
 
