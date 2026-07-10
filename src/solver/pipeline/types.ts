@@ -18,7 +18,7 @@ import type {
 } from "../../ir/elements.js";
 import type { Box } from "../../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../../ir/label-layout.js";
-import type { SolveDiagramOptions } from "../solve.js";
+import type { SolveDiagramOptions } from "../options.js";
 import type { QualityReport } from "./quality.js";
 
 // ---------------------------------------------------------------------------
