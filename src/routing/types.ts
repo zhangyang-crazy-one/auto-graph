@@ -9,7 +9,12 @@ import type {
 } from "../ir/geometry.js";
 import type { RoutingBudgetValue } from "./budget.js";
 
-export type RouteKind = "orthogonal" | "straight" | "obstacle-avoiding";
+export type RouteKind =
+	| "orthogonal"
+	| "straight"
+	| "obstacle-avoiding"
+	/** Short attach-to-attach orthogonal routes; edge×edge crossings use jumps (#84). */
+	| "short-orthogonal-jumps";
 
 export type RouteHardObstacleKind = "evidence" | "text";
 

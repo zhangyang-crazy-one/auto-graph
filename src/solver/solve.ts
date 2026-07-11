@@ -4,6 +4,7 @@
 import { applyLayoutConstraints } from "../constraints/index.js";
 import {
 	computeShapeGeometry,
+	detectOrthogonalEdgeCrossings,
 	expandBox,
 	unionBoxes,
 } from "../geometry/index.js";
@@ -994,6 +995,8 @@ export function solveDiagram(
 		),
 	);
 
+	const edgeCrossings = detectOrthogonalEdgeCrossings(coordinatedEdges);
+
 	let deliverability = buildDeliverabilityReport(
 		diagnostics,
 		options,
@@ -1059,6 +1062,7 @@ export function solveDiagram(
 				: unionBoxes([...boundsBase, frame.box, frame.titleBox]),
 		...(frame === undefined ? {} : { frame }),
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
+		...(edgeCrossings.length === 0 ? {} : { edgeCrossings }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
 }

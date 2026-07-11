@@ -1,4 +1,5 @@
 import { intersectsAabb } from "../../geometry/boxes.js";
+import { detectOrthogonalEdgeCrossings } from "../../geometry/edge-crossings.js";
 import type { Diagnostic } from "../../ir/diagnostics.js";
 import type { CoordinatedEdge, CoordinatedNode } from "../../ir/elements.js";
 import type { Box, Point } from "../../ir/geometry.js";
@@ -63,8 +64,9 @@ export function scoreLayoutQuality(
 		});
 	}
 
-	// 2. Edge crossing (20 pts)
-	const crossingCount = countEdgeCrossings(edges);
+	// 2. Edge crossing (20 pts) — declared jumps still count as crossings
+	// for layout density scoring, but exporters render them as hops (#84).
+	const crossingCount = detectOrthogonalEdgeCrossings(edges).length;
 	const crossingScore = Math.max(0, 20 - crossingCount * 2);
 	metrics.push({
 		kind: "edge-crossing",
@@ -76,7 +78,7 @@ export function scoreLayoutQuality(
 			severity: "warning",
 			code: "quality.edge_crossing",
 			message: `${crossingCount} edge segment pair(s) cross.`,
-			detail: { crossingCount },
+			detail: { crossingCount, jumpDeclared: true },
 		});
 	}
 
@@ -140,46 +142,6 @@ function countNodeOverlaps(nodes: readonly CoordinatedNode[]): number {
 		}
 	}
 	return count;
-}
-
-function countEdgeCrossings(edges: readonly CoordinatedEdge[]): number {
-	let count = 0;
-	for (let i = 0; i < edges.length; i++) {
-		const aPts = edges[i]!.points;
-		for (let j = i + 1; j < edges.length; j++) {
-			const bPts = edges[j]!.points;
-			for (let ai = 0; ai < aPts.length - 1; ai++) {
-				for (let bi = 0; bi < bPts.length - 1; bi++) {
-					if (
-						segmentsIntersect(
-							aPts[ai]!,
-							aPts[ai + 1]!,
-							bPts[bi]!,
-							bPts[bi + 1]!,
-						)
-					) {
-						count++;
-					}
-				}
-			}
-		}
-	}
-	return count;
-}
-
-function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
-	const d1 = cross(c, d, a);
-	const d2 = cross(c, d, b);
-	const d3 = cross(a, b, c);
-	const d4 = cross(a, b, d);
-	return (
-		((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-		((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
-	);
-}
-
-function cross(o: Point, a: Point, b: Point): number {
-	return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
 }
 
 function countTotalBends(edges: readonly CoordinatedEdge[]): number {

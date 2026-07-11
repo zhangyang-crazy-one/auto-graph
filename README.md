@@ -119,7 +119,7 @@ layout:
   mode: positions
   direction: LR
 routing:
-  kind: obstacle-avoiding
+  kind: short-orthogonal-jumps   # or obstacle-avoiding
   edgeLabelRerouting: { maxIterations: 2 }
   compactTextObstacles: labels-only
   textIntersectionTolerance: 2
@@ -135,6 +135,20 @@ routing:
     growFixedGeometry: auto
     pageSplit: suggest
 ```
+
+### Short-orthogonal-jumps contract (#84)
+
+| Constraint | Severity |
+|---|---|
+| Route may not enter foreign node / title / evidence hard boxes | **hard** |
+| Prefer minimal length among 0–2 bend orthogonal candidates between attach slots (25%/50%/75% per side) | **objective** |
+| Edge–edge crossings allowed when marked in `edgeCrossings` (`jump` / `gap` / `bridge`) | **soft / visualized** |
+| Detour ratio `routeLength/direct > maxDetourRatio` (default **3**) | **reject candidate** |
+| 2-point `route_obstacle_fallback` through hard obstacles | **never deliverable** |
+
+Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForBox(box, side, 3)`.
+
+Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG/Excalidraw render hops; draw.io should consume the same IR downstream (no in-repo draw.io exporter).
 
 Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes when downstream consumers need preserved container geometry. Use `anchorCapacity` for high fan-in/out nodes, `railRouting: dependency` for dense same-rank dependency pages, and `externalLabels` when downstream renderers should turn congested edge labels into keyed callouts.
 
@@ -189,7 +203,7 @@ auto-graph v0.0.1 includes:
 - Label fitting, shape geometry, AABB collision utilities, and edge ports
 - Dagre-backed initial layout
 - Exact, relative, align, distribute, and containment constraints
-- Straight, orthogonal, obstacle-avoiding, and dense dependency rail routing
+- Straight, orthogonal, obstacle-avoiding, short-orthogonal-jumps, and dense dependency rail routing
 - Text-aware route clearance, edge-label rerouting, fixed swimlane geometry, and structured congestion diagnostics
 - SVG and Excalidraw exporters
 - Golden and determinism tests

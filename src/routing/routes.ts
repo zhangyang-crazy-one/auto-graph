@@ -1,3 +1,4 @@
+import { attachSlotsForBoxTournamentFirst } from "../geometry/attach-slots.js";
 import { intersectsAabb, validateBox } from "../geometry/boxes.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import {
@@ -234,6 +235,261 @@ function routeBendCount(points: readonly Point[]): number {
 	return bends;
 }
 
+/**
+ * #84 short-orthogonal-jumps: slot×slot 0–2 bend candidates only.
+ * Edge–edge crossings are allowed (declared later as jumps). Node/hard
+ * pierces are rejected. Flying detours and fatal 2-point fallbacks are not
+ * accepted as successful geometry.
+ */
+function routeShortOrthogonalJumps(
+	input: RouteEdgeInput,
+	diagnostics: Diagnostic[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
+	hardObstacleMetadata: readonly RouteHardObstacleMetadata[],
+	softObstacleIndex: BoxSpatialIndex,
+	hardObstacleIndex: BoxSpatialIndex,
+	defaultAnchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+	maxAttachPoints: number,
+	acceptCleanRoute: (
+		points: Point[],
+		source: Point,
+		target: Point,
+	) => RouteEdgeResult | undefined,
+	returnBestExcessiveCleanRoute: () => RouteEdgeResult | undefined,
+	recordRejected: (
+		candidate: Point[],
+		source: Point,
+		target: Point,
+		endpointObstacles: readonly Box[],
+	) => void,
+	getBestRejectedPath: () => Point[] | undefined,
+): RouteEdgeResult {
+	const endpointObstacles = endpointInteriorObstacles(input);
+	const detourBudget = input.maxDetourRatio ?? 3;
+	const pairs = routeTournamentPairs(input, defaultAnchors, maxAttachPoints);
+	const cleanTournament: Array<{
+		points: Point[];
+		source: Point;
+		target: Point;
+		quality: RouteQuality;
+	}> = [];
+	let bestAny: { points: Point[]; quality: RouteQuality } | undefined;
+
+	for (const pair of pairs) {
+		const candidates = shortOrthogonalCandidates(
+			pair.source,
+			pair.target,
+			pair.sourceAnchor,
+			pair.targetAnchor,
+			input.direction,
+		);
+		for (const raw of candidates) {
+			const points = simplifyRoute(raw);
+			if (points.length < 2) continue;
+			const quality = routeQuality(
+				points,
+				pair.source,
+				pair.target,
+				softObstacles,
+				hardObstacles,
+				endpointObstacles,
+				input.maxBacktrackingRatio,
+				pair.anchorPenalty,
+			);
+			if (
+				bestAny === undefined ||
+				compareRouteQuality(quality, bestAny.quality) < 0
+			) {
+				bestAny = { points, quality };
+			}
+			const detour = detourRatio(points, pair.source, pair.target);
+			if (detour > detourBudget) {
+				continue;
+			}
+			if (
+				quality.hardCrossings > 0 ||
+				quality.endpointCrossings > 0 ||
+				quality.softCrossings > 0
+			) {
+				if (quality.hardCrossings === 0 && quality.endpointCrossings === 0) {
+					recordRejected(points, pair.source, pair.target, endpointObstacles);
+				}
+				continue;
+			}
+			cleanTournament.push({
+				points,
+				source: pair.source,
+				target: pair.target,
+				quality,
+			});
+		}
+		// Early-exit once a soft/hard-clear short path exists (#83).
+		if (
+			cleanTournament.some(
+				(entry) =>
+					entry.quality.softCrossings === 0 &&
+					entry.quality.hardCrossings === 0 &&
+					detourRatio(entry.points, entry.source, entry.target) <= detourBudget,
+			)
+		) {
+			break;
+		}
+	}
+
+	if (cleanTournament.length > 0) {
+		cleanTournament.sort((left, right) =>
+			compareRouteQuality(left.quality, right.quality),
+		);
+		const best = cleanTournament[0];
+		if (best !== undefined) {
+			const accepted = acceptCleanRoute(best.points, best.source, best.target);
+			if (accepted !== undefined) {
+				return accepted;
+			}
+			const excessive = returnBestExcessiveCleanRoute();
+			if (excessive !== undefined) {
+				return excessive;
+			}
+		}
+	}
+
+	diagnostics.push({
+		severity: "warning",
+		code: "routing.obstacle.unavoidable",
+		message: `No short-orthogonal candidate within maxDetourRatio ${detourBudget} clears hard/soft obstacles.`,
+		detail: {
+			conflictClass: "fixed-geometry-block",
+			remediationType: "route-rail-or-page-split",
+			maxDetourRatio: detourBudget,
+			routingPolicy: "short-orthogonal-jumps",
+		},
+	});
+
+	const rejected = getBestRejectedPath();
+	if (rejected !== undefined && rejected.length >= 2) {
+		return { points: simplifyRoute(rejected), diagnostics };
+	}
+
+	const fallbackPoints =
+		bestAny?.points ??
+		simplifyRoute(
+			shortOrthogonalCandidates(
+				getEdgePort(
+					input.source,
+					input.target.center,
+					defaultAnchors.sourceAnchor,
+				),
+				getEdgePort(
+					input.target,
+					input.source.center,
+					defaultAnchors.targetAnchor,
+				),
+				defaultAnchors.sourceAnchor,
+				defaultAnchors.targetAnchor,
+				input.direction,
+			)[0] ?? [
+				getEdgePort(
+					input.source,
+					input.target.center,
+					defaultAnchors.sourceAnchor,
+				),
+				getEdgePort(
+					input.target,
+					input.source.center,
+					defaultAnchors.targetAnchor,
+				),
+			],
+		);
+
+	if (routeCrossesBoxes(fallbackPoints, hardObstacles, hardObstacleIndex)) {
+		diagnostics.push(
+			hardObstacleFailureDiagnostic({
+				points: fallbackPoints,
+				hardObstacles,
+				hardObstacleMetadata,
+				evidenceMessage:
+					"Short-orthogonal route crosses hard evidence block obstacles.",
+				textMessage:
+					"Short-orthogonal route crosses hard text label obstacles.",
+			}),
+		);
+	} else if (
+		routeCrossesBoxes(fallbackPoints, softObstacles, softObstacleIndex)
+	) {
+		// Soft pierce already covered by unavoidable; keep residual signal.
+	}
+
+	// Intentionally do not emit route_obstacle_fallback — short-path profile
+	// treats unresolved geometry as capacity failure, not a successful fallback.
+	return { points: fallbackPoints, diagnostics };
+}
+
+/** Generate 0–2 bend orthogonal polylines between attach slots. */
+function shortOrthogonalCandidates(
+	source: Point,
+	target: Point,
+	sourceAnchor: AnchorName,
+	targetAnchor: AnchorName,
+	direction: DiagramDirection,
+): Point[][] {
+	const candidates: Point[][] = [];
+	const sameX = Math.abs(source.x - target.x) < 1e-6;
+	const sameY = Math.abs(source.y - target.y) < 1e-6;
+	if (sameX || sameY) {
+		candidates.push([source, target]);
+	}
+	candidates.push(
+		compactCandidate([source, { x: target.x, y: source.y }, target]),
+		compactCandidate([source, { x: source.x, y: target.y }, target]),
+	);
+	const midpointX = (source.x + target.x) / 2;
+	const midpointY = (source.y + target.y) / 2;
+	if (direction === "TB" || direction === "BT") {
+		candidates.push(
+			compactCandidate([
+				source,
+				{ x: source.x, y: midpointY },
+				{ x: target.x, y: midpointY },
+				target,
+			]),
+		);
+	} else {
+		candidates.push(
+			compactCandidate([
+				source,
+				{ x: midpointX, y: source.y },
+				{ x: midpointX, y: target.y },
+				target,
+			]),
+		);
+	}
+	// Same-side / facing escape stubs (still ≤2 bends after compact).
+	const sourceEscape = offsetPoint(source, anchorEscapeDelta(sourceAnchor, 16));
+	const targetEscape = offsetPoint(target, anchorEscapeDelta(targetAnchor, 16));
+	candidates.push(
+		compactCandidate([
+			source,
+			sourceEscape,
+			{ x: targetEscape.x, y: sourceEscape.y },
+			targetEscape,
+			target,
+		]),
+		compactCandidate([
+			source,
+			sourceEscape,
+			{ x: sourceEscape.x, y: targetEscape.y },
+			targetEscape,
+			target,
+		]),
+	);
+	return candidates.filter((points) => {
+		if (points.length < 2 || points.length > 5) return false;
+		const bends = routeBendCount(points);
+		return bends <= 2;
+	});
+}
+
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const diagnostics: Diagnostic[] = [];
 	const softObstacles = input.obstacles ?? [];
@@ -382,6 +638,26 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			});
 		}
 		return { points, diagnostics };
+	}
+
+	// #84 short-orthogonal-jumps: prefer 0–2 bend slot×slot paths; never
+	// silently fall through to A* flyers or fatal 2-point fallbacks.
+	if ((input.kind ?? "orthogonal") === "short-orthogonal-jumps") {
+		return routeShortOrthogonalJumps(
+			input,
+			diagnostics,
+			softObstacles,
+			hardObstacles,
+			hardObstacleMetadata,
+			softObstacleIndex,
+			hardObstacleIndex,
+			defaultAnchors,
+			maxAttachPoints,
+			acceptCleanRoute,
+			returnBestExcessiveCleanRoute,
+			recordRejected,
+			() => bestRejectedPath,
+		);
 	}
 
 	// For obstacle-avoiding edges, try A* visibility-graph routing
@@ -1606,37 +1882,7 @@ function fractionalSidePoints(
 	side: AnchorName,
 	count: number,
 ): Point[] {
-	const n = Math.max(1, count);
-	const fractions =
-		n === 1
-			? [0.5]
-			: n === 3
-				? [0.5, 0.25, 0.75]
-				: Array.from({ length: n }, (_, index) => (index + 1) / (n + 1));
-	return fractions.map((fraction) => sidePointAtFraction(box, side, fraction));
-}
-
-function sidePointAtFraction(
-	box: Box,
-	side: AnchorName,
-	fraction: number,
-): Point {
-	const t = Math.min(1, Math.max(0, fraction));
-	switch (side) {
-		case "left":
-			return { x: box.x, y: box.y + box.height * t };
-		case "right":
-			return { x: box.x + box.width, y: box.y + box.height * t };
-		case "top":
-			return { x: box.x + box.width * t, y: box.y };
-		case "bottom":
-			return { x: box.x + box.width * t, y: box.y + box.height };
-		default:
-			return {
-				x: box.x + box.width / 2,
-				y: box.y + box.height / 2,
-			};
-	}
+	return attachSlotsForBoxTournamentFirst(box, side, count);
 }
 
 function routeTournamentPairs(

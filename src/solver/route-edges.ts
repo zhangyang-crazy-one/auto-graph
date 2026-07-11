@@ -329,7 +329,10 @@ export function coordinateEdges(
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
 			...(() => {
+				const shortPath =
+					(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
 				const densePolicy =
+					shortPath ||
 					options.deliverabilityMode === "strict" ||
 					options.pagePolicy === "dependency" ||
 					options.pagePolicy === "resource-flow" ||
@@ -1128,13 +1131,21 @@ export function edgeLabelRerouteIterations(
 		return 0;
 	}
 	const routeKind = options.routeKind ?? "orthogonal";
-	if (routeKind !== "orthogonal" && routeKind !== "obstacle-avoiding") {
+	if (
+		routeKind !== "orthogonal" &&
+		routeKind !== "obstacle-avoiding" &&
+		routeKind !== "short-orthogonal-jumps"
+	) {
 		return 0;
 	}
 	if (typeof setting === "object") {
 		return Math.max(0, Math.floor(setting.maxIterations ?? 4));
 	}
-	if (setting === true || routeKind === "obstacle-avoiding") {
+	if (
+		setting === true ||
+		routeKind === "obstacle-avoiding" ||
+		routeKind === "short-orthogonal-jumps"
+	) {
 		return 4;
 	}
 	return 0;

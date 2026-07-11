@@ -4,7 +4,12 @@ import type { DslDiagnostic } from "./types.js";
 
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
 const layoutModeSchema = z.enum(["dagre", "positions"]);
-const routeKindSchema = z.enum(["orthogonal", "straight", "obstacle-avoiding"]);
+const routeKindSchema = z.enum([
+	"orthogonal",
+	"straight",
+	"obstacle-avoiding",
+	"short-orthogonal-jumps",
+]);
 const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
 const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw"]);

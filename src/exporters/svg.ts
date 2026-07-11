@@ -7,6 +7,7 @@ import type {
 	CoordinatedMatrixBlock,
 	CoordinatedNode,
 	CoordinatedTableBlock,
+	EdgeCrossing,
 	Label,
 	NodeShape,
 	Swimlane,
@@ -38,6 +39,7 @@ export function exportSvg(
 ): string {
 	const title = options.title ?? diagram.title;
 	const annotations = diagram.textAnnotations ?? [];
+	const crossings = diagram.edgeCrossings ?? [];
 	return `${[
 		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(diagram.bounds)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
@@ -64,7 +66,7 @@ export function exportSvg(
 			indentLines(renderEvidencePanel(panel as CoordinatedEvidencePanel)),
 		),
 		...diagram.edges.flatMap((edge) => {
-			const path = renderEdgePath(edge);
+			const path = renderEdgePath(edge, crossings);
 			return path === undefined
 				? []
 				: [indent(path), indent(renderArrowhead(edge))];
@@ -600,12 +602,128 @@ function renderLabel(
 	];
 }
 
-function renderEdgePath(edge: CoordinatedEdge): string | undefined {
+function renderEdgePath(
+	edge: CoordinatedEdge,
+	crossings: readonly EdgeCrossing[] = [],
+): string | undefined {
 	if (edge.points.length < 2) {
 		return undefined;
 	}
 	const dash = edge.style === "dashed" ? ' stroke-dasharray="6 4"' : "";
-	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${formatPath(pathPointsBeforeArrowhead(edge.points))}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
+	const underJumps = crossings.filter(
+		(crossing) =>
+			crossing.underEdgeId === edge.id &&
+			(crossing.style === "jump" || crossing.style === "bridge"),
+	);
+	const d =
+		underJumps.length === 0
+			? formatPath(pathPointsBeforeArrowhead(edge.points))
+			: formatPathWithJumps(
+					pathPointsBeforeArrowhead(edge.points),
+					underJumps,
+					edge.id,
+				);
+	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${d}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
+}
+
+const JUMP_RADIUS = 6;
+
+function formatPathWithJumps(
+	points: readonly Point[],
+	jumps: readonly EdgeCrossing[],
+	edgeId: string,
+): string {
+	if (points.length < 2) {
+		return formatPath(points);
+	}
+	const parts: string[] = [];
+	let started = false;
+	const moveOrLine = (point: Point): void => {
+		parts.push(
+			`${started ? "L" : "M"} ${formatNumber(point.x)} ${formatNumber(point.y)}`,
+		);
+		started = true;
+	};
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const start = points[i];
+		const end = points[i + 1];
+		if (start === undefined || end === undefined) continue;
+		moveOrLine(start);
+		const segmentJumps = jumps
+			.filter((jump) => pointOnSegment(jump, start, end))
+			.sort(
+				(left, right) =>
+					squaredDistance(start, left) - squaredDistance(start, right),
+			);
+		for (const jump of segmentJumps) {
+			const before = pointAlongSegment(start, end, jump, -JUMP_RADIUS);
+			const after = pointAlongSegment(start, end, jump, JUMP_RADIUS);
+			moveOrLine(before);
+			const sweep = hopSweep(start, end);
+			parts.push(
+				`A ${formatNumber(JUMP_RADIUS)} ${formatNumber(JUMP_RADIUS)} 0 0 ${sweep} ${formatNumber(after.x)} ${formatNumber(after.y)}`,
+			);
+			parts.push(
+				`<!-- jump ${escapeXml(edgeId)}@${formatNumber(jump.x)},${formatNumber(jump.y)} -->`,
+			);
+		}
+		moveOrLine(end);
+	}
+	return parts.filter((part) => !part.startsWith("<!--")).join(" ");
+}
+
+function pointOnSegment(
+	point: { x: number; y: number },
+	start: Point,
+	end: Point,
+	tolerance = 0.75,
+): boolean {
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	const lengthSq = dx * dx + dy * dy;
+	if (lengthSq < 1e-9) {
+		return squaredDistance(start, point) <= tolerance * tolerance;
+	}
+	const t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq;
+	if (t <= 0.02 || t >= 0.98) {
+		return false;
+	}
+	const proj = { x: start.x + t * dx, y: start.y + t * dy };
+	return squaredDistance(proj, point) <= tolerance * tolerance;
+}
+
+function pointAlongSegment(
+	start: Point,
+	end: Point,
+	at: { x: number; y: number },
+	offset: number,
+): Point {
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	const length = Math.hypot(dx, dy);
+	if (length < 1e-9) {
+		return { x: at.x, y: at.y };
+	}
+	const ux = dx / length;
+	const uy = dy / length;
+	return { x: at.x + ux * offset, y: at.y + uy * offset };
+}
+
+function hopSweep(start: Point, end: Point): 0 | 1 {
+	// Prefer arcs that bulge "up/right" for deterministic SVG.
+	if (Math.abs(end.x - start.x) >= Math.abs(end.y - start.y)) {
+		return end.x >= start.x ? 0 : 1;
+	}
+	return end.y >= start.y ? 1 : 0;
+}
+
+function squaredDistance(
+	a: { x: number; y: number },
+	b: { x: number; y: number },
+): number {
+	const dx = a.x - b.x;
+	const dy = a.y - b.y;
+	return dx * dx + dy * dy;
 }
 
 function renderEdgeLabel(
