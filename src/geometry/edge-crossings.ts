@@ -1,6 +1,9 @@
 import type { CoordinatedEdge, EdgeCrossing } from "../ir/elements.js";
 import type { Point } from "../ir/geometry.js";
 
+/** Glyph radius used by SVG/Excalidraw hop/gap rendering and bounds padding. */
+export const EDGE_CROSSING_GLYPH_RADIUS = 6;
+
 /**
  * Detect proper (non-endpoint) intersections between orthogonal edge
  * segments and emit deterministic jump records (#84).

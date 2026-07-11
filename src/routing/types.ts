@@ -61,8 +61,9 @@ export interface RouteEdgeInput {
 	 */
 	maxDetourRatio?: number;
 	/**
-	 * Attach-point tournament size per preferred side (#76). Defaults to 3
-	 * (≈25%/50%/75%). Capped at 5 to bound source×target combinations.
+	 * Attach-point tournament size per preferred side (#76 / #84).
+	 * Defaults to 3 (25%/50%/75%) for `short-orthogonal-jumps`; otherwise 1
+	 * unless the solver dense policy sets it. Capped at 5.
 	 */
 	maxAttachPointsPerSide?: number;
 	/**

@@ -1,3 +1,4 @@
+import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -40,8 +41,12 @@ export function exportSvg(
 	const title = options.title ?? diagram.title;
 	const annotations = diagram.textAnnotations ?? [];
 	const crossings = diagram.edgeCrossings ?? [];
+	const viewBox =
+		crossings.length === 0
+			? diagram.bounds
+			: expandBox(diagram.bounds, EDGE_CROSSING_GLYPH_RADIUS);
 	return `${[
-		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(diagram.bounds)}">`,
+		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(viewBox)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
 		...(options.viewportPadding === undefined
 			? []
@@ -610,28 +615,31 @@ function renderEdgePath(
 		return undefined;
 	}
 	const dash = edge.style === "dashed" ? ' stroke-dasharray="6 4"' : "";
-	const underJumps = crossings.filter(
-		(crossing) =>
-			crossing.underEdgeId === edge.id &&
-			(crossing.style === "jump" || crossing.style === "bridge"),
+	const underCrossings = crossings.filter(
+		(crossing) => crossing.underEdgeId === edge.id,
 	);
 	const d =
-		underJumps.length === 0
+		underCrossings.length === 0
 			? formatPath(pathPointsBeforeArrowhead(edge.points))
 			: formatPathWithJumps(
 					pathPointsBeforeArrowhead(edge.points),
-					underJumps,
-					edge.id,
+					underCrossings,
 				);
 	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${d}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
 }
 
-const JUMP_RADIUS = 6;
+function expandBox(box: Box, pad: number): Box {
+	return {
+		x: box.x - pad,
+		y: box.y - pad,
+		width: box.width + pad * 2,
+		height: box.height + pad * 2,
+	};
+}
 
 function formatPathWithJumps(
 	points: readonly Point[],
 	jumps: readonly EdgeCrossing[],
-	edgeId: string,
 ): string {
 	if (points.length < 2) {
 		return formatPath(points);
@@ -642,6 +650,10 @@ function formatPathWithJumps(
 		parts.push(
 			`${started ? "L" : "M"} ${formatNumber(point.x)} ${formatNumber(point.y)}`,
 		);
+		started = true;
+	};
+	const moveOnly = (point: Point): void => {
+		parts.push(`M ${formatNumber(point.x)} ${formatNumber(point.y)}`);
 		started = true;
 	};
 	for (let i = 0; i < points.length - 1; i += 1) {
@@ -656,20 +668,31 @@ function formatPathWithJumps(
 					squaredDistance(start, left) - squaredDistance(start, right),
 			);
 		for (const jump of segmentJumps) {
-			const before = pointAlongSegment(start, end, jump, -JUMP_RADIUS);
-			const after = pointAlongSegment(start, end, jump, JUMP_RADIUS);
+			const before = pointAlongSegment(
+				start,
+				end,
+				jump,
+				-EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			const after = pointAlongSegment(
+				start,
+				end,
+				jump,
+				EDGE_CROSSING_GLYPH_RADIUS,
+			);
 			moveOrLine(before);
-			const sweep = hopSweep(start, end);
-			parts.push(
-				`A ${formatNumber(JUMP_RADIUS)} ${formatNumber(JUMP_RADIUS)} 0 0 ${sweep} ${formatNumber(after.x)} ${formatNumber(after.y)}`,
-			);
-			parts.push(
-				`<!-- jump ${escapeXml(edgeId)}@${formatNumber(jump.x)},${formatNumber(jump.y)} -->`,
-			);
+			if (jump.style === "gap") {
+				moveOnly(after);
+			} else {
+				const sweep = hopSweep(start, end);
+				parts.push(
+					`A ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} 0 0 ${sweep} ${formatNumber(after.x)} ${formatNumber(after.y)}`,
+				);
+			}
 		}
 		moveOrLine(end);
 	}
-	return parts.filter((part) => !part.startsWith("<!--")).join(" ");
+	return parts.join(" ");
 }
 
 function pointOnSegment(

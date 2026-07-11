@@ -328,5 +328,99 @@ describe("edge crossings / jumps (#84)", () => {
 
 		expect((solved.edgeCrossings ?? []).length).toBeGreaterThanOrEqual(1);
 		expect(solved.deliverability?.status).not.toBe("unsatisfiable");
+		expect(solved.bounds.x).toBeLessThanOrEqual(-6);
+		expect(solved.bounds.y).toBeLessThanOrEqual(-6);
+	});
+
+	it("defaults short-orthogonal-jumps to three attach slots without explicit option", () => {
+		const withDefault = routeEdge({
+			kind: "short-orthogonal-jumps",
+			direction: "LR",
+			source: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 0, y: 0, width: 80, height: 120 },
+			}),
+			target: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 200, y: 40, width: 80, height: 40 },
+			}),
+			maxDetourRatio: 3,
+		});
+		const midOnly = routeEdge({
+			kind: "short-orthogonal-jumps",
+			direction: "LR",
+			source: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 0, y: 0, width: 80, height: 120 },
+			}),
+			target: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 200, y: 40, width: 80, height: 40 },
+			}),
+			maxAttachPointsPerSide: 1,
+			maxDetourRatio: 3,
+		});
+		const lengthOf = (points: { x: number; y: number }[]) => {
+			let length = 0;
+			for (let i = 0; i < points.length - 1; i += 1) {
+				const a = points[i];
+				const b = points[i + 1];
+				if (a === undefined || b === undefined) continue;
+				length += Math.hypot(b.x - a.x, b.y - a.y);
+			}
+			return length;
+		};
+		expect(withDefault.diagnostics).toEqual([]);
+		expect(lengthOf(withDefault.points)).toBeLessThanOrEqual(
+			lengthOf(midOnly.points),
+		);
+	});
+
+	it("renders SVG gap breaks for style=gap crossings", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "gap-export",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a",
+					shape: "rectangle",
+					box: { x: 0, y: 40, width: 40, height: 20 },
+					anchors: [],
+				},
+				{
+					id: "b",
+					shape: "rectangle",
+					box: { x: 160, y: 40, width: 40, height: 20 },
+					anchors: [],
+				},
+			],
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 40, y: 50 },
+						{ x: 160, y: 50 },
+					],
+				},
+			],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edgeCrossings: [
+				{
+					x: 100,
+					y: 50,
+					underEdgeId: "h",
+					overEdgeId: "other",
+					style: "gap",
+				},
+			],
+		};
+		const svg = exportSvg(diagram);
+		expect(svg).toMatch(/data-id="h"[^>]* M /);
+		expect(svg).toMatch(/viewBox="-6 -6 /);
 	});
 });

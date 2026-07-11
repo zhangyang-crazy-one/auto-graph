@@ -324,17 +324,9 @@ function routeShortOrthogonalJumps(
 				quality,
 			});
 		}
-		// Early-exit once a soft/hard-clear short path exists (#83).
-		if (
-			cleanTournament.some(
-				(entry) =>
-					entry.quality.softCrossings === 0 &&
-					entry.quality.hardCrossings === 0 &&
-					detourRatio(entry.points, entry.source, entry.target) <= detourBudget,
-			)
-		) {
-			break;
-		}
+		// Evaluate every attach-slot pair before picking the shortest clean
+		// route (#84 / Codex P2). Early-exit would lock mid/mid and miss
+		// shorter 25%/75% candidates.
 	}
 
 	if (cleanTournament.length > 0) {
@@ -501,7 +493,11 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		};
 	const maxAttachPoints = Math.min(
 		5,
-		Math.max(1, input.maxAttachPointsPerSide ?? 1),
+		Math.max(
+			1,
+			input.maxAttachPointsPerSide ??
+				((input.kind ?? "orthogonal") === "short-orthogonal-jumps" ? 3 : 1),
+		),
 	);
 	// Best rejected path from A* routing — used as fallback when all
 	// heuristic candidates also fail, to avoid returning a 2-point

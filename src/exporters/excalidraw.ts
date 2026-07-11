@@ -1,3 +1,4 @@
+import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -145,7 +146,7 @@ export function exportExcalidraw(
 	}
 
 	for (const edge of diagram.edges) {
-		elements.push(renderArrow(edge, diagram.edgeCrossings ?? []));
+		elements.push(...renderArrowElements(edge, diagram.edgeCrossings ?? []));
 		elements.push(
 			...renderEdgeLabelAnnotations(edge, diagram.textAnnotations ?? []),
 		);
@@ -295,6 +296,90 @@ function renderEvidencePanel(
 	];
 }
 
+function renderArrowElements(
+	edge: CoordinatedEdge,
+	crossings: readonly EdgeCrossing[] = [],
+): ExcalidrawArrowElement[] {
+	const under = crossings.filter(
+		(crossing) => crossing.underEdgeId === edge.id,
+	);
+	const gaps = under.filter((crossing) => crossing.style === "gap");
+	const hops = under.filter(
+		(crossing) => crossing.style === "jump" || crossing.style === "bridge",
+	);
+	if (gaps.length === 0) {
+		return [renderArrow(edge, hops)];
+	}
+	const segments = splitPolylineAtGaps(edge.points, gaps);
+	return segments.map((points, index) => {
+		const { arrowhead: _ignored, ...rest } = edge;
+		const segmentEdge: CoordinatedEdge = {
+			...rest,
+			id: index === 0 ? edge.id : `${edge.id}:gap-${index}`,
+			points,
+			...(index === segments.length - 1 && edge.arrowhead !== undefined
+				? { arrowhead: edge.arrowhead }
+				: {}),
+		};
+		return renderArrow(segmentEdge, index === 0 ? hops : []);
+	});
+}
+
+function splitPolylineAtGaps(
+	points: readonly Point[],
+	gaps: readonly EdgeCrossing[],
+): Point[][] {
+	if (points.length < 2 || gaps.length === 0) {
+		return [points.map((point) => ({ ...point }))];
+	}
+	const segments: Point[][] = [];
+	let current: Point[] = [];
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const start = points[i];
+		const end = points[i + 1];
+		if (start === undefined || end === undefined) continue;
+		if (current.length === 0) {
+			current.push({ ...start });
+		}
+		const segmentGaps = gaps
+			.filter((gap) => excalidrawPointOnSegment(gap, start, end))
+			.sort(
+				(left, right) =>
+					excalidrawSquaredDistance(start, left) -
+					excalidrawSquaredDistance(start, right),
+			);
+		let cursor = start;
+		for (const gap of segmentGaps) {
+			const before = excalidrawPointAlong(
+				start,
+				end,
+				gap,
+				-EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			const after = excalidrawPointAlong(
+				start,
+				end,
+				gap,
+				EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			current.push(before);
+			if (current.length >= 2) {
+				segments.push(current);
+			}
+			current = [after];
+			cursor = after;
+		}
+		current.push({ ...end });
+		void cursor;
+	}
+	if (current.length >= 2) {
+		segments.push(current);
+	}
+	return segments.length > 0
+		? segments
+		: [points.map((point) => ({ ...point }))];
+}
+
 function renderArrow(
 	edge: CoordinatedEdge,
 	crossings: readonly EdgeCrossing[] = [],
@@ -309,9 +394,7 @@ function renderArrow(
 	const hopped = applyJumpBumps(
 		edge.points,
 		crossings.filter(
-			(crossing) =>
-				crossing.underEdgeId === edge.id &&
-				(crossing.style === "jump" || crossing.style === "bridge"),
+			(crossing) => crossing.style === "jump" || crossing.style === "bridge",
 		),
 	);
 	const origin = hopped[0] ?? first;
@@ -337,8 +420,6 @@ function renderArrow(
 		endArrowhead: mapArrowhead(edge.arrowhead),
 	};
 }
-
-const EXCALIDRAW_JUMP_RADIUS = 6;
 
 function applyJumpBumps(
 	points: readonly Point[],
@@ -367,15 +448,15 @@ function applyJumpBumps(
 				start,
 				end,
 				jump,
-				-EXCALIDRAW_JUMP_RADIUS,
+				-EDGE_CROSSING_GLYPH_RADIUS,
 			);
 			const after = excalidrawPointAlong(
 				start,
 				end,
 				jump,
-				EXCALIDRAW_JUMP_RADIUS,
+				EDGE_CROSSING_GLYPH_RADIUS,
 			);
-			const apex = hopApex(start, end, jump, EXCALIDRAW_JUMP_RADIUS);
+			const apex = hopApex(start, end, jump, EDGE_CROSSING_GLYPH_RADIUS);
 			result.push(before, apex, after);
 		}
 		result.push({ ...end });
