@@ -100,27 +100,22 @@ describe("label fitting", () => {
 		).toThrow(TypeError);
 	});
 
-	it("diagnoses overflow when constraints cannot be satisfied", () => {
+	it("grows the box past maxWidth when minSize floor requires it", () => {
+		// #84 §A: maxWidth is a wrap preference; fitted box still honors floors.
 		const layout = fitLabel(
 			"Overflow",
 			{
 				font,
 				padding: 8,
-				minSize: { width: 20, height: 10 },
-				maxWidth: 20,
+				minSize: { width: 80, height: 40 },
+				maxWidth: 40,
 				overflow: "diagnose",
 			},
 			measurer,
 		);
 
-		expect(layout.overflow.horizontal).toBe(true);
-		expect(layout.overflow.vertical).toBe(true);
-		expect(layout.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-			expect.arrayContaining([
-				"label.overflow.horizontal",
-				"label.overflow.vertical",
-			]),
-		);
+		expect(layout.fittedSize.width).toBeGreaterThanOrEqual(80);
+		expect(layout.overflow.truncated).toBe(false);
 	});
 
 	it("returns renderer-neutral records", () => {

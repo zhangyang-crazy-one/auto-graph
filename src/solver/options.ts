@@ -24,6 +24,10 @@ export interface SolveDiagramOptions {
 	routingGutter?: number;
 	overlapSpacing?: number;
 	minLaneGutter?: number;
+	/**
+	 * Expand node sizes to fit Pretext-measured labels (#84 §A).
+	 * Defaults to true when `deliverabilityMode` is set; set `false` to opt out.
+	 */
 	prefitLabelSize?: boolean;
 	minSiblingGap?: number;
 	distributeContainedChildren?: boolean | "spread";

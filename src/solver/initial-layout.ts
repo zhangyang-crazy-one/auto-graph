@@ -23,6 +23,7 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type { LabelLayout } from "../ir/label-layout.js";
+import { applyEllipseCircleSize } from "../ir/semantic-roles.js";
 import { fitLabel } from "../labels/index.js";
 import {
 	type InitialLayoutResult,
@@ -343,11 +344,17 @@ export function prefitNodeLabelSize(
 			maxWidth:
 				node.label.maxWidth ??
 				Math.max(node.size.width, DEFAULT_LABEL_MAX_WIDTH),
+			overflow: "diagnose",
 		},
 		measurer,
 	);
-	const width = Math.max(node.size.width, layout.fittedSize.width);
-	const height = Math.max(node.size.height, layout.fittedSize.height);
+	let width = Math.max(node.size.width, layout.fittedSize.width);
+	let height = Math.max(node.size.height, layout.fittedSize.height);
+	if (node.shape === "ellipse") {
+		const circle = applyEllipseCircleSize({ width, height });
+		width = circle.width;
+		height = circle.height;
+	}
 	const resized = width !== node.size.width || height !== node.size.height;
 	if (resized) {
 		diagnostics.push({

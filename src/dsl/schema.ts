@@ -28,6 +28,14 @@ const nodeShapeSchema = z.enum([
 	"hexagon",
 	"cylinder",
 ]);
+const nodeRoleSchema = z.enum([
+	"start",
+	"end",
+	"decision",
+	"process",
+	"data",
+	"concept",
+]);
 
 const finiteNumberSchema = z.number().finite();
 const nonNegativeNumberSchema = finiteNumberSchema.min(0);
@@ -106,6 +114,7 @@ const compartmentsSchema = z.object({
 const nodeSchema = z.object({
 	label: labelSchema.optional(),
 	shape: nodeShapeSchema.optional(),
+	role: nodeRoleSchema.optional(),
 	position: pointSchema.optional(),
 	style: styleSchema.optional(),
 	ports: z.record(z.string(), portSchema).optional(),

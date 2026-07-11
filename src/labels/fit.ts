@@ -51,8 +51,10 @@ function computeLabelLayout(
 	);
 	const idealWidth = contentWidth + padding.left + padding.right;
 	const idealHeight = contentHeight + padding.top + padding.bottom;
+	// #84 §A: maxWidth is a wrap preference only. The fitted box always grows
+	// to the wrapped text + padding (caller size floors are applied upstream).
 	const fittedSize = {
-		width: maxWidth === undefined ? idealWidth : Math.min(maxWidth, idealWidth),
+		width: idealWidth,
 		height: idealHeight,
 	};
 	const box: Box = {
@@ -68,12 +70,13 @@ function computeLabelLayout(
 		height: Math.max(0, box.height - padding.top - padding.bottom),
 	};
 	const overflow = {
-		horizontal: textLayout.width > contentBox.width,
+		horizontal: textLayout.width > contentBox.width + 1e-6,
 		vertical:
-			textLayout.height > contentBox.height ||
+			textLayout.height > contentBox.height + 1e-6 ||
 			diagnosedHeightConstraintOverflow(textLayout.height, padding, minSize),
 		truncated:
-			options.overflow === "truncate" && textLayout.width > contentBox.width,
+			options.overflow === "truncate" &&
+			textLayout.width > contentBox.width + 1e-6,
 	};
 	const diagnostics = buildDiagnostics(overflow, options.overflow);
 

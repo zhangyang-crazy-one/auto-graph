@@ -18,6 +18,15 @@ export type NodeShape =
 	| "hexagon"
 	| "cylinder";
 
+/** Flowchart / activity semantic roles (#84 §D). */
+export type NodeSemanticRole =
+	| "start"
+	| "end"
+	| "decision"
+	| "process"
+	| "data"
+	| "concept";
+
 export interface Label {
 	text: string;
 	id?: string;
@@ -29,6 +38,8 @@ export interface NodeBase {
 	id: string;
 	label?: Label;
 	shape?: NodeShape;
+	/** Flowchart/activity role; maps to a fixed shape when `shape` is omitted (#84). */
+	role?: NodeSemanticRole;
 	style?: VisualStyle;
 	ports?: NodePort[];
 	compartments?: NodeCompartments;
