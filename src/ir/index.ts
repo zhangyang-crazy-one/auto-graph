@@ -4,3 +4,4 @@ export * from "./diagram.js";
 export * from "./elements.js";
 export * from "./geometry.js";
 export * from "./label-layout.js";
+export * from "./semantic-roles.js";

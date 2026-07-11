@@ -18,6 +18,10 @@ import type {
 	VisualStyle,
 } from "../ir/elements.js";
 import type { Insets, JsonObject, Point, Size } from "../ir/geometry.js";
+import {
+	applyEllipseCircleSize,
+	resolveNodeShape,
+} from "../ir/semantic-roles.js";
 import { fitLabel } from "../labels/index.js";
 import { createDefaultTextMeasurer, type TextMeasurer } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
@@ -227,11 +231,36 @@ function normalizeNodes(
 				nodeCompartments === undefined
 					? 0
 					: compartmentNaturalWidth(id, label, nodeCompartments, measurer);
+			const role =
+				node?.role === undefined
+					? undefined
+					: (node.role as NormalizedNode["role"]);
+			const shape = resolveNodeShape({
+				...(node?.shape === undefined ? {} : { shape: node.shape }),
+				...(role === undefined ? {} : { role }),
+			});
+			let size = {
+				width: Math.max(
+					DEFAULT_NODE_MIN_SIZE.width,
+					fittedSize?.width ?? 0,
+					compartmentWidth,
+				),
+				height: Math.max(
+					nodeCompartments === undefined
+						? DEFAULT_NODE_MIN_SIZE.height
+						: compartmentHeight(nodeCompartments),
+					fittedSize?.height ?? 0,
+				),
+			};
+			if (shape === "ellipse") {
+				size = applyEllipseCircleSize(size);
+			}
 
 			return {
 				id,
 				...(label === undefined ? {} : { label }),
-				shape: node?.shape ?? "rectangle",
+				shape,
+				...(role === undefined ? {} : { role }),
 				...(node?.position === undefined
 					? {}
 					: { position: point(node.position) }),
@@ -242,19 +271,7 @@ function normalizeNodes(
 				...(nodeCompartments === undefined
 					? {}
 					: { compartments: nodeCompartments }),
-				size: {
-					width: Math.max(
-						DEFAULT_NODE_MIN_SIZE.width,
-						fittedSize?.width ?? 0,
-						compartmentWidth,
-					),
-					height: Math.max(
-						nodeCompartments === undefined
-							? DEFAULT_NODE_MIN_SIZE.height
-							: compartmentHeight(nodeCompartments),
-						fittedSize?.height ?? 0,
-					),
-				},
+				size,
 				padding: { ...DEFAULT_NODE_PADDING },
 				...(labelLayout === undefined ? {} : { labelLayout }),
 			};
@@ -956,6 +973,8 @@ function fitDslLabel(label: Label, measurer: TextMeasurer) {
 			padding: DEFAULT_NODE_PADDING,
 			minSize: DEFAULT_NODE_MIN_SIZE,
 			maxWidth: label.maxWidth ?? DEFAULT_LABEL_MAX_WIDTH,
+			// #84 §A: dense/DSL path never truncates; wrap + grow instead.
+			overflow: "diagnose",
 		},
 		measurer,
 	);

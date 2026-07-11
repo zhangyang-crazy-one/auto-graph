@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Pretext sizing + semantic roles (#84 A/D)
+
+- **Pretext sizing contract**: `maxWidth` is wrap-only; fitted boxes grow to wrapped text + padding; DSL/prefit use `overflow: "diagnose"` (no truncate). `deliverabilityMode` enables `prefitLabelSize` by default. Ellipse nodes use circle diameter `max(w,h)`.
+- **Semantic roles**: DSL/API `role: start|end|decision|process|data|concept` maps to fixed shapes when `shape` is omitted; explicit `shape` wins. SysML blocks omit `role` and stay rectangular.
+
 ### Short-path / jump-bridge routing contract (#84 C+B+E)
 
 - **`routeKind: "short-orthogonal-jumps"`**: prefer 0–2 bend attach-slot routes; reject flying detours beyond `maxDetourRatio` (default 3); do not treat 2-point `route_obstacle_fallback` as success.

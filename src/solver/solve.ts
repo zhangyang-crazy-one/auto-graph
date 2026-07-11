@@ -177,12 +177,15 @@ export function solveDiagram(
 	const cjkStyledNodes = nodes.map((node) =>
 		enhanceNodeCjkTypography(node, cjkTypography, diagnostics),
 	);
-	const styledNodesBase =
-		options.prefitLabelSize === true
-			? cjkStyledNodes.map((node) =>
-					prefitNodeLabelSize(node, options, diagnostics),
-				)
-			: cjkStyledNodes;
+	const shouldPrefitLabelSize =
+		options.prefitLabelSize === true ||
+		(options.prefitLabelSize !== false &&
+			options.deliverabilityMode !== undefined);
+	const styledNodesBase = shouldPrefitLabelSize
+		? cjkStyledNodes.map((node) =>
+				prefitNodeLabelSize(node, options, diagnostics),
+			)
+		: cjkStyledNodes;
 	const styledNodes = styledNodesBase.map(cloneNormalizedNodeForSolver);
 	const styledEdges = edges.map((edge) =>
 		enhanceEdgeCjkTypography(edge, cjkTypography, diagnostics),
