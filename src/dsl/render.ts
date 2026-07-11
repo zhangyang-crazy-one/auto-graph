@@ -1,4 +1,8 @@
-import { exportExcalidraw, exportSvg } from "../exporters/index.js";
+import {
+	exportDrawio,
+	exportExcalidraw,
+	exportSvg,
+} from "../exporters/index.js";
 import type { ExportResult } from "../exporters/types.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
@@ -23,7 +27,11 @@ export function resolveOutputFormat(
 ): { format?: DslOutputFormat; diagnostics: DslDiagnostic[] } {
 	const selected = cliFormat ?? dslFormat ?? "svg";
 
-	if (selected === "svg" || selected === "excalidraw") {
+	if (
+		selected === "svg" ||
+		selected === "excalidraw" ||
+		selected === "drawio"
+	) {
 		return { format: selected, diagnostics: [] };
 	}
 
@@ -35,7 +43,7 @@ export function resolveOutputFormat(
 				code: "validate.output-format.unsupported",
 				message: `Unsupported output format "${selected}".`,
 				path: ["output", "format"],
-				hint: "Use svg or excalidraw.",
+				hint: "Use svg, excalidraw, or drawio.",
 			},
 		],
 	};
@@ -46,7 +54,11 @@ export function exportDiagram(
 	diagram: CoordinatedDiagram,
 ): ExportResult {
 	const content =
-		format === "svg" ? exportSvg(diagram) : exportExcalidraw(diagram);
+		format === "svg"
+			? exportSvg(diagram)
+			: format === "drawio"
+				? exportDrawio(diagram)
+				: exportExcalidraw(diagram);
 
 	return { format, content, diagnostics: [] };
 }

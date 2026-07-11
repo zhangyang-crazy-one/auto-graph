@@ -24,6 +24,7 @@ import type {
 import type { Box } from "../ir/geometry.js";
 import { runRecursiveContainerLayout } from "../layout/recursive.js";
 import type { RouteHardObstacleMetadata } from "../routing/index.js";
+import { nudgeOrthogonalRoutes } from "../routing/index.js";
 import {
 	createCjkTypographyOptions,
 	enhanceEdgeCjkTypography,
@@ -998,6 +999,35 @@ export function solveDiagram(
 			options.pageBounds,
 		),
 	);
+
+	if (
+		(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps" &&
+		options.rsopChannelNudge !== false
+	) {
+		const hardForNudge = [
+			...policyHardObstacles,
+			...routeObstacleEntries.map((entry) => entry.box),
+		];
+		const nudged = nudgeOrthogonalRoutes(coordinatedEdges, {
+			idealNudgingDistance: options.idealNudgingDistance ?? 10,
+			hardObstacles: hardForNudge,
+		});
+		coordinatedEdges = nudged.edges;
+		if (nudged.tracks.capacityExhausted) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.channel.capacity_exhausted",
+				message:
+					"Channel track capacity exhausted while spacing parallel short-orthogonal routes; bus or page-split remediation required.",
+				detail: {
+					conflictClass: "fixed-geometry-block",
+					remediationType: "route-rail-or-page-split",
+					maxTracksUsed: nudged.tracks.maxTracksUsed,
+					routingPolicy: "short-orthogonal-jumps",
+				},
+			});
+		}
+	}
 
 	const edgeCrossings = detectOrthogonalEdgeCrossings(coordinatedEdges);
 

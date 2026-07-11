@@ -653,6 +653,7 @@ export function railRemediationSnapshot(state: RemediationPassState): {
 			"routing.text-clearance.unresolved",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
+			"routing.channel.capacity_exhausted",
 			"routing.label-congestion.unresolved",
 			"route_obstacle_fallback",
 			"routing.endpoint-interior.unavoidable",
@@ -964,6 +965,7 @@ export function refreshRemediationDiagnostics(
 			"routing.route-label-loop.exhausted",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
+			"routing.channel.capacity_exhausted",
 			"routing.endpoint-interior.unavoidable",
 			"route_obstacle_fallback",
 			"routing.label-hard-obstacle.unavoidable",
@@ -1314,11 +1316,13 @@ export function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
 		case "routing.obstacle.unavoidable":
 		case "routing.endpoint-interior.unavoidable":
 		case "routing.evidence.crossing_forbidden":
+		case "routing.channel.capacity_exhausted":
 		case "route_obstacle_fallback":
 			return "route-rail-or-page-split";
 		case "routing.rail-capacity.exceeded":
 			return "increase-rails-or-split";
 		case "routing.anchor-capacity.requires-resize":
+		case "routing.port.capacity_exhausted":
 			return "grow-node-anchor-capacity";
 		case "constraints.overlap.locked-conflict":
 		case "constraints.overlap.post-growth":

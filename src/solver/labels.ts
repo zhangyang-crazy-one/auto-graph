@@ -530,11 +530,25 @@ export function buildExternalLabelCallouts(
 			width: keyLayout.box.width,
 			height: keyLayout.box.height,
 		};
+		const calloutWidth = Math.max(source.box.width, shelfLayout.box.width);
+		const calloutHeight = Math.max(source.box.height, shelfLayout.box.height);
+		const preferredX = bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP;
+		const pageWidth = options.pageBounds?.width;
+		const pageHeight = options.pageBounds?.height;
+		const shelfX =
+			pageWidth === undefined
+				? preferredX
+				: Math.max(8, Math.min(preferredX, pageWidth - calloutWidth - 8));
+		const maxShelfY =
+			pageHeight === undefined
+				? Number.POSITIVE_INFINITY
+				: Math.max(8, pageHeight - calloutHeight - 8);
+		const placedY = Math.min(shelfY, maxShelfY);
 		const calloutBox = {
-			x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
-			y: shelfY,
-			width: Math.max(source.box.width, shelfLayout.box.width),
-			height: Math.max(source.box.height, shelfLayout.box.height),
+			x: shelfX,
+			y: placedY,
+			width: calloutWidth,
+			height: calloutHeight,
 		};
 		shelfY += Math.max(14, calloutBox.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
 		const callout: ExternalLabelCallout = {

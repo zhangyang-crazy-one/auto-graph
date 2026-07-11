@@ -23,6 +23,7 @@ import type {
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { type RouteHardObstacleMetadata, routeEdge } from "../routing/index.js";
+import { assignSameSideSlots } from "../routing/same-side-slots.js";
 import {
 	ancestorGroupIds,
 	compactDetail,
@@ -186,6 +187,20 @@ export function coordinateEdges(
 		hardObstacleMetadata ??
 		hardObstacles.map(() => ({ kind: "evidence" as const }));
 
+	const shortPath =
+		(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
+	const sameSideSlots = shortPath
+		? assignSameSideSlots({
+				edges: allocationEdges,
+				nodes,
+				direction,
+				maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
+			})
+		: undefined;
+	if (sameSideSlots !== undefined) {
+		diagnostics.push(...sameSideSlots.diagnostics);
+	}
+
 	for (const edge of edges) {
 		railAllocations?.delete(edge.id);
 		const source = nodes.get(edge.source.nodeId);
@@ -225,9 +240,23 @@ export function coordinateEdges(
 			targetDistributedAnchor,
 		);
 		const sourceAnchor =
-			edge.source.anchor ?? sourceDistributedAnchor?.anchor ?? sourcePort?.side;
+			edge.source.anchor ??
+			sourceDistributedAnchor?.anchor ??
+			sourcePort?.side ??
+			sameSideSlots?.assignments.get(`${edge.id}:source`)?.anchor;
 		const targetAnchor =
-			edge.target.anchor ?? targetDistributedAnchor?.anchor ?? targetPort?.side;
+			edge.target.anchor ??
+			targetDistributedAnchor?.anchor ??
+			targetPort?.side ??
+			sameSideSlots?.assignments.get(`${edge.id}:target`)?.anchor;
+		const sourcePreassign =
+			sourcePort !== undefined
+				? { point: sourcePort.anchor, anchor: sourcePort.side }
+				: sameSideSlots?.assignments.get(`${edge.id}:source`);
+		const targetPreassign =
+			targetPort !== undefined
+				? { point: targetPort.anchor, anchor: targetPort.side }
+				: sameSideSlots?.assignments.get(`${edge.id}:target`);
 		const routeTextObstacles = textObstacles
 			.filter(isLocalRouteClearanceText)
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
@@ -302,6 +331,27 @@ export function coordinateEdges(
 			}
 		}
 
+		// RSOP (#86/#87): foreign nodes/groups are hard; text stays soft with
+		// finite cost so micro-clear can run without treating nodes as soft.
+		const routeSoftObstacles = shortPath
+			? [...softObstacles, ...routeTextObstacles]
+			: [
+					...routeNodeObstacles,
+					...softObstacles,
+					...routeGroupObstacles,
+					...routeTextObstacles,
+				];
+		const routeHardObstacles = shortPath
+			? [...hardObstacles, ...routeNodeObstacles, ...routeGroupObstacles]
+			: hardObstacles;
+		const routeHardMetadata: readonly RouteHardObstacleMetadata[] = shortPath
+			? [
+					...routeHardObstacleMetadata,
+					...routeNodeObstacles.map(() => ({ kind: "node" as const })),
+					...routeGroupObstacles.map(() => ({ kind: "node" as const })),
+				]
+			: routeHardObstacleMetadata;
+		const nudgePitch = options.idealNudgingDistance ?? 10;
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
 			direction,
@@ -309,14 +359,15 @@ export function coordinateEdges(
 			target: targetGeometry,
 			...(sourceAnchor === undefined ? {} : { sourceAnchor }),
 			...(targetAnchor === undefined ? {} : { targetAnchor }),
-			obstacles: [
-				...routeNodeObstacles,
-				...softObstacles,
-				...routeGroupObstacles,
-				...routeTextObstacles,
-			],
-			hardObstacles,
-			hardObstacleMetadata: routeHardObstacleMetadata,
+			...(sourcePreassign === undefined
+				? {}
+				: { sourcePoint: sourcePreassign.point }),
+			...(targetPreassign === undefined
+				? {}
+				: { targetPoint: targetPreassign.point }),
+			obstacles: routeSoftObstacles,
+			hardObstacles: routeHardObstacles,
+			hardObstacleMetadata: routeHardMetadata,
 			corridorMargin,
 			...(options.maxCorners === undefined
 				? {}
@@ -328,9 +379,8 @@ export function coordinateEdges(
 			...(options.maxBacktrackingRatio === undefined
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
+			...(shortPath ? { softTextClearPitch: nudgePitch } : {}),
 			...(() => {
-				const shortPath =
-					(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
 				const densePolicy =
 					shortPath ||
 					options.deliverabilityMode === "strict" ||

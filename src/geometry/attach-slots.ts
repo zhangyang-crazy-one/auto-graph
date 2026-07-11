@@ -1,16 +1,20 @@
 import type { AnchorName, Box, Point } from "../ir/geometry.js";
 
 /**
- * Public attach-slot fractions for a side (#84 §B).
+ * Public attach-slot fractions for a side (#84 §B / #91).
  *
- * For the dense / short-path contract (`count === 3`), slots are the three
- * interior quarter-division points in ascending order: 25% / 50% / 75%.
- * Other counts use equal interior divisions `(i+1)/(n+1)`.
+ * - `n === 1` → `[0.5]`
+ * - `n === 2` → `[0.25, 0.75]` (quarter endpoints; not 1/3–2/3)
+ * - `n === 3` → `[0.25, 0.5, 0.75]`
+ * - otherwise → equal interior divisions `(i+1)/(n+1)`
  */
 export function attachSlotFractions(count: number): number[] {
 	const n = Math.max(1, Math.floor(count));
 	if (n === 1) {
 		return [0.5];
+	}
+	if (n === 2) {
+		return [0.25, 0.75];
 	}
 	if (n === 3) {
 		return [0.25, 0.5, 0.75];

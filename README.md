@@ -147,8 +147,32 @@ routing:
 | 2-point `route_obstacle_fallback` through hard obstacles | **never deliverable** |
 
 Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForBox(box, side, 3)`.
+`attachSlotFractions(2) → [0.25, 0.75]` (not 1/3–2/3).
 
-Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG/Excalidraw render hops; draw.io should consume the same IR downstream (no in-repo draw.io exporter).
+### Named port equal-division docking (#91)
+
+| Ports on one side | Fractions |
+|---|---|
+| 1 | `{0.5}` |
+| 2 | `{0.25, 0.75}` |
+| 3 | `{0.25, 0.5, 0.75}` |
+| n > 3 | `(i+1)/(n+1)` |
+
+Named `portId` endpoints pin to `port.anchor`. Spacing below `minPortSpacing` grows the node or emits `routing.port.capacity_exhausted` — never silent mid-stack. `portGeometry` only pins the matching side (other cardinals stay on node geometry).
+
+### Readable Short-Orthogonal Pipeline (RSOP, #86 / #92)
+
+After `short-orthogonal-jumps` skeleton routing (unless `rsopChannelNudge: false`):
+
+1. Soft-text micro-clear with layered obstacle cost (node hard / text soft)
+2. Pre-route same-side slot assignment for anonymous endpoints (`attachSlotFractions`)
+3. Prefer candidates with a nudge-able interior span (escape stubs ≥ `idealNudgingDistance`, default **10**)
+4. Greedy Left-Edge channel track assignment + orthogonal nudge (MLCM / metro-line LP deferred)
+5. Refresh `edgeCrossings` for exporters
+
+Track/slot/port exhaustion emits `routing.channel.capacity_exhausted` or `routing.port.capacity_exhausted` → rail/page-split / grow remediation — never `route_obstacle_fallback` flyers.
+
+Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG, Excalidraw, and draw.io (`exportDrawio` / `--format drawio`) render hops from that IR.
 
 ### Pretext sizing + semantic roles (#84 A/D)
 

@@ -103,6 +103,16 @@ export interface SolveDiagramOptions {
 	maxDetourRatio?: number;
 	/** Attach-point tournament size per preferred side (default 3, max 5). */
 	maxAttachPointsPerSide?: number;
+	/**
+	 * RSOP (#86/#88) orthogonal nudge pitch between parallel channel tracks.
+	 * Also used as soft-text micro-clear pitch. Default 10.
+	 */
+	idealNudgingDistance?: number;
+	/**
+	 * When true (default for `short-orthogonal-jumps`), run channel track
+	 * assignment + orthogonal nudge after skeleton routing (#88).
+	 */
+	rsopChannelNudge?: boolean;
 }
 
 export interface PortShiftingOptions {

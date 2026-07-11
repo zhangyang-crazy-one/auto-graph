@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Port equal-division docking (#91) + same-side slots / stubs (#92)
+
+- **Named ports (#91)**: equal-division fractions `{0.5}` / `{0.25,0.75}` / `{0.25,0.5,0.75}` (n>3 → `(i+1)/(n+1)`); `portGeometry` pins only the matching side; capacity → `routing.port.capacity_exhausted`.
+- **Same-side slots (#92)**: pre-route anonymous endpoint assignment via `attachSlotFractions`; ported ends skipped.
+- **Escape stubs (#92)**: short-orthogonal prefers candidates with a separable interior span (stub pitch = `idealNudgingDistance`, default 10); same-Y 0-bend remains fallback when no separable candidate exists.
+- **Honest Left-Edge**: channel nudge is greedy Left-Edge / interval coloring — MLCM LP explicitly deferred (docs no longer claim MLCM-style).
+
+### Readable Short-Orthogonal Pipeline / RSOP (#86–#89)
+
+- **Soft-text micro-clear (#87)**: short-orthogonal uses layered cost `length + α·bends + β·textHits`; foreign nodes are hard; text is soft with ±track-pitch micro-detours; never flyer past `maxDetourRatio`.
+- **Channel tracks + nudge (#88)**: post-process assigns greedy Left-Edge tracks in shared gutters and nudges by `idealNudgingDistance` (default 10); capacity exhaustion emits `routing.channel.capacity_exhausted`.
+- **draw.io jump parity (#89)**: thin `exportDrawio` / CLI `--format drawio` maps `edgeCrossings` to `jumpStyle` + crossing metadata; SVG/Excalidraw hops unchanged.
+- **Shelf honesty**: external callout shelves clamp inside `pageBounds` when set.
+
 ### Pretext sizing + semantic roles (#84 A/D)
 
 - **Pretext sizing contract**: `maxWidth` is wrap-only; fitted boxes grow to wrapped text + padding; DSL/prefit use `overflow: "diagnose"` (no truncate). `deliverabilityMode` enables `prefitLabelSize` by default. Ellipse nodes use circle diameter `max(w,h)`.
@@ -11,7 +25,7 @@
 
 - **`routeKind: "short-orthogonal-jumps"`**: prefer 0–2 bend attach-slot routes; reject flying detours beyond `maxDetourRatio` (default 3); do not treat 2-point `route_obstacle_fallback` as success.
 - **Attach slots (25/50/75)**: public `attachSlotFractions` / `attachSlotsForBox` helpers; dense and short-path profiles default `maxAttachPointsPerSide=3`.
-- **`edgeCrossings` IR**: declared edge–edge jump/gap/bridge records; SVG and Excalidraw render hops. draw.io consumers should map IR (no in-repo draw.io exporter yet).
+- **`edgeCrossings` IR**: declared edge–edge jump/gap/bridge records; SVG, Excalidraw, and draw.io render hops from the same IR.
 - **Deliverability**: short-path capacity failures emit `routing.obstacle.unavoidable` + rail/split remediation instead of flyer geometry marked clean.
 
 ### Dense remediation loop
