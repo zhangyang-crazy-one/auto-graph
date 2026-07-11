@@ -162,6 +162,7 @@ export const REMEDIATION_ENTRY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"routing.rail-capacity.exceeded",
 	"routing.channel.capacity_exhausted",
 	"routing.anchor-capacity.requires-resize",
+	"routing.port.capacity_exhausted",
 	"constraints.overlap.post-growth",
 	"routing.obstacle.unavoidable",
 	"routing.endpoint-interior.unavoidable",

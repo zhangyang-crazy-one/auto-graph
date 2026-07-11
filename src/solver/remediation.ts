@@ -1322,6 +1322,7 @@ export function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
 		case "routing.rail-capacity.exceeded":
 			return "increase-rails-or-split";
 		case "routing.anchor-capacity.requires-resize":
+		case "routing.port.capacity_exhausted":
 			return "grow-node-anchor-capacity";
 		case "constraints.overlap.locked-conflict":
 		case "constraints.overlap.post-growth":

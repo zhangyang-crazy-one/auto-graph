@@ -4571,6 +4571,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.label-externalization.required",
 		"routing.label-hard-obstacle.unavoidable",
 		"routing.obstacle.unavoidable",
+		"routing.port.capacity_exhausted",
 		"routing.rail-capacity.exceeded",
 		"routing.route-label-loop.exhausted",
 		"routing.text-clearance.unresolved",
