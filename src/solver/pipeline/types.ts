@@ -11,6 +11,7 @@ import type {
 	CoordinatedMatrixBlock,
 	CoordinatedNode,
 	CoordinatedTableBlock,
+	EdgeCrossing,
 	NormalizedEdge,
 	NormalizedGroup,
 	NormalizedNode,
@@ -46,6 +47,7 @@ export interface LayoutState {
 	coordinatedMatrices: CoordinatedMatrixBlock[];
 	coordinatedTables: CoordinatedTableBlock[];
 	coordinatedEvidencePanels: CoordinatedEvidencePanel[];
+	edgeCrossings: EdgeCrossing[];
 	frame?: CoordinatedFrame;
 
 	baseTextAnnotations: SolvedTextAnnotation[];

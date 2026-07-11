@@ -4,6 +4,8 @@
 import { applyLayoutConstraints } from "../constraints/index.js";
 import {
 	computeShapeGeometry,
+	detectOrthogonalEdgeCrossings,
+	EDGE_CROSSING_GLYPH_RADIUS,
 	expandBox,
 	unionBoxes,
 } from "../geometry/index.js";
@@ -994,6 +996,8 @@ export function solveDiagram(
 		),
 	);
 
+	const edgeCrossings = detectOrthogonalEdgeCrossings(coordinatedEdges);
+
 	let deliverability = buildDeliverabilityReport(
 		diagnostics,
 		options,
@@ -1053,12 +1057,18 @@ export function solveDiagram(
 		...(routingAllocations === undefined
 			? {}
 			: { routing: routingAllocations }),
-		bounds:
-			frame === undefined
-				? unionBoxes(boundsBase)
-				: unionBoxes([...boundsBase, frame.box, frame.titleBox]),
+		bounds: (() => {
+			const base =
+				frame === undefined
+					? unionBoxes(boundsBase)
+					: unionBoxes([...boundsBase, frame.box, frame.titleBox]);
+			return edgeCrossings.length === 0
+				? base
+				: expandBox(base, EDGE_CROSSING_GLYPH_RADIUS);
+		})(),
 		...(frame === undefined ? {} : { frame }),
 		...(textAnnotations.length === 0 ? {} : { textAnnotations }),
+		...(edgeCrossings.length === 0 ? {} : { edgeCrossings }),
 		...(diagram.metadata === undefined ? {} : { metadata: diagram.metadata }),
 	};
 }
@@ -1100,6 +1110,7 @@ function mirrorSolveResult(state: LayoutState): void {
 	state.coordinatedMatrices = result.matrices ?? [];
 	state.coordinatedTables = result.tables ?? [];
 	state.coordinatedEvidencePanels = result.evidencePanels ?? [];
+	state.edgeCrossings = result.edgeCrossings ?? [];
 	if (result.frame !== undefined) {
 		state.frame = result.frame;
 	} else {

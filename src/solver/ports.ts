@@ -379,9 +379,10 @@ export function expandNodeBoxesForAnchorCapacity(
 			a[0].localeCompare(b[0]),
 		)) {
 			if (count <= 1) continue;
+			const slotCount = Math.max(3, count);
 			const vertical = side === "left" || side === "right";
 			const availableSpan = vertical ? box.height : box.width;
-			const requiredSpan = (count - 1) * minSpacing + PORT_BOX_SIZE;
+			const requiredSpan = (slotCount - 1) * minSpacing + PORT_BOX_SIZE;
 			if (requiredSpan <= availableSpan) continue;
 			const expansion = requiredSpan - availableSpan;
 			if (grow) {
@@ -397,12 +398,13 @@ export function expandNodeBoxesForAnchorCapacity(
 				diagnostics.push({
 					severity: "warning",
 					code: "routing.anchor-capacity.requires-resize",
-					message: `Node ${nodeId} needs ${Math.ceil(requiredSpan)} px on ${side} side to fit ${count} edge anchor(s).`,
+					message: `Node ${nodeId} needs ${Math.ceil(requiredSpan)} px on ${side} side to fit ${count} edge anchor(s) (reserved ${slotCount} slots).`,
 					path: ["nodes", nodeId],
 					detail: {
 						nodeId,
 						side,
 						edgeCount: count,
+						slotCount,
 						availableSpan: Math.round(availableSpan),
 						requiredSpan: Math.ceil(requiredSpan),
 						required: Math.ceil(requiredSpan),
@@ -480,6 +482,7 @@ export function distributedAnchorPointsByEndpoint(
 	boxes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
+	diagnostics: Diagnostic[] = [],
 ): Map<string, DistributedAnchor> {
 	const enabled =
 		options.anchorCapacity !== false &&
@@ -557,22 +560,95 @@ export function distributedAnchorPointsByEndpoint(
 		if (first === undefined) continue;
 		const box = boxes.get(first.nodeId)?.box;
 		if (box === undefined) continue;
-		for (let index = 0; index < sorted.length; index += 1) {
-			const endpoint = sorted[index];
+		const primarySide = first.side;
+		const vertical = primarySide === "left" || primarySide === "right";
+		const availableSpan = vertical ? box.height : box.width;
+		const sideCapacity = Math.max(
+			1,
+			Math.floor((availableSpan - PORT_BOX_SIZE) / minSpacing) + 1,
+		);
+		const slotCount = Math.max(3, sorted.length);
+		const primaryCapacity = Math.min(sideCapacity, slotCount);
+		const primaryEndpoints = sorted.slice(0, primaryCapacity);
+		const spilledEndpoints = sorted.slice(primaryCapacity);
+		for (let index = 0; index < primaryEndpoints.length; index += 1) {
+			const endpoint = primaryEndpoints[index];
 			if (endpoint === undefined) continue;
 			distributed.set(endpointDistributionKey(endpoint.edgeId, endpoint.role), {
-				anchor: endpoint.side,
+				anchor: primarySide,
 				point: distributedAnchorPoint(
 					box,
-					endpoint.side,
+					primarySide,
 					index,
-					sorted.length,
+					Math.max(primaryEndpoints.length, Math.min(3, slotCount)),
 					minSpacing,
 				),
 			});
 		}
+		if (spilledEndpoints.length > 0) {
+			const spillSides = adjacentAnchorSides(primarySide);
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.anchor-capacity.requires-resize",
+				message: `Node ${first.nodeId} side ${primarySide} saturated; spilling ${spilledEndpoints.length} anchor(s) to adjacent sides.`,
+				path: ["nodes", first.nodeId],
+				detail: {
+					nodeId: first.nodeId,
+					side: primarySide,
+					edgeCount: sorted.length,
+					slotCount,
+					availableSpan: Math.round(availableSpan),
+					requiredSpan: (slotCount - 1) * minSpacing + PORT_BOX_SIZE,
+					required: (slotCount - 1) * minSpacing + PORT_BOX_SIZE,
+					available: Math.round(availableSpan),
+					spilled: spilledEndpoints.length,
+					conflictClass: "fixed-geometry-block",
+					remediationType: "grow-node-anchor-capacity",
+					suggestedRemedy:
+						"Increase node size, reduce same-side fanout, or enable anchorCapacity.grow.",
+				},
+			});
+			for (
+				let spillIndex = 0;
+				spillIndex < spilledEndpoints.length;
+				spillIndex += 1
+			) {
+				const endpoint = spilledEndpoints[spillIndex];
+				if (endpoint === undefined) continue;
+				const spillSide =
+					spillSides[spillIndex % spillSides.length] ?? primarySide;
+				const spillGroupIndex = Math.floor(spillIndex / spillSides.length);
+				const spillGroupSize = Math.ceil(
+					spilledEndpoints.length / spillSides.length,
+				);
+				distributed.set(
+					endpointDistributionKey(endpoint.edgeId, endpoint.role),
+					{
+						anchor: spillSide,
+						point: distributedAnchorPoint(
+							box,
+							spillSide,
+							spillGroupIndex,
+							Math.max(3, spillGroupSize),
+							minSpacing,
+						),
+					},
+				);
+			}
+		}
 	}
 	return distributed;
+}
+
+function adjacentAnchorSides(side: AnchorSide): AnchorSide[] {
+	switch (side) {
+		case "left":
+		case "right":
+			return ["top", "bottom"];
+		case "top":
+		case "bottom":
+			return ["left", "right"];
+	}
 }
 
 export function distributableAnchorSide(

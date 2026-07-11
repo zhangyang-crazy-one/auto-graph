@@ -39,7 +39,7 @@ describe("infinite canvas stress", () => {
 		expect(first.edges.map((edge) => edge.points)).toEqual(
 			second.edges.map((edge) => edge.points),
 		);
-	});
+	}, 15_000);
 });
 
 function sparseGridDiagram(

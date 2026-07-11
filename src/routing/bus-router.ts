@@ -22,15 +22,16 @@ export interface PortFanOut {
 	readonly index: number;
 	/** Total edges sharing this source node + side. */
 	readonly total: number;
+	/** Slot capacity reserved on this side (at least max(3, total)). */
+	readonly slotCount: number;
 }
 
 /**
  * Group edges by (source node id, side) and assign each a distinct
  * position along the node edge so they fan out visually.
  *
- * The offset is perpendicular to the edge direction: for TB layout,
- * edges from the bottom of a node fan out horizontally; for LR
- * layout, edges from the right fan out vertically.
+ * Used sides reserve at least 3 slots (`max(3, n)`) for capacity planning
+ * (#76 Slice A). Edges are still placed with deterministic min-spacing.
  *
  * @param edgeIds  All edge ids that share a common source node + side.
  * @param nodeBox  The source node's bounding box.
@@ -44,18 +45,20 @@ export function computeFanOutPorts(
 	spacing = 8,
 ): Map<string, PortFanOut> {
 	const result = new Map<string, PortFanOut>();
-	if (edgeIds.length <= 1) {
+	const total = edgeIds.length;
+	const slotCount = Math.max(3, total);
+	if (total <= 1) {
 		for (const id of edgeIds) {
 			result.set(id, {
 				anchor: nodeSideCenter(nodeBox, side),
 				index: 0,
 				total: 1,
+				slotCount,
 			});
 		}
 		return result;
 	}
 
-	const total = edgeIds.length;
 	const isHorizontal = side === "top" || side === "bottom";
 	const totalSpan = (total - 1) * spacing;
 	const start = -totalSpan / 2;
@@ -81,7 +84,7 @@ export function computeFanOutPorts(
 				y: clamp(anchor.y, nodeBox.y, nodeBox.y + nodeBox.height),
 			};
 		}
-		result.set(id, { anchor, index: i, total });
+		result.set(id, { anchor, index: i, total, slotCount });
 	}
 
 	return result;

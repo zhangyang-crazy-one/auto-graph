@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Short-path / jump-bridge routing contract (#84 C+B+E)
+
+- **`routeKind: "short-orthogonal-jumps"`**: prefer 0–2 bend attach-slot routes; reject flying detours beyond `maxDetourRatio` (default 3); do not treat 2-point `route_obstacle_fallback` as success.
+- **Attach slots (25/50/75)**: public `attachSlotFractions` / `attachSlotsForBox` helpers; dense and short-path profiles default `maxAttachPointsPerSide=3`.
+- **`edgeCrossings` IR**: declared edge–edge jump/gap/bridge records; SVG and Excalidraw render hops. draw.io consumers should map IR (no in-repo draw.io exporter yet).
+- **Deliverability**: short-path capacity failures emit `routing.obstacle.unavoidable` + rail/split remediation instead of flyer geometry marked clean.
+
 ### Dense remediation loop
 
 - **Bounded remediation pass** after route/label feedback exhaustion (default 2 iterations): apply order grow → rails → external-label; `pageSplit` is never auto-materialized.

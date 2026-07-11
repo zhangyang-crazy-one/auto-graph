@@ -9,6 +9,7 @@ import type {
 	CoordinatedNode,
 	CoordinatedTableBlock,
 	DiagramFrame,
+	EdgeCrossing,
 	EvidencePanel,
 	IntentEdge,
 	IntentGroup,
@@ -201,6 +202,8 @@ export interface CoordinatedDiagram {
 	tables?: CoordinatedTableBlock[];
 	evidencePanels?: CoordinatedEvidencePanel[];
 	textAnnotations?: SolvedTextAnnotation[];
+	/** Declared edge–edge crossings for jump/bridge exporters (#84). */
+	edgeCrossings?: EdgeCrossing[];
 	diagnostics: Diagnostic[];
 	/** True when any deliverability-breaking diagnostic was emitted. */
 	degraded: boolean;

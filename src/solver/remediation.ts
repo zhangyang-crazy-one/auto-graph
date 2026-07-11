@@ -536,7 +536,8 @@ export function applyRouteRailsRemediation(
 	rerouteRemediationEdges(state, context, forcedOptions);
 	const postSnapshot = railRemediationSnapshot(state);
 	const geometryChanged =
-		preSnapshot.railSignature !== postSnapshot.railSignature;
+		preSnapshot.railSignature !== postSnapshot.railSignature ||
+		preSnapshot.routeSignature !== postSnapshot.routeSignature;
 	const diagnosticsImproved =
 		postSnapshot.conflictCount < preSnapshot.conflictCount;
 	const capacity = capacityFromDiagnostics(state.diagnostics) ?? {
@@ -630,6 +631,7 @@ export function applyExternalLabelRemediation(
 
 export function railRemediationSnapshot(state: RemediationPassState): {
 	railSignature: string;
+	routeSignature: string;
 	conflictCount: number;
 } {
 	const rails = [...state.acceptedRailAllocations.values()]
@@ -638,16 +640,28 @@ export function railRemediationSnapshot(state: RemediationPassState): {
 				`${rail.edgeId}:${rail.side}:${rail.index}:${Math.round(rail.coordinate)}`,
 		)
 		.sort((left, right) => left.localeCompare(right));
+	const routes = state.coordinatedEdges
+		.map((edge) => {
+			const points = (edge.points ?? [])
+				.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`)
+				.join(">");
+			return `${edge.id}:${points}`;
+		})
+		.sort((left, right) => left.localeCompare(right));
 	const conflictCount = state.diagnostics.filter((diagnostic) =>
 		[
 			"routing.text-clearance.unresolved",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
 			"routing.label-congestion.unresolved",
+			"route_obstacle_fallback",
+			"routing.endpoint-interior.unavoidable",
+			"routing.evidence.crossing_forbidden",
 		].includes(diagnostic.code),
 	).length;
 	return {
 		railSignature: rails.join("|"),
+		routeSignature: routes.join("|"),
 		conflictCount,
 	};
 }

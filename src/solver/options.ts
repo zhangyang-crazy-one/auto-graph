@@ -92,6 +92,13 @@ export interface SolveDiagramOptions {
 	/** Route-length / direct-distance ratio above which a backtracking
 	 * warning is emitted (default 20). */
 	maxBacktrackingRatio?: number;
+	/**
+	 * Maximum accepted routeLength/direct among clearance-feasible routes (#76).
+	 * Dense deliverable pages typically use 3; `degraded-ok` may omit or raise.
+	 */
+	maxDetourRatio?: number;
+	/** Attach-point tournament size per preferred side (default 3, max 5). */
+	maxAttachPointsPerSide?: number;
 }
 
 export interface PortShiftingOptions {

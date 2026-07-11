@@ -200,6 +200,17 @@ export interface CoordinatedEdge extends NormalizedEdge {
 	labelPosition?: Point;
 }
 
+export type EdgeCrossingStyle = "jump" | "gap" | "bridge";
+
+/** Declared edge–edge crossing for jump/bridge rendering (#84). */
+export interface EdgeCrossing {
+	x: number;
+	y: number;
+	underEdgeId: string;
+	overEdgeId: string;
+	style: EdgeCrossingStyle;
+}
+
 export interface IntentGroup {
 	id: string;
 	label?: Label;

@@ -419,6 +419,84 @@ it("dodges a diagonal straight edge around two obstacles", () => {
 	expect(routeIntersectsObstacle(result.points, o2)).toBe(false);
 });
 
+it("does not emit fatal route_obstacle_fallback from rejected intermediate candidates", () => {
+	// Same-height sequence-style nodes with a hard lane band between them.
+	// Intermediate finalize collapses must not pollute diagnostics when a
+	// later clearance-feasible path wins (#75 Stage-3 / OV-6c msg-02 class).
+	const hardBand = { x: 90, y: 0, width: 20, height: 120 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 40),
+		target: shape(200, 40),
+		hardObstacles: [hardBand],
+		maxAttachPointsPerSide: 3,
+	});
+
+	expect(result.points.length).toBeGreaterThanOrEqual(3);
+	expect(routeIntersectsObstacle(result.points, hardBand)).toBe(false);
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({
+			code: "route_obstacle_fallback",
+			severity: "error",
+			detail: expect.objectContaining({ pointCount: 2 }),
+		}),
+	);
+});
+
+it("tournament prefers a shorter clearance-feasible path over a long flying detour", () => {
+	// Tall wall with a gap near the bottom; center attach may take a long
+	// top detour while a lower attach point gets a short 2-bend path (#76).
+	const wall = { x: 120, y: 0, width: 20, height: 160 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: computeShapeGeometry({
+			shape: "rectangle",
+			box: { x: 0, y: 40, width: 80, height: 120 },
+		}),
+		target: computeShapeGeometry({
+			shape: "rectangle",
+			box: { x: 200, y: 40, width: 80, height: 120 },
+		}),
+		hardObstacles: [wall],
+		maxAttachPointsPerSide: 3,
+		maxDetourRatio: 8,
+	});
+
+	expect(routeIntersectsObstacle(result.points, wall)).toBe(false);
+	let length = 0;
+	for (let i = 0; i < result.points.length - 1; i += 1) {
+		const a = result.points[i]!;
+		const b = result.points[i + 1]!;
+		length += Math.hypot(b.x - a.x, b.y - a.y);
+	}
+	expect(length).toBeLessThan(400);
+});
+
+it("emits structured detour remediation when maxDetourRatio is exceeded", () => {
+	const wall = { x: 100, y: -200, width: 40, height: 600 };
+	const result = routeEdge({
+		kind: "obstacle-avoiding",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(200, 0),
+		hardObstacles: [wall],
+		maxDetourRatio: 1.2,
+		maxAttachPointsPerSide: 3,
+	});
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.obstacle.unavoidable",
+			detail: expect.objectContaining({
+				remediationType: "route-rail-or-page-split",
+				maxDetourRatio: 1.2,
+			}),
+		}),
+	);
+});
+
 it("keeps diagonal straight edge unchanged when no obstacles present", () => {
 	const result = routeEdge({
 		kind: "straight",

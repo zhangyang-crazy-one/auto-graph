@@ -1,3 +1,4 @@
+import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -7,6 +8,7 @@ import type {
 	CoordinatedNode,
 	CoordinatedTableBlock,
 	EdgeArrowhead,
+	EdgeCrossing,
 	Label,
 	NodeShape,
 } from "../ir/elements.js";
@@ -144,7 +146,7 @@ export function exportExcalidraw(
 	}
 
 	for (const edge of diagram.edges) {
-		elements.push(renderArrow(edge));
+		elements.push(...renderArrowElements(edge, diagram.edgeCrossings ?? []));
 		elements.push(
 			...renderEdgeLabelAnnotations(edge, diagram.textAnnotations ?? []),
 		);
@@ -294,7 +296,94 @@ function renderEvidencePanel(
 	];
 }
 
-function renderArrow(edge: CoordinatedEdge): ExcalidrawArrowElement {
+function renderArrowElements(
+	edge: CoordinatedEdge,
+	crossings: readonly EdgeCrossing[] = [],
+): ExcalidrawArrowElement[] {
+	const under = crossings.filter(
+		(crossing) => crossing.underEdgeId === edge.id,
+	);
+	const gaps = under.filter((crossing) => crossing.style === "gap");
+	const hops = under.filter(
+		(crossing) => crossing.style === "jump" || crossing.style === "bridge",
+	);
+	if (gaps.length === 0) {
+		return [renderArrow(edge, hops)];
+	}
+	const segments = splitPolylineAtGaps(edge.points, gaps);
+	return segments.map((points, index) => {
+		const { arrowhead: _ignored, ...rest } = edge;
+		const segmentEdge: CoordinatedEdge = {
+			...rest,
+			id: index === 0 ? edge.id : `${edge.id}:gap-${index}`,
+			points,
+			...(index === segments.length - 1 && edge.arrowhead !== undefined
+				? { arrowhead: edge.arrowhead }
+				: {}),
+		};
+		return renderArrow(segmentEdge, index === 0 ? hops : []);
+	});
+}
+
+function splitPolylineAtGaps(
+	points: readonly Point[],
+	gaps: readonly EdgeCrossing[],
+): Point[][] {
+	if (points.length < 2 || gaps.length === 0) {
+		return [points.map((point) => ({ ...point }))];
+	}
+	const segments: Point[][] = [];
+	let current: Point[] = [];
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const start = points[i];
+		const end = points[i + 1];
+		if (start === undefined || end === undefined) continue;
+		if (current.length === 0) {
+			current.push({ ...start });
+		}
+		const segmentGaps = gaps
+			.filter((gap) => excalidrawPointOnSegment(gap, start, end))
+			.sort(
+				(left, right) =>
+					excalidrawSquaredDistance(start, left) -
+					excalidrawSquaredDistance(start, right),
+			);
+		let cursor = start;
+		for (const gap of segmentGaps) {
+			const before = excalidrawPointAlong(
+				start,
+				end,
+				gap,
+				-EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			const after = excalidrawPointAlong(
+				start,
+				end,
+				gap,
+				EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			current.push(before);
+			if (current.length >= 2) {
+				segments.push(current);
+			}
+			current = [after];
+			cursor = after;
+		}
+		current.push({ ...end });
+		void cursor;
+	}
+	if (current.length >= 2) {
+		segments.push(current);
+	}
+	return segments.length > 0
+		? segments
+		: [points.map((point) => ({ ...point }))];
+}
+
+function renderArrow(
+	edge: CoordinatedEdge,
+	crossings: readonly EdgeCrossing[] = [],
+): ExcalidrawArrowElement {
 	const first = edge.points[0];
 	if (first === undefined) {
 		throw new TypeError(
@@ -302,16 +391,23 @@ function renderArrow(edge: CoordinatedEdge): ExcalidrawArrowElement {
 		);
 	}
 
-	const relativePoints = edge.points.map((point) => ({
-		x: point.x - first.x,
-		y: point.y - first.y,
+	const hopped = applyJumpBumps(
+		edge.points,
+		crossings.filter(
+			(crossing) => crossing.style === "jump" || crossing.style === "bridge",
+		),
+	);
+	const origin = hopped[0] ?? first;
+	const relativePoints = hopped.map((point) => ({
+		x: point.x - origin.x,
+		y: point.y - origin.y,
 	}));
 	const box = pointsBox(relativePoints);
 
 	return {
 		...baseElement(`edge:${edge.id}`, "arrow", {
-			x: first.x,
-			y: first.y,
+			x: origin.x,
+			y: origin.y,
 			width: box.width,
 			height: box.height,
 		}),
@@ -323,6 +419,115 @@ function renderArrow(edge: CoordinatedEdge): ExcalidrawArrowElement {
 		startArrowhead: null,
 		endArrowhead: mapArrowhead(edge.arrowhead),
 	};
+}
+
+function applyJumpBumps(
+	points: readonly Point[],
+	jumps: readonly EdgeCrossing[],
+): Point[] {
+	if (jumps.length === 0 || points.length < 2) {
+		return points.map((point) => ({ ...point }));
+	}
+	const result: Point[] = [];
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const start = points[i];
+		const end = points[i + 1];
+		if (start === undefined || end === undefined) continue;
+		if (i === 0) {
+			result.push({ ...start });
+		}
+		const segmentJumps = jumps
+			.filter((jump) => excalidrawPointOnSegment(jump, start, end))
+			.sort(
+				(left, right) =>
+					excalidrawSquaredDistance(start, left) -
+					excalidrawSquaredDistance(start, right),
+			);
+		for (const jump of segmentJumps) {
+			const before = excalidrawPointAlong(
+				start,
+				end,
+				jump,
+				-EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			const after = excalidrawPointAlong(
+				start,
+				end,
+				jump,
+				EDGE_CROSSING_GLYPH_RADIUS,
+			);
+			const apex = hopApex(start, end, jump, EDGE_CROSSING_GLYPH_RADIUS);
+			result.push(before, apex, after);
+		}
+		result.push({ ...end });
+	}
+	return result;
+}
+
+function hopApex(
+	start: Point,
+	end: Point,
+	at: { x: number; y: number },
+	radius: number,
+): Point {
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	const length = Math.hypot(dx, dy);
+	if (length < 1e-9) {
+		return { x: at.x, y: at.y - radius };
+	}
+	const nx = -dy / length;
+	const ny = dx / length;
+	const sign =
+		Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? -1 : 1) : dy >= 0 ? 1 : -1;
+	return { x: at.x + nx * radius * sign, y: at.y + ny * radius * sign };
+}
+
+function excalidrawPointOnSegment(
+	point: { x: number; y: number },
+	start: Point,
+	end: Point,
+	tolerance = 0.75,
+): boolean {
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	const lengthSq = dx * dx + dy * dy;
+	if (lengthSq < 1e-9) {
+		return excalidrawSquaredDistance(start, point) <= tolerance * tolerance;
+	}
+	const t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq;
+	if (t <= 0.02 || t >= 0.98) {
+		return false;
+	}
+	const proj = { x: start.x + t * dx, y: start.y + t * dy };
+	return excalidrawSquaredDistance(proj, point) <= tolerance * tolerance;
+}
+
+function excalidrawPointAlong(
+	start: Point,
+	end: Point,
+	at: { x: number; y: number },
+	offset: number,
+): Point {
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	const length = Math.hypot(dx, dy);
+	if (length < 1e-9) {
+		return { x: at.x, y: at.y };
+	}
+	return {
+		x: at.x + (dx / length) * offset,
+		y: at.y + (dy / length) * offset,
+	};
+}
+
+function excalidrawSquaredDistance(
+	a: { x: number; y: number },
+	b: { x: number; y: number },
+): number {
+	const dx = a.x - b.x;
+	const dy = a.y - b.y;
+	return dx * dx + dy * dy;
 }
 
 function renderEdgeLabelAnnotations(

@@ -71,6 +71,7 @@ export function createInitialState(
 		coordinatedMatrices: [],
 		coordinatedTables: [],
 		coordinatedEvidencePanels: [],
+		edgeCrossings: [],
 		baseTextAnnotations: [],
 		edgeTextAnnotations: [],
 		contentBounds: { x: 0, y: 0, width: 0, height: 0 },
