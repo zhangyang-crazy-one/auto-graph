@@ -89,7 +89,7 @@ function buildCommand(): Command {
 		})
 		.option("--input <path>", "Read diagram DSL from a file")
 		.option("--output <path>", "Write generated output to a file")
-		.option("--format <format>", "Output format: svg or excalidraw")
+		.option("--format <format>", "Output format: svg, excalidraw, or drawio")
 		.option("--json", "Write diagnostics as JSON to stderr");
 }
 

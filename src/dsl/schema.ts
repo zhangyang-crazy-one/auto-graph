@@ -12,7 +12,7 @@ const routeKindSchema = z.enum([
 ]);
 const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
 const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
-const outputFormatSchema = z.enum(["svg", "excalidraw"]);
+const outputFormatSchema = z.enum(["svg", "excalidraw", "drawio"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
 const primaryReadingDirectionSchema = z.enum([

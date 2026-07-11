@@ -10,7 +10,7 @@ export type DslDiagnosticLayer =
 	| "export"
 	| "io";
 
-export type DslOutputFormat = "svg" | "excalidraw";
+export type DslOutputFormat = "svg" | "excalidraw" | "drawio";
 
 export interface DslDiagnostic extends Diagnostic {
 	layer: DslDiagnosticLayer;

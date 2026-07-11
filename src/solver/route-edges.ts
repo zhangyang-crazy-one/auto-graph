@@ -302,6 +302,28 @@ export function coordinateEdges(
 			}
 		}
 
+		const shortPath =
+			(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
+		// RSOP (#86/#87): foreign nodes/groups are hard; text stays soft with
+		// finite cost so micro-clear can run without treating nodes as soft.
+		const routeSoftObstacles = shortPath
+			? [...softObstacles, ...routeTextObstacles]
+			: [
+					...routeNodeObstacles,
+					...softObstacles,
+					...routeGroupObstacles,
+					...routeTextObstacles,
+				];
+		const routeHardObstacles = shortPath
+			? [...hardObstacles, ...routeNodeObstacles, ...routeGroupObstacles]
+			: hardObstacles;
+		const routeHardMetadata: readonly RouteHardObstacleMetadata[] = shortPath
+			? [
+					...routeHardObstacleMetadata,
+					...routeNodeObstacles.map(() => ({ kind: "node" as const })),
+					...routeGroupObstacles.map(() => ({ kind: "node" as const })),
+				]
+			: routeHardObstacleMetadata;
 		const route = routeEdge({
 			kind: options.routeKind ?? "orthogonal",
 			direction,
@@ -309,14 +331,9 @@ export function coordinateEdges(
 			target: targetGeometry,
 			...(sourceAnchor === undefined ? {} : { sourceAnchor }),
 			...(targetAnchor === undefined ? {} : { targetAnchor }),
-			obstacles: [
-				...routeNodeObstacles,
-				...softObstacles,
-				...routeGroupObstacles,
-				...routeTextObstacles,
-			],
-			hardObstacles,
-			hardObstacleMetadata: routeHardObstacleMetadata,
+			obstacles: routeSoftObstacles,
+			hardObstacles: routeHardObstacles,
+			hardObstacleMetadata: routeHardMetadata,
 			corridorMargin,
 			...(options.maxCorners === undefined
 				? {}
@@ -328,9 +345,10 @@ export function coordinateEdges(
 			...(options.maxBacktrackingRatio === undefined
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
+			...(options.idealNudgingDistance === undefined
+				? {}
+				: { softTextClearPitch: options.idealNudgingDistance }),
 			...(() => {
-				const shortPath =
-					(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
 				const densePolicy =
 					shortPath ||
 					options.deliverabilityMode === "strict" ||

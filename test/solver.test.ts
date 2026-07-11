@@ -4562,6 +4562,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"layout.container-fixed-bounds-overflow",
 		"route_obstacle_fallback",
 		"routing.anchor-capacity.requires-resize",
+		"routing.channel.capacity_exhausted",
 		"routing.container-fixed-bounds-overflow",
 		"routing.deliverability.unsatisfiable",
 		"routing.endpoint-interior.unavoidable",

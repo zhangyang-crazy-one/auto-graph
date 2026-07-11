@@ -160,6 +160,7 @@ export const REMEDIATION_ENTRY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"routing.label-externalization.required",
 	"routing.route-label-loop.exhausted",
 	"routing.rail-capacity.exceeded",
+	"routing.channel.capacity_exhausted",
 	"routing.anchor-capacity.requires-resize",
 	"constraints.overlap.post-growth",
 	"routing.obstacle.unavoidable",

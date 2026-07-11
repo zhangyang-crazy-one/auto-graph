@@ -16,7 +16,7 @@ export type RouteKind =
 	/** Short attach-to-attach orthogonal routes; edge×edge crossings use jumps (#84). */
 	| "short-orthogonal-jumps";
 
-export type RouteHardObstacleKind = "evidence" | "text";
+export type RouteHardObstacleKind = "evidence" | "text" | "node";
 
 export interface RouteHardObstacleMetadata {
 	kind: RouteHardObstacleKind;
@@ -66,6 +66,10 @@ export interface RouteEdgeInput {
 	 * unless the solver dense policy sets it. Capped at 5.
 	 */
 	maxAttachPointsPerSide?: number;
+	/**
+	 * Soft-text micro-clear track pitch in px (#86 / #87). Defaults to 10.
+	 */
+	softTextClearPitch?: number;
 	/**
 	 * Severity for fatal `route_obstacle_fallback` when expand still crosses
 	 * hard obstacles. Use `"warning"` under `deliverabilityMode: "degraded-ok"`.

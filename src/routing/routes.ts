@@ -236,10 +236,10 @@ function routeBendCount(points: readonly Point[]): number {
 }
 
 /**
- * #84 short-orthogonal-jumps: slot×slot 0–2 bend candidates only.
- * Edge–edge crossings are allowed (declared later as jumps). Node/hard
- * pierces are rejected. Flying detours and fatal 2-point fallbacks are not
- * accepted as successful geometry.
+ * #84 / #86 RSOP Phase-2 short-orthogonal-jumps:
+ * Objective: minimize length + α·bends + β·textHits among hard-clear,
+ * detour-capped candidates. Soft text is finite-cost (micro-clear first);
+ * node/title/evidence pierces and detour excess are infinite.
  */
 function routeShortOrthogonalJumps(
 	input: RouteEdgeInput,
@@ -267,26 +267,38 @@ function routeShortOrthogonalJumps(
 ): RouteEdgeResult {
 	const endpointObstacles = endpointInteriorObstacles(input);
 	const detourBudget = input.maxDetourRatio ?? 3;
+	const pitch = input.softTextClearPitch ?? 10;
 	const pairs = routeTournamentPairs(input, defaultAnchors, maxAttachPoints);
-	const cleanTournament: Array<{
+	const feasibleTournament: Array<{
 		points: Point[];
 		source: Point;
 		target: Point;
 		quality: RouteQuality;
+		layeredCost: number;
 	}> = [];
 	let bestAny: { points: Point[]; quality: RouteQuality } | undefined;
 
 	for (const pair of pairs) {
-		const candidates = shortOrthogonalCandidates(
+		const baseCandidates = shortOrthogonalCandidates(
 			pair.source,
 			pair.target,
 			pair.sourceAnchor,
 			pair.targetAnchor,
 			input.direction,
 		);
-		for (const raw of candidates) {
+		const expanded: Point[][] = [];
+		for (const raw of baseCandidates) {
 			const points = simplifyRoute(raw);
 			if (points.length < 2) continue;
+			expanded.push(points);
+			for (const micro of softTextMicroClearCandidates(points, pitch)) {
+				const cleared = simplifyRoute(micro);
+				if (cleared.length >= 2) {
+					expanded.push(cleared);
+				}
+			}
+		}
+		for (const points of expanded) {
 			const quality = routeQuality(
 				points,
 				pair.source,
@@ -307,41 +319,57 @@ function routeShortOrthogonalJumps(
 			if (detour > detourBudget) {
 				continue;
 			}
-			if (
-				quality.hardCrossings > 0 ||
-				quality.endpointCrossings > 0 ||
-				quality.softCrossings > 0
-			) {
-				if (quality.hardCrossings === 0 && quality.endpointCrossings === 0) {
-					recordRejected(points, pair.source, pair.target, endpointObstacles);
-				}
+			if (quality.hardCrossings > 0 || quality.endpointCrossings > 0) {
 				continue;
 			}
-			cleanTournament.push({
+			recordRejected(points, pair.source, pair.target, endpointObstacles);
+			feasibleTournament.push({
 				points,
 				source: pair.source,
 				target: pair.target,
 				quality,
+				layeredCost: layeredSoftTextCost(quality),
 			});
 		}
-		// Evaluate every attach-slot pair before picking the shortest clean
-		// route (#84 / Codex P2). Early-exit would lock mid/mid and miss
-		// shorter 25%/75% candidates.
+		// Full slot tournament (#84 / Codex P2) — no mid/mid early-exit.
 	}
 
-	if (cleanTournament.length > 0) {
-		cleanTournament.sort((left, right) =>
-			compareRouteQuality(left.quality, right.quality),
+	if (feasibleTournament.length > 0) {
+		feasibleTournament.sort(
+			(left, right) =>
+				left.layeredCost - right.layeredCost ||
+				compareRouteQuality(left.quality, right.quality),
 		);
-		const best = cleanTournament[0];
+		const best = feasibleTournament[0];
 		if (best !== undefined) {
-			const accepted = acceptCleanRoute(best.points, best.source, best.target);
-			if (accepted !== undefined) {
-				return accepted;
-			}
-			const excessive = returnBestExcessiveCleanRoute();
-			if (excessive !== undefined) {
-				return excessive;
+			if (best.quality.softCrossings === 0) {
+				const accepted = acceptCleanRoute(
+					best.points,
+					best.source,
+					best.target,
+				);
+				if (accepted !== undefined) {
+					return accepted;
+				}
+				const excessive = returnBestExcessiveCleanRoute();
+				if (excessive !== undefined) {
+					return excessive;
+				}
+			} else {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.text-clearance.unresolved",
+					message:
+						"Short-orthogonal route still intersects soft text after micro-clear; prefer external-label remediation.",
+					detail: {
+						conflictClass: "node-label-strike",
+						remediationType: "external-label-or-split",
+						routingPolicy: "short-orthogonal-jumps",
+						softCrossings: best.quality.softCrossings,
+						maxDetourRatio: detourBudget,
+					},
+				});
+				return { points: simplifyRoute(best.points), diagnostics };
 			}
 		}
 	}
@@ -349,7 +377,7 @@ function routeShortOrthogonalJumps(
 	diagnostics.push({
 		severity: "warning",
 		code: "routing.obstacle.unavoidable",
-		message: `No short-orthogonal candidate within maxDetourRatio ${detourBudget} clears hard/soft obstacles.`,
+		message: `No short-orthogonal candidate within maxDetourRatio ${detourBudget} clears hard obstacles.`,
 		detail: {
 			conflictClass: "fixed-geometry-block",
 			remediationType: "route-rail-or-page-split",
@@ -409,12 +437,87 @@ function routeShortOrthogonalJumps(
 	} else if (
 		routeCrossesBoxes(fallbackPoints, softObstacles, softObstacleIndex)
 	) {
-		// Soft pierce already covered by unavoidable; keep residual signal.
+		diagnostics.push({
+			severity: "warning",
+			code: "routing.text-clearance.unresolved",
+			message:
+				"Short-orthogonal fallback intersects soft text; external-label remediation required.",
+			detail: {
+				conflictClass: "node-label-strike",
+				remediationType: "external-label-or-split",
+				routingPolicy: "short-orthogonal-jumps",
+			},
+		});
 	}
 
 	// Intentionally do not emit route_obstacle_fallback — short-path profile
 	// treats unresolved geometry as capacity failure, not a successful fallback.
 	return { points: fallbackPoints, diagnostics };
+}
+
+/** RSOP cost: length + α·bends + β·textHits (hard/detour already filtered). */
+function layeredSoftTextCost(quality: RouteQuality): number {
+	const alpha = 24;
+	const beta = 120;
+	return (
+		quality.routeLength +
+		alpha * quality.bendCount +
+		beta * quality.softCrossings +
+		quality.softCrossingLength
+	);
+}
+
+/**
+ * Same-channel micro-detours (±pitch) that add at most +2 bends.
+ * Used to clear soft text without reintroducing flyers (#87).
+ */
+function softTextMicroClearCandidates(
+	points: readonly Point[],
+	pitch: number,
+): Point[][] {
+	if (points.length < 2 || pitch <= 0) {
+		return [];
+	}
+	const out: Point[][] = [];
+	const offsets = [pitch, -pitch, pitch * 2, -pitch * 2];
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const a = points[i];
+		const b = points[i + 1];
+		if (a === undefined || b === undefined) continue;
+		const horizontal = Math.abs(a.y - b.y) < 1e-6;
+		const vertical = Math.abs(a.x - b.x) < 1e-6;
+		if (!horizontal && !vertical) continue;
+		const baseBends = routeBendCount(points);
+		for (const offset of offsets) {
+			const rebuilt = rebuildSegmentWithOffset(points, i, offset, horizontal);
+			if (rebuilt === undefined) continue;
+			const bends = routeBendCount(rebuilt);
+			if (bends > baseBends + 2 || bends > 4) continue;
+			out.push(rebuilt);
+		}
+	}
+	return out;
+}
+
+function rebuildSegmentWithOffset(
+	points: readonly Point[],
+	segmentIndex: number,
+	offset: number,
+	horizontal: boolean,
+): Point[] | undefined {
+	const a = points[segmentIndex];
+	const b = points[segmentIndex + 1];
+	if (a === undefined || b === undefined) return undefined;
+	const aShift = horizontal
+		? { x: a.x, y: a.y + offset }
+		: { x: a.x + offset, y: a.y };
+	const bShift = horizontal
+		? { x: b.x, y: b.y + offset }
+		: { x: b.x + offset, y: b.y };
+	const prefix = points.slice(0, segmentIndex + 1);
+	const suffix = points.slice(segmentIndex + 1);
+	const mid = [a, aShift, bShift, b];
+	return [...prefix.slice(0, -1), ...mid, ...suffix.slice(1)];
 }
 
 /** Generate 0–2 bend orthogonal polylines between attach slots. */
@@ -2475,13 +2578,32 @@ function hardObstacleFailureDiagnostic(input: {
 			},
 		};
 	}
+	const nodeOnly =
+		sources.length > 0 && sources.every((source) => source.kind === "node");
+	if (nodeOnly) {
+		return {
+			severity: "error",
+			code: "routing.obstacle.unavoidable",
+			message: "Short-orthogonal route crosses foreign node obstacles.",
+			detail: {
+				obstacleSource: "node",
+				hardObstacleKinds: kinds.join(","),
+				conflictClass: "fixed-geometry-block",
+				remediationType: "route-rail-or-page-split",
+			},
+		};
+	}
 	return {
 		severity: "error",
 		code: "routing.evidence.crossing_forbidden",
 		message: input.evidenceMessage,
 		detail: {
 			obstacleSource:
-				sources.length > 0 && kinds.includes("text") ? "mixed" : "evidence",
+				sources.length > 0 && kinds.includes("text")
+					? "mixed"
+					: kinds.includes("node")
+						? "node"
+						: "evidence",
 			hardObstacleKinds: kinds.length === 0 ? "evidence" : kinds.join(","),
 			conflictClass: "evidence-crossing",
 		},

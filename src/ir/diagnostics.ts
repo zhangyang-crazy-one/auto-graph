@@ -43,6 +43,7 @@ export const DELIVERABILITY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"routing.label-externalization.required",
 	"routing.route-label-loop.exhausted",
 	"routing.rail-capacity.exceeded",
+	"routing.channel.capacity_exhausted",
 	"routing.anchor-capacity.requires-resize",
 	"routing.container-fixed-bounds-overflow",
 	"routing.deliverability.unsatisfiable",

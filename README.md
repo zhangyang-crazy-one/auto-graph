@@ -148,7 +148,17 @@ routing:
 
 Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForBox(box, side, 3)`.
 
-Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG/Excalidraw render hops; draw.io should consume the same IR downstream (no in-repo draw.io exporter).
+Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG, Excalidraw, and draw.io (`exportDrawio` / `--format drawio`) render hops from that IR.
+
+### Readable Short-Orthogonal Pipeline (RSOP, #86)
+
+After `short-orthogonal-jumps` skeleton routing (unless `rsopChannelNudge: false`):
+
+1. Soft-text micro-clear with layered obstacle cost (node hard / text soft)
+2. Channel track assignment + orthogonal nudge (`idealNudgingDistance`, default 10)
+3. Refresh `edgeCrossings` for exporters
+
+Track/slot exhaustion emits `routing.channel.capacity_exhausted` → rail/page-split remediation — never `route_obstacle_fallback` flyers.
 
 ### Pretext sizing + semantic roles (#84 A/D)
 

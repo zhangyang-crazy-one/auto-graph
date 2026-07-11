@@ -1,5 +1,5 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
-export type ExportFormat = "svg" | "excalidraw";
+export type ExportFormat = "svg" | "excalidraw" | "drawio";
 
 export interface ExportResult {
 	format: ExportFormat;
