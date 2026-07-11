@@ -285,20 +285,34 @@ function routeShortOrthogonalJumps(
 			pair.sourceAnchor,
 			pair.targetAnchor,
 			input.direction,
+			pitch,
 		);
 		const expanded: Point[][] = [];
+		const inseparable: Point[][] = [];
 		for (const raw of baseCandidates) {
 			const points = simplifyRoute(raw);
 			if (points.length < 2) continue;
-			expanded.push(points);
+			// #92: prefer candidates with a nudge-able interior span. Same-Y
+			// 0-bend pins cannot grow a 2-bend stub without collapsing, so keep
+			// them as fallback when no separable candidate exists (slots must
+			// already own track separation in that case).
+			if (hasSeparableInteriorSpan(points, pitch)) {
+				expanded.push(points);
+			} else {
+				inseparable.push(points);
+			}
 			for (const micro of softTextMicroClearCandidates(points, pitch)) {
 				const cleared = simplifyRoute(micro);
-				if (cleared.length >= 2) {
+				if (cleared.length < 2) continue;
+				if (hasSeparableInteriorSpan(cleared, pitch)) {
 					expanded.push(cleared);
+				} else {
+					inseparable.push(cleared);
 				}
 			}
 		}
-		for (const points of expanded) {
+		const pool = expanded.length > 0 ? expanded : inseparable;
+		for (const points of pool) {
 			const quality = routeQuality(
 				points,
 				pair.source,
@@ -328,7 +342,9 @@ function routeShortOrthogonalJumps(
 				source: pair.source,
 				target: pair.target,
 				quality,
-				layeredCost: layeredSoftTextCost(quality),
+				layeredCost:
+					layeredSoftTextCost(quality) +
+					(hasSeparableInteriorSpan(points, pitch) ? 0 : 1_000),
 			});
 		}
 		// Full slot tournament (#84 / Codex P2) — no mid/mid early-exit.
@@ -408,6 +424,7 @@ function routeShortOrthogonalJumps(
 				defaultAnchors.sourceAnchor,
 				defaultAnchors.targetAnchor,
 				input.direction,
+				pitch,
 			)[0] ?? [
 				getEdgePort(
 					input.source,
@@ -527,8 +544,10 @@ function shortOrthogonalCandidates(
 	sourceAnchor: AnchorName,
 	targetAnchor: AnchorName,
 	direction: DiagramDirection,
+	escapeDistance = 16,
 ): Point[][] {
 	const candidates: Point[][] = [];
+	const stub = Math.max(8, escapeDistance);
 	const sameX = Math.abs(source.x - target.x) < 1e-6;
 	const sameY = Math.abs(source.y - target.y) < 1e-6;
 	if (sameX || sameY) {
@@ -559,9 +578,16 @@ function shortOrthogonalCandidates(
 			]),
 		);
 	}
-	// Same-side / facing escape stubs (still ≤2 bends after compact).
-	const sourceEscape = offsetPoint(source, anchorEscapeDelta(sourceAnchor, 16));
-	const targetEscape = offsetPoint(target, anchorEscapeDelta(targetAnchor, 16));
+	// Escape stubs (#92): guarantee outward leave ≥ pitch so Left-Edge has
+	// a separable interior span (2-point 0-bend edges cannot be nudged).
+	const sourceEscape = offsetPoint(
+		source,
+		anchorEscapeDelta(sourceAnchor, stub),
+	);
+	const targetEscape = offsetPoint(
+		target,
+		anchorEscapeDelta(targetAnchor, stub),
+	);
 	candidates.push(
 		compactCandidate([
 			source,
@@ -577,12 +603,45 @@ function shortOrthogonalCandidates(
 			targetEscape,
 			target,
 		]),
+		compactCandidate([
+			source,
+			sourceEscape,
+			{
+				x: (sourceEscape.x + targetEscape.x) / 2,
+				y: sourceEscape.y,
+			},
+			{
+				x: (sourceEscape.x + targetEscape.x) / 2,
+				y: targetEscape.y,
+			},
+			targetEscape,
+			target,
+		]),
 	);
 	return candidates.filter((points) => {
-		if (points.length < 2 || points.length > 5) return false;
+		if (points.length < 2 || points.length > 6) return false;
 		const bends = routeBendCount(points);
 		return bends <= 2;
 	});
+}
+
+/** True when an interior span (excluding endpoints) is long enough to nudge. */
+function hasSeparableInteriorSpan(
+	points: readonly Point[],
+	pitch: number,
+): boolean {
+	if (points.length < 4) {
+		return false;
+	}
+	for (let i = 1; i < points.length - 2; i += 1) {
+		const a = points[i];
+		const b = points[i + 1];
+		if (a === undefined || b === undefined) continue;
+		if (Math.hypot(b.x - a.x, b.y - a.y) >= pitch) {
+			return true;
+		}
+	}
+	return false;
 }
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
@@ -2008,25 +2067,29 @@ function routeTournamentPairs(
 		const sourceIsPrimary = pair.sourceAnchor === defaultAnchors.sourceAnchor;
 		const targetIsPrimary = pair.targetAnchor === defaultAnchors.targetAnchor;
 		const sourcePoints =
-			input.sourceAnchor !== undefined ||
-			!sourceIsPrimary ||
-			!isCardinalAnchor(pair.sourceAnchor)
-				? [getEdgePort(input.source, input.target.center, pair.sourceAnchor)]
-				: fractionalSidePoints(
-						input.source.box,
-						pair.sourceAnchor,
-						maxAttachPoints,
-					);
+			input.sourcePoint !== undefined
+				? [input.sourcePoint]
+				: input.sourceAnchor !== undefined ||
+						!sourceIsPrimary ||
+						!isCardinalAnchor(pair.sourceAnchor)
+					? [getEdgePort(input.source, input.target.center, pair.sourceAnchor)]
+					: fractionalSidePoints(
+							input.source.box,
+							pair.sourceAnchor,
+							maxAttachPoints,
+						);
 		const targetPoints =
-			input.targetAnchor !== undefined ||
-			!targetIsPrimary ||
-			!isCardinalAnchor(pair.targetAnchor)
-				? [getEdgePort(input.target, input.source.center, pair.targetAnchor)]
-				: fractionalSidePoints(
-						input.target.box,
-						pair.targetAnchor,
-						maxAttachPoints,
-					);
+			input.targetPoint !== undefined
+				? [input.targetPoint]
+				: input.targetAnchor !== undefined ||
+						!targetIsPrimary ||
+						!isCardinalAnchor(pair.targetAnchor)
+					? [getEdgePort(input.target, input.source.center, pair.targetAnchor)]
+					: fractionalSidePoints(
+							input.target.box,
+							pair.targetAnchor,
+							maxAttachPoints,
+						);
 		for (let si = 0; si < sourcePoints.length; si += 1) {
 			for (let ti = 0; ti < targetPoints.length; ti += 1) {
 				const source = sourcePoints[si];

@@ -2,10 +2,17 @@
 
 ## Unreleased
 
+### Port equal-division docking (#91) + same-side slots / stubs (#92)
+
+- **Named ports (#91)**: equal-division fractions `{0.5}` / `{0.25,0.75}` / `{0.25,0.5,0.75}` (n>3 → `(i+1)/(n+1)`); `portGeometry` pins only the matching side; capacity → `routing.port.capacity_exhausted`.
+- **Same-side slots (#92)**: pre-route anonymous endpoint assignment via `attachSlotFractions`; ported ends skipped.
+- **Escape stubs (#92)**: short-orthogonal prefers candidates with a separable interior span (stub pitch = `idealNudgingDistance`, default 10); same-Y 0-bend remains fallback when no separable candidate exists.
+- **Honest Left-Edge**: channel nudge is greedy Left-Edge / interval coloring — MLCM LP explicitly deferred (docs no longer claim MLCM-style).
+
 ### Readable Short-Orthogonal Pipeline / RSOP (#86–#89)
 
 - **Soft-text micro-clear (#87)**: short-orthogonal uses layered cost `length + α·bends + β·textHits`; foreign nodes are hard; text is soft with ±track-pitch micro-detours; never flyer past `maxDetourRatio`.
-- **Channel tracks + nudge (#88)**: post-process assigns Left-Edge tracks in shared gutters and nudges by `idealNudgingDistance` (default 10); capacity exhaustion emits `routing.channel.capacity_exhausted`.
+- **Channel tracks + nudge (#88)**: post-process assigns greedy Left-Edge tracks in shared gutters and nudges by `idealNudgingDistance` (default 10); capacity exhaustion emits `routing.channel.capacity_exhausted`.
 - **draw.io jump parity (#89)**: thin `exportDrawio` / CLI `--format drawio` maps `edgeCrossings` to `jumpStyle` + crossing metadata; SVG/Excalidraw hops unchanged.
 - **Shelf honesty**: external callout shelves clamp inside `pageBounds` when set.
 

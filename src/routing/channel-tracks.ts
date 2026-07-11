@@ -32,7 +32,8 @@ const DEFAULT_MAX_TRACKS = 8;
 
 /**
  * Extract axis-aligned interior segments and assign VLSI-style tracks via
- * Left-Edge / interval coloring (#86 / #88).
+ * Left-Edge / interval coloring (#86 / #88 / #92). MLCM path ordering is
+ * deferred — this is greedy track coloring only.
  */
 export function assignChannelTracks(
 	edges: readonly CoordinatedEdge[],

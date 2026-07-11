@@ -18,9 +18,10 @@ export interface NudgeOrthogonalRoutesResult {
 }
 
 /**
- * RSOP Phase-3/4: channel track assignment + greedy orthogonal nudge (#88).
+ * RSOP Phase-3/4: channel track assignment + greedy orthogonal nudge (#88/#92).
  * Reorders overlapping gutter spans onto distinct tracks without entering
- * hard node boxes. v1 uses Left-Edge coloring (no LP).
+ * hard node boxes. v1 is Left-Edge / interval coloring only — MLCM LP is
+ * explicitly deferred.
  */
 export function nudgeOrthogonalRoutes(
 	edges: readonly CoordinatedEdge[],
