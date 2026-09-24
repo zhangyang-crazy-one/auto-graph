@@ -580,6 +580,14 @@ export function finalizeCoordinatedEdges(
 	const margin = options.obstacleMargin ?? 0;
 	const obstacles: PostPassObstacle[] = [
 		...nodeObstacles.map((entry) => ({ box: entry.box, ownerId: entry.id })),
+		// The drawn node itself, inside its expanded obstacle box: grazing the
+		// clearance is not the same as cutting through the node.
+		...nodeObstacles.flatMap((entry) => {
+			const box = nodes.get(entry.id)?.box;
+			return box === undefined
+				? []
+				: [{ box, ownerId: entry.id, weight: NODE_HIT_WEIGHT }];
+		}),
 		...hardObstacles.map((box) => ({ box })),
 		...softObstacles.map((box) => ({ box })),
 		...textObstacles.filter(isLocalRouteClearanceText).map((annotation) => ({
@@ -632,6 +640,8 @@ interface PostPassObstacle {
 	box: Box;
 	/** Node the obstacle belongs to, if any. */
 	ownerId?: string;
+	/** Weight of a hit in the separation pass (default 1). */
+	weight?: number;
 	/**
 	 * Edges this obstacle does not apply to: a group's own edges, or the
 	 * edges a text surface belongs to (their label, their endpoint labels).
@@ -680,6 +690,9 @@ function routeObstacleHits(
 	}
 	return hits;
 }
+
+/** Weight of a node hit against label / group hits in the post-passes. */
+const NODE_HIT_WEIGHT = 1000;
 
 /**
  * Outward offsets tried, longest first, for an end segment that runs along
@@ -1096,6 +1109,8 @@ function separateCoordinatedEdges(
 			// End splitting belongs to implicit distribution, like border
 			// detachment: explicit rail/gutter pages keep their port segments.
 			splitEnds: implicitAnchorDistribution(options),
+			// A node hit outweighs any number of label or group grazes.
+			obstacleWeights: obstacles.map((obstacle) => obstacle.weight ?? 1),
 			...(spacing === undefined ? {} : { spacing }),
 		},
 	);
