@@ -186,6 +186,12 @@ cat diagram.yaml | agh --json
 
 格式优先级为 CLI `--format`、DSL 中的 `output.format`，最后默认 `svg`。
 
+`--metrics <path>` 会额外输出整张画布的布局质量指标 JSON（节点/分组重叠、文字溢出外形、交叉、共享端点、空白率、泳道填充率等），智能体无需"看图"即可用数值自检：
+
+```bash
+agh --input diagram.yaml --output diagram.svg --metrics diagram.metrics.json
+```
+
 ## 当前范围
 
 auto-graph v0.0.1 包含：

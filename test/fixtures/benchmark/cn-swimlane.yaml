@@ -1,0 +1,51 @@
+title: 订单履约泳道图
+layout: { direction: LR }
+swimlanes:
+  flow:
+    label: 订单履约流程 Order Fulfillment
+    layout: contract
+    orientation: horizontal
+    lanes:
+      customer: { label: 客户, children: [c_order, c_pay, c_confirm, c_review] }
+      sales:    { label: 销售部 Sales, children: [s_check, s_approve, s_notify] }
+      wms:      { label: 仓储物流, children: [w_stock, w_pick, w_ship, w_return] }
+      finance:  { label: 财务部, children: [f_invoice, f_verify, f_refund] }
+      psp:      { label: 第三方支付 PSP, children: [p_charge, p_callback] }
+nodes:
+  c_order:   { label: 提交订单 Submit Order }
+  c_pay:     { label: 在线支付 }
+  c_confirm: { label: 确认收货 }
+  c_review:  { label: 评价与售后反馈 }
+  s_check:   { label: 审核订单并确认客户信用额度, shape: diamond }
+  s_approve: { label: 主管审批 Manager Approval }
+  s_notify:  { label: 通知客户发货进度 }
+  w_stock:   { label: 库存可用性检查 Stock Check, shape: diamond }
+  w_pick:    { label: 拣货打包 }
+  w_ship:    { label: 出库发运 Ship }
+  w_return:  { label: 退货入库 }
+  f_invoice: { label: 开具电子发票 e-Invoice }
+  f_verify:  { label: 对账核销 }
+  f_refund:  { label: 退款处理 Refund }
+  p_charge:  { label: 扣款 Charge }
+  p_callback: { label: 支付回调 Callback }
+edges:
+  - c_order -> s_check
+  - s_check -> s_approve: 超额
+  - s_check -> w_stock: 通过
+  - s_approve -> w_stock: 批准
+  - s_approve -> c_order: 驳回修改
+  - w_stock -> c_pay: 有货
+  - w_stock -> f_refund: 缺货
+  - c_pay -> p_charge
+  - p_charge -> p_callback
+  - p_callback -> f_verify: 支付成功
+  - p_callback -> c_pay: 失败重试
+  - f_verify -> f_invoice
+  - f_verify -> w_pick
+  - w_pick -> w_ship
+  - w_ship -> s_notify
+  - s_notify -> c_confirm
+  - c_confirm -> c_review
+  - c_review -> w_return: 申请退货
+  - w_return -> f_refund
+  - f_refund -> p_charge: 原路退回

@@ -207,6 +207,12 @@ agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
 cat diagram.yaml | agh --json
 ```
 
+`--metrics <path>` also writes whole-canvas layout quality metrics (overlaps, group overlap, label overflow, crossings, shared endpoints, whitespace, lane fill, …) as JSON, so agents can check a layout numerically without looking at it:
+
+```bash
+agh --input diagram.yaml --output diagram.svg --metrics diagram.metrics.json
+```
+
 Supported output formats:
 
 - `svg`

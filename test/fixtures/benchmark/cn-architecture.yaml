@@ -1,0 +1,54 @@
+title: 电商平台系统架构 E-commerce Architecture
+layout: { direction: LR }
+nodes:
+  app:      { label: 移动端 App, shape: rounded-rectangle }
+  web:      { label: Web 前端 (React), shape: rounded-rectangle }
+  mini:     { label: 微信小程序, shape: rounded-rectangle }
+  cdn:      { label: CDN 静态加速 }
+  gw:       { label: API 网关 Gateway, shape: hexagon }
+  auth:     { label: 认证授权服务 OAuth2 }
+  user:     { label: 用户中心 User Service }
+  product:  { label: 商品服务 }
+  order:    { label: 订单服务 Order Service }
+  cart:     { label: 购物车 }
+  pay:      { label: 支付服务 Payment }
+  search:   { label: 搜索服务 Elasticsearch }
+  recommend: { label: 智能推荐引擎 }
+  mq:       { label: 消息队列 Kafka, shape: parallelogram }
+  mysql:    { label: MySQL 主从集群, shape: cylinder }
+  redis:    { label: Redis 缓存, shape: cylinder }
+  es:       { label: ES 索引, shape: cylinder }
+  oss:      { label: 对象存储 OSS, shape: cylinder }
+  bi:       { label: 数据仓库与BI报表 }
+groups:
+  client:  { label: 客户端层 Client, nodes: [app, web, mini] }
+  access:  { label: 接入层, nodes: [cdn, gw] }
+  service: { label: 业务服务层 Services, nodes: [auth, user, product, order, cart, pay, search, recommend] }
+  data:    { label: 数据层 Data, nodes: [mysql, redis, es, oss] }
+edges:
+  - app -> gw
+  - web -> cdn
+  - web -> gw
+  - mini -> gw
+  - cdn -> oss
+  - gw -> auth
+  - gw -> user
+  - gw -> product
+  - gw -> order
+  - gw -> cart
+  - gw -> search
+  - order -> pay: 下单支付
+  - order -> mq: 订单事件
+  - pay -> mq: 支付事件
+  - mq -> recommend
+  - mq -> bi
+  - user -> mysql
+  - product -> mysql
+  - order -> mysql
+  - pay -> mysql
+  - cart -> redis
+  - user -> redis
+  - product -> redis
+  - search -> es
+  - product -> oss
+  - recommend -> redis

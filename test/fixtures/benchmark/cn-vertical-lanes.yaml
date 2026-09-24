@@ -1,0 +1,36 @@
+title: 需求变更审批（竖向泳道）
+layout: { direction: TB }
+swimlanes:
+  cr:
+    label: 变更管理 Change Request
+    layout: contract
+    orientation: vertical
+    lanes:
+      pm:   { label: 产品经理 PM, children: [pm_raise, pm_eval, pm_close] }
+      arch: { label: 架构师, children: [a_impact, a_design] }
+      dev:  { label: 开发团队 Dev, children: [d_estimate, d_impl, d_fix] }
+      qa:   { label: 测试 QA, children: [q_plan, q_verify] }
+nodes:
+  pm_raise:   { label: 提出变更请求 }
+  pm_eval:    { label: 评估业务价值与优先级 Priority, shape: diamond }
+  pm_close:   { label: 关闭变更单 Close }
+  a_impact:   { label: 影响面分析 Impact Analysis }
+  a_design:   { label: 方案设计评审 }
+  d_estimate: { label: 工作量估算 Estimate }
+  d_impl:     { label: 编码实现 }
+  d_fix:      { label: 缺陷修复 Bugfix }
+  q_plan:     { label: 编写测试计划 }
+  q_verify:   { label: 回归验证 Regression, shape: diamond }
+edges:
+  - pm_raise -> a_impact
+  - a_impact -> d_estimate
+  - d_estimate -> pm_eval
+  - pm_eval -> a_design: 批准
+  - pm_eval -> pm_close: 拒绝
+  - a_design -> d_impl
+  - a_design -> q_plan
+  - d_impl -> q_verify
+  - q_plan -> q_verify
+  - q_verify -> d_fix: 不通过
+  - d_fix -> q_verify: 复测
+  - q_verify -> pm_close: 通过
