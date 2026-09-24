@@ -254,3 +254,74 @@ describe("cycle breaking", () => {
 		expect(layering.layerOfNode.get("callback")).toBe(2);
 	});
 });
+
+describe("swimlane hand-offs", () => {
+	const lanes = (children: Record<string, string[]>) => ({
+		id: "flow",
+		orientation: "horizontal" as const,
+		headerHeight: 28,
+		padding: 16,
+		lanes: Object.entries(children).map(([id, ids]) => ({ id, children: ids })),
+	});
+	const layersOf = (
+		nodeIds: string[],
+		pairs: [string, string][],
+		swimlane: ReturnType<typeof lanes>,
+	) => {
+		const hierarchy = buildContainerHierarchy({
+			direction: "LR",
+			nodeIds,
+			groups: [],
+			swimlanes: [swimlane],
+		});
+		return assignLayers(nodeIds, edges(...pairs), hierarchy).layerOfNode;
+	};
+
+	it("keeps a hand-off between lanes on the same layer", () => {
+		const layer = layersOf(
+			["a", "b", "c"],
+			[
+				["a", "b"],
+				["b", "c"],
+			],
+			lanes({ one: ["a"], two: ["b"], three: ["c"] }),
+		);
+		expect([layer.get("a"), layer.get("b"), layer.get("c")]).toEqual([0, 0, 0]);
+	});
+
+	it("advances when the flow returns to a lane it already used", () => {
+		const layer = layersOf(
+			["a", "b", "c"],
+			[
+				["a", "b"],
+				["b", "c"],
+			],
+			lanes({ one: ["a", "c"], two: ["b"] }),
+		);
+		expect(layer.get("b")).toBe(0);
+		expect(layer.get("c")).toBe(1);
+	});
+
+	it("never draws a straight hand-off through a node in a lane between", () => {
+		const layer = layersOf(
+			["a", "m", "b"],
+			[
+				["a", "m"],
+				["a", "b"],
+			],
+			lanes({ one: ["a"], two: ["m"], three: ["b"] }),
+		);
+		// a→b drawn straight on layer 0 would pass through m if m were there.
+		expect(layer.get("m") === 0 && layer.get("b") === 0).toBe(false);
+		expect(Math.min(layer.get("m") ?? 9, layer.get("b") ?? 9)).toBe(0);
+	});
+
+	it("still advances inside one lane", () => {
+		const layer = layersOf(
+			["a", "b"],
+			[["a", "b"]],
+			lanes({ one: ["a", "b"] }),
+		);
+		expect(layer.get("b")).toBe(1);
+	});
+});

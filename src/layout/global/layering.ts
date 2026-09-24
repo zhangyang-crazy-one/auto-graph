@@ -11,6 +11,9 @@ import { lowestCommonContainer } from "./hierarchy.js";
  *    want the smallest feedback set instead of the declared reading order.
  * 2. Longest-path layering on the resulting DAG, then sources are pulled
  *    towards their successors so they do not create long edges.
+ *    In swimlanes whose lanes run across the flow, a hand-off between two
+ *    lanes does not advance the layer: it is drawn straight across the
+ *    lanes, so a flow that zig-zags between lanes stays compact.
  * 3. Swimlanes whose lanes run along the flow become consecutive layer
  *    blocks (lane k starts after lane k-1 ends). Otherwise sibling groups
  *    (and top-level nodes) linked by edges in one direction only are laid
@@ -88,7 +91,9 @@ export function assignLayers(
 
 	const layerOfNode = hasMainAxisLanes(hierarchy)
 		? laneBlockLayers(nodes, dagEdges, hierarchy)
-		: longestPathLayers(nodes, dagEdges);
+		: hasCrossAxisLanes(hierarchy)
+			? crossLaneLayers(nodes, dagEdges, hierarchy, reversedEdgeIds)
+			: longestPathLayers(nodes, dagEdges);
 	if (!hasMainAxisLanes(hierarchy)) {
 		enforceContainerPrecedence(layerOfNode, nodes, dagEdges, hierarchy);
 	}
@@ -583,6 +588,169 @@ function stronglyConnectedComponents(
 		}
 	}
 	return component;
+}
+
+function hasCrossAxisLanes(hierarchy: ContainerHierarchy): boolean {
+	for (const container of hierarchy.containers.values()) {
+		if (container.kind === "lane") return true;
+	}
+	return false;
+}
+
+interface LanePosition {
+	lane: string;
+	swimlane: string;
+	index: number;
+}
+
+/**
+ * Layering for swimlanes whose lanes run across the flow.
+ *
+ * Only edges inside one lane (and edges reversed to break cycles, and
+ * edges leaving the swimlane) must advance a layer. A forward hand-off
+ * between two lanes of the same swimlane may stay on its source's layer and
+ * be drawn straight across the lanes, like a BPMN hand-off. Three guards
+ * keep that readable; a node moves one layer later while any holds:
+ *
+ * - it would share a layer with one of its own ancestors in its lane
+ *   (the lane would stack a later step on top of an earlier one);
+ * - it sits in a lane crossed by an earlier straight hand-off on that layer;
+ * - its own straight hand-off would cross a node in a lane in between.
+ */
+function crossLaneLayers(
+	nodes: readonly string[],
+	edges: readonly LayeringEdge[],
+	hierarchy: ContainerHierarchy,
+	reversedEdgeIds: ReadonlySet<string>,
+): Map<string, number> {
+	const laneCache = new Map<string, LanePosition | undefined>();
+	const laneOf = (nodeId: string): LanePosition | undefined => {
+		if (laneCache.has(nodeId)) return laneCache.get(nodeId);
+		const lane = enclosingLane(
+			hierarchy,
+			hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId,
+		);
+		const container =
+			lane === undefined ? undefined : hierarchy.containers.get(lane);
+		const position =
+			lane === undefined || container?.parentId === undefined
+				? undefined
+				: {
+						lane,
+						swimlane: container.parentId,
+						index: container.fixedOrder ?? 0,
+					};
+		laneCache.set(nodeId, position);
+		return position;
+	};
+	const handOff = (edge: LayeringEdge): boolean => {
+		if (reversedEdgeIds.has(edge.id)) return false;
+		const from = laneOf(edge.source);
+		const to = laneOf(edge.target);
+		return (
+			from !== undefined &&
+			to !== undefined &&
+			from.swimlane === to.swimlane &&
+			from.lane !== to.lane
+		);
+	};
+	const preds = new Map<string, { node: string; handOff: boolean }[]>(
+		nodes.map((id) => [id, []]),
+	);
+	for (const edge of edges) {
+		preds.get(edge.target)?.push({ node: edge.source, handOff: handOff(edge) });
+	}
+	const order = topologicalOrder(nodes, edges);
+	const ancestors = new Map<string, Set<string>>();
+	for (const node of order) {
+		const set = new Set<string>();
+		for (const pred of preds.get(node) ?? []) {
+			set.add(pred.node);
+			for (const id of ancestors.get(pred.node) ?? []) set.add(id);
+		}
+		ancestors.set(node, set);
+	}
+
+	const layer = new Map<string, number>();
+	const occupants = new Map<number, string[]>();
+	const spans = new Map<
+		number,
+		{ swimlane: string; lo: number; hi: number }[]
+	>();
+	const between = (
+		position: LanePosition | undefined,
+		swimlane: string,
+		lo: number,
+		hi: number,
+	) =>
+		position !== undefined &&
+		position.swimlane === swimlane &&
+		position.index > lo &&
+		position.index < hi;
+	const blocked = (node: string, at: number): boolean => {
+		const own = laneOf(node);
+		const here = occupants.get(at) ?? [];
+		if (own !== undefined) {
+			const ancestry = ancestors.get(node) ?? new Set<string>();
+			if (
+				here.some(
+					(other) => laneOf(other)?.lane === own.lane && ancestry.has(other),
+				)
+			) {
+				return true;
+			}
+			if (
+				(spans.get(at) ?? []).some((span) =>
+					between(own, span.swimlane, span.lo, span.hi),
+				)
+			) {
+				return true;
+			}
+		}
+		for (const pred of preds.get(node) ?? []) {
+			if (!pred.handOff || layer.get(pred.node) !== at) continue;
+			const from = laneOf(pred.node);
+			if (from === undefined || own === undefined) continue;
+			const lo = Math.min(from.index, own.index);
+			const hi = Math.max(from.index, own.index);
+			if (here.some((other) => between(laneOf(other), from.swimlane, lo, hi))) {
+				return true;
+			}
+		}
+		return false;
+	};
+
+	for (const node of order) {
+		let at = 0;
+		for (const pred of preds.get(node) ?? []) {
+			at = Math.max(at, (layer.get(pred.node) ?? 0) + (pred.handOff ? 0 : 1));
+		}
+		while (blocked(node, at)) at += 1;
+		layer.set(node, at);
+		const here = occupants.get(at) ?? [];
+		here.push(node);
+		occupants.set(at, here);
+		const own = laneOf(node);
+		for (const pred of preds.get(node) ?? []) {
+			const from = laneOf(pred.node);
+			if (
+				!pred.handOff ||
+				layer.get(pred.node) !== at ||
+				from === undefined ||
+				own === undefined
+			) {
+				continue;
+			}
+			const list = spans.get(at) ?? [];
+			list.push({
+				swimlane: from.swimlane,
+				lo: Math.min(from.index, own.index),
+				hi: Math.max(from.index, own.index),
+			});
+			spans.set(at, list);
+		}
+	}
+	return layer;
 }
 
 function hasMainAxisLanes(hierarchy: ContainerHierarchy): boolean {

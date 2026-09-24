@@ -120,7 +120,7 @@ layout:
   direction: LR
 ```
 
-- **Layering**: cycles are broken in declaration order (a "retry" edge written last is the one reversed), and sibling groups linked one way become tiers (e.g. services → data read left to right).
+- **Layering**: cycles are broken in declaration order (a "retry" edge written last is the one reversed), and sibling groups linked one way become tiers (e.g. services → data read left to right). In swimlanes, a hand-off between lanes does not advance the flow: it is drawn straight across the lanes, so a process that zig-zags between lanes stays compact instead of growing one step per hand-off.
 - **Ordering**: groups and lanes stay contiguous with one consistent order across layers, so every container is a single rectangle; long edges travel inside the containers they start and end in.
 - **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
 - **Spacing between layers** is sized from what must fit there: one track per bending edge, edge labels, and container borders.

@@ -114,15 +114,16 @@ describe("global layering", () => {
 				],
 			},
 		);
-		// a is on layer 0 and z on layer 4, so a→z has dummies on layers 1–3:
-		// the first half stays in the source lane, the rest in the target lane.
+		// a is on layer 0; the d→z hand-off stays on d's layer, so z is on
+		// layer 3 and a→z has dummies on layers 1–2: the first half stays in
+		// the source lane, the rest in the target lane.
+		expect(layering.layerOfNode.get("z")).toBe(3);
 		const dummies = [...layering.vertices.values()]
 			.filter((vertex) => vertex.edgeId?.endsWith("-a-z"))
 			.sort((x, y) => x.layer - y.layer);
-		expect(dummies.map((dummy) => dummy.layer)).toEqual([1, 2, 3]);
+		expect(dummies.map((dummy) => dummy.layer)).toEqual([1, 2]);
 		expect(dummies.map((dummy) => dummy.containerId)).toEqual([
 			"lane:s/top",
-			"lane:s/bottom",
 			"lane:s/bottom",
 		]);
 	});
