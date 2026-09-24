@@ -35,6 +35,11 @@ export interface SparseGridRouteOptions {
 	readonly sourceBox?: Box;
 	/** Box the target point sits on; the route enters it from outside. */
 	readonly targetBox?: Box;
+	/**
+	 * Keep the path inside this box: only obstacles reaching into it take
+	 * part, so a local route searches a small grid.
+	 */
+	readonly window?: Box;
 }
 
 const BUCKET = 128;
@@ -59,7 +64,17 @@ export function findSparseGridPath(
 	const bendPenalty = options.bendPenalty ?? 60;
 	const softPenalty = options.softPenalty ?? 400;
 	const maxExpansions = options.maxExpansions ?? 60_000;
-	const soft = options.softObstacles ?? [];
+	const window = options.window;
+	const reaches = (box: Box) =>
+		window === undefined ||
+		(box.x - clearance < window.x + window.width &&
+			box.x + box.width + clearance > window.x &&
+			box.y - clearance < window.y + window.height &&
+			box.y + box.height + clearance > window.y);
+	const soft = (options.softObstacles ?? []).filter(reaches);
+	walls = walls.filter(reaches);
+	const inside = (value: number, low: number, high: number) =>
+		value >= low && value <= high;
 	const inflated = walls.map((box) => ({
 		x: box.x - TOUCH_SLACK,
 		y: box.y - TOUCH_SLACK,
@@ -80,7 +95,12 @@ export function findSparseGridPath(
 				box.x - clearance,
 				box.x + box.width + clearance,
 			]),
-		],
+			...(window === undefined ? [] : [window.x, window.x + window.width]),
+		].filter(
+			(value) =>
+				window === undefined ||
+				inside(value, window.x, window.x + window.width),
+		),
 		2 * clearance,
 	);
 	const ys = channelCoordinates(
@@ -91,7 +111,12 @@ export function findSparseGridPath(
 				box.y - clearance,
 				box.y + box.height + clearance,
 			]),
-		],
+			...(window === undefined ? [] : [window.y, window.y + window.height]),
+		].filter(
+			(value) =>
+				window === undefined ||
+				inside(value, window.y, window.y + window.height),
+		),
 		2 * clearance,
 	);
 	const sx = xs.indexOf(source.x);
@@ -109,12 +134,14 @@ export function findSparseGridPath(
 		y: ys[j] as number,
 	});
 	// Per cell and axis: 0 = unknown, 1 = free, 2 = blocked.
-	const blockedCache = new Uint8Array(nx * ny * 2);
+	const state = acquireSearchState(nx * ny * 5, nx * ny * 2);
+	const generation = state.generation;
+	const blockedCache = state.blocked;
+	const blockedStamp = state.blockedStamp;
 	/** Is the move between (i, j) and its +x (axis 0) / +y (axis 1) neighbour blocked? */
 	const blocked = (i: number, j: number, axis: 0 | 1): boolean => {
 		const key = ((j * nx + i) << 1) | axis;
-		const cached = blockedCache[key] as number;
-		if (cached !== 0) return cached === 2;
+		if (blockedStamp[key] === generation) return blockedCache[key] === 1;
 		const a = point(i, j);
 		const b = axis === 0 ? point(i + 1, j) : point(i, j + 1);
 		let hit = false;
@@ -127,7 +154,8 @@ export function findSparseGridPath(
 			if (hit) break;
 			if (segmentEntersBox(a, b, box)) hit = true;
 		}
-		blockedCache[key] = hit ? 2 : 1;
+		blockedStamp[key] = generation;
+		blockedCache[key] = hit ? 1 : 0;
 		return hit;
 	};
 	/** Soft boxes entered by the move from `a` to `b` (start not inside). */
@@ -150,10 +178,13 @@ export function findSparseGridPath(
 			? undefined
 			: opposite(outwardDirection(target, options.targetBox));
 
-	const stateCount = nx * ny * 5;
-	const best = new Float64Array(stateCount).fill(Number.POSITIVE_INFINITY);
-	const parent = new Int32Array(stateCount).fill(-1);
-	const closed = new Uint8Array(stateCount);
+	const { best, parent, stamp, closed } = state;
+	// Entries written by an earlier search are stale: stamp[k] marks the
+	// ones this search has set.
+	const bestOf = (key: number) =>
+		stamp[key] === generation
+			? (best[key] as number)
+			: Number.POSITIVE_INFINITY;
 	const heap = new BinaryHeap<number>();
 	// Length plus a lower bound on the bends still needed, so the search
 	// does not flood the plateau of equally long staircases.
@@ -176,18 +207,20 @@ export function findSparseGridPath(
 		cost + estimate * HEURISTIC_WEIGHT;
 	const startKey = (sy * nx + sx) * 5 + startDirection;
 	best[startKey] = 0;
+	parent[startKey] = -1;
+	stamp[startKey] = generation;
 	heap.push(startKey, priority(0, heuristic(sx, sy, startDirection)));
 	let expansions = 0;
 	let goal = -1;
 	while (heap.size > 0) {
 		const key = heap.pop() as number;
-		if (closed[key] === 1) continue;
-		closed[key] = 1;
+		if (closed[key] === generation) continue;
+		closed[key] = generation;
 		const direction = key % 5;
 		const cell = (key - direction) / 5;
 		const i = cell % nx;
 		const j = (cell - i) / nx;
-		const cost = best[key] as number;
+		const cost = bestOf(key);
 		if (i === tx && j === ty) {
 			goal = key;
 			break;
@@ -231,9 +264,10 @@ export function findSparseGridPath(
 			}
 			const nextKey = (nj * nx + ni) * 5 + next;
 			const nextCost = cost + step;
-			if ((best[nextKey] as number) <= nextCost) continue;
+			if (bestOf(nextKey) <= nextCost) continue;
 			best[nextKey] = nextCost;
 			parent[nextKey] = key;
+			stamp[nextKey] = generation;
 			heap.push(nextKey, priority(nextCost, heuristic(ni, nj, next)));
 		}
 	}
@@ -248,6 +282,56 @@ export function findSparseGridPath(
 	}
 	cells.reverse();
 	return simplify(cells);
+}
+
+interface SearchState {
+	generation: number;
+	best: Float64Array;
+	parent: Int32Array;
+	stamp: Uint32Array;
+	closed: Uint32Array;
+	blocked: Uint8Array;
+	blockedStamp: Uint32Array;
+}
+
+/**
+ * Search arrays shared by every call and grown on demand. Each search takes
+ * a new generation; an entry counts only if its stamp matches, so the
+ * arrays are never cleared (a large grid would otherwise allocate and fill
+ * millions of entries per edge).
+ */
+const SEARCH_STATE: SearchState = {
+	generation: 0,
+	best: new Float64Array(0),
+	parent: new Int32Array(0),
+	stamp: new Uint32Array(0),
+	closed: new Uint32Array(0),
+	blocked: new Uint8Array(0),
+	blockedStamp: new Uint32Array(0),
+};
+
+function acquireSearchState(states: number, moves: number): SearchState {
+	const state = SEARCH_STATE;
+	if (state.best.length < states) {
+		const size = Math.max(states, state.best.length * 2);
+		state.best = new Float64Array(size);
+		state.parent = new Int32Array(size);
+		state.stamp = new Uint32Array(size);
+		state.closed = new Uint32Array(size);
+	}
+	if (state.blocked.length < moves) {
+		const size = Math.max(moves, state.blocked.length * 2);
+		state.blocked = new Uint8Array(size);
+		state.blockedStamp = new Uint32Array(size);
+	}
+	state.generation += 1;
+	if (state.generation >= 0xffffffff) {
+		state.generation = 1;
+		state.stamp.fill(0);
+		state.closed.fill(0);
+		state.blockedStamp.fill(0);
+	}
+	return state;
 }
 
 /** Sorted unique coordinates plus the middle of every gap wider than `gap`. */

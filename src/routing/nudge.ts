@@ -1279,6 +1279,25 @@ function countObstacleHits(
 ): number {
 	const weights = OBSTACLE_WEIGHTS.get(obstacles);
 	let hits = 0;
+	if (obstacles.length <= OBSTACLE_GRID_MIN) {
+		for (
+			let index = first;
+			index <= last && index + 1 < route.length;
+			index += 1
+		) {
+			const start = route[index];
+			const end = route[index + 1];
+			if (start === undefined || end === undefined) continue;
+			for (let k = 0; k < obstacles.length; k += 1) {
+				if (segmentEntersBoxInterior(start, end, obstacles[k] as Box)) {
+					hits += weights?.[k] ?? 1;
+				}
+			}
+		}
+		return hits;
+	}
+	const grid = obstacleGrid(obstacles);
+	const seen = new Set<number>();
 	for (
 		let index = first;
 		index <= last && index + 1 < route.length;
@@ -1287,13 +1306,53 @@ function countObstacleHits(
 		const start = route[index];
 		const end = route[index + 1];
 		if (start === undefined || end === undefined) continue;
-		for (let k = 0; k < obstacles.length; k += 1) {
-			if (segmentEntersBoxInterior(start, end, obstacles[k] as Box)) {
-				hits += weights?.[k] ?? 1;
+		seen.clear();
+		const x0 = Math.floor(Math.min(start.x, end.x) / OBSTACLE_CELL);
+		const x1 = Math.floor(Math.max(start.x, end.x) / OBSTACLE_CELL);
+		const y0 = Math.floor(Math.min(start.y, end.y) / OBSTACLE_CELL);
+		const y1 = Math.floor(Math.max(start.y, end.y) / OBSTACLE_CELL);
+		for (let cx = x0; cx <= x1; cx += 1) {
+			for (let cy = y0; cy <= y1; cy += 1) {
+				for (const k of grid.get(`${cx},${cy}`) ?? []) {
+					if (seen.has(k)) continue;
+					seen.add(k);
+					if (segmentEntersBoxInterior(start, end, obstacles[k] as Box)) {
+						hits += weights?.[k] ?? 1;
+					}
+				}
 			}
 		}
 	}
 	return hits;
+}
+
+/** Obstacle lists at most this long are scanned; longer ones are indexed. */
+const OBSTACLE_GRID_MIN = 24;
+/** Cell size of the obstacle grid (px). */
+const OBSTACLE_CELL = 128;
+const OBSTACLE_GRIDS = new WeakMap<readonly Box[], Map<string, number[]>>();
+
+/** Obstacle indexes by grid cell, built once per obstacle list. */
+function obstacleGrid(obstacles: readonly Box[]): Map<string, number[]> {
+	const cached = OBSTACLE_GRIDS.get(obstacles);
+	if (cached !== undefined) return cached;
+	const grid = new Map<string, number[]>();
+	obstacles.forEach((box, k) => {
+		const x0 = Math.floor(box.x / OBSTACLE_CELL);
+		const x1 = Math.floor((box.x + box.width) / OBSTACLE_CELL);
+		const y0 = Math.floor(box.y / OBSTACLE_CELL);
+		const y1 = Math.floor((box.y + box.height) / OBSTACLE_CELL);
+		for (let cx = x0; cx <= x1; cx += 1) {
+			for (let cy = y0; cy <= y1; cy += 1) {
+				const key = `${cx},${cy}`;
+				const list = grid.get(key);
+				if (list === undefined) grid.set(key, [k]);
+				else list.push(k);
+			}
+		}
+	});
+	OBSTACLE_GRIDS.set(obstacles, grid);
+	return grid;
 }
 
 function segmentEntersBoxInterior(start: Point, end: Point, box: Box): boolean {

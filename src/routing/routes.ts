@@ -1,5 +1,5 @@
 import { attachSlotsForBoxTournamentFirst } from "../geometry/attach-slots.js";
-import { intersectsAabb, validateBox } from "../geometry/boxes.js";
+import { expandBox, intersectsAabb, validateBox } from "../geometry/boxes.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import {
 	type BoxSpatialIndex,
@@ -1982,6 +1982,19 @@ function pathLength(points: readonly Point[]): number {
 
 /** Distinct endpoint pairs tried by the sparse-grid fallback. */
 const SPARSE_FALLBACK_PAIRS = 3;
+/** Search windows around the two endpoints (px), then the whole diagram. */
+const SPARSE_WINDOW_MARGINS = [1000, undefined] as const;
+
+function unionBox(a: Box, b: Box): Box {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	return {
+		x,
+		y,
+		width: Math.max(a.x + a.width, b.x + b.width) - x,
+		height: Math.max(a.y + a.height, b.y + b.height) - y,
+	};
+}
 
 /**
  * Fallback for the bounded candidate families: route each of the best few
@@ -2018,11 +2031,21 @@ function sparseGridFallback(
 		if (tried.has(key)) continue;
 		tried.add(key);
 		if (tried.size > SPARSE_FALLBACK_PAIRS) break;
-		const path = findSparseGridPath(candidate.source, candidate.target, walls, {
-			softObstacles,
-			sourceBox: input.source.box,
-			targetBox: input.target.box,
-		});
+		// Local first: most detours stay near the two endpoints.
+		let path: Point[] | null = null;
+		for (const margin of SPARSE_WINDOW_MARGINS) {
+			const window =
+				margin === undefined
+					? undefined
+					: expandBox(unionBox(input.source.box, input.target.box), margin);
+			path = findSparseGridPath(candidate.source, candidate.target, walls, {
+				softObstacles,
+				sourceBox: input.source.box,
+				targetBox: input.target.box,
+				...(window === undefined ? {} : { window }),
+			});
+			if (path !== null) break;
+		}
 		if (path === null || path.length < 2) continue;
 		if (passesWall(path, candidate.endpointObstacles)) continue;
 		const finalized = finalizeRoutePoints(
