@@ -4,6 +4,7 @@ import type { Box } from "../src/ir/index.js";
 import {
 	assignLayers,
 	buildContainerHierarchy,
+	declaredOrderBackEdges,
 	depthFirstBackEdges,
 	type GlobalLayoutInput,
 	runGlobalLayout,
@@ -237,6 +238,66 @@ describe("cycle breaking", () => {
 			edges(["start", "pay"], ["pay", "callback"], ["callback", "pay"]),
 		);
 		expect([...back]).toEqual(["e2"]);
+	});
+
+	it("reverses the late loop, not a forward edge declared before it", () => {
+		// A depth-first search dives a → b → c, takes the late edge c → x to
+		// the unvisited x and then reverses the forward edge x → b instead.
+		const back = declaredOrderBackEdges(
+			edges(["a", "b"], ["x", "b"], ["b", "c"], ["c", "x"]),
+		);
+		expect([...back]).toEqual(["e3"]);
+	});
+
+	it("reverses a late callback between groups so groups keep their tiers", () => {
+		const nodeIds = ["a0", "a1", "b0", "b1", "c0"];
+		const hierarchy = buildContainerHierarchy({
+			direction: "LR",
+			nodeIds,
+			groups: [
+				{ id: "A", nodeIds: ["a0", "a1"], groupIds: [] },
+				{ id: "B", nodeIds: ["b0", "b1"], groupIds: [] },
+				{ id: "C", nodeIds: ["c0"], groupIds: [] },
+			],
+			swimlanes: [],
+		});
+		// b1 → a1 closes no node cycle (a1 is a sink) but a cycle of groups.
+		const layering = assignLayers(
+			nodeIds,
+			edges(["a0", "b0"], ["b0", "c0"], ["a0", "b1"], ["b1", "a1"]),
+			hierarchy,
+		);
+		expect([...layering.reversedEdgeIds]).toEqual(["e3"]);
+		const layer = (id: string) => layering.layerOfNode.get(id) ?? -1;
+		expect(layer("a1")).toBe(layer("a0"));
+		expect(Math.min(layer("b0"), layer("b1"))).toBeGreaterThan(layer("a1"));
+	});
+
+	it("pulls a group's sink next to the rest of its group", () => {
+		const nodeIds = ["s", "p", "q", "r", "g0", "g1", "g2"];
+		const hierarchy = buildContainerHierarchy({
+			direction: "LR",
+			nodeIds,
+			groups: [{ id: "G", nodeIds: ["g0", "g1", "g2"], groupIds: [] }],
+			swimlanes: [],
+		});
+		// g2 is fed only by a skip edge from s: longest-path layering puts it
+		// right after s, far from g0 and g1.
+		const layering = assignLayers(
+			nodeIds,
+			edges(
+				["s", "p"],
+				["p", "q"],
+				["q", "r"],
+				["r", "g0"],
+				["r", "g1"],
+				["s", "g2"],
+			),
+			hierarchy,
+		);
+		const layer = (id: string) => layering.layerOfNode.get(id) ?? -1;
+		expect(layer("g2")).toBe(layer("g0"));
+		expect(layer("g1")).toBe(layer("g0"));
 	});
 
 	it("layers a retry loop after the step it returns to", () => {

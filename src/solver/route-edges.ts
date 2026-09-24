@@ -323,6 +323,12 @@ export function coordinateEdges(
 				...routeGroupObstacles,
 				...routeTextObstacles,
 			],
+			blockingObstacles: nodeObstacles
+				.filter(
+					(entry) =>
+						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
+				)
+				.map((entry) => entry.box),
 			hardObstacles,
 			hardObstacleMetadata: routeHardObstacleMetadata,
 			corridorMargin,

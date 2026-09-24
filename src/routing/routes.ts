@@ -15,6 +15,7 @@ import type {
 } from "../ir/geometry.js";
 import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
 import { resolveMaxCorners, resolveMaxNodes } from "./budget.js";
+import { findSparseGridPath } from "./sparse-grid-router.js";
 import type {
 	RouteEdgeInput,
 	RouteEdgeResult,
@@ -1243,6 +1244,61 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		return bestExcessiveClean;
 	}
 
+	// No bounded candidate is clean. When even the best of them would pass
+	// through a node, search the sparse Hanan grid with every node as a wall
+	// (the obstacle-avoiding kind already ran its own A* above).
+	const blocking = input.blockingObstacles ?? [];
+	if (input.kind !== "obstacle-avoiding" && blocking.length > 0) {
+		const fallback = rankedCandidateRoutes.find(
+			(candidate) =>
+				!routeIntersectsObstacles(
+					candidate.points,
+					hardObstacles,
+					hardObstacleIndex,
+				) &&
+				!routeIntersectsEndpointInteriors(
+					candidate.points,
+					candidate.endpointObstacles,
+				),
+		);
+		if (
+			fallback === undefined ||
+			routeIntersectsObstacles(fallback.points, blocking)
+		) {
+			const sparse = sparseGridFallback(
+				input,
+				blocking,
+				rankedCandidateRoutes,
+				softObstacles,
+				hardObstacles,
+				softObstacleIndex,
+				hardObstacleIndex,
+				diagnostics,
+			);
+			if (sparse?.clean === true) {
+				const accepted = acceptCleanRoute(
+					sparse.points,
+					sparse.source,
+					sparse.target,
+				);
+				if (accepted !== undefined) return accepted;
+				const excessive = returnBestExcessiveCleanRoute();
+				if (excessive !== undefined) return excessive;
+			} else if (sparse !== undefined) {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.obstacle.unavoidable",
+					message:
+						"No bounded orthogonal route candidate avoided all soft obstacles.",
+					detail: {
+						conflictClass: "fixed-geometry-block",
+					},
+				});
+				return { points: sparse.points, diagnostics };
+			}
+		}
+	}
+
 	const hardClearCandidate = rankedCandidateRoutes.find(
 		(candidate) =>
 			!routeIntersectsObstacles(
@@ -1917,6 +1973,74 @@ function pathLength(points: readonly Point[]): number {
 		}
 	}
 	return len;
+}
+
+/** Distinct endpoint pairs tried by the sparse-grid fallback. */
+const SPARSE_FALLBACK_PAIRS = 3;
+
+/**
+ * Fallback for the bounded candidate families: route each of the best few
+ * endpoint pairs through the sparse Hanan grid (nodes and hard obstacles
+ * are walls, soft obstacles cost a penalty) and return the first path that
+ * passes through no wall, finalized, with whether it also clears every
+ * soft obstacle; `undefined` when none does.
+ */
+function sparseGridFallback(
+	input: RouteEdgeInput,
+	blocking: readonly Box[],
+	ranked: readonly {
+		points: Point[];
+		source: Point;
+		target: Point;
+		endpointObstacles: readonly Box[];
+	}[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
+	softObstacleIndex: BoxSpatialIndex,
+	hardObstacleIndex: BoxSpatialIndex,
+	diagnostics: Diagnostic[],
+):
+	| { points: Point[]; source: Point; target: Point; clean: boolean }
+	| undefined {
+	const walls = [...blocking, ...hardObstacles];
+	const passesWall = (points: readonly Point[], endpoints: readonly Box[]) =>
+		routeIntersectsObstacles(points, blocking) ||
+		routeIntersectsObstacles(points, hardObstacles, hardObstacleIndex) ||
+		routeIntersectsEndpointInteriors(points, endpoints);
+	const tried = new Set<string>();
+	for (const candidate of ranked) {
+		const key = `${candidate.source.x},${candidate.source.y}>${candidate.target.x},${candidate.target.y}`;
+		if (tried.has(key)) continue;
+		tried.add(key);
+		if (tried.size > SPARSE_FALLBACK_PAIRS) break;
+		const path = findSparseGridPath(candidate.source, candidate.target, walls, {
+			softObstacles,
+			sourceBox: input.source.box,
+			targetBox: input.target.box,
+		});
+		if (path === null || path.length < 2) continue;
+		if (passesWall(path, candidate.endpointObstacles)) continue;
+		const finalized = finalizeRoutePoints(
+			path,
+			softObstacles,
+			hardObstacles,
+			diagnostics,
+			softObstacleIndex,
+			hardObstacleIndex,
+		);
+		if (passesWall(finalized, candidate.endpointObstacles)) continue;
+		return {
+			points: finalized,
+			source: candidate.source,
+			target: candidate.target,
+			clean: !routeIntersectsObstacles(
+				finalized,
+				softObstacles,
+				softObstacleIndex,
+			),
+		};
+	}
+	return undefined;
 }
 
 function endpointInteriorObstacles(input: RouteEdgeInput): Box[] {

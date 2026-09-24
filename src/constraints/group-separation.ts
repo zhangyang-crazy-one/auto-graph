@@ -34,9 +34,12 @@ export function separateGroups(input: {
 	boxes: Map<string, Box>;
 	locks: ReadonlyMap<string, LayoutLock>;
 	spacing: number;
+	/** Gap below which a pair counts as overlapping (default `spacing`). */
+	detectionGap?: number;
 	diagnostics: Diagnostic[];
 }): void {
 	const { groups, boxes, spacing } = input;
+	const detectionGap = input.detectionGap ?? spacing;
 	if (groups.length === 0) return;
 	const groupById = new Map(groups.map((group) => [group.id, group]));
 	const members = new Map<string, Set<string>>();
@@ -141,7 +144,7 @@ export function separateGroups(input: {
 				const boxA = groupBox(a.id, cache);
 				const boxB = groupBox(b.id, cache);
 				if (boxA === undefined || boxB === undefined) continue;
-				if (!overlaps(boxA, boxB, spacing)) continue;
+				if (!overlaps(boxA, boxB, Math.min(spacing, detectionGap))) continue;
 				const freeA = free(ma);
 				const freeB = free(mb);
 				if (!freeA && !freeB) continue;
@@ -165,7 +168,7 @@ export function separateGroups(input: {
 				const box = groupBox(group.id, cache);
 				const node = boxes.get(nodeId);
 				if (box === undefined || node === undefined) continue;
-				if (!overlaps(node, box, spacing / 2)) continue;
+				if (!overlaps(node, box, Math.min(spacing, detectionGap) / 2)) continue;
 				// A node of a group nested inside this one's ancestor chain is
 				// handled by the group pass; only truly foreign nodes here.
 				if (

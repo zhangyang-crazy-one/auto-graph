@@ -237,13 +237,19 @@ describe("constrained ordering", () => {
 	});
 
 	it("never trades group-order consistency for fewer crossings", () => {
-		// Crossed membership edges: a0→b1 and b0→a1. Flipping A/B between the
-		// two layers would give zero crossings but no drawable rectangles.
+		// A and B share two layers; u0 feeds a0 and (across) b1, u1 feeds b0
+		// and (across) a1. Flipping A/B between the two layers would uncross
+		// the long edges but leave no drawable rectangles. (Edges between A
+		// and B themselves would make them tiers in separate layers.)
 		const { layering, ordering, hierarchy } = solve(
-			["a0", "a1", "b0", "b1"],
+			["u0", "u1", "a0", "a1", "b0", "b1"],
 			[
-				["a0", "b1"],
-				["b0", "a1"],
+				["u0", "a0"],
+				["u1", "b0"],
+				["a0", "a1"],
+				["b0", "b1"],
+				["u0", "b1"],
+				["u1", "a1"],
 			],
 			{
 				groups: [
@@ -252,14 +258,15 @@ describe("constrained ordering", () => {
 				],
 			},
 		);
-		const orders = new Set(
-			ordering.layers.map((layer) =>
-				containerRuns(layer, layering, hierarchy, "group")
-					.filter((run) => run !== "-")
-					.join(">"),
-			),
-		);
-		expect(orders.size).toBe(1);
+		const shared = ordering.layers
+			.map((layer) =>
+				containerRuns(layer, layering, hierarchy, "group").filter(
+					(run) => run !== "-",
+				),
+			)
+			.filter((runs) => runs.length > 1);
+		expect(shared.length).toBe(2);
+		expect(new Set(shared.map((runs) => runs.join(">"))).size).toBe(1);
 	});
 
 	it("is deterministic", () => {

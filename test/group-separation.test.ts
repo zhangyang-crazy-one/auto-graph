@@ -31,6 +31,31 @@ function apart(a: Box, b: Box, gap: number): boolean {
 }
 
 describe("separateGroups", () => {
+	it("leaves a narrower gap alone when only true overlaps count", () => {
+		// Groups 12 px apart (the layout's own container spacing).
+		const run = (detectionGap?: number) => {
+			const boxes = new Map([
+				["a", box(0, 0)],
+				["b", box(72, 0)],
+			]);
+			separateGroups({
+				groups: [group("A", ["a"]), group("B", ["b"])],
+				constraints: [],
+				boxes,
+				locks: new Map(),
+				spacing: 40,
+				...(detectionGap === undefined ? {} : { detectionGap }),
+				diagnostics: [],
+			});
+			return boxes;
+		};
+		expect(run(0).get("b")).toEqual(box(72, 0));
+		const spaced = run();
+		expect(apart(envelope(spaced, ["a"]), envelope(spaced, ["b"]), 40)).toBe(
+			true,
+		);
+	});
+
 	it("moves the free group off a group pinned by constraints", () => {
 		const boxes = new Map([
 			["s1", box(0, 0)],

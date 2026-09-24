@@ -85,6 +85,9 @@ export function applyLayoutConstraints(
 		boxes,
 		locks,
 		spacing: input.overlapSpacing ?? 40,
+		...(input.groupSeparationGap === undefined
+			? {}
+			: { detectionGap: input.groupSeparationGap }),
 		diagnostics,
 	});
 	repairOverlaps(
@@ -140,6 +143,9 @@ export function applyLayoutConstraints(
 		boxes,
 		locks,
 		spacing: input.overlapSpacing ?? 40,
+		...(input.groupSeparationGap === undefined
+			? {}
+			: { detectionGap: input.groupSeparationGap }),
 		diagnostics,
 	});
 

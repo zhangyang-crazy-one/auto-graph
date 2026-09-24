@@ -33,6 +33,13 @@ export interface RouteEdgeInput {
 	sourceAnchor?: AnchorName;
 	targetAnchor?: AnchorName;
 	obstacles?: readonly Box[];
+	/**
+	 * Boxes a route must never pass through (every node but the endpoints,
+	 * not just those near the edge). When the bounded candidates all cross
+	 * one, the router searches a sparse orthogonal grid with these as walls
+	 * and `obstacles` as a crossing cost.
+	 */
+	blockingObstacles?: readonly Box[];
 	hardObstacles?: readonly Box[];
 	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[];
 	obstacleIndex?: BoxSpatialIndex;

@@ -375,9 +375,63 @@ function reduceCrossings(
 		}
 		return total;
 	};
+	// Conflict counts of the committed routes, valid until the next commit
+	// (a commit changes the counts of every route it touches).
+	let conflictCache = new Map<number, number>();
+	const currentConflicts = (routeIndex: number) => {
+		const cached = conflictCache.get(routeIndex);
+		if (cached !== undefined) return cached;
+		const count = conflictsOf(routeIndex, points[routeIndex] ?? []);
+		conflictCache.set(routeIndex, count);
+		return count;
+	};
+	/**
+	 * Conflicts of segments `first..last` of `route` with every other route.
+	 * Boxes are padded by 1 px, the reach of `segmentsOverlap`, so no
+	 * conflicting pair is filtered out.
+	 */
+	const localConflicts = (
+		routeIndex: number,
+		route: readonly Point[],
+		first: number,
+		last: number,
+	) => {
+		const own = bounds(route.slice(first, last + 2));
+		let total = 0;
+		for (let other = 0; other < points.length; other += 1) {
+			if (other === routeIndex) continue;
+			const box = routeBounds[other];
+			if (
+				box === undefined ||
+				box.minX > own.maxX + 1 ||
+				box.maxX < own.minX - 1 ||
+				box.minY > own.maxY + 1 ||
+				box.maxY < own.minY - 1
+			) {
+				continue;
+			}
+			total += countConflicts(route, points[other] ?? [], first, last);
+		}
+		return total;
+	};
 	const commit = (routeIndex: number, route: Point[]) => {
 		points[routeIndex] = route;
 		routeBounds[routeIndex] = bounds(route);
+		conflictCache = new Map();
+		channelCache = new Map();
+	};
+	// Channels of the committed routes' segments, valid until the next commit.
+	let channelCache = new Map<string, [number, number]>();
+	const channelOf = (
+		segment: MovableSegment,
+		obstacles: readonly Box[],
+	): [number, number] => {
+		const key = `${segment.routeIndex}:${segment.index}`;
+		const cached = channelCache.get(key);
+		if (cached !== undefined) return cached;
+		const channel = segmentChannel(segment, points, obstacles, channelConfig);
+		channelCache.set(key, channel);
+		return channel;
 	};
 	const moved = (segment: MovableSegment, coord: number): Point[] => {
 		const route = (points[segment.routeIndex] ?? []).map((point) => ({
@@ -424,7 +478,7 @@ function reduceCrossings(
 				const segment = refreshSegment(points, initial);
 				if (segment === undefined) continue;
 				const route = points[segment.routeIndex] ?? [];
-				const before = conflictsOf(segment.routeIndex, route);
+				const before = currentConflicts(segment.routeIndex);
 				if (before === 0) continue;
 				const obstacles = routeObstacles[segment.routeIndex] ?? [];
 				const [low, high] = segmentChannel(
@@ -455,12 +509,29 @@ function reduceCrossings(
 					(a, b) =>
 						Math.abs(a - segment.coord) - Math.abs(b - segment.coord) || a - b,
 				);
-				const hitsBefore = countObstacleHits(route, obstacles);
+				// A move changes only the trunk and its two neighbours, and both
+				// scores sum over segments: compare just those segments.
+				const first = Math.max(0, segment.index - 1);
+				const last = Math.min(route.length - 2, segment.index + 1);
+				const hitsBefore = countObstacleHits(route, obstacles, first, last);
+				const localBefore = localConflicts(
+					segment.routeIndex,
+					route,
+					first,
+					last,
+				);
 				for (const coord of candidates) {
 					if (crowded(segment, coord, others)) continue;
 					const trial = moved(segment, coord);
-					if (countObstacleHits(trial, obstacles) > hitsBefore) continue;
-					if (conflictsOf(segment.routeIndex, trial) >= before) continue;
+					if (countObstacleHits(trial, obstacles, first, last) > hitsBefore) {
+						continue;
+					}
+					if (
+						localConflicts(segment.routeIndex, trial, first, last) >=
+						localBefore
+					) {
+						continue;
+					}
 					commit(segment.routeIndex, trial);
 					improved = true;
 					break;
@@ -477,25 +548,15 @@ function reduceCrossings(
 					if (Math.abs(a.coord - b.coord) <= EPSILON) continue;
 					const obstaclesA = routeObstacles[a.routeIndex] ?? [];
 					const obstaclesB = routeObstacles[b.routeIndex] ?? [];
-					const [lowA, highA] = segmentChannel(
-						a,
-						points,
-						obstaclesA,
-						channelConfig,
-					);
-					const [lowB, highB] = segmentChannel(
-						b,
-						points,
-						obstaclesB,
-						channelConfig,
-					);
+					const [lowA, highA] = channelOf(a, obstaclesA);
 					if (b.coord < lowA || b.coord > highA) continue;
+					const [lowB, highB] = channelOf(b, obstaclesB);
 					if (a.coord < lowB || a.coord > highB) continue;
 					const routeA = points[a.routeIndex] ?? [];
 					const routeB = points[b.routeIndex] ?? [];
 					const before =
-						conflictsOf(a.routeIndex, routeA) +
-						conflictsOf(b.routeIndex, routeB) -
+						currentConflicts(a.routeIndex) +
+						currentConflicts(b.routeIndex) -
 						countConflicts(routeA, routeB);
 					if (before === 0) continue;
 					const trialA = moved(a, b.coord);
@@ -971,9 +1032,15 @@ function clusterSegments(
 }
 
 /** Proper crossings plus collinear overlaps between two orthogonal polylines. */
-function countConflicts(a: readonly Point[], b: readonly Point[]): number {
+/** Crossings and overlaps between segments `first..last` of `a` and `b`. */
+function countConflicts(
+	a: readonly Point[],
+	b: readonly Point[],
+	first = 0,
+	last = a.length - 2,
+): number {
 	let conflicts = 0;
-	for (let i = 0; i + 1 < a.length; i += 1) {
+	for (let i = first; i <= last && i + 1 < a.length; i += 1) {
 		const a0 = a[i];
 		const a1 = a[i + 1];
 		if (a0 === undefined || a1 === undefined) continue;
@@ -1046,12 +1113,19 @@ function rangeOverlap(a0: number, a1: number, b0: number, b1: number): number {
 	);
 }
 
+/** Obstacle interiors entered by segments `first..last` of the route. */
 function countObstacleHits(
 	route: readonly Point[],
 	obstacles: readonly Box[],
+	first = 0,
+	last = route.length - 2,
 ): number {
 	let hits = 0;
-	for (let index = 0; index + 1 < route.length; index += 1) {
+	for (
+		let index = first;
+		index <= last && index + 1 < route.length;
+		index += 1
+	) {
 		const start = route[index];
 		const end = route[index + 1];
 		if (start === undefined || end === undefined) continue;

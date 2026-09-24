@@ -4,9 +4,10 @@ import { lowestCommonContainer } from "./hierarchy.js";
 /**
  * Layer assignment for the global solver (plan P2).
  *
- * 1. Cycle breaking: a depth-first search in declaration order reverses
- *    the edges that close a cycle (the edges an author writes last, such
- *    as "retry" or "reject" loops), for layering only. The Eades–Lin–Smyth
+ * 1. Cycle breaking: edges are kept in declaration order and an edge is
+ *    reversed only when the edges before it already close a cycle through
+ *    it (the edges an author writes last, such as "retry" or "reject"
+ *    loops), for layering only. The Eades–Lin–Smyth
  *    greedy sequence is kept as `greedyFeedbackArcOrder` for callers that
  *    want the smallest feedback set instead of the declared reading order.
  * 2. Longest-path layering on the resulting DAG, then sources are pulled
@@ -79,10 +80,7 @@ export function assignLayers(
 	);
 	const usable = [...declared].sort((a, b) => a.id.localeCompare(b.id));
 
-	const reversedEdgeIds = depthFirstBackEdges(
-		nodeIds.filter((id) => nodeSet.has(id)),
-		declared,
-	);
+	const reversedEdgeIds = hierarchyBackEdges(declared, hierarchy);
 	const dagEdges = usable.map((edge) =>
 		reversedEdgeIds.has(edge.id)
 			? { id: edge.id, source: edge.target, target: edge.source }
@@ -95,7 +93,13 @@ export function assignLayers(
 			? crossLaneLayers(nodes, dagEdges, hierarchy, reversedEdgeIds)
 			: longestPathLayers(nodes, dagEdges);
 	if (!hasMainAxisLanes(hierarchy)) {
-		enforceContainerPrecedence(layerOfNode, nodes, dagEdges, hierarchy);
+		const tiers = enforceContainerPrecedence(
+			layerOfNode,
+			nodes,
+			dagEdges,
+			hierarchy,
+		);
+		compactGroups(layerOfNode, nodes, dagEdges, hierarchy, tiers);
 	}
 
 	// Normalise so the first layer is 0.
@@ -246,6 +250,131 @@ function enclosingLane(
 }
 
 /**
+ * The sibling units an edge connects: below the deepest container holding
+ * both ends, the child container (group, lane, …) or the node itself on
+ * each side. `undefined` when both ends are plain nodes of one container.
+ */
+function edgeUnits(
+	edge: LayeringEdge,
+	hierarchy: ContainerHierarchy,
+): { source: string; target: string } | undefined {
+	const pathOf = (nodeId: string): string[] => {
+		const chain: string[] = [];
+		let cursor: string | undefined =
+			hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId;
+		while (cursor !== undefined) {
+			chain.unshift(cursor);
+			cursor = hierarchy.containers.get(cursor)?.parentId;
+		}
+		return chain;
+	};
+	const pu = pathOf(edge.source);
+	const pv = pathOf(edge.target);
+	let depth = 0;
+	while (depth < pu.length && depth < pv.length && pu[depth] === pv[depth]) {
+		depth += 1;
+	}
+	const source = pu[depth];
+	const target = pv[depth];
+	if (source === undefined && target === undefined) return undefined;
+	return {
+		source: source ?? `node:${edge.source}`,
+		target: target ?? `node:${edge.target}`,
+	};
+}
+
+/**
+ * Cycle breaking for compound graphs: first between sibling groups, then
+ * between nodes. Edges between groups are taken in declaration order and
+ * one that would close a cycle of groups (a late "callback" into an
+ * earlier tier) is reversed, so every group keeps a place in the tier
+ * order and its members stay together; the node-level pass then breaks
+ * the cycles left inside groups. Lanes and swimlanes are not tiered, so
+ * their edges only take part in the node-level pass.
+ */
+function hierarchyBackEdges(
+	edges: readonly LayeringEdge[],
+	hierarchy: ContainerHierarchy,
+): Set<string> {
+	const unitEdges: LayeringEdge[] = [];
+	for (const edge of edges) {
+		if (edge.source === edge.target) continue;
+		const units = edgeUnits(edge, hierarchy);
+		if (units === undefined) continue;
+		const kindA = hierarchy.containers.get(units.source)?.kind;
+		const kindB = hierarchy.containers.get(units.target)?.kind;
+		if (kindA !== undefined && kindA !== "group") continue;
+		if (kindB !== undefined && kindB !== "group") continue;
+		if (kindA === undefined && kindB === undefined) continue;
+		unitEdges.push({ id: edge.id, source: units.source, target: units.target });
+	}
+	const unitReversed = declaredOrderBackEdges(unitEdges);
+	const between = new Set(unitEdges.map((edge) => edge.id));
+	// Edges between groups are oriented first, so the node pass can only
+	// reverse edges inside a group (or between plain nodes).
+	const oriented = [
+		...edges.filter((edge) => between.has(edge.id)),
+		...edges.filter((edge) => !between.has(edge.id)),
+	].map((edge) =>
+		unitReversed.has(edge.id)
+			? { id: edge.id, source: edge.target, target: edge.source }
+			: edge,
+	);
+	const reversed = declaredOrderBackEdges(oriented);
+	// An edge reversed by both passes points its declared way again.
+	for (const id of unitReversed) {
+		if (reversed.has(id)) reversed.delete(id);
+		else reversed.add(id);
+	}
+	return reversed;
+}
+
+/**
+ * Edges reversed so the declared graph becomes acyclic, honouring the
+ * author's reading order: edges are taken as declared and one is reversed
+ * only when the edges kept before it already lead from its target back to
+ * its source. A loop written after the flow it returns into ("retry",
+ * "reject") is reversed, never a forward edge declared before it — unlike
+ * a depth-first search, which can dive through the forward edges, take a
+ * late back edge to an unvisited step and then reverse a forward edge.
+ */
+export function declaredOrderBackEdges(
+	edges: readonly LayeringEdge[],
+): Set<string> {
+	const outgoing = new Map<string, string[]>();
+	const back = new Set<string>();
+	const visited = new Map<string, number>();
+	let stamp = 0;
+	const reaches = (from: string, to: string): boolean => {
+		stamp += 1;
+		const stack = [from];
+		visited.set(from, stamp);
+		while (stack.length > 0) {
+			const node = stack.pop() as string;
+			if (node === to) return true;
+			for (const next of outgoing.get(node) ?? []) {
+				if (visited.get(next) === stamp) continue;
+				visited.set(next, stamp);
+				stack.push(next);
+			}
+		}
+		return false;
+	};
+	for (const edge of edges) {
+		if (edge.source === edge.target) continue;
+		const reversed = reaches(edge.target, edge.source);
+		if (reversed) back.add(edge.id);
+		const [from, to] = reversed
+			? [edge.target, edge.source]
+			: [edge.source, edge.target];
+		const list = outgoing.get(from) ?? [];
+		list.push(to);
+		outgoing.set(from, list);
+	}
+	return back;
+}
+
+/**
  * Edges closing a cycle in a depth-first search that visits nodes and
  * out-edges in declaration order (iterative, so deep chains are safe).
  */
@@ -364,7 +493,7 @@ export function longestFlowLength(
 			nodeSet.has(edge.target) &&
 			edge.source !== edge.target,
 	);
-	const back = depthFirstBackEdges(nodeIds, usable);
+	const back = declaredOrderBackEdges(usable);
 	const dag = usable.filter((edge) => !back.has(edge.id));
 	const depth = new Map<string, number>();
 	for (const node of topologicalOrder(nodeIds, dag)) {
@@ -486,7 +615,7 @@ function enforceContainerPrecedence(
 	nodes: readonly string[],
 	edges: readonly LayeringEdge[],
 	hierarchy: ContainerHierarchy,
-): void {
+): TierPair[] {
 	const pathOf = (nodeId: string): string[] => {
 		const chain: string[] = [];
 		let cursor: string | undefined =
@@ -523,7 +652,7 @@ function enforceContainerPrecedence(
 		targets.add(b);
 		unitEdges.set(a, targets);
 	}
-	if (unitEdges.size === 0) return;
+	if (unitEdges.size === 0) return [];
 	for (const nodeId of nodes) {
 		for (const unit of pathOf(nodeId)) addMember(unit, nodeId);
 		addMember(`node:${nodeId}`, nodeId);
@@ -537,7 +666,11 @@ function enforceContainerPrecedence(
 			if (component.get(a) !== component.get(b)) tiers.push([a, b]);
 		}
 	}
-	if (tiers.length === 0) return;
+	if (tiers.length === 0) return [];
+	const pairs = tiers.map(([a, b]) => ({
+		before: unitMembers.get(a) ?? [],
+		after: unitMembers.get(b) ?? [],
+	}));
 
 	const order = topologicalOrder(nodes, edges);
 	const preds = new Map<string, string[]>(nodes.map((id) => [id, []]));
@@ -566,6 +699,92 @@ function enforceContainerPrecedence(
 			const least = Math.max(...incoming.map((id) => (layer.get(id) ?? 0) + 1));
 			if ((layer.get(node) ?? 0) < least) {
 				layer.set(node, least);
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+	return pairs;
+}
+
+/** Every node of `after` must sit in a later layer than every node of `before`. */
+interface TierPair {
+	before: readonly string[];
+	after: readonly string[];
+}
+
+/** Rounds of `compactGroups`; each moves nodes monotonically closer. */
+const COMPACT_ROUNDS = 8;
+
+/**
+ * Pull every group member towards its group's median layer, as far as its
+ * edges (predecessors before, successors after) and the group tiers allow.
+ * Longest-path layering puts a sink right after its only predecessor, so a
+ * member fed by a skip edge from the first layers otherwise lands far from
+ * the rest of its group and stretches the group across the diagram.
+ */
+function compactGroups(
+	layer: Map<string, number>,
+	nodes: readonly string[],
+	edges: readonly LayeringEdge[],
+	hierarchy: ContainerHierarchy,
+	tiers: readonly TierPair[],
+): void {
+	const groupOf = new Map<string, string>();
+	const members = new Map<string, string[]>();
+	for (const nodeId of nodes) {
+		const container = hierarchy.containerOfNode.get(nodeId);
+		if (container === undefined) continue;
+		if (hierarchy.containers.get(container)?.kind !== "group") continue;
+		groupOf.set(nodeId, container);
+		const list = members.get(container) ?? [];
+		list.push(nodeId);
+		members.set(container, list);
+	}
+	if (groupOf.size === 0) return;
+	const preds = new Map<string, string[]>();
+	const succs = new Map<string, string[]>();
+	for (const edge of edges) {
+		if (edge.source === edge.target) continue;
+		preds.set(edge.target, [...(preds.get(edge.target) ?? []), edge.source]);
+		succs.set(edge.source, [...(succs.get(edge.source) ?? []), edge.target]);
+	}
+	const tiersBefore = new Map<string, TierPair[]>();
+	const tiersAfter = new Map<string, TierPair[]>();
+	for (const tier of tiers) {
+		for (const id of tier.after) {
+			tiersBefore.set(id, [...(tiersBefore.get(id) ?? []), tier]);
+		}
+		for (const id of tier.before) {
+			tiersAfter.set(id, [...(tiersAfter.get(id) ?? []), tier]);
+		}
+	}
+	const at = (id: string) => layer.get(id) ?? 0;
+	for (let round = 0; round < COMPACT_ROUNDS; round += 1) {
+		let changed = false;
+		for (const nodeId of [...groupOf.keys()].sort()) {
+			const group = members.get(groupOf.get(nodeId) as string) ?? [];
+			if (group.length < 2) continue;
+			const sorted = group.map(at).sort((a, b) => a - b);
+			const median = sorted[(sorted.length - 1) >> 1] as number;
+			const current = at(nodeId);
+			if (current === median) continue;
+			let low = Number.NEGATIVE_INFINITY;
+			let high = Number.POSITIVE_INFINITY;
+			for (const id of preds.get(nodeId) ?? []) low = Math.max(low, at(id) + 1);
+			for (const id of succs.get(nodeId) ?? []) {
+				high = Math.min(high, at(id) - 1);
+			}
+			for (const tier of tiersBefore.get(nodeId) ?? []) {
+				for (const id of tier.before) low = Math.max(low, at(id) + 1);
+			}
+			for (const tier of tiersAfter.get(nodeId) ?? []) {
+				for (const id of tier.after) high = Math.min(high, at(id) - 1);
+			}
+			if (low > high) continue;
+			const next = Math.min(high, Math.max(low, median));
+			if (next !== current) {
+				layer.set(nodeId, next);
 				changed = true;
 			}
 		}

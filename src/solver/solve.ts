@@ -332,6 +332,7 @@ export function solveDiagram(
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
+		...(initialLayoutMode === "global" ? { groupSeparationGap: 0 } : {}),
 		...(options.minSiblingGap === undefined
 			? {}
 			: { minSiblingGap: options.minSiblingGap }),
