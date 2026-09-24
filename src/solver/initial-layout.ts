@@ -301,6 +301,13 @@ export function resolveAutoLayoutMode(
 		nodes.some((node) => node.position !== undefined);
 	if (pinned) return "dagre";
 	if (swimlanes.length > 0) return "global";
+	// Dagre knows nothing about containers, so groups get their rectangles
+	// from the global layout, unless the author arranges nodes relative to
+	// each other: those offsets are written against the Dagre placement.
+	const arranged = diagram.constraints.some(
+		(constraint) => constraint.kind === "relative-position",
+	);
+	if (diagram.groups.length > 0 && !arranged) return "global";
 	const steps = longestFlowLength(
 		nodes.map((node) => node.id),
 		edges.map((edge) => ({

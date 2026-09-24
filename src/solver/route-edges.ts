@@ -681,8 +681,11 @@ function routeObstacleHits(
 	return hits;
 }
 
-/** Outward offset applied to an end segment that runs along its node border. */
-const BORDER_HUGGING_STUB = 12;
+/**
+ * Outward offsets tried, longest first, for an end segment that runs along
+ * its node border.
+ */
+const BORDER_HUGGING_STUBS = [12, 6, 3];
 
 /**
  * Fallback routes can leave an anchor by running along the node's own
@@ -711,35 +714,41 @@ function detachBorderHuggingEnds(
 			if (end === undefined || next === undefined) continue;
 			const vertical = Math.abs(end.x - next.x) < 0.5;
 			const horizontal = Math.abs(end.y - next.y) < 0.5;
-			let offset: Point | undefined;
+			let direction: Point | undefined;
 			if (vertical && Math.abs(end.x - (box.x + box.width)) < 0.5) {
-				offset = { x: BORDER_HUGGING_STUB, y: 0 };
+				direction = { x: 1, y: 0 };
 			} else if (vertical && Math.abs(end.x - box.x) < 0.5) {
-				offset = { x: -BORDER_HUGGING_STUB, y: 0 };
+				direction = { x: -1, y: 0 };
 			} else if (horizontal && Math.abs(end.y - (box.y + box.height)) < 0.5) {
-				offset = { x: 0, y: BORDER_HUGGING_STUB };
+				direction = { x: 0, y: 1 };
 			} else if (horizontal && Math.abs(end.y - box.y) < 0.5) {
-				offset = { x: 0, y: -BORDER_HUGGING_STUB };
+				direction = { x: 0, y: -1 };
 			}
-			if (offset === undefined) continue;
-			const shiftedEnd = { x: end.x + offset.x, y: end.y + offset.y };
-			const shiftedNext = { x: next.x + offset.x, y: next.y + offset.y };
-			const rebuilt = compactRoutePoints([
-				end,
-				shiftedEnd,
-				shiftedNext,
-				...ordered.slice(2),
-			]);
-			const candidate = role === "source" ? rebuilt : rebuilt.reverse();
-			// The outward stub must not trade a border graze for a collision.
-			if (
-				routeObstacleHits(candidate, obstacles) >
-				routeObstacleHits(points, obstacles)
-			) {
-				continue;
+			if (direction === undefined) continue;
+			// A label right beside the node may block the full stub; a shorter
+			// one still gets the route off the border.
+			for (const length of BORDER_HUGGING_STUBS) {
+				const offset = { x: direction.x * length, y: direction.y * length };
+				const shiftedEnd = { x: end.x + offset.x, y: end.y + offset.y };
+				const shiftedNext = { x: next.x + offset.x, y: next.y + offset.y };
+				const rebuilt = compactRoutePoints([
+					end,
+					shiftedEnd,
+					shiftedNext,
+					...ordered.slice(2),
+				]);
+				const candidate = role === "source" ? rebuilt : rebuilt.reverse();
+				// The outward stub must not trade a border graze for a collision.
+				if (
+					routeObstacleHits(candidate, obstacles) >
+					routeObstacleHits(points, obstacles)
+				) {
+					continue;
+				}
+				points = candidate;
+				changed = true;
+				break;
 			}
-			points = candidate;
-			changed = true;
 		}
 		return changed ? { ...edge, points } : edge;
 	});
@@ -942,7 +951,7 @@ function spreadCollidingEndpoints(
 			Math.max(centerT - halfSpan, rangeStart),
 			Math.max(rangeStart, rangeEnd - 2 * halfSpan),
 		);
-		sorted.forEach((ref, index) => {
+		const tryMove = (ref: EndpointRef, t: number): boolean => {
 			const route = routes[ref.edgeIndex] ?? [];
 			const at = ref.role === "source" ? 0 : route.length - 1;
 			const step = ref.role === "source" ? 1 : -1;
@@ -950,14 +959,9 @@ function spreadCollidingEndpoints(
 			const bend = route[at + step];
 			const next = route[at + 2 * step];
 			if (end === undefined || bend === undefined || next === undefined) {
-				return;
+				return false;
 			}
-			const moved = shapeSidePoint(
-				"rectangle",
-				geometry.box,
-				side,
-				startT + index * stepT,
-			);
+			const moved = shapeSidePoint("rectangle", geometry.box, side, t);
 			const oldAlong = alongY ? bend.y : bend.x;
 			const newAlong = alongY ? moved.y : moved.x;
 			const nextAlong = alongY ? next.y : next.x;
@@ -969,7 +973,7 @@ function spreadCollidingEndpoints(
 				(Math.sign(nextAlong - newAlong) !== Math.sign(nextAlong - oldAlong) ||
 					Math.abs(nextAlong - newAlong) < 1)
 			) {
-				return;
+				return false;
 			}
 			const shifted = route.map((point) => ({ ...point }));
 			shifted[at] = moved;
@@ -985,11 +989,50 @@ function spreadCollidingEndpoints(
 				routeObstacleHits(shifted, obstacles) >
 				routeObstacleHits(route, obstacles)
 			) {
-				return;
+				return false;
 			}
 			route[at] = shifted[at] as Point;
 			route[at + step] = shifted[at + step] as Point;
+			return true;
+		};
+		sorted.forEach((ref, index) => {
+			tryMove(ref, startT + index * stepT);
 		});
+		// A slot the spread could not use (an obstacle beside the node, a
+		// bend in the way) leaves two ends on one point: try the free slots
+		// nearest to it on either side.
+		const key = (ref: EndpointRef) => {
+			const point = endpointOf(ref);
+			return point === undefined
+				? ""
+				: `${point.x.toFixed(1)}|${point.y.toFixed(1)}`;
+		};
+		const slotStep =
+			stepT > 0 ? stepT : COLLIDING_ENDPOINT_SPACING / sideLength;
+		for (const ref of sorted) {
+			const taken = new Set(
+				sorted.filter((other) => other !== ref).map((other) => key(other)),
+			);
+			if (!taken.has(key(ref))) continue;
+			const point = endpointOf(ref);
+			if (point === undefined) continue;
+			const here = ((alongY ? point.y : point.x) - sideStart) / sideLength;
+			// Half steps too: the full-step slots may all be taken.
+			for (let k = 1; k <= 2 * (count + 2); k += 1) {
+				const offset = (k * slotStep) / 2;
+				const options = [here + offset, here - offset].filter(
+					(t) => t >= rangeStart - 1e-6 && t <= rangeEnd + 1e-6,
+				);
+				const moved = options.some((t) => {
+					const probe = shapeSidePoint("rectangle", geometry.box, side, t);
+					if (taken.has(`${probe.x.toFixed(1)}|${probe.y.toFixed(1)}`)) {
+						return false;
+					}
+					return tryMove(ref, t);
+				});
+				if (moved) break;
+			}
+		}
 	}
 
 	return edges.map((edge, index) => {

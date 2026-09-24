@@ -736,11 +736,17 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	let bestExcessiveCleanRoute:
 		| { points: Point[]; diagnostic: Diagnostic; routeLength: number }
 		| undefined;
+	// Soft obstacles are only the nodes near the edge; a candidate that
+	// wanders further must still not pass through any node.
+	const blocking = input.blockingObstacles ?? [];
 	const acceptCleanRoute = (
 		points: Point[],
 		source: Point,
 		target: Point,
 	): RouteEdgeResult | undefined => {
+		if (blocking.length > 0 && routeIntersectsObstacles(points, blocking)) {
+			return undefined;
+		}
 		const diagnostic = backtrackingDiagnostic(
 			points,
 			source,
@@ -1247,7 +1253,6 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	// No bounded candidate is clean. When even the best of them would pass
 	// through a node, search the sparse Hanan grid with every node as a wall
 	// (the obstacle-avoiding kind already ran its own A* above).
-	const blocking = input.blockingObstacles ?? [];
 	if (input.kind !== "obstacle-avoiding" && blocking.length > 0) {
 		const fallback = rankedCandidateRoutes.find(
 			(candidate) =>

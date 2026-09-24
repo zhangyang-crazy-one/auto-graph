@@ -203,6 +203,19 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		return size === undefined ? 0 : crossSize(size);
 	};
 
+	// A labelled edge between two nodes of one layer is drawn across the gap
+	// between them: that gap must hold the label.
+	const labelGaps = new Map<string, number>();
+	for (const edge of edges) {
+		if (edge.labelSize === undefined) continue;
+		const a = layering.layerOfNode.get(edge.source);
+		if (a === undefined || a !== layering.layerOfNode.get(edge.target)) {
+			continue;
+		}
+		const key = [edge.source, edge.target].sort().join("\u0000");
+		const need = crossSize(edge.labelSize) + 2 * EDGE_LABEL_MARGIN;
+		labelGaps.set(key, Math.max(labelGaps.get(key) ?? 0, need));
+	}
 	const cross = solveCrossAxis({
 		layering,
 		layers: ordering.layers,
@@ -213,6 +226,7 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		nodeSpacing,
 		edgeSpacing,
 		containerSpacing,
+		labelGap: (u, v) => labelGaps.get([u, v].sort().join("\u0000")) ?? 0,
 	});
 	if (cross.unsatisfiable > 0) {
 		diagnostics.push({
@@ -937,6 +951,8 @@ interface CrossAxisInput {
 	nodeSpacing: number;
 	edgeSpacing: number;
 	containerSpacing: number;
+	/** Room a label on an edge between two nodes of one layer needs. */
+	labelGap?: (u: string, v: string) => number;
 }
 
 function solveCrossAxis(input: CrossAxisInput): {
@@ -1038,6 +1054,16 @@ function solveCrossAxis(input: CrossAxisInput): {
 			const leftHalf = aIsVertex ? input.vertexCross(u) / 2 : 0;
 			const rightHalf = bIsVertex ? input.vertexCross(v) / 2 : 0;
 			addConstraint(leftIndex, rightIndex, leftHalf + gap + rightHalf);
+			// Neighbours joined by a labelled edge, even across lane or group
+			// borders: keep the label's room between the two nodes themselves.
+			const labelGap = input.labelGap?.(u, v) ?? 0;
+			if (labelGap > 0) {
+				addConstraint(
+					index.get(u) as number,
+					index.get(v) as number,
+					input.vertexCross(u) / 2 + labelGap + input.vertexCross(v) / 2,
+				);
+			}
 		}
 	}
 
