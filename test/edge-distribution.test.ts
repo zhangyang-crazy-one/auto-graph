@@ -646,3 +646,43 @@ describe("review follow-ups (Codex #96, round 4)", () => {
 		expect(grown?.size.height).toBeGreaterThan(40);
 	});
 });
+
+describe("collinear end segments", () => {
+	it("moves a long end segment off another route when splitEnds is on", () => {
+		// b leaves its source on the same y as a's interior trunk.
+		const routes = [
+			{
+				id: "a",
+				points: [
+					{ x: 0, y: 0 },
+					{ x: 40, y: 0 },
+					{ x: 40, y: 100 },
+					{ x: 300, y: 100 },
+					{ x: 300, y: 200 },
+				],
+			},
+			{
+				id: "b",
+				points: [
+					{ x: 60, y: 100 },
+					{ x: 280, y: 100 },
+					{ x: 280, y: 300 },
+				],
+			},
+		];
+		const overlapping = (result: Point[][]) =>
+			result[1]?.some(
+				(point, index, all) =>
+					index > 0 &&
+					point.y === 100 &&
+					all[index - 1]?.y === 100 &&
+					Math.abs(point.x - (all[index - 1]?.x ?? 0)) > 20,
+			) ?? false;
+		expect(overlapping(separateParallelSegments(routes, []))).toBe(true);
+		const split = separateParallelSegments(routes, [], { splitEnds: true });
+		expect(overlapping(split)).toBe(false);
+		// The port stub stays on the original line.
+		expect(split[1]?.[0]).toEqual({ x: 60, y: 100 });
+		expect(split[1]?.[1]?.y).toBe(100);
+	});
+});

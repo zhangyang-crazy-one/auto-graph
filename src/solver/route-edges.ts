@@ -1000,7 +1000,13 @@ function separateCoordinatedEdges(
 			};
 		}),
 		obstacles.map((obstacle) => obstacle.box),
-		{ separate, ...(spacing === undefined ? {} : { spacing }) },
+		{
+			separate,
+			// End splitting belongs to implicit distribution, like border
+			// detachment: explicit rail/gutter pages keep their port segments.
+			splitEnds: implicitAnchorDistribution(options),
+			...(spacing === undefined ? {} : { spacing }),
+		},
 	);
 	return edges.map((edge, index) => ({
 		...edge,

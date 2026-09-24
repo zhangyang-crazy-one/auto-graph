@@ -9,7 +9,7 @@ import type { Insets } from "../ir/geometry.js";
 import type { RouteKind } from "../routing/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
-export type InitialLayoutMode = "dagre" | "positions";
+export type InitialLayoutMode = "dagre" | "positions" | "global";
 
 export interface SolveDiagramOptions {
 	/** Selects the seed coordinates before constraints, routing, and export. */

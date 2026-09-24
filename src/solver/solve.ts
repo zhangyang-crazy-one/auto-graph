@@ -81,6 +81,7 @@ import {
 	edgeBounds,
 	prefitNodeLabelSize,
 	reportPostGrowthOverlaps,
+	runGlobalInitialLayout,
 	runInitialLayout,
 	wrapHorizontalStackIfNeeded,
 	wrapVerticalStackIfNeeded,
@@ -224,13 +225,23 @@ export function solveDiagram(
 				edges: styledEdges,
 				constraints,
 			})
-		: runInitialLayout({
-				mode: initialLayoutMode,
-				componentAware: options.maxStackDepth === undefined,
-				direction: diagram.direction,
-				nodes: styledNodes,
-				edges: styledEdges,
-			});
+		: initialLayoutMode === "global"
+			? runGlobalInitialLayout({
+					direction: diagram.direction,
+					nodes: styledNodes,
+					edges: styledEdges,
+					groups: styledGroups,
+					swimlanes: styledSwimlanes,
+					textMeasurer: options.textMeasurer,
+					declaredEdgeIds: diagram.edges.map((edge) => edge.id),
+				})
+			: runInitialLayout({
+					mode: initialLayoutMode,
+					componentAware: options.maxStackDepth === undefined,
+					direction: diagram.direction,
+					nodes: styledNodes,
+					edges: styledEdges,
+				});
 
 	diagnostics.push(...layout.diagnostics);
 	const initialNodeBoxes =
@@ -316,13 +327,17 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
-	const contractSwimlanes =
+	// The global layout already placed lanes as bands: keep its lane boxes
+	// instead of re-stacking the lanes with the contract heuristics.
+	const globalLaneBoxes = "laneBoxes" in layout ? layout.laneBoxes : undefined;
+	const contractSwimlanes = (
 		options.fixedSwimlaneGeometry === true ||
 		options.fixedSwimlaneGeometry === "diagnose-overflow"
 			? styledSwimlanes.filter(
 					(swimlane) => !hasFixedSwimlaneGeometry(swimlane),
 				)
-			: styledSwimlanes;
+			: styledSwimlanes
+	).filter((swimlane) => globalLaneBoxes?.has(swimlane.id) !== true);
 	const swimlaneContracts =
 		contractSwimlanes.length === 0
 			? {
@@ -343,6 +358,33 @@ export function solveDiagram(
 					Math.max(0, options?.minLaneGutter ?? 0),
 					options.distributeContainedChildren ?? true,
 				);
+	for (const swimlane of styledSwimlanes) {
+		const lanes = globalLaneBoxes?.get(swimlane.id);
+		if (lanes === undefined || hasFixedSwimlaneGeometry(swimlane)) continue;
+		const padding = swimlane.padding ?? 16;
+		// Constraint repair may have nudged a child: lanes still enclose it.
+		const laneBoxes = lanes.map((laneBox, index) =>
+			unionBoxes([
+				laneBox,
+				...(swimlane.lanes[index]?.children ?? [])
+					.map((child) => constrained.boxes.get(child))
+					.filter((box): box is Box => box !== undefined)
+					.map((box) => ({
+						x: box.x - padding,
+						y: box.y - padding,
+						width: box.width + 2 * padding,
+						height: box.height + 2 * padding,
+					})),
+			]),
+		);
+		swimlaneContracts.layouts.set(swimlane.id, {
+			box: unionBoxes(laneBoxes),
+			slotWidth: 0,
+			slotHeight: 0,
+			laneStep: 0,
+			laneBoxes,
+		});
+	}
 	// Distribution may resolve overlaps that were reported earlier
 	// by repairOverlaps — clean those up before continuing.
 	removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);

@@ -18,20 +18,26 @@ import type { NormalizedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
 	NormalizedEdge,
+	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
 } from "../ir/elements.js";
 import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type { LabelLayout } from "../ir/label-layout.js";
-import { fitLabelToShape, translateLabelLayout } from "../labels/index.js";
+import {
+	fitLabel,
+	fitLabelToShape,
+	translateLabelLayout,
+} from "../labels/index.js";
 import {
 	type InitialLayoutResult,
 	runComponentAwareDagreInitialLayout,
 	runDagreInitialLayout,
+	runGlobalLayout,
 } from "../layout/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
-import type { TextStyleOptions } from "../text/types.js";
-import { labelCjkTypography } from "./cjk-typography.js";
+import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
+import { labelCjkTypography, typographyTextStyle } from "./cjk-typography.js";
 import {
 	CROSS_AXIS_SPREAD_THRESHOLD,
 	compactDetail,
@@ -240,6 +246,117 @@ export function runInitialLayout(input: {
 			targetId: edge.target.nodeId,
 		})),
 	});
+}
+
+/** Fitted size of an edge label, sized like `estimateEdgeLabelAnnotations` in labels.ts. */
+export function measureEdgeLabelSize(
+	edge: NormalizedEdge,
+	textMeasurer: TextMeasurer | undefined,
+): Size | undefined {
+	if (edge.label?.text === undefined) {
+		return undefined;
+	}
+	const layout = fitLabel(
+		edge.label.text,
+		{
+			font: typographyTextStyle(edge.label, {
+				fontFamily: "Arial",
+				fontSize: 12,
+				lineHeight: 14,
+			}),
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			minSize: { width: 0, height: 0 },
+			maxWidth: 200,
+		},
+		textMeasurer ?? createDefaultTextMeasurer(),
+	);
+	return layout.fittedSize;
+}
+
+/**
+ * Global layout (plan P3): hierarchy-aware layering and ordering, then a
+ * VPSC quadratic program for coordinates. Dagre runs first only to seed the
+ * ordering search, so the result never starts from a worse order.
+ */
+export function runGlobalInitialLayout(input: {
+	direction: NormalizedDiagram["direction"];
+	nodes: readonly NormalizedNode[];
+	edges: readonly NormalizedEdge[];
+	groups: readonly NormalizedGroup[];
+	swimlanes: readonly Swimlane[];
+	textMeasurer: TextMeasurer | undefined;
+	/** Edge ids in declaration order (the solver sorts edges by id). */
+	declaredEdgeIds?: readonly string[];
+}): InitialLayoutResult {
+	const seed = runDagreInitialLayout({
+		direction: input.direction,
+		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: input.edges.map((edge) => ({
+			id: edge.id,
+			sourceId: edge.source.nodeId,
+			targetId: edge.target.nodeId,
+		})),
+	});
+	// Cycle breaking follows the author's reading order: edges as declared,
+	// nodes by first appearance in those edges.
+	const edgeIndex = new Map(
+		(input.declaredEdgeIds ?? []).map((id, index) => [id, index]),
+	);
+	const declaredEdges = [...input.edges].sort(
+		(a, b) =>
+			(edgeIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+				(edgeIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+			a.id.localeCompare(b.id),
+	);
+	const firstSeen = new Map<string, number>();
+	for (const edge of declaredEdges) {
+		for (const id of [edge.source.nodeId, edge.target.nodeId]) {
+			if (!firstSeen.has(id)) firstSeen.set(id, firstSeen.size);
+		}
+	}
+	const declaredNodes = [...input.nodes].sort(
+		(a, b) =>
+			(firstSeen.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+				(firstSeen.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+			a.id.localeCompare(b.id),
+	);
+	const result = runGlobalLayout({
+		direction: input.direction,
+		nodes: declaredNodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: declaredEdges.map((edge) => {
+			const labelSize = measureEdgeLabelSize(edge, input.textMeasurer);
+			return {
+				id: edge.id,
+				source: edge.source.nodeId,
+				target: edge.target.nodeId,
+				...(labelSize === undefined ? {} : { labelSize }),
+			};
+		}),
+		groups: input.groups.map((group) => {
+			const labelSize = group.labelLayout?.fittedSize ?? group.labelLayout?.box;
+			return {
+				id: group.id,
+				nodeIds: group.nodeIds,
+				groupIds: group.groupIds,
+				padding: group.padding,
+				headerHeight: labelSize?.height ?? 0,
+				labelWidth: labelSize?.width ?? 0,
+			};
+		}),
+		swimlanes: input.swimlanes.map((swimlane) => ({
+			id: swimlane.id,
+			orientation: swimlane.orientation,
+			lanes: swimlane.lanes,
+			headerHeight: swimlane.headerHeight ?? 28,
+			padding: swimlane.padding ?? 16,
+		})),
+		seedBoxes: seed.boxes,
+	});
+	return {
+		boxes: result.boxes,
+		diagnostics: [...seed.diagnostics, ...result.diagnostics],
+		laneBoxes: result.laneBoxes,
+	};
 }
 
 export function runPositionSeededInitialLayout(input: {

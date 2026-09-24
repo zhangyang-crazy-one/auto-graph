@@ -285,6 +285,7 @@ export function lowestCommonContainer(
 	return common;
 }
 
-function containerId(kind: ContainerKind, id: string): string {
+/** Id of the layout container built for a group, lane or swimlane. */
+export function containerId(kind: ContainerKind, id: string): string {
 	return `${kind}:${id}`;
 }

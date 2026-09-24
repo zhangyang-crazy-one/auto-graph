@@ -4,16 +4,23 @@ import { lowestCommonContainer } from "./hierarchy.js";
 /**
  * Layer assignment for the global solver (plan P2).
  *
- * 1. Cycle breaking with the Eades–Lin–Smyth greedy feedback arc set:
- *    sinks go to the back, sources to the front, otherwise the node with the
- *    largest (out − in) degree goes to the front. Edges pointing backwards in
- *    that sequence are reversed for layering only.
+ * 1. Cycle breaking: a depth-first search in declaration order reverses
+ *    the edges that close a cycle (the edges an author writes last, such
+ *    as "retry" or "reject" loops), for layering only. The Eades–Lin–Smyth
+ *    greedy sequence is kept as `greedyFeedbackArcOrder` for callers that
+ *    want the smallest feedback set instead of the declared reading order.
  * 2. Longest-path layering on the resulting DAG, then sources are pulled
  *    towards their successors so they do not create long edges.
  * 3. Swimlanes whose lanes run along the flow become consecutive layer
- *    blocks (lane k starts after lane k-1 ends).
+ *    blocks (lane k starts after lane k-1 ends). Otherwise sibling groups
+ *    (and top-level nodes) linked by edges in one direction only are laid
+ *    out as tiers: the whole target group starts after the source group
+ *    ends, so e.g. services → data reads left to right instead of stacking.
  * 4. Edges spanning more than one layer get one dummy vertex per inner
  *    layer so the ordering stage can route them between real nodes.
+ * 5. Every container gets a filler vertex in each layer of its span that
+ *    has no member, so ordering and coordinates keep its rectangle closed
+ *    (no foreign node can sit in a hole of a group or lane band).
  */
 export interface LayeringEdge {
 	id: string;
@@ -27,6 +34,8 @@ export interface LayerVertex {
 	nodeId?: string;
 	/** Edge a dummy vertex belongs to. */
 	edgeId?: string;
+	/** Placeholder that keeps a container present in a layer. */
+	filler?: true;
 	/** Container used for contiguity during ordering. */
 	containerId: string;
 	layer: number;
@@ -59,29 +68,30 @@ export function assignLayers(
 ): Layering {
 	const nodes = [...nodeIds].sort();
 	const nodeSet = new Set(nodes);
-	const usable = edges
-		.filter(
-			(edge) =>
-				nodeSet.has(edge.source) &&
-				nodeSet.has(edge.target) &&
-				edge.source !== edge.target,
-		)
-		.sort((a, b) => a.id.localeCompare(b.id));
+	const declared = edges.filter(
+		(edge) =>
+			nodeSet.has(edge.source) &&
+			nodeSet.has(edge.target) &&
+			edge.source !== edge.target,
+	);
+	const usable = [...declared].sort((a, b) => a.id.localeCompare(b.id));
 
-	const sequence = greedyFeedbackArcOrder(nodes, usable);
-	const rank = new Map(sequence.map((id, index) => [id, index]));
-	const reversedEdgeIds = new Set<string>();
-	const dagEdges = usable.map((edge) => {
-		const forward = (rank.get(edge.source) ?? 0) < (rank.get(edge.target) ?? 0);
-		if (!forward) reversedEdgeIds.add(edge.id);
-		return forward
-			? { id: edge.id, source: edge.source, target: edge.target }
-			: { id: edge.id, source: edge.target, target: edge.source };
-	});
+	const reversedEdgeIds = depthFirstBackEdges(
+		nodeIds.filter((id) => nodeSet.has(id)),
+		declared,
+	);
+	const dagEdges = usable.map((edge) =>
+		reversedEdgeIds.has(edge.id)
+			? { id: edge.id, source: edge.target, target: edge.source }
+			: { id: edge.id, source: edge.source, target: edge.target },
+	);
 
 	const layerOfNode = hasMainAxisLanes(hierarchy)
 		? laneBlockLayers(nodes, dagEdges, hierarchy)
 		: longestPathLayers(nodes, dagEdges);
+	if (!hasMainAxisLanes(hierarchy)) {
+		enforceContainerPrecedence(layerOfNode, nodes, dagEdges, hierarchy);
+	}
 
 	// Normalise so the first layer is 0.
 	const minLayer = Math.min(0, ...layerOfNode.values());
@@ -96,6 +106,7 @@ export function assignLayers(
 			layer: layerOfNode.get(nodeId) ?? 0,
 		});
 	}
+	const spans = containerSpans(layerOfNode, hierarchy);
 	const segments: LayerSegment[] = [];
 	for (const edge of dagEdges) {
 		const from = layerOfNode.get(edge.source) ?? 0;
@@ -114,29 +125,37 @@ export function assignLayers(
 			upperContainer,
 			lowerContainer,
 		);
-		// An edge between two lanes travels inside its source lane, then
-		// inside its target lane (one lane change), instead of floating
-		// between lane blocks and crossing every intra-lane flow.
-		const upperLane = enclosingLane(hierarchy, upperContainer);
-		const lowerLane = enclosingLane(hierarchy, lowerContainer);
+		// A long edge travels inside the containers it starts in for as long
+		// as they span the layer, then inside the containers it ends in: the
+		// first half prefers the upper end's containers, the second half the
+		// lower end's. Between two lanes that is one lane change; out of a
+		// group it keeps the edge inside the group until the group ends,
+		// instead of forcing it around the group's rectangle.
+		const upperChain = containerChain(hierarchy, upperContainer);
+		const lowerChain = containerChain(hierarchy, lowerContainer);
+		const covering = (chain: readonly string[], layer: number) =>
+			chain.find((id) => {
+				const span = spans.get(id);
+				return span !== undefined && span.min <= layer && layer <= span.max;
+			});
 		const switchLayer = top + Math.ceil((bottom - top) / 2);
 		let previous = upper;
 		for (let layer = top + 1; layer < bottom; layer += 1) {
 			const id = `__dummy__:${edge.id}:${layer}`;
+			const fromUpper = covering(upperChain, layer);
+			const fromLower = covering(lowerChain, layer);
 			const containerId =
-				upperLane !== undefined &&
-				lowerLane !== undefined &&
-				upperLane !== lowerLane
-					? layer < switchLayer
-						? upperLane
-						: lowerLane
-					: common;
+				(layer < switchLayer
+					? (fromUpper ?? fromLower)
+					: (fromLower ?? fromUpper)) ?? common;
 			vertices.set(id, { id, edgeId: edge.id, containerId, layer });
 			segments.push({ edgeId: edge.id, from: previous, to: id });
 			previous = id;
 		}
 		segments.push({ edgeId: edge.id, from: previous, to: lower });
 	}
+
+	addContainerFillers(vertices, layerOfNode, hierarchy);
 
 	const layerCount =
 		Math.max(-1, ...[...vertices.values()].map((vertex) => vertex.layer)) + 1;
@@ -147,6 +166,47 @@ export function assignLayers(
 		layers[vertex.layer]?.push(vertex.id);
 	}
 	return { vertices, layers, segments, reversedEdgeIds, layerOfNode };
+}
+
+/** Containers from `containerId` up to (excluding) the root, deepest first. */
+function containerChain(
+	hierarchy: ContainerHierarchy,
+	containerId: string,
+): string[] {
+	const chain: string[] = [];
+	let cursor: string | undefined = containerId;
+	while (cursor !== undefined && cursor !== hierarchy.rootId) {
+		chain.push(cursor);
+		cursor = hierarchy.containers.get(cursor)?.parentId;
+	}
+	return chain;
+}
+
+/**
+ * Layer span of every container over its real members. A lane spans its
+ * whole swimlane, so lanes stay closed bands.
+ */
+function containerSpans(
+	layerOfNode: ReadonlyMap<string, number>,
+	hierarchy: ContainerHierarchy,
+): Map<string, { min: number; max: number }> {
+	const spans = new Map<string, { min: number; max: number }>();
+	for (const [nodeId, layer] of layerOfNode) {
+		const deepest = hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId;
+		for (const id of containerChain(hierarchy, deepest)) {
+			const current = spans.get(id);
+			spans.set(id, {
+				min: Math.min(current?.min ?? layer, layer),
+				max: Math.max(current?.max ?? layer, layer),
+			});
+		}
+	}
+	for (const container of hierarchy.containers.values()) {
+		if (container.kind !== "lane" || container.parentId === undefined) continue;
+		const swimlane = spans.get(container.parentId);
+		if (swimlane !== undefined) spans.set(container.id, { ...swimlane });
+	}
+	return spans;
 }
 
 /** Nearest lane container at or above `containerId`, if any. */
@@ -161,6 +221,109 @@ function enclosingLane(
 		cursor = container?.parentId;
 	}
 	return undefined;
+}
+
+/**
+ * Edges closing a cycle in a depth-first search that visits nodes and
+ * out-edges in declaration order (iterative, so deep chains are safe).
+ */
+export function depthFirstBackEdges(
+	nodes: readonly string[],
+	edges: readonly LayeringEdge[],
+): Set<string> {
+	const outgoing = new Map<string, LayeringEdge[]>();
+	for (const edge of edges) {
+		const list = outgoing.get(edge.source) ?? [];
+		list.push(edge);
+		outgoing.set(edge.source, list);
+	}
+	const state = new Map<string, "active" | "done">();
+	const back = new Set<string>();
+	for (const root of nodes) {
+		if (state.has(root)) continue;
+		state.set(root, "active");
+		const stack: { node: string; next: number }[] = [{ node: root, next: 0 }];
+		while (stack.length > 0) {
+			const frame = stack[stack.length - 1] as { node: string; next: number };
+			const out = outgoing.get(frame.node) ?? [];
+			const edge = out[frame.next];
+			if (edge === undefined) {
+				state.set(frame.node, "done");
+				stack.pop();
+				continue;
+			}
+			frame.next += 1;
+			const seen = state.get(edge.target);
+			if (seen === "active") {
+				back.add(edge.id);
+			} else if (seen === undefined) {
+				state.set(edge.target, "active");
+				stack.push({ node: edge.target, next: 0 });
+			}
+		}
+	}
+	return back;
+}
+
+/**
+ * Give every container a filler vertex in each layer of its span where
+ * none of its (transitive) members sits. Lanes of one swimlane all span the
+ * swimlane's layers, so every lane stays a closed band.
+ */
+function addContainerFillers(
+	vertices: Map<string, LayerVertex>,
+	layerOfNode: ReadonlyMap<string, number>,
+	hierarchy: ContainerHierarchy,
+): void {
+	const ancestors = (id: string): string[] => {
+		const chain: string[] = [];
+		let cursor: string | undefined = id;
+		while (cursor !== undefined && cursor !== hierarchy.rootId) {
+			chain.push(cursor);
+			cursor = hierarchy.containers.get(cursor)?.parentId;
+		}
+		return chain;
+	};
+	const span = new Map<string, { min: number; max: number }>();
+	for (const [nodeId, layer] of layerOfNode) {
+		const deepest = hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId;
+		for (const id of ancestors(deepest)) {
+			const current = span.get(id);
+			span.set(id, {
+				min: Math.min(current?.min ?? layer, layer),
+				max: Math.max(current?.max ?? layer, layer),
+			});
+		}
+	}
+	const occupied = new Map<string, Set<number>>();
+	const occupy = (containerId: string, layer: number) => {
+		for (const id of ancestors(containerId)) {
+			const layers = occupied.get(id) ?? new Set<number>();
+			layers.add(layer);
+			occupied.set(id, layers);
+		}
+	};
+	for (const vertex of vertices.values())
+		occupy(vertex.containerId, vertex.layer);
+
+	const containers = [...hierarchy.containers.values()]
+		.filter(
+			(container) => container.kind === "group" || container.kind === "lane",
+		)
+		.sort((a, b) => a.id.localeCompare(b.id));
+	for (const container of containers) {
+		const range =
+			container.kind === "lane" && container.parentId !== undefined
+				? span.get(container.parentId)
+				: span.get(container.id);
+		if (range === undefined) continue;
+		for (let layer = range.min; layer <= range.max; layer += 1) {
+			if (occupied.get(container.id)?.has(layer)) continue;
+			const id = `__fill__:${container.id}:${layer}`;
+			vertices.set(id, { id, containerId: container.id, layer, filler: true });
+			occupy(container.id, layer);
+		}
+	}
 }
 
 /** Eades–Lin–Smyth greedy vertex sequence (deterministic). */
@@ -255,6 +418,171 @@ function longestPathLayers(
 		layer.set(node, Math.max(layer.get(node) ?? 0, nearest - 1));
 	}
 	return layer;
+}
+
+/**
+ * Tier constraint between sibling units (groups, or single nodes next to
+ * groups): for every unit edge A → B outside a cycle of the unit graph,
+ * every node of B gets a layer after every node of A. Units that reach each
+ * other both ways keep plain node layering. Raises layers monotonically, so
+ * the loop ends; the cap only guards against malformed input.
+ */
+function enforceContainerPrecedence(
+	layer: Map<string, number>,
+	nodes: readonly string[],
+	edges: readonly LayeringEdge[],
+	hierarchy: ContainerHierarchy,
+): void {
+	const pathOf = (nodeId: string): string[] => {
+		const chain: string[] = [];
+		let cursor: string | undefined =
+			hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId;
+		while (cursor !== undefined) {
+			chain.unshift(cursor);
+			cursor = hierarchy.containers.get(cursor)?.parentId;
+		}
+		return chain;
+	};
+	const unitMembers = new Map<string, string[]>();
+	const unitEdges = new Map<string, Set<string>>();
+	const addMember = (unit: string, nodeId: string) => {
+		const list = unitMembers.get(unit) ?? [];
+		if (!list.includes(nodeId)) list.push(nodeId);
+		unitMembers.set(unit, list);
+	};
+	for (const edge of edges) {
+		const pu = pathOf(edge.source);
+		const pv = pathOf(edge.target);
+		let depth = 0;
+		while (depth < pu.length && depth < pv.length && pu[depth] === pv[depth]) {
+			depth += 1;
+		}
+		const a = pu[depth] ?? `node:${edge.source}`;
+		const b = pv[depth] ?? `node:${edge.target}`;
+		const kindA = hierarchy.containers.get(a)?.kind;
+		const kindB = hierarchy.containers.get(b)?.kind;
+		// Only groups form tiers; lanes and swimlanes share layers by design.
+		if (kindA !== undefined && kindA !== "group") continue;
+		if (kindB !== undefined && kindB !== "group") continue;
+		if (kindA === undefined && kindB === undefined) continue;
+		const targets = unitEdges.get(a) ?? new Set<string>();
+		targets.add(b);
+		unitEdges.set(a, targets);
+	}
+	if (unitEdges.size === 0) return;
+	for (const nodeId of nodes) {
+		for (const unit of pathOf(nodeId)) addMember(unit, nodeId);
+		addMember(`node:${nodeId}`, nodeId);
+	}
+	const component = stronglyConnectedComponents(unitEdges);
+	const tiers: [string, string][] = [];
+	for (const [a, targets] of [...unitEdges].sort((x, y) =>
+		x[0].localeCompare(y[0]),
+	)) {
+		for (const b of [...targets].sort()) {
+			if (component.get(a) !== component.get(b)) tiers.push([a, b]);
+		}
+	}
+	if (tiers.length === 0) return;
+
+	const order = topologicalOrder(nodes, edges);
+	const preds = new Map<string, string[]>(nodes.map((id) => [id, []]));
+	for (const edge of edges) preds.get(edge.target)?.push(edge.source);
+	const limit = nodes.length * (tiers.length + 1) + 1;
+	for (let round = 0; round < limit; round += 1) {
+		let changed = false;
+		for (const [a, b] of tiers) {
+			const before = unitMembers.get(a) ?? [];
+			const after = unitMembers.get(b) ?? [];
+			if (before.length === 0 || after.length === 0) continue;
+			// Raise each late member to the tier bound individually (not the
+			// whole block), so a tier fed from one side collapses into one
+			// column instead of keeping its longest-path staircase.
+			const bound = Math.max(...before.map((id) => layer.get(id) ?? 0)) + 1;
+			for (const id of after) {
+				if ((layer.get(id) ?? 0) < bound) {
+					layer.set(id, bound);
+					changed = true;
+				}
+			}
+		}
+		for (const node of order) {
+			const incoming = preds.get(node) ?? [];
+			if (incoming.length === 0) continue;
+			const least = Math.max(...incoming.map((id) => (layer.get(id) ?? 0) + 1));
+			if ((layer.get(node) ?? 0) < least) {
+				layer.set(node, least);
+				changed = true;
+			}
+		}
+		if (!changed) return;
+	}
+}
+
+/** Tarjan's strongly connected components (iterative, deterministic). */
+function stronglyConnectedComponents(
+	graph: ReadonlyMap<string, ReadonlySet<string>>,
+): Map<string, number> {
+	const vertices = new Set<string>();
+	for (const [from, targets] of graph) {
+		vertices.add(from);
+		for (const to of targets) vertices.add(to);
+	}
+	const index = new Map<string, number>();
+	const low = new Map<string, number>();
+	const onStack = new Set<string>();
+	const stack: string[] = [];
+	const component = new Map<string, number>();
+	let counter = 0;
+	let components = 0;
+	for (const root of [...vertices].sort()) {
+		if (index.has(root)) continue;
+		const work: { v: string; targets: string[]; next: number }[] = [];
+		const open = (v: string) => {
+			index.set(v, counter);
+			low.set(v, counter);
+			counter += 1;
+			stack.push(v);
+			onStack.add(v);
+			work.push({ v, targets: [...(graph.get(v) ?? [])].sort(), next: 0 });
+		};
+		open(root);
+		while (work.length > 0) {
+			const frame = work[work.length - 1] as {
+				v: string;
+				targets: string[];
+				next: number;
+			};
+			const w = frame.targets[frame.next];
+			if (w !== undefined) {
+				frame.next += 1;
+				if (!index.has(w)) {
+					open(w);
+				} else if (onStack.has(w)) {
+					low.set(frame.v, Math.min(low.get(frame.v) ?? 0, index.get(w) ?? 0));
+				}
+				continue;
+			}
+			work.pop();
+			const parent = work[work.length - 1];
+			if (parent !== undefined) {
+				low.set(
+					parent.v,
+					Math.min(low.get(parent.v) ?? 0, low.get(frame.v) ?? 0),
+				);
+			}
+			if (low.get(frame.v) === index.get(frame.v)) {
+				for (;;) {
+					const member = stack.pop() as string;
+					onStack.delete(member);
+					component.set(member, components);
+					if (member === frame.v) break;
+				}
+				components += 1;
+			}
+		}
+	}
+	return component;
 }
 
 function hasMainAxisLanes(hierarchy: ContainerHierarchy): boolean {

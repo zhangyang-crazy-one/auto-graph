@@ -32,6 +32,11 @@ export interface SwimlaneContractLayout {
 	slotWidth: number;
 	slotHeight: number;
 	laneStep: number;
+	/**
+	 * Explicit lane boxes (e.g. from the global layout). When present they
+	 * replace the uniform slots, for contract and overlay swimlanes alike.
+	 */
+	laneBoxes?: Box[];
 }
 
 export interface SwimlaneContractResult {
@@ -827,10 +832,18 @@ export function coordinateSwimlanes(
 				padding,
 			};
 		}
-		if (layout === "contract" && contractLayout !== undefined) {
+		if (
+			contractLayout !== undefined &&
+			(layout === "contract" || contractLayout.laneBoxes !== undefined)
+		) {
 			const lanes = swimlane.lanes.map((lane, index) => {
+				const explicit = contractLayout.laneBoxes?.[index];
+				if (explicit !== undefined && layout !== "contract") {
+					return { ...lane, box: explicit };
+				}
 				const box =
-					swimlane.orientation === "vertical"
+					explicit ??
+					(swimlane.orientation === "vertical"
 						? {
 								x: contractLayout.box.x + contractLayout.laneStep * index,
 								y: contractLayout.box.y,
@@ -842,7 +855,7 @@ export function coordinateSwimlanes(
 								y: contractLayout.box.y + contractLayout.laneStep * index,
 								width: contractLayout.box.width,
 								height: contractLayout.slotHeight,
-							};
+							});
 				const headerBox =
 					swimlane.orientation === "vertical"
 						? {

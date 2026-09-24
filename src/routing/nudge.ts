@@ -49,6 +49,11 @@ export interface EdgeSeparationOptions {
 	 * false only the obstacle-escape repair runs.
 	 */
 	separate?: boolean;
+	/**
+	 * Also separate long first/last segments that run on top of another
+	 * route, keeping a `minStub` piece at the port (default false).
+	 */
+	splitEnds?: boolean;
 }
 
 type Orientation = "v" | "h";
@@ -86,6 +91,10 @@ export function separateParallelSegments(
 	const movable = routes.map(
 		(route, index) => route.fixed !== true && isOrthogonal(points[index] ?? []),
 	);
+
+	if (options.separate !== false && options.splitEnds === true) {
+		splitCollinearEnds(points, movable, minStub, spacing);
+	}
 
 	// Fixed routes (e.g. allocated rails) never move, but their segments are
 	// locked bundle members: movable tracks must keep clear of them.
@@ -231,6 +240,73 @@ function escapeObstacles(
 				break;
 			}
 		}
+	}
+}
+
+/**
+ * First and last segments attach to ports and are never nudged. When a
+ * long one runs on top of another route (aligned nodes make this common),
+ * keep a `minStub` piece at the port and turn the rest into an interior
+ * segment behind a zero-length jog, so the bundle pass can move it onto
+ * its own track. Unused jogs disappear in the final `compact`.
+ */
+function splitCollinearEnds(
+	points: Point[][],
+	movable: readonly boolean[],
+	minStub: number,
+	spacing: number,
+): void {
+	const overlapsOther = (routeIndex: number, a: Point, b: Point): boolean => {
+		const vertical = Math.abs(a.x - b.x) < EPSILON;
+		const coord = vertical ? a.x : a.y;
+		const lo = vertical ? Math.min(a.y, b.y) : Math.min(a.x, b.x);
+		const hi = vertical ? Math.max(a.y, b.y) : Math.max(a.x, b.x);
+		return points.some((other, otherIndex) => {
+			if (otherIndex === routeIndex) return false;
+			for (let index = 0; index + 1 < other.length; index += 1) {
+				const c = other[index] as Point;
+				const d = other[index + 1] as Point;
+				const otherVertical = Math.abs(c.x - d.x) < EPSILON;
+				const otherHorizontal = Math.abs(c.y - d.y) < EPSILON;
+				if (vertical ? !otherVertical : !otherHorizontal) continue;
+				if (Math.abs((vertical ? c.x : c.y) - coord) >= EPSILON) continue;
+				const otherLo = vertical ? Math.min(c.y, d.y) : Math.min(c.x, d.x);
+				const otherHi = vertical ? Math.max(c.y, d.y) : Math.max(c.x, d.x);
+				if (Math.min(hi, otherHi) - Math.max(lo, otherLo) > EPSILON) {
+					return true;
+				}
+			}
+			return false;
+		});
+	};
+	const stubPoint = (from: Point, toward: Point): Point => {
+		const length = Math.hypot(toward.x - from.x, toward.y - from.y);
+		const t = minStub / length;
+		return {
+			x: from.x + (toward.x - from.x) * t,
+			y: from.y + (toward.y - from.y) * t,
+		};
+	};
+	for (let routeIndex = 0; routeIndex < points.length; routeIndex += 1) {
+		if (movable[routeIndex] !== true) continue;
+		let route = points[routeIndex] ?? [];
+		if (route.length < 2) continue;
+		const splittable = (a: Point, b: Point) =>
+			Math.hypot(b.x - a.x, b.y - a.y) >
+				2 * minStub + spacing + (route.length === 2 ? minStub : 0) &&
+			overlapsOther(routeIndex, a, b);
+		const first = [route[0] as Point, route[1] as Point] as const;
+		if (splittable(...first)) {
+			const stub = stubPoint(first[0], first[1]);
+			route = [first[0], stub, { ...stub }, ...route.slice(1)];
+		}
+		const n = route.length;
+		const last = [route[n - 2] as Point, route[n - 1] as Point] as const;
+		if (n >= 3 && splittable(...last)) {
+			const stub = stubPoint(last[1], last[0]);
+			route = [...route.slice(0, n - 1), { ...stub }, stub, last[1]];
+		}
+		points[routeIndex] = route;
 	}
 }
 

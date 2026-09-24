@@ -143,7 +143,9 @@ function toSolveDiagnostic(
 function solveInitialLayoutOption(
 	value: unknown,
 ): Pick<SolveDiagramOptions, "initialLayout"> {
-	return value === "positions" ? { initialLayout: "positions" } : {};
+	return value === "positions" || value === "global"
+		? { initialLayout: value }
+		: {};
 }
 
 function solvePortShiftingOption(value: unknown):

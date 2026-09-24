@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse, stringify } from "yaml";
 import { renderDiagramDsl } from "../../src/dsl/index.js";
 import {
 	containmentRelations,
@@ -31,6 +32,13 @@ const BENCHMARKS = [
 	"examples/flowchart.yaml",
 	"examples/architecture.yaml",
 	"examples/groups.yaml",
+	// Same inputs solved with the global layout (`layout.mode: global`).
+	"test/fixtures/benchmark/cn-swimlane.yaml#global",
+	"test/fixtures/benchmark/cn-vertical-lanes.yaml#global",
+	"test/fixtures/benchmark/cn-architecture.yaml#global",
+	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml#global",
+	"examples/fan-out.yaml#global",
+	"examples/swimlane.yaml#global",
 ] as const;
 
 const BASELINE_URL = new URL(
@@ -45,8 +53,14 @@ const REPO_ROOT = new URL("../../", import.meta.url);
 
 type Baseline = Record<string, LayoutMetrics>;
 
-function solveBenchmark(path: string): LayoutMetrics {
-	const source = readFileSync(new URL(path, REPO_ROOT), "utf8");
+function solveBenchmark(entry: string): LayoutMetrics {
+	const [path = entry, mode] = entry.split("#");
+	let source = readFileSync(new URL(path, REPO_ROOT), "utf8");
+	if (mode !== undefined) {
+		const document = parse(source) as { layout?: Record<string, unknown> };
+		document.layout = { ...document.layout, mode };
+		source = stringify(document);
+	}
 	const result = renderDiagramDsl(source, {
 		sourcePath: path,
 		textMeasurer: new DeterministicTextMeasurer(),
@@ -115,7 +129,7 @@ function renderReport(metrics: Baseline): string {
 	const divider = `|---|${REPORT_COLUMNS.map(() => "---:").join("|")}|`;
 	const rows = Object.entries(metrics).map(
 		([path, values]) =>
-			`| ${path.replace(/^.*\//, "")} | ${REPORT_COLUMNS.map(([key]) => values[key]).join(" | ")} |`,
+			`| ${path.replace(/^.*\//, "").replace("#", " · ")} | ${REPORT_COLUMNS.map(([key]) => values[key]).join(" | ")} |`,
 	);
 	return [
 		"# Layout quality baseline",
