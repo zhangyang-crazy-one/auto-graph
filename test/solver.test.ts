@@ -3766,9 +3766,18 @@ describe("solveDiagram", () => {
 		expect(nodeLabel.box.x + nodeLabel.box.width / 2).toBeCloseTo(
 			denseNode.box.x + denseNode.box.width / 2,
 		);
-		expect(nodeLabel.lines.map((line) => line.box.x)).toEqual(
-			nodeLabel.lines.map(() => nodeLabel.paddings.left),
-		);
+		// Line boxes stay local to the label box (not shifted by the port
+		// expansion) and are centred inside the local content box.
+		const contentCenter =
+			nodeLabel.paddings.left +
+			(nodeLabel.box.width -
+				nodeLabel.paddings.left -
+				nodeLabel.paddings.right) /
+				2;
+		for (const line of nodeLabel.lines) {
+			expect(line.box.x).toBeGreaterThanOrEqual(nodeLabel.paddings.left);
+			expect(line.box.x + line.width / 2).toBeCloseTo(contentCenter, 5);
+		}
 	});
 
 	it("distributes vertical contract swimlane children by top-to-bottom flow rank", () => {

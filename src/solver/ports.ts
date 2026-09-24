@@ -23,6 +23,7 @@ import type {
 	SolvedTextAnnotation,
 	TextSurfaceKind,
 } from "../ir/label-layout.js";
+import { labelLinesRelativeToBox } from "../labels/fit.js";
 import { computeFanOutPorts } from "../routing/bus-router.js";
 import type { TextStyleOptions } from "../text/types.js";
 import type { CjkTypography } from "./cjk-typography.js";
@@ -1130,7 +1131,7 @@ export function buildCenteredTextAnnotation(input: {
 		},
 		anchor: input.anchor ?? input.center,
 		paddings: input.layout.padding,
-		lines: input.layout.lines,
+		lines: labelLinesRelativeToBox(input.layout),
 		fontFamily:
 			input.typography?.fontFamily ??
 			normalizeOutputFontFamily(input.layout.font),

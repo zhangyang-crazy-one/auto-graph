@@ -85,7 +85,7 @@ export function separateParallelSegments(
 					);
 				if (members.length < 2) continue;
 				if (
-					applyBundle(members, points, routes, obstacles, {
+					applyBundle(members, points, obstacles, {
 						spacing,
 						clearance,
 						minStub,
@@ -98,13 +98,116 @@ export function separateParallelSegments(
 		if (!moved) break;
 	}
 
+	escapeObstacles(points, movable, obstacles, { clearance, minStub }, routes);
+
 	return points.map((route) => compact(route));
+}
+
+/**
+ * A lone interior segment that clips an obstacle (the router kept its
+ * least-bad candidate) is shifted just past the nearer obstacle edge when
+ * that lowers the route's obstacle hits without reversing its neighbours.
+ * Bundles never trigger this; it only repairs single grazes.
+ */
+function escapeObstacles(
+	points: Point[][],
+	movable: readonly boolean[],
+	obstacles: readonly Box[],
+	config: { clearance: number; minStub: number },
+	routes: readonly SeparableRoute[],
+): void {
+	for (let routeIndex = 0; routeIndex < points.length; routeIndex += 1) {
+		if (movable[routeIndex] !== true) continue;
+		const route = points[routeIndex] ?? [];
+		for (let index = 1; index <= route.length - 3; index += 1) {
+			const segment = describeSegment(routeIndex, index, route);
+			if (segment === undefined) continue;
+			const start = route[index];
+			const end = route[index + 1];
+			if (start === undefined || end === undefined) continue;
+			const hits = obstacles.filter((box) =>
+				segmentEntersBoxInterior(start, end, box),
+			);
+			if (hits.length === 0) continue;
+			const vertical = segment.orientation === "v";
+			const [minCoord, maxCoord] = neighbourBounds(
+				segment,
+				route,
+				config.minStub,
+			);
+			const before = countObstacleHits(route, obstacles);
+			// Escape candidates just past either side of every obstacle hit,
+			// nearest first; the first one that lowers the hit count wins.
+			const candidates = [
+				...new Set(
+					hits.flatMap((box) => {
+						const low = vertical ? box.x : box.y;
+						const high = vertical ? box.x + box.width : box.y + box.height;
+						return [low - config.clearance, high + config.clearance];
+					}),
+				),
+			]
+				.filter((coord) => coord > minCoord && coord < maxCoord)
+				.sort(
+					(a, b) =>
+						Math.abs(a - segment.coord) - Math.abs(b - segment.coord) || a - b,
+				);
+			for (const coord of candidates) {
+				const trial = route.map((point) => ({ ...point }));
+				const a = trial[index];
+				const b = trial[index + 1];
+				if (a === undefined || b === undefined) continue;
+				if (vertical) {
+					a.x = coord;
+					b.x = coord;
+				} else {
+					a.y = coord;
+					b.y = coord;
+				}
+				if (countObstacleHits(trial, obstacles) >= before) continue;
+				// Do not trade an obstacle graze for stacking on another edge.
+				// (A new crossing is fine: it renders as a hop, while passing
+				// through a node is a hard violation.)
+				const overlapsOther = points.some(
+					(other, otherIndex) =>
+						otherIndex !== routeIndex &&
+						routes[otherIndex] !== undefined &&
+						countOverlaps(trial, other) > countOverlaps(route, other),
+				);
+				if (overlapsOther) continue;
+				points[routeIndex] = trial;
+				break;
+			}
+		}
+	}
+}
+
+/** Coordinate range that keeps both neighbouring segments' directions. */
+function neighbourBounds(
+	segment: MovableSegment,
+	route: readonly Point[],
+	minStub: number,
+): [number, number] {
+	let low = Number.NEGATIVE_INFINITY;
+	let high = Number.POSITIVE_INFINITY;
+	const vertical = segment.orientation === "v";
+	const lastIndex = route.length - 1;
+	for (const [point, endpoint] of [
+		[route[segment.index - 1], segment.index - 1 === 0],
+		[route[segment.index + 2], segment.index + 2 === lastIndex],
+	] as const) {
+		if (point === undefined) continue;
+		const coord = vertical ? point.x : point.y;
+		const gap = endpoint ? minStub : 1;
+		if (coord < segment.coord) low = Math.max(low, coord + gap);
+		else if (coord > segment.coord) high = Math.min(high, coord - gap);
+	}
+	return [low, high];
 }
 
 function applyBundle(
 	members: MovableSegment[],
 	points: Point[][],
-	routes: readonly SeparableRoute[],
 	obstacles: readonly Box[],
 	config: { spacing: number; clearance: number; minStub: number },
 ): boolean {
@@ -499,6 +602,23 @@ function countConflicts(a: readonly Point[], b: readonly Point[]): number {
 		}
 	}
 	return conflicts;
+}
+
+/** Collinear overlaps (stacked runs) between two orthogonal polylines. */
+function countOverlaps(a: readonly Point[], b: readonly Point[]): number {
+	let overlaps = 0;
+	for (let i = 0; i + 1 < a.length; i += 1) {
+		const a0 = a[i];
+		const a1 = a[i + 1];
+		if (a0 === undefined || a1 === undefined) continue;
+		for (let j = 0; j + 1 < b.length; j += 1) {
+			const b0 = b[j];
+			const b1 = b[j + 1];
+			if (b0 === undefined || b1 === undefined) continue;
+			if (segmentsOverlap(a0, a1, b0, b1)) overlaps += 1;
+		}
+	}
+	return overlaps;
 }
 
 function segmentsCross(a0: Point, a1: Point, b0: Point, b1: Point): boolean {

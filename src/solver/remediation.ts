@@ -59,6 +59,7 @@ import {
 	reserveSideGutters,
 	sameBox,
 	stableStrings,
+	textAnnotationContentBox,
 } from "./helpers.js";
 import {
 	capacityFromDiagnostics,
@@ -944,7 +945,7 @@ export function rerouteRemediationEdges(
 		state.coordinatedEdges,
 		[
 			...state.coordinatedNodes.map((node) => node.box),
-			...state.baseTextAnnotations.map((annotation) => annotation.box),
+			...state.baseTextAnnotations.map(textAnnotationContentBox),
 			...state.frameTextAnnotation.map((annotation) => annotation.box),
 		],
 		options,

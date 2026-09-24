@@ -23,8 +23,7 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type { LabelLayout } from "../ir/label-layout.js";
-import { applyEllipseCircleSize } from "../ir/semantic-roles.js";
-import { fitLabel } from "../labels/index.js";
+import { fitLabelToShape, translateLabelLayout } from "../labels/index.js";
 import {
 	type InitialLayoutResult,
 	runComponentAwareDagreInitialLayout,
@@ -335,12 +334,18 @@ export function prefitNodeLabelSize(
 		return node;
 	}
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
-	const layout = fitLabel(
+	// Shape-aware fit: the drawn outline (diamond, circle, hexagon, cylinder,
+	// …) must contain the measured text; caller size is a floor.
+	const fit = fitLabelToShape(
 		node.label.text,
 		{
+			shape: node.shape,
 			font: prefitLabelFont(node, options),
 			padding: DEFAULT_NODE_PADDING,
-			minSize: DEFAULT_NODE_MIN_SIZE,
+			minSize: {
+				width: Math.max(DEFAULT_NODE_MIN_SIZE.width, node.size.width),
+				height: Math.max(DEFAULT_NODE_MIN_SIZE.height, node.size.height),
+			},
 			maxWidth:
 				node.label.maxWidth ??
 				Math.max(node.size.width, DEFAULT_LABEL_MAX_WIDTH),
@@ -348,13 +353,7 @@ export function prefitNodeLabelSize(
 		},
 		measurer,
 	);
-	let width = Math.max(node.size.width, layout.fittedSize.width);
-	let height = Math.max(node.size.height, layout.fittedSize.height);
-	if (node.shape === "ellipse") {
-		const circle = applyEllipseCircleSize({ width, height });
-		width = circle.width;
-		height = circle.height;
-	}
+	const { width, height } = fit.size;
 	const resized = width !== node.size.width || height !== node.size.height;
 	if (resized) {
 		diagnostics.push({
@@ -369,11 +368,9 @@ export function prefitNodeLabelSize(
 			},
 		});
 	}
-	// Center the label layout within the node dimensions so the
-	// annotation is visually centered even when the node is larger
-	// than what the label text requires (codex P2).
-	const centeredLayout = expandLabelLayoutToNode(layout, { width, height });
-	return { ...node, size: { width, height }, labelLayout: centeredLayout };
+	// The shape fitter already centres the label (cylinders shift it below
+	// the top cap), so the annotation stays inside the outline.
+	return { ...node, size: { width, height }, labelLayout: fit.layout };
 }
 export function expandLabelLayoutToNode(
 	layout: LabelLayout,
@@ -390,15 +387,7 @@ export function expandLabelLayoutToNode(
 	if (offsetX === 0 && offsetY === 0) {
 		return layout;
 	}
-	return {
-		...layout,
-		box: {
-			x: layout.box.x + offsetX,
-			y: layout.box.y + offsetY,
-			width: layout.box.width,
-			height: layout.box.height,
-		},
-	};
+	return translateLabelLayout(layout, offsetX, offsetY);
 }
 
 export function wrapVerticalStackIfNeeded(

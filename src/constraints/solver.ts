@@ -528,6 +528,9 @@ function applyDistribute(
 	}
 }
 
+/** Upper bound on overlap repair sweeps (the first two keep legacy order). */
+const MAX_OVERLAP_REPAIR_PASSES = 6;
+
 function repairOverlaps(
 	input: ConstraintSolverInput,
 	boxes: Map<string, Box>,
@@ -541,14 +544,18 @@ function repairOverlaps(
 	const ignoredPairs = containmentOverlapKeys(input.constraints);
 	const ids = [...boxes.keys()].sort();
 
-	const index = createBoxSpatialIndex(
-		ids.flatMap((id) => {
-			const box = boxes.get(id);
-			return box === undefined ? [] : [{ id, box }];
-		}),
-		spacing,
-	);
-	for (let pass = 0; pass < 2; pass += 1) {
+	// The index must reflect earlier moves: a box pushed in one pass can land
+	// on a neighbour that was not a candidate before. Rebuild per pass and
+	// keep going (bounded) until a pass moves nothing.
+	for (let pass = 0; pass < MAX_OVERLAP_REPAIR_PASSES; pass += 1) {
+		let movedAny = false;
+		const index = createBoxSpatialIndex(
+			ids.flatMap((id) => {
+				const box = boxes.get(id);
+				return box === undefined ? [] : [{ id, box }];
+			}),
+			spacing,
+		);
 		for (const firstId of ids) {
 			const first = boxes.get(firstId);
 			if (first === undefined) {
@@ -597,8 +604,10 @@ function repairOverlaps(
 					effectiveSpacing,
 				);
 				boxes.set(movingId, moved);
+				movedAny = true;
 			}
 		}
+		if (!movedAny && pass >= 1) break;
 	}
 
 	reportOverlaps(boxes, diagnostics, ignoredPairs, locks);

@@ -75,6 +75,7 @@ import {
 	reserveSideGutters,
 	stableByConstraintId,
 	stableUniqueById,
+	textAnnotationContentBox,
 } from "./helpers.js";
 import {
 	edgeBounds,
@@ -122,6 +123,7 @@ import {
 	coordinateEdges,
 	edgeIdsFromRouteTextDiagnostics,
 	edgeLabelRerouteIterations,
+	finalizeCoordinatedEdges,
 	isPreRouteTextObstacle,
 	replaceRouteDiagnosticsForEdge,
 	reportRouteTextClearance,
@@ -618,7 +620,7 @@ export function solveDiagram(
 		coordinatedEdges,
 		[
 			...coordinatedNodes.map((node) => node.box),
-			...baseTextAnnotations.map((annotation) => annotation.box),
+			...baseTextAnnotations.map(textAnnotationContentBox),
 			...frameTextAnnotation.map((annotation) => annotation.box),
 		],
 		options,
@@ -744,7 +746,7 @@ export function solveDiagram(
 				candidateEdges,
 				[
 					...coordinatedNodes.map((node) => node.box),
-					...baseTextAnnotations.map((annotation) => annotation.box),
+					...baseTextAnnotations.map(textAnnotationContentBox),
 					...frameTextAnnotation.map((annotation) => annotation.box),
 				],
 				options,
@@ -816,6 +818,28 @@ export function solveDiagram(
 	}
 	coordinatedEdges = [...routeLabelFeedbackState.edges];
 	edgeTextAnnotations = [...routeLabelFeedbackState.edgeTextAnnotations];
+	if (routeLabelFeedbackState.changedEdgeIds.size > 0) {
+		// Single-edge reroutes could not see their neighbours; re-run the
+		// cross-edge post-passes over the whole set and re-place labels.
+		coordinatedEdges = finalizeCoordinatedEdges(
+			coordinatedEdges,
+			nodeGeometryById,
+			policyHardObstacles,
+			policySoftObstacles,
+			routingTextObstacles,
+			acceptedRailAllocations,
+			options,
+		);
+		edgeTextAnnotations = coordinateEdgeTextAnnotations(
+			coordinatedEdges,
+			[
+				...coordinatedNodes.map((node) => node.box),
+				...baseTextAnnotations.map(textAnnotationContentBox),
+				...frameTextAnnotation.map((annotation) => annotation.box),
+			],
+			options,
+		);
+	}
 	edgeRoutingDiagnostics.splice(
 		0,
 		edgeRoutingDiagnostics.length,

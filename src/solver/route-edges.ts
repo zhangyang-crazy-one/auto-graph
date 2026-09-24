@@ -29,6 +29,7 @@ import {
 	type RouteHardObstacleMetadata,
 	routeEdge,
 	separateParallelSegments,
+	simplifyRoute,
 } from "../routing/index.js";
 import {
 	ancestorGroupIds,
@@ -409,26 +410,77 @@ export function coordinateEdges(
 		});
 	}
 
-	const implicit = implicitAnchorDistribution(options);
-	const spread = implicit
-		? spreadCollidingEndpoints(coordinated, nodes)
-		: coordinated;
-	const separated = separateCoordinatedEdges(
-		spread,
+	return finalizeCoordinatedEdges(
+		coordinated,
 		nodes,
 		hardObstacles,
-		textObstacles
-			.filter(isLocalRouteClearanceText)
-			.map((annotation) => textObstacleBox(annotation, options)),
+		softObstacles,
+		textObstacles,
 		railAllocations,
 		options,
 	);
-	return implicit
-		? snapEndpointsToShapeOutline(
-				detachBorderHuggingEnds(separated, nodes),
+}
+
+/**
+ * Cross-edge post-passes: spread coincident endpoints, nudge shared
+ * corridors into parallel tracks, detach border-hugging ends and snap
+ * endpoints onto non-rectangular outlines. Runs at the end of every
+ * `coordinateEdges` call and again over the whole edge set after single-edge
+ * reroutes (which cannot see their neighbours).
+ */
+export function finalizeCoordinatedEdges(
+	edges: CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	hardObstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	textObstacles: readonly SolvedTextAnnotation[],
+	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
+	options: SolveDiagramOptions,
+): CoordinatedEdge[] {
+	const implicit = implicitAnchorDistribution(options);
+	// Every post-pass move is validated against the same obstacles the
+	// router avoided: nodes, hard blocks, policy soft obstacles (tables,
+	// panels, title bars, lane corridors) and text surfaces.
+	const obstacles = [
+		...[...nodes.values()].map((geometry) => geometry.box),
+		...hardObstacles,
+		...softObstacles,
+		...textObstacles
+			.filter(isLocalRouteClearanceText)
+			.map((annotation) => textObstacleBox(annotation, options)),
+	];
+	// Detach border-hugging ends first so every endpoint has its final side
+	// before coincident endpoints on that side are spread apart.
+	const spread = implicit
+		? spreadCollidingEndpoints(
+				detachBorderHuggingEnds(edges, nodes, obstacles),
 				nodes,
 			)
-		: separated;
+		: edges;
+	const separated = separateCoordinatedEdges(
+		spread,
+		obstacles,
+		railAllocations,
+		options,
+	);
+	return implicit ? snapEndpointsToShapeOutline(separated, nodes) : separated;
+}
+
+/** Number of (segment, obstacle) pairs where a route enters an obstacle. */
+function routeObstacleHits(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): number {
+	let hits = 0;
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) continue;
+		for (const box of obstacles) {
+			if (segmentIntersectsBox(start, end, box)) hits += 1;
+		}
+	}
+	return hits;
 }
 
 /** Outward offset applied to an end segment that runs along its node border. */
@@ -443,6 +495,7 @@ const BORDER_HUGGING_STUB = 12;
 function detachBorderHuggingEnds(
 	edges: readonly CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	obstacles: readonly Box[],
 ): CoordinatedEdge[] {
 	return edges.map((edge) => {
 		let points = edge.points.map((point) => ({ ...point }));
@@ -478,7 +531,15 @@ function detachBorderHuggingEnds(
 				shiftedNext,
 				...ordered.slice(2),
 			]);
-			points = role === "source" ? rebuilt : rebuilt.reverse();
+			const candidate = role === "source" ? rebuilt : rebuilt.reverse();
+			// The outward stub must not trade a border graze for a collision.
+			if (
+				routeObstacleHits(candidate, obstacles) >
+				routeObstacleHits(points, obstacles)
+			) {
+				continue;
+			}
+			points = candidate;
 			changed = true;
 		}
 		return changed ? { ...edge, points } : edge;
@@ -570,9 +631,26 @@ function spreadCollidingEndpoints(
 	edges: readonly CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 ): CoordinatedEdge[] {
-	const routes = edges.map((edge) =>
-		edge.points.map((point) => ({ ...point })),
-	);
+	// A straight 2-point route cannot slide an endpoint without breaking
+	// orthogonality, so give it a zero-length dogleg at its midpoint; moving
+	// an endpoint then becomes a small jog there. Unused doglegs are
+	// simplified away at the end.
+	const expanded = new Set<number>();
+	const routes = edges.map((edge, index) => {
+		const points = edge.points.map((point) => ({ ...point }));
+		const [a, b] = points;
+		if (
+			points.length === 2 &&
+			a !== undefined &&
+			b !== undefined &&
+			(Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5)
+		) {
+			const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+			expanded.add(index);
+			return [a, middle, { ...middle }, b];
+		}
+		return points;
+	});
 	interface EndpointRef {
 		edgeIndex: number;
 		role: "source" | "target";
@@ -678,10 +756,13 @@ function spreadCollidingEndpoints(
 			const oldAlong = alongY ? bend.y : bend.x;
 			const newAlong = alongY ? moved.y : moved.x;
 			const nextAlong = alongY ? next.y : next.x;
-			// Keep the segment after the bend pointing the same way.
+			// Keep the segment after the bend pointing the same way (a dogleg
+			// placeholder, where next == bend, may point either way).
+			const placeholder = Math.abs(nextAlong - oldAlong) < 1e-9;
 			if (
-				Math.sign(nextAlong - newAlong) !== Math.sign(nextAlong - oldAlong) ||
-				Math.abs(nextAlong - newAlong) < 1
+				!placeholder &&
+				(Math.sign(nextAlong - newAlong) !== Math.sign(nextAlong - oldAlong) ||
+					Math.abs(nextAlong - newAlong) < 1)
 			) {
 				return;
 			}
@@ -692,10 +773,13 @@ function spreadCollidingEndpoints(
 		});
 	}
 
-	return edges.map((edge, index) => ({
-		...edge,
-		points: routes[index] ?? edge.points,
-	}));
+	return edges.map((edge, index) => {
+		const route = routes[index] ?? edge.points;
+		return {
+			...edge,
+			points: expanded.has(index) ? simplifyRoute(route) : route,
+		};
+	});
 }
 
 function implicitAnchorDistribution(options: SolveDiagramOptions): boolean {
@@ -712,9 +796,7 @@ function implicitAnchorDistribution(options: SolveDiagramOptions): boolean {
  */
 function separateCoordinatedEdges(
 	edges: CoordinatedEdge[],
-	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
-	hardObstacles: readonly Box[],
-	textObstacleBoxes: readonly Box[],
+	obstacles: readonly Box[],
 	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
 	options: SolveDiagramOptions,
 ): CoordinatedEdge[] {
@@ -737,11 +819,7 @@ function separateCoordinatedEdges(
 			points: edge.points,
 			fixed: railAllocations?.has(edge.id) === true,
 		})),
-		[
-			...[...nodes.values()].map((geometry) => geometry.box),
-			...hardObstacles,
-			...textObstacleBoxes,
-		],
+		obstacles,
 		spacing === undefined ? {} : { spacing },
 	);
 	return edges.map((edge, index) => ({

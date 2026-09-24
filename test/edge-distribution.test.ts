@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { normalizeDiagramDsl, parseDiagramDsl } from "../src/dsl/index.js";
-import { shapeSideAttachRange, shapeSidePoint } from "../src/geometry/index.js";
+import {
+	computeShapeGeometry,
+	shapeSideAttachRange,
+	shapeSidePoint,
+} from "../src/geometry/index.js";
 import type {
+	Box,
 	CoordinatedDiagram,
 	NormalizedDiagram,
 	Point,
 } from "../src/ir/index.js";
 import { separateParallelSegments } from "../src/routing/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { finalizeCoordinatedEdges } from "../src/solver/route-edges.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("edge separation (nudging)", () => {
@@ -284,3 +290,66 @@ function crosses(
 		h0.y < Math.max(v0.y, v1.y)
 	);
 }
+
+describe("finalizeCoordinatedEdges", () => {
+	it("never nudges a track into a policy soft obstacle", () => {
+		const nodeBox = (x: number, y: number) => ({
+			x,
+			y,
+			width: 40,
+			height: 20,
+		});
+		const nodes = new Map(
+			[
+				["s1", nodeBox(0, 0)],
+				["s2", nodeBox(0, 40)],
+				["t1", nodeBox(300, 200)],
+				["t2", nodeBox(300, 260)],
+			].map(([id, box]) => [
+				id as string,
+				computeShapeGeometry({ shape: "rectangle", box: box as Box }),
+			]),
+		);
+		// Two routes share the vertical trunk at x = 150; a soft obstacle
+		// (e.g. a table) sits immediately right of it.
+		const edge = (
+			id: string,
+			source: string,
+			target: string,
+			y0: number,
+			y1: number,
+		) => ({
+			id,
+			source: { nodeId: source },
+			target: { nodeId: target },
+			points: [
+				{ x: 40, y: y0 },
+				{ x: 150, y: y0 },
+				{ x: 150, y: y1 },
+				{ x: 300, y: y1 },
+			],
+		});
+		const soft = { x: 152, y: 0, width: 100, height: 300 };
+		const result = finalizeCoordinatedEdges(
+			[edge("a", "s1", "t1", 10, 210), edge("b", "s2", "t2", 50, 270)],
+			nodes,
+			[],
+			[soft],
+			[],
+			undefined,
+			{},
+		);
+		for (const routed of result) {
+			for (let index = 0; index + 1 < routed.points.length; index += 1) {
+				const a = routed.points[index] as Point;
+				const b = routed.points[index + 1] as Point;
+				const vertical = Math.abs(a.x - b.x) < 0.5;
+				if (!vertical) continue;
+				const inside = a.x > soft.x && a.x < soft.x + soft.width;
+				expect(inside, `${routed.id} trunk at x=${a.x}`).toBe(false);
+			}
+		}
+		// And the shared trunk was still separated.
+		expect(result[0]?.points[1]?.x).not.toBe(result[1]?.points[1]?.x);
+	});
+});

@@ -172,7 +172,13 @@ export function measureLayoutQuality(
 				continue;
 			}
 			const inner = insetBox(node.box, 1);
-			if (segments(edge.points).some(([a, b]) => segmentHitsBox(a, b, inner))) {
+			if (
+				segments(edge.points).some(
+					([a, b]) =>
+						segmentHitsBox(a, b, inner) &&
+						segmentEntersShape(a, b, node.shape, node.box),
+				)
+			) {
 				edgesThroughNodes += 1;
 			}
 		}
@@ -319,6 +325,7 @@ export const LAYOUT_METRIC_HARD_KEYS = [
 	"foreignNodesInGroups",
 	"labelOverflows",
 	"edgesThroughNodes",
+	"edgeLabelCollisions",
 	"sharedEndpoints",
 ] as const satisfies readonly (keyof LayoutMetrics)[];
 
@@ -334,6 +341,13 @@ function canvasBox(diagram: CoordinatedDiagram): Box {
 			swimlane.box === undefined ? [] : [swimlane.box],
 		),
 		...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
+		// Every coordinated element that is rendered on the page.
+		...(diagram.matrices ?? []).map((block) => block.box),
+		...(diagram.tables ?? []).map((block) => block.box),
+		...(diagram.evidencePanels ?? []).map((panel) => panel.box),
+		...(diagram.frame === undefined
+			? []
+			: [diagram.frame.box, diagram.frame.titleBox]),
 	];
 	for (const edge of diagram.edges) {
 		for (const point of edge.points) {
@@ -344,29 +358,30 @@ function canvasBox(diagram: CoordinatedDiagram): Box {
 }
 
 /**
- * Rendered text extent of a label: each line is centred in the padded
- * content area (the way exporters draw centred labels).
+ * Rendered text extent of a label, following the exporter contract: a
+ * single line is centred on the annotation box, multiple lines are drawn
+ * from their solved line boxes (centred on each line box).
  */
 function renderedTextBox(annotation: SolvedTextAnnotation): Box | undefined {
 	if (annotation.lines.length === 0) return undefined;
-	const width = Math.max(...annotation.lines.map((line) => line.width));
-	const top = Math.min(...annotation.lines.map((line) => line.box.y));
-	const bottom = Math.max(
-		...annotation.lines.map((line) => line.box.y + line.box.height),
+	if (annotation.lines.length === 1) {
+		const line = annotation.lines[0];
+		if (line === undefined) return undefined;
+		return {
+			x: annotation.box.x + annotation.box.width / 2 - line.width / 2,
+			y: annotation.box.y + annotation.box.height / 2 - line.box.height / 2,
+			width: line.width,
+			height: line.box.height,
+		};
+	}
+	return union(
+		annotation.lines.map((line) => ({
+			x: annotation.box.x + line.box.x + line.box.width / 2 - line.width / 2,
+			y: annotation.box.y + line.box.y,
+			width: line.width,
+			height: line.box.height,
+		})),
 	);
-	const height = bottom - top;
-	const contentLeft = annotation.box.x + annotation.paddings.left;
-	const contentWidth =
-		annotation.box.width - annotation.paddings.left - annotation.paddings.right;
-	const cx =
-		contentWidth > 0
-			? contentLeft + contentWidth / 2
-			: annotation.box.x + annotation.box.width / 2;
-	const cy =
-		annotation.lines.length === 1
-			? annotation.box.y + annotation.box.height / 2
-			: annotation.box.y + top + height / 2;
-	return { x: cx - width / 2, y: cy - height / 2, width, height };
 }
 
 /** True when all four corners of `inner` lie inside the drawn outline. */
@@ -466,6 +481,13 @@ function largestEmptyRatio(
 	};
 	for (const node of diagram.nodes) mark(node.box);
 	for (const annotation of diagram.textAnnotations ?? []) mark(annotation.box);
+	for (const block of [
+		...(diagram.matrices ?? []),
+		...(diagram.tables ?? []),
+		...(diagram.evidencePanels ?? []),
+	]) {
+		mark(block.box);
+	}
 	for (const edge of diagram.edges) {
 		for (const [a, b] of segments(edge.points)) {
 			mark({
@@ -535,6 +557,27 @@ function collinearOverlap(a0: Point, a1: Point, b0: Point, b1: Point): number {
 		return Math.max(0, rangeOverlap(a0.x, a1.x, b0.x, b1.x));
 	}
 	return 0;
+}
+
+/**
+ * Whether an axis-aligned segment enters the drawn outline (not just the
+ * bounding box) of a node, sampled every 2 px with a 1 px inset.
+ */
+function segmentEntersShape(
+	a: Point,
+	b: Point,
+	shape: NodeShape,
+	box: Box,
+): boolean {
+	const inner = insetBox(box, 1);
+	const length = Math.hypot(b.x - a.x, b.y - a.y);
+	const steps = Math.max(1, Math.ceil(length / 2));
+	for (let step = 0; step <= steps; step += 1) {
+		const t = step / steps;
+		const point = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+		if (pointInsideShape(point, shape, inner)) return true;
+	}
+	return false;
 }
 
 function segmentHitsBox(a: Point, b: Point, box: Box): boolean {

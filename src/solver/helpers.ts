@@ -19,6 +19,8 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import { translateLabelLayout } from "../labels/fit.js";
+import { cylinderLabelOffset } from "../labels/shape-fit.js";
 
 export const EDGE_LABEL_CLEARANCE = 8;
 export const EXTERNAL_LABEL_SHELF_GAP = 48;
@@ -696,15 +698,35 @@ export function recenterNodeLabelLayout(node: NormalizedNode, box: Box): void {
 	if (node.labelLayout === undefined) return;
 	const layout = node.labelLayout;
 	const newOffsetX = Math.max(0, (box.width - layout.box.width) / 2);
-	const newOffsetY = Math.max(0, (box.height - layout.box.height) / 2);
-	(node as NormalizedNode).labelLayout = {
-		...layout,
-		box: {
-			...layout.box,
-			x: newOffsetX,
-			y: newOffsetY,
-		},
-	};
+	// Cylinders keep their label below the top cap's front arc.
+	const capOffset =
+		node.shape === "cylinder"
+			? cylinderLabelOffset(
+					{
+						width: Math.max(
+							0,
+							layout.box.width - layout.padding.left - layout.padding.right,
+						),
+						height: Math.max(
+							0,
+							layout.box.height - layout.padding.top - layout.padding.bottom,
+						),
+					},
+					box,
+				)
+			: 0;
+	const newOffsetY = Math.max(
+		0,
+		Math.min(
+			box.height - layout.box.height,
+			(box.height - layout.box.height) / 2 + capOffset,
+		),
+	);
+	(node as NormalizedNode).labelLayout = translateLabelLayout(
+		layout,
+		newOffsetX - layout.box.x,
+		newOffsetY - layout.box.y,
+	);
 }
 
 export function isEdgeConnectedTextAnnotation(
@@ -745,5 +767,32 @@ export function labelOffset(
 	return {
 		x: (-dy / segment.length) * offset,
 		y: (dx / segment.length) * offset,
+	};
+}
+
+/**
+ * Tight text extent of a solved annotation (padding stripped). Edge labels
+ * should avoid the visible text, not the padded fitting box: group labels
+ * are fitted with a node-sized minimum and would otherwise block a large
+ * area around a short title.
+ */
+export function textAnnotationContentBox(
+	annotation: SolvedTextAnnotation,
+): Box {
+	const width = Math.max(
+		0,
+		annotation.box.width - annotation.paddings.left - annotation.paddings.right,
+	);
+	const height = Math.max(
+		0,
+		annotation.box.height -
+			annotation.paddings.top -
+			annotation.paddings.bottom,
+	);
+	return {
+		x: annotation.box.x + annotation.paddings.left,
+		y: annotation.box.y + annotation.paddings.top,
+		width,
+		height,
 	};
 }

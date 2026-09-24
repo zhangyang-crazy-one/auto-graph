@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Shape-aware label fitting (global layout plan P1)
+
+- **Node labels fit their drawn outline**: node sizes come from exact containment bounds for the Pretext-measured text box: diamond `2w×2h`, circle by the text diagonal, hexagon `w + 2·skew·h/H`, parallelogram `w + skew·(H+h)/H`, cylinder `h + 2m + 2r_y` with the label shifted below the top cap. Applied in DSL normalization and the solver prefit path. Label overflow is now 0 on every layout benchmark.
+- **Balanced wrapping**: the narrowest wrap width that keeps the line count (no orphan CJK character or word), never breaking inside a Latin word; diamonds/ellipses also try extra lines and keep the most compact outline.
+- **Centred multi-line labels**: `fitLabel` accepts `align: "center"`; node labels centre each line box inside the content box (exporters keep drawing from solved line boxes).
+- **Fixes**: overlap repair rebuilds its spatial index every pass (pairs created by an earlier move were skipped); cross-edge post-passes (endpoint spreading, nudging) rerun over all edges after single-edge label reroutes; straight routes can be spread with a dogleg; lone interior segments that clip an obstacle are shifted clear; edge labels avoid the visible text of group titles instead of their padded fitting box.
+- **Metrics**: `edgesThroughNodes` tests the drawn outline, multi-line text extent follows the solved line boxes, the canvas includes frame / matrices / tables / evidence panels, and `edgeLabelCollisions` is ratcheted as a hard metric.
+- **Label line frame**: `LabelLayout.lines` are owner-local; `translateLabelLayout` moves box, content box and lines together wherever a layout is re-positioned, and annotation builders convert lines to annotation-box-relative coordinates.
+- **Post-pass safety**: separation, obstacle escape and border-detachment stubs are validated against policy soft obstacles (tables, panels, title bars, lane corridors) as well as nodes, hard blocks and text.
+
 ### Edge distribution: even ports, parallel-track separation, flow-ordered lanes
 
 - **Default port distribution** (`routeKind: "orthogonal"` without `anchorCapacity`): endpoints sharing a node side are split evenly along it (`(i+1)/(n+1)`), ordered by the opposite node so a fan does not cross itself, and projected onto the drawn outline of diamond / hexagon / ellipse / parallelogram / cylinder shapes. Sides are chosen by flow direction (LR → left/right whenever nodes are horizontally separated), so fan-out edges no longer collapse onto one point.
