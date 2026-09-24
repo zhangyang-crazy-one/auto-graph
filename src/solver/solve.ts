@@ -825,6 +825,7 @@ export function solveDiagram(
 		coordinatedEdges = finalizeCoordinatedEdges(
 			coordinatedEdges,
 			nodeGeometryById,
+			routeObstacleEntries,
 			policyHardObstacles,
 			policySoftObstacles,
 			routingTextObstacles,
@@ -846,7 +847,7 @@ export function solveDiagram(
 		pruneResolvedRouteDiagnostics(
 			prunedRouteDiagnostics,
 			coordinatedEdges,
-			nodeGeometryById,
+			routeObstacleEntries,
 			policyHardObstacles,
 			policySoftObstacles,
 			routingTextObstacles,

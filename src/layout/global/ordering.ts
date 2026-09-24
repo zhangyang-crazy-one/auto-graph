@@ -91,7 +91,15 @@ function refine(
 	iterations: number,
 	heuristic: Heuristic,
 ): Ordering {
-	let layers = transpose(cloneLayers(start), layering, lower);
+	// Every candidate is canonicalised to one global sibling-container order
+	// before it can become `best`: a layer-local start could otherwise flip
+	// two groups between layers and win on crossings with an order that no
+	// set of non-interleaving rectangles can draw.
+	let layers = canonicalize(
+		transpose(cloneLayers(start), layering, lower),
+		layering,
+		hierarchy,
+	);
 	let best: Ordering = {
 		layers: cloneLayers(layers),
 		crossings: countCrossings(layers, lower),
@@ -106,7 +114,11 @@ function refine(
 				direction,
 				heuristic,
 			);
-			layers = transpose(layers, layering, lower);
+			layers = canonicalize(
+				transpose(layers, layering, lower),
+				layering,
+				hierarchy,
+			);
 			const crossings = countCrossings(layers, lower);
 			if (crossings < best.crossings) {
 				best = { layers: cloneLayers(layers), crossings };
@@ -115,6 +127,24 @@ function refine(
 		if (best.crossings === 0) break;
 	}
 	return best;
+}
+
+/**
+ * Re-arrange every layer into blocks ordered by one global container order,
+ * keeping the current order of vertices inside each block.
+ */
+function canonicalize(
+	layers: readonly string[][],
+	layering: Layering,
+	hierarchy: ContainerHierarchy,
+): string[][] {
+	const containerOrder = globalContainerOrder(layers, layering, hierarchy);
+	return layers.map((layer) => {
+		const keys = new Map(
+			layer.map((id, index) => [id, (index + 0.5) / Math.max(1, layer.length)]),
+		);
+		return arrangeBlocks(layer, keys, layering, hierarchy, containerOrder);
+	});
 }
 
 /** Make a seed order container-contiguous (seed positions as keys). */

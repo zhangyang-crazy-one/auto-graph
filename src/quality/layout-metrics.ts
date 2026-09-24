@@ -40,7 +40,7 @@ export interface LayoutMetrics {
 	sharedEndpoints: number;
 	/** Total length where two different edges run on top of each other (px). */
 	overlappingSegmentLength: number;
-	/** Mean route length divided by Manhattan endpoint distance (>= 1). */
+	/** Mean route length divided by straight-line endpoint distance (>= 1). */
 	meanDetour: number;
 	/** Coefficient of variation of route lengths. */
 	edgeLengthCV: number;
@@ -247,22 +247,24 @@ export function measureLayoutQuality(
 	}
 	const bendCounts = edges.map((edge) => bendCount(edge.points));
 	const bends = sum(bendCounts);
+	// Pairs of *distinct* edges ending on the same point of the same node
+	// (a self-loop touching one point twice is not a collision).
 	let sharedEndpoints = 0;
-	const endpointKeys = new Map<string, number>();
+	const endpointEdges = new Map<string, Set<string>>();
+	const addEndpoint = (nodeId: string, point: Point, edgeId: string): void => {
+		const key = `${nodeId}|${point.x.toFixed(1)}|${point.y.toFixed(1)}`;
+		const set = endpointEdges.get(key) ?? new Set<string>();
+		set.add(edgeId);
+		endpointEdges.set(key, set);
+	};
 	for (const edge of edges) {
 		const first = edge.points[0];
 		const last = edge.points.at(-1);
-		if (first) {
-			const key = `${edge.source.nodeId}|${first.x.toFixed(1)}|${first.y.toFixed(1)}`;
-			endpointKeys.set(key, (endpointKeys.get(key) ?? 0) + 1);
-		}
-		if (last) {
-			const key = `${edge.target.nodeId}|${last.x.toFixed(1)}|${last.y.toFixed(1)}`;
-			endpointKeys.set(key, (endpointKeys.get(key) ?? 0) + 1);
-		}
+		if (first) addEndpoint(edge.source.nodeId, first, edge.id);
+		if (last) addEndpoint(edge.target.nodeId, last, edge.id);
 	}
-	for (const count of endpointKeys.values()) {
-		sharedEndpoints += (count * (count - 1)) / 2;
+	for (const set of endpointEdges.values()) {
+		sharedEndpoints += (set.size * (set.size - 1)) / 2;
 	}
 	const lengths = edges.map((edge) => routeLength(edge.points));
 	const detours = edges
@@ -270,10 +272,8 @@ export function measureLayoutQuality(
 			const first = edge.points[0];
 			const last = edge.points.at(-1);
 			if (!first || !last) return undefined;
-			const manhattan = Math.abs(last.x - first.x) + Math.abs(last.y - first.y);
-			return manhattan > EPSILON
-				? (lengths[index] ?? 0) / manhattan
-				: undefined;
+			const direct = Math.hypot(last.x - first.x, last.y - first.y);
+			return direct > EPSILON ? (lengths[index] ?? 0) / direct : undefined;
 		})
 		.filter((value): value is number => value !== undefined);
 

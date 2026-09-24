@@ -234,6 +234,32 @@ describe("constrained ordering", () => {
 		expect(pairOrder.size).toBeLessThanOrEqual(1);
 	});
 
+	it("never trades group-order consistency for fewer crossings", () => {
+		// Crossed membership edges: a0→b1 and b0→a1. Flipping A/B between the
+		// two layers would give zero crossings but no drawable rectangles.
+		const { layering, ordering, hierarchy } = solve(
+			["a0", "a1", "b0", "b1"],
+			[
+				["a0", "b1"],
+				["b0", "a1"],
+			],
+			{
+				groups: [
+					{ id: "A", nodeIds: ["a0", "a1"], groupIds: [] },
+					{ id: "B", nodeIds: ["b0", "b1"], groupIds: [] },
+				],
+			},
+		);
+		const orders = new Set(
+			ordering.layers.map((layer) =>
+				containerRuns(layer, layering, hierarchy, "group")
+					.filter((run) => run !== "-")
+					.join(">"),
+			),
+		);
+		expect(orders.size).toBe(1);
+	});
+
 	it("is deterministic", () => {
 		const nodes = ["a", "b", "c", "d", "e", "f"];
 		const edges: Edge[] = [

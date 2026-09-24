@@ -413,6 +413,7 @@ export function coordinateEdges(
 	const finalized = finalizeCoordinatedEdges(
 		coordinated,
 		nodes,
+		nodeObstacles,
 		hardObstacles,
 		softObstacles,
 		textObstacles,
@@ -422,7 +423,7 @@ export function coordinateEdges(
 	pruneResolvedRouteDiagnostics(
 		diagnostics,
 		finalized,
-		nodes,
+		nodeObstacles,
 		hardObstacles,
 		softObstacles,
 		textObstacles,
@@ -447,7 +448,7 @@ const RESOLVABLE_ROUTE_DIAGNOSTIC_CODES = new Set([
 export function pruneResolvedRouteDiagnostics(
 	diagnostics: Diagnostic[],
 	edges: readonly CoordinatedEdge[],
-	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	nodeObstacles: readonly NodeObstacleEntry[],
 	hardObstacles: readonly Box[],
 	softObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
@@ -460,11 +461,12 @@ export function pruneResolvedRouteDiagnostics(
 		const cached = clean.get(edge.id);
 		if (cached !== undefined) return cached;
 		const obstacles = [
-			...[...nodes.entries()]
+			...nodeObstacles
 				.filter(
-					([id]) => id !== edge.source.nodeId && id !== edge.target.nodeId,
+					(entry) =>
+						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
 				)
-				.map(([, geometry]) => geometry.box),
+				.map((entry) => entry.box),
 			...hardObstacles,
 			...softObstacles,
 			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
@@ -503,6 +505,7 @@ export function pruneResolvedRouteDiagnostics(
 export function finalizeCoordinatedEdges(
 	edges: CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	nodeObstacles: readonly NodeObstacleEntry[],
 	hardObstacles: readonly Box[],
 	softObstacles: readonly Box[],
 	textObstacles: readonly SolvedTextAnnotation[],
@@ -513,23 +516,28 @@ export function finalizeCoordinatedEdges(
 	// Every post-pass move is validated against the same obstacles the
 	// router avoided: nodes, hard blocks, policy soft obstacles (tables,
 	// panels, title bars, lane corridors) and text surfaces.
+	// Node obstacles are the router's (obstacleMargin / routingGutter
+	// expanded) boxes, so no pass can move a route into requested clearance.
 	const obstacles = [
-		...[...nodes.values()].map((geometry) => geometry.box),
+		...nodeObstacles.map((entry) => entry.box),
 		...hardObstacles,
 		...softObstacles,
 		...textObstacles
 			.filter(isLocalRouteClearanceText)
 			.map((annotation) => textObstacleBox(annotation, options)),
 	];
-	// Detach border-hugging ends first so every endpoint has its final side
-	// before coincident endpoints on that side are spread apart.
-	const spread = implicit
-		? spreadCollidingEndpoints(
-				detachBorderHuggingEnds(edges, nodes, obstacles),
-				nodes,
-				obstacles,
-			)
+	// Border detachment, endpoint spreading and outline snapping belong to
+	// implicit distribution. Obstacle-avoiding / explicit anchorCapacity
+	// pages keep the router's geometry: the strict dense label gate is tuned
+	// against it and extra stubs there create unresolved label crossings.
+	// Detach first so every endpoint has its final side before coincident
+	// endpoints on that side are spread apart.
+	const detached = implicit
+		? detachBorderHuggingEnds(edges, nodes, obstacles)
 		: edges;
+	const spread = implicit
+		? spreadCollidingEndpoints(detached, nodes, obstacles)
+		: detached;
 	const separated = separateCoordinatedEdges(
 		spread,
 		obstacles,
@@ -886,14 +894,16 @@ function separateCoordinatedEdges(
 	options: SolveDiagramOptions,
 ): CoordinatedEdge[] {
 	const routeKind = options.routeKind ?? "orthogonal";
-	if (
-		edges.length < 2 ||
-		options.edgeSeparation === false ||
-		routeKind === "straight" ||
-		routeKind === "short-orthogonal-jumps"
-	) {
+	if (routeKind === "straight" || edges.length === 0) {
 		return edges;
 	}
+	// Track spreading can be switched off (or has nothing to spread); the
+	// obstacle-escape repair always runs on orthogonal routes.
+	const separate = !(
+		edges.length < 2 ||
+		options.edgeSeparation === false ||
+		routeKind === "short-orthogonal-jumps"
+	);
 	const spacing =
 		typeof options.edgeSeparation === "object"
 			? options.edgeSeparation.spacing
@@ -905,7 +915,7 @@ function separateCoordinatedEdges(
 			fixed: railAllocations?.has(edge.id) === true,
 		})),
 		obstacles,
-		spacing === undefined ? {} : { spacing },
+		{ separate, ...(spacing === undefined ? {} : { spacing }) },
 	);
 	return edges.map((edge, index) => ({
 		...edge,

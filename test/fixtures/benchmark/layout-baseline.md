@@ -5,14 +5,14 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 
 | benchmark | node overlap | group overlap | foreign in group | label overflow | edge through node | shared endpoint | crossings | bends/edge | overlap len | detour | aspect | whitespace | gap CV | largest empty | lane fill | sparse lanes |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 1.9 | 0 | 1 | 1.133 | 0.981 | 0.657 | 0.152 | 0.401 | 2 |
-| cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 15 | 2.083 | 1425.067 | 1.021 | 1.507 | 0.966 | 1.771 | 0.5 | 0.107 | 4 |
-| cn-architecture.yaml | 0 | 3 | 14 | 0 | 0 | 0 | 17 | 2.192 | 0 | 1.247 | 1.447 | 0.926 | 0.466 | 0.09 | 1 | 0 |
-| microservice.auto-graph.yaml | 0 | 1 | 1 | 0 | 0 | 0 | 5 | 2.3 | 0 | 1.097 | 2.145 | 0.896 | 0.616 | 0.129 | 1 | 0 |
+| cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 1.9 | 0 | 1.239 | 1.133 | 0.981 | 0.657 | 0.152 | 0.401 | 2 |
+| cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 15 | 2.083 | 1425.067 | 1.252 | 1.507 | 0.966 | 1.771 | 0.5 | 0.107 | 4 |
+| cn-architecture.yaml | 0 | 3 | 14 | 0 | 0 | 0 | 17 | 2.192 | 0 | 1.545 | 1.447 | 0.926 | 0.466 | 0.09 | 1 | 0 |
+| microservice.auto-graph.yaml | 0 | 1 | 1 | 0 | 0 | 0 | 5 | 2.3 | 0 | 1.38 | 2.145 | 0.896 | 0.616 | 0.129 | 1 | 0 |
 | contract-swimlane.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 16 | 1.098 | 12.033 | 0.856 | 0.836 | 0.115 | 0.537 | 0 |
-| sysml-structure.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1 | 2.412 | 0.854 | 0.556 | 0.193 | 0.346 | 0 |
-| fan-out.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.692 | 0 | 1 | 1.464 | 0.852 | 0.156 | 0.129 | 1 | 0 |
-| swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 2 | 0 | 1.015 | 2.451 | 0.941 | 0.423 | 0.131 | 0.41 | 1 |
+| sysml-structure.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.187 | 2.412 | 0.854 | 0.556 | 0.193 | 0.346 | 0 |
+| fan-out.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.692 | 0 | 1.307 | 1.464 | 0.852 | 0.156 | 0.129 | 1 | 0 |
+| swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 2 | 0 | 1.365 | 2.451 | 0.941 | 0.423 | 0.131 | 0.41 | 1 |
 | flowchart.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0.312 | 0.699 | 0 | 0.088 | 1 | 0 |
 | architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 4.769 | 0.816 | 0 | 0.192 | 1 | 0 |
 | groups.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.215 | 0.866 | 0.221 | 0.405 | 1 | 0 |

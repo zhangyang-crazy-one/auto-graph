@@ -142,3 +142,49 @@ describe("layout metrics review follow-ups", () => {
 		expect(metrics.edgeLabelCollisions).toBe(1);
 	});
 });
+
+describe("layout metrics review follow-ups (round 3)", () => {
+	it("does not count a self-loop's own endpoints as shared", () => {
+		const metrics = measureLayoutQuality(
+			diagram({
+				nodes: [node("n", box(0, 0, 40, 20))],
+				edges: [
+					{
+						id: "loop",
+						source: { nodeId: "n" },
+						target: { nodeId: "n" },
+						points: [
+							{ x: 40, y: 10 },
+							{ x: 60, y: 10 },
+							{ x: 60, y: -10 },
+							{ x: 20, y: -10 },
+							{ x: 20, y: 0 },
+							{ x: 40, y: 10 },
+						],
+					},
+				],
+			}),
+		);
+		expect(metrics.sharedEndpoints).toBe(0);
+	});
+
+	it("measures detour against the straight-line distance", () => {
+		const metrics = measureLayoutQuality(
+			diagram({
+				nodes: [node("a", box(0, 0, 10, 10)), node("b", box(100, 100, 10, 10))],
+				edges: [
+					{
+						id: "diag",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 10, y: 10 },
+							{ x: 100, y: 100 },
+						],
+					},
+				],
+			}),
+		);
+		expect(metrics.meanDetour).toBeCloseTo(1, 6);
+	});
+});

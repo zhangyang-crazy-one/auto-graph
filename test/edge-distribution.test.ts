@@ -336,6 +336,7 @@ describe("finalizeCoordinatedEdges", () => {
 		const result = finalizeCoordinatedEdges(
 			[edge("a", "s1", "t1", 10, 210), edge("b", "s2", "t2", 50, 270)],
 			nodes,
+			[...nodes].map(([id, geometry]) => ({ id, box: geometry.box })),
 			[],
 			[soft],
 			[],
@@ -461,7 +462,7 @@ describe("review follow-ups (Codex #96, round 2)", () => {
 		pruneResolvedRouteDiagnostics(
 			diagnostics,
 			edges,
-			nodes,
+			[...nodes].map(([id, geometry]) => ({ id, box: geometry.box })),
 			[],
 			[],
 			[],
@@ -471,5 +472,70 @@ describe("review follow-ups (Codex #96, round 2)", () => {
 		expect(diagnostics.map((diagnostic) => diagnostic.detail.edgeId)).toEqual([
 			"blocked",
 		]);
+	});
+});
+
+describe("review follow-ups (Codex #96, round 3)", () => {
+	it("still escapes obstacles when track separation is off", () => {
+		const route = {
+			id: "only",
+			points: [
+				{ x: 0, y: 0 },
+				{ x: 50, y: 0 },
+				{ x: 50, y: 100 },
+				{ x: 150, y: 100 },
+			],
+		};
+		const [out] = separateParallelSegments(
+			[route],
+			[{ x: 45, y: 30, width: 20, height: 40 }],
+			{ separate: false },
+		);
+		const trunkX = out?.[1]?.x ?? 50;
+		expect(trunkX < 45 || trunkX > 65).toBe(true);
+	});
+
+	it("respects the router's expanded node clearance when nudging", () => {
+		const raw = { x: 160, y: 0, width: 40, height: 200 };
+		const expanded = { x: 140, y: -20, width: 80, height: 240 };
+		const geometry = (box: Box) =>
+			computeShapeGeometry({ shape: "rectangle", box });
+		const nodes = new Map([
+			["wall", geometry(raw)],
+			["s", geometry({ x: 0, y: 0, width: 20, height: 20 })],
+			["t1", geometry({ x: 300, y: 250, width: 20, height: 20 })],
+			["t2", geometry({ x: 300, y: 290, width: 20, height: 20 })],
+		]);
+		const edge = (id: string, target: string, y: number) => ({
+			id,
+			source: { nodeId: "s" },
+			target: { nodeId: target },
+			points: [
+				{ x: 20, y: 10 },
+				{ x: 135, y: 10 },
+				{ x: 135, y },
+				{ x: 300, y },
+			],
+		});
+		const result = finalizeCoordinatedEdges(
+			[edge("a", "t1", 260), edge("b", "t2", 300)],
+			nodes,
+			[
+				{ id: "wall", box: expanded },
+				...["s", "t1", "t2"].map((id) => ({
+					id,
+					box: nodes.get(id)?.box as Box,
+				})),
+			],
+			[],
+			[],
+			[],
+			undefined,
+			{},
+		);
+		for (const routed of result) {
+			const trunk = routed.points[1]?.x ?? 0;
+			expect(trunk, routed.id).toBeLessThanOrEqual(expanded.x);
+		}
 	});
 });

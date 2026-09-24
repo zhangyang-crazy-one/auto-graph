@@ -38,6 +38,11 @@ export interface EdgeSeparationOptions {
 	minStub?: number;
 	/** Vertical/horizontal alternation passes (default 2). */
 	maxPasses?: number;
+	/**
+	 * Spread shared corridors into parallel tracks (default true). When
+	 * false only the obstacle-escape repair runs.
+	 */
+	separate?: boolean;
 }
 
 type Orientation = "v" | "h";
@@ -75,7 +80,8 @@ export function separateParallelSegments(
 	// locked bundle members: movable tracks must keep clear of them.
 	const locked = collectLockedSegments(points, routes);
 
-	for (let pass = 0; pass < maxPasses; pass += 1) {
+	const passes = options.separate === false ? 0 : maxPasses;
+	for (let pass = 0; pass < passes; pass += 1) {
 		let moved = false;
 		for (const orientation of ["v", "h"] as const) {
 			const segments = collectMovableSegments(points, movable, orientation);
