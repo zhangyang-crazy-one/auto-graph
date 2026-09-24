@@ -81,6 +81,7 @@ import {
 	edgeBounds,
 	prefitNodeLabelSize,
 	reportPostGrowthOverlaps,
+	resolveAutoLayoutMode,
 	runGlobalInitialLayout,
 	runInitialLayout,
 	wrapHorizontalStackIfNeeded,
@@ -207,7 +208,16 @@ export function solveDiagram(
 		enhanceSwimlaneCjkTypography(swimlane, cjkTypography, diagnostics),
 	);
 	const constraints = stableByConstraintId(diagram.constraints);
-	const initialLayoutMode = options.initialLayout ?? "dagre";
+	const initialLayoutMode =
+		options.initialLayout === "auto"
+			? resolveAutoLayoutMode(
+					diagram,
+					styledSwimlanes,
+					styledNodes,
+					styledEdges,
+					options,
+				)
+			: (options.initialLayout ?? "dagre");
 	const useRecursive = options.recursiveLayout === true;
 	if (useRecursive && initialLayoutMode === "positions") {
 		diagnostics.push({

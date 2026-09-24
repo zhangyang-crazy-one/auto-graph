@@ -112,7 +112,7 @@ constraints:
 
 ## Global Layout
 
-`layout.mode: global` replaces the Dagre seed with a whole-canvas solver for diagrams with groups and swimlanes. Swimlane diagrams use it by default (unless they pin geometry with lane boxes, `fixedSwimlaneGeometry` or node positions); set `layout.mode: dagre` to opt out.
+`layout.mode: global` replaces the Dagre seed with a whole-canvas solver for diagrams with groups and swimlanes. Swimlane diagrams and long flows (a chain of at least 6 steps) use it by default, unless they pin geometry with lane boxes, `fixedSwimlaneGeometry` or node positions; set `layout.mode: dagre` to opt out (`layout.mode: auto` is the default).
 
 ```yaml
 layout:

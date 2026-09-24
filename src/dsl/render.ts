@@ -1,6 +1,6 @@
 import { exportExcalidraw, exportSvg } from "../exporters/index.js";
 import type { ExportResult } from "../exporters/types.js";
-import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
+import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
 import type {
 	PortShiftingOptions,
@@ -82,10 +82,7 @@ export function renderDiagramDsl(
 	}
 
 	const solved = solveDiagram(normalized.diagram, {
-		...solveInitialLayoutOption(
-			normalized.diagram.metadata?.initialLayout,
-			normalized.diagram,
-		),
+		...solveInitialLayoutOption(normalized.diagram.metadata?.initialLayout),
 		...(typeof normalized.diagram.metadata?.targetAspectRatio === "number"
 			? { targetAspectRatio: normalized.diagram.metadata.targetAspectRatio }
 			: {}),
@@ -151,24 +148,13 @@ function toSolveDiagnostic(
 
 function solveInitialLayoutOption(
 	value: unknown,
-	diagram: NormalizedDiagram,
 ): Pick<SolveDiagramOptions, "initialLayout"> {
 	if (value === "positions" || value === "global" || value === "dagre") {
 		return { initialLayout: value };
 	}
-	// Swimlane diagrams default to the global layout: lanes stay bands and
-	// hand-offs are drawn straight across them. Diagrams that pin geometry
-	// (fixed lane boxes, fixedSwimlaneGeometry, node positions) keep Dagre.
-	const swimlanes = diagram.swimlanes ?? [];
-	const pinned =
-		diagram.metadata?.fixedSwimlaneGeometry !== undefined ||
-		swimlanes.some(
-			(swimlane) =>
-				swimlane.box !== undefined ||
-				swimlane.lanes.some((lane) => lane.box !== undefined),
-		) ||
-		diagram.nodes.some((node) => node.position !== undefined);
-	return swimlanes.length > 0 && !pinned ? { initialLayout: "global" } : {};
+	// No explicit mode: let the solver pick (global for swimlanes and long
+	// flows unless geometry is pinned, Dagre otherwise).
+	return { initialLayout: "auto" };
 }
 
 function solvePortShiftingOption(value: unknown):

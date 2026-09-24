@@ -33,13 +33,14 @@ const BENCHMARKS = [
 	"examples/flowchart.yaml",
 	"examples/architecture.yaml",
 	"examples/groups.yaml",
-	// Swimlane diagrams default to the global layout; keep the Dagre path
-	// covered for them, and the global path for diagrams without lanes.
+	// Swimlane diagrams and long flows default to the global layout; keep
+	// the Dagre path covered for them, and the global path for the rest.
 	"test/fixtures/benchmark/cn-swimlane.yaml#dagre",
 	"test/fixtures/benchmark/cn-vertical-lanes.yaml#dagre",
 	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml#dagre",
 	"examples/swimlane.yaml#dagre",
-	"test/fixtures/benchmark/cn-architecture.yaml#global",
+	"test/fixtures/benchmark/cn-architecture.yaml#dagre",
+	"test/fixtures/benchmark/cn-long-flow.yaml#dagre",
 	"examples/fan-out.yaml#global",
 ] as const;
 

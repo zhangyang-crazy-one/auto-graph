@@ -3,7 +3,7 @@ import { createSchemaDiagnostic, sortDslDiagnostics } from "./diagnostics.js";
 import type { DslDiagnostic } from "./types.js";
 
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
-const layoutModeSchema = z.enum(["dagre", "positions", "global"]);
+const layoutModeSchema = z.enum(["dagre", "positions", "global", "auto"]);
 const routeKindSchema = z.enum([
 	"orthogonal",
 	"straight",

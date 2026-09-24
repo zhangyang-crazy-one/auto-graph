@@ -1,5 +1,5 @@
 title: 贷款审批全流程 Loan Approval
-layout: { direction: LR, mode: global }
+layout: { direction: LR }
 nodes:
   apply:    { label: 客户提交申请 Apply, shape: rounded-rectangle }
   kyc:      { label: 身份核验 KYC }

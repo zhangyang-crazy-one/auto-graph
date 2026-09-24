@@ -546,3 +546,35 @@ describe("review follow-ups (Codex #96, round 6)", () => {
 		);
 	});
 });
+
+describe("auto layout mode for long flows", () => {
+	const flow = (steps: number, extra = "") => `
+layout: { direction: LR${extra} }
+nodes:
+${Array.from({ length: steps }, (_, i) => `  s${i}: { label: Step ${i} }`).join("\n")}
+edges:
+${Array.from({ length: steps - 1 }, (_, i) => `  - s${i} -> s${i + 1}`).join("\n")}
+`;
+	const solve = (source: string) =>
+		renderDiagramDsl(source, { textMeasurer: new DeterministicTextMeasurer() })
+			.diagram;
+	const rowSpread = (source: string) => {
+		const ys = (solve(source)?.nodes ?? []).map((node) => node.box.y);
+		return Math.max(...ys) - Math.min(...ys);
+	};
+
+	it("folds a long flow by default", () => {
+		// 16 steps in one row would be far too wide: global folds it.
+		expect(rowSpread(flow(16))).toBeGreaterThan(40);
+		expect(rowSpread(flow(16, ", mode: dagre"))).toBeLessThan(1);
+	});
+
+	it("keeps Dagre for short flows", () => {
+		const source = flow(4);
+		const auto = solve(source);
+		const dagre = solve(flow(4, ", mode: dagre"));
+		expect(auto?.nodes.map((node) => node.box)).toEqual(
+			dagre?.nodes.map((node) => node.box),
+		);
+	});
+});

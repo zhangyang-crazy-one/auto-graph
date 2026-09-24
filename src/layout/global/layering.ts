@@ -348,6 +348,38 @@ function addContainerFillers(
 	}
 }
 
+/**
+ * Number of nodes on the longest path after breaking cycles the same way
+ * layering does (depth-first, declaration order). Used to decide whether a
+ * diagram is a long flow.
+ */
+export function longestFlowLength(
+	nodeIds: readonly string[],
+	edges: readonly LayeringEdge[],
+): number {
+	const nodeSet = new Set(nodeIds);
+	const usable = edges.filter(
+		(edge) =>
+			nodeSet.has(edge.source) &&
+			nodeSet.has(edge.target) &&
+			edge.source !== edge.target,
+	);
+	const back = depthFirstBackEdges(nodeIds, usable);
+	const dag = usable.filter((edge) => !back.has(edge.id));
+	const depth = new Map<string, number>();
+	for (const node of topologicalOrder(nodeIds, dag)) {
+		if (!depth.has(node)) depth.set(node, 1);
+		for (const edge of dag) {
+			if (edge.source !== node) continue;
+			depth.set(
+				edge.target,
+				Math.max(depth.get(edge.target) ?? 1, (depth.get(node) ?? 1) + 1),
+			);
+		}
+	}
+	return Math.max(0, ...depth.values());
+}
+
 /** Eades–Lin–Smyth greedy vertex sequence (deterministic). */
 export function greedyFeedbackArcOrder(
 	nodes: readonly string[],

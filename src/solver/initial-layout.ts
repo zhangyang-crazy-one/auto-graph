@@ -31,6 +31,7 @@ import {
 } from "../labels/index.js";
 import {
 	type InitialLayoutResult,
+	longestFlowLength,
 	runComponentAwareDagreInitialLayout,
 	runDagreInitialLayout,
 	runGlobalLayout,
@@ -271,6 +272,44 @@ export function measureEdgeLabelSize(
 		textMeasurer ?? createDefaultTextMeasurer(),
 	);
 	return layout.fittedSize;
+}
+
+/** A flow with at least this many steps in a row counts as long. */
+const LONG_FLOW_STEPS = 6;
+
+/**
+ * Resolve `initialLayout: "auto"`: swimlane diagrams and long flows (a
+ * chain of at least 6 steps) use the global layout — lanes as bands,
+ * straight hand-offs, folding. Diagrams that pin geometry (lane boxes,
+ * fixedSwimlaneGeometry, node positions) keep Dagre, as do short ones.
+ */
+export function resolveAutoLayoutMode(
+	diagram: NormalizedDiagram,
+	swimlanes: readonly Swimlane[],
+	nodes: readonly NormalizedNode[],
+	edges: readonly NormalizedEdge[],
+	options: SolveDiagramOptions,
+): "dagre" | "global" {
+	const pinned =
+		options.fixedSwimlaneGeometry !== undefined ||
+		diagram.metadata?.fixedSwimlaneGeometry !== undefined ||
+		swimlanes.some(
+			(swimlane) =>
+				swimlane.box !== undefined ||
+				swimlane.lanes.some((lane) => lane.box !== undefined),
+		) ||
+		nodes.some((node) => node.position !== undefined);
+	if (pinned) return "dagre";
+	if (swimlanes.length > 0) return "global";
+	const steps = longestFlowLength(
+		nodes.map((node) => node.id),
+		edges.map((edge) => ({
+			id: edge.id,
+			source: edge.source.nodeId,
+			target: edge.target.nodeId,
+		})),
+	);
+	return steps >= LONG_FLOW_STEPS ? "global" : "dagre";
 }
 
 /**
