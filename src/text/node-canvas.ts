@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { cjkAwareWidth, fontSizeOf, isCjkFontStack } from "./cjk-width.js";
 
 type OffscreenCanvasConstructor = typeof globalThis.OffscreenCanvas;
 type NodeCanvas = import("@napi-rs/canvas").Canvas;
@@ -27,7 +28,9 @@ export function installNodeCanvasRuntime(
 			}
 
 			getContext(contextId: "2d") {
-				return contextId === "2d" ? this.canvas.getContext("2d") : null;
+				return contextId === "2d"
+					? withCjkAwareMeasurement(this.canvas.getContext("2d"))
+					: null;
 			}
 		};
 
@@ -41,4 +44,31 @@ export function installNodeCanvasRuntime(
 
 function loadDefaultNodeCanvasModule(): NodeCanvasModule {
 	return require("@napi-rs/canvas") as NodeCanvasModule;
+}
+
+type Context2d = ReturnType<NodeCanvas["getContext"]>;
+
+/**
+ * Node canvases measure CJK text with whatever fallback glyphs the machine
+ * has (often not 1 em wide): report font-independent CJK widths instead,
+ * so labels fit when a browser draws them with a real CJK font.
+ */
+function withCjkAwareMeasurement(context: Context2d): Context2d {
+	const measure = context.measureText.bind(context);
+	context.measureText = ((text: string) => {
+		const metrics = measure(text);
+		const fontSize = fontSizeOf(context.font);
+		if (fontSize === undefined) return metrics;
+		const width = cjkAwareWidth(
+			text,
+			fontSize,
+			isCjkFontStack(context.font),
+			(run) => measure(run).width,
+		);
+		return new Proxy(metrics, {
+			get: (target, key) =>
+				key === "width" ? width : Reflect.get(target, key, target),
+		});
+	}) as Context2d["measureText"];
+	return context;
 }

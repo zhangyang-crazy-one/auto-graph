@@ -187,6 +187,7 @@ constraints:
 ### Pretext sizing + semantic roles (#84 A/D)
 
 - Node boxes grow from Pretext measurement + padding. Caller `size` is a **floor**, not a truncate cap. `label.maxWidth` only controls wrapping.
+- CJK text is measured independently of the installed fonts: ideographs, kana, Hangul and full-width punctuation are exactly 1 em (as in Microsoft YaHei, PingFang, Noto/Source Han Sans, SimSun), Latin inside a CJK font stack gets a 6% allowance, and lines follow the kinsoku rules (no line starts with `，。）」…`, none ends with `（「…`). A Node canvas without a CJK font would otherwise measure ideographs about 25% narrow. The default CJK stack is `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`.
 - Under `deliverabilityMode`, `prefitLabelSize` defaults on (opt out with `prefitLabelSize: false`).
 - Ellipse / `role: start|end` boxes become circles with `diameter = max(textWidth, textHeight) + padding`.
 - Optional node `role` maps to fixed shapes (`start`/`end`→ellipse, `decision`→diamond, `process`→rounded-rectangle, `data`→cylinder, `concept`→rectangle). Explicit `shape` wins. Omit `role` on SysML blocks.

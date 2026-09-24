@@ -11,6 +11,7 @@ import {
 	type NormalizedDiagram,
 	type PageSplitRemediationDetail,
 } from "../src/ir/index.js";
+import { DEFAULT_CJK_FONT_FAMILY } from "../src/solver/cjk-typography.js";
 import {
 	createDefaultPipeline,
 	resolvePagePolicy,
@@ -2139,7 +2140,8 @@ describe("solveDiagram", () => {
 					id: "labeled",
 					source: { nodeId: "source_a" },
 					target: { nodeId: "target_a" },
-					label: { text: "wide ".repeat(48).trim() },
+					// No break opportunities: wraps by character into a wide block.
+					label: { text: "wide_".repeat(48) },
 				},
 				{
 					id: "crossing",
@@ -3055,8 +3057,10 @@ describe("solveDiagram", () => {
 		});
 		const svg = exportSvg(result);
 		expect(svg).toContain(">E1<");
-		expect(svg).toMatch(/E1: alpha external callout/);
-		expect(svg).toMatch(/E2: middle external callout/);
+		// Callout text may wrap into several tspans: compare the text content.
+		const text = svg.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+		expect(text).toMatch(/E1: alpha external callout/);
+		expect(text).toMatch(/E2: middle external callout/);
 		expect(svg).toContain('data-for="alpha"');
 		expect(
 			(svg.match(/data-for="alpha"/g) ?? []).length,
@@ -4316,22 +4320,22 @@ describe("solveDiagram", () => {
 
 		const cjkNode = result.nodes.find((item) => item.id === "a");
 		expect(cjkNode?.style).toMatchObject({
-			fontFamily: "YaHei,SimSun,sans-serif",
+			fontFamily: DEFAULT_CJK_FONT_FAMILY,
 			fontSize: 14,
 		});
 		expect(cjkNode?.label?.metadata).toMatchObject({
 			cjkTypography: {
-				fontFamily: "YaHei,SimSun,sans-serif",
+				fontFamily: DEFAULT_CJK_FONT_FAMILY,
 				fontSize: 14,
 			},
 		});
 		expect(cjkNode?.ports?.[0]?.style).toMatchObject({
-			fontFamily: "YaHei,SimSun,sans-serif",
+			fontFamily: DEFAULT_CJK_FONT_FAMILY,
 			fontSize: 14,
 		});
 		expect(result.edges[0]?.label?.metadata).toMatchObject({
 			cjkTypography: {
-				fontFamily: "YaHei,SimSun,sans-serif",
+				fontFamily: DEFAULT_CJK_FONT_FAMILY,
 				fontSize: 14,
 			},
 		});
@@ -4341,7 +4345,7 @@ describe("solveDiagram", () => {
 					annotation.surfaceKind === "node-label" && annotation.ownerId === "a",
 			),
 		).toMatchObject({
-			fontFamily: "YaHei,SimSun,sans-serif",
+			fontFamily: DEFAULT_CJK_FONT_FAMILY,
 			fontSize: 14,
 		});
 		expect(
@@ -4351,7 +4355,7 @@ describe("solveDiagram", () => {
 					annotation.ownerId === "a-b",
 			),
 		).toMatchObject({
-			fontFamily: "YaHei,SimSun,sans-serif",
+			fontFamily: DEFAULT_CJK_FONT_FAMILY,
 			fontSize: 14,
 		});
 		expect(result.nodes.find((item) => item.id === "b")?.style).toBeUndefined();

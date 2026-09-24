@@ -1,20 +1,20 @@
 {
   "box": {
     "height": 48,
-    "width": 60,
+    "width": 76,
     "x": 0,
     "y": 0
   },
   "contentBox": {
     "height": 40,
-    "width": 48,
+    "width": 64,
     "x": 6,
     "y": 4
   },
   "diagnostics": [],
   "fittedSize": {
     "height": 48,
-    "width": 60
+    "width": 76
   },
   "font": {
     "fontFamily": "Inter",
@@ -28,7 +28,7 @@
       "baselineY": 20,
       "box": {
         "height": 20,
-        "width": 38.4,
+        "width": 64,
         "x": 6,
         "y": 4
       },
@@ -42,7 +42,7 @@
         "segmentIndex": 0
       },
       "text": "服务入口",
-      "width": 38.4
+      "width": 64
     },
     {
       "baselineY": 40,
@@ -67,7 +67,7 @@
   ],
   "naturalSize": {
     "height": 40,
-    "width": 48
+    "width": 64
   },
   "overflow": {
     "horizontal": false,
