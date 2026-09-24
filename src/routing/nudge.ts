@@ -147,6 +147,14 @@ export function separateParallelSegments(
 		if (!moved) break;
 	}
 
+	if (passes > 0) {
+		reduceCrossings(points, movable, routeObstacles, {
+			spacing,
+			clearance,
+			minStub,
+		});
+	}
+
 	escapeObstacles(
 		points,
 		movable,
@@ -307,6 +315,185 @@ function splitCollinearEnds(
 			route = [...route.slice(0, n - 1), { ...stub }, stub, last[1]];
 		}
 		points[routeIndex] = route;
+	}
+}
+
+/**
+ * Crossing reduction by local search over interior segments (trunks).
+ * Bundles only reorder collinear segments; trunks at different
+ * coordinates of one channel can also be in a crossing-heavy order. Each
+ * trunk may move to another coordinate inside its free channel (next to
+ * another trunk, or a channel end), and two trunks may swap coordinates
+ * when each fits the other's channel. A move is kept only when it strictly
+ * lowers the crossings of the routes involved, keeps `spacing` from
+ * parallel trunks it overlaps, and adds no obstacle hit. Deterministic:
+ * trunks in route/segment order, candidates nearest first.
+ */
+const MAX_CROSSING_PASSES = 3;
+
+function reduceCrossings(
+	points: Point[][],
+	movable: readonly boolean[],
+	routeObstacles: readonly (readonly Box[])[],
+	config: { spacing: number; clearance: number; minStub: number },
+): void {
+	const channelConfig = {
+		clearance: config.clearance / 2,
+		minStub: config.minStub,
+	};
+	const conflictsOf = (routeIndex: number, route: readonly Point[]) => {
+		let total = 0;
+		for (let other = 0; other < points.length; other += 1) {
+			if (other === routeIndex) continue;
+			total += countConflicts(route, points[other] ?? []);
+		}
+		return total;
+	};
+	const moved = (segment: MovableSegment, coord: number): Point[] => {
+		const route = (points[segment.routeIndex] ?? []).map((point) => ({
+			...point,
+		}));
+		const start = route[segment.index];
+		const end = route[segment.index + 1];
+		if (start !== undefined && end !== undefined) {
+			if (segment.orientation === "v") {
+				start.x = coord;
+				end.x = coord;
+			} else {
+				start.y = coord;
+				end.y = coord;
+			}
+		}
+		return route;
+	};
+	const crowded = (
+		segment: MovableSegment,
+		coord: number,
+		others: readonly MovableSegment[],
+	) =>
+		others.some(
+			(other) =>
+				!(
+					other.routeIndex === segment.routeIndex &&
+					other.index === segment.index
+				) &&
+				Math.min(other.max, segment.max) - Math.max(other.min, segment.min) >
+					EPSILON &&
+				Math.abs(other.coord - coord) < config.spacing - EPSILON,
+		);
+
+	for (let pass = 0; pass < MAX_CROSSING_PASSES; pass += 1) {
+		let improved = false;
+		for (const orientation of ["v", "h"] as const) {
+			// Single-trunk moves.
+			for (const initial of collectMovableSegments(
+				points,
+				movable,
+				orientation,
+			)) {
+				const segment = refreshSegment(points, initial);
+				if (segment === undefined) continue;
+				const route = points[segment.routeIndex] ?? [];
+				const before = conflictsOf(segment.routeIndex, route);
+				if (before === 0) continue;
+				const obstacles = routeObstacles[segment.routeIndex] ?? [];
+				const [low, high] = segmentChannel(
+					segment,
+					points,
+					obstacles,
+					channelConfig,
+				);
+				const others = collectMovableSegments(points, movable, orientation);
+				const candidates = [
+					...new Set(
+						[
+							low,
+							high,
+							...others.flatMap((other) => [
+								other.coord - config.spacing,
+								other.coord + config.spacing,
+							]),
+						].filter(
+							(coord) =>
+								Number.isFinite(coord) &&
+								coord >= low - 1e-9 &&
+								coord <= high + 1e-9 &&
+								Math.abs(coord - segment.coord) > EPSILON,
+						),
+					),
+				].sort(
+					(a, b) =>
+						Math.abs(a - segment.coord) - Math.abs(b - segment.coord) || a - b,
+				);
+				const hitsBefore = countObstacleHits(route, obstacles);
+				for (const coord of candidates) {
+					if (crowded(segment, coord, others)) continue;
+					const trial = moved(segment, coord);
+					if (countObstacleHits(trial, obstacles) > hitsBefore) continue;
+					if (conflictsOf(segment.routeIndex, trial) >= before) continue;
+					points[segment.routeIndex] = trial;
+					improved = true;
+					break;
+				}
+			}
+			// Pairwise swaps.
+			const trunks = collectMovableSegments(points, movable, orientation);
+			for (let i = 0; i < trunks.length; i += 1) {
+				for (let j = i + 1; j < trunks.length; j += 1) {
+					const a = refreshSegment(points, trunks[i] as MovableSegment);
+					const b = refreshSegment(points, trunks[j] as MovableSegment);
+					if (a === undefined || b === undefined) continue;
+					if (a.routeIndex === b.routeIndex) continue;
+					if (Math.abs(a.coord - b.coord) <= EPSILON) continue;
+					const obstaclesA = routeObstacles[a.routeIndex] ?? [];
+					const obstaclesB = routeObstacles[b.routeIndex] ?? [];
+					const [lowA, highA] = segmentChannel(
+						a,
+						points,
+						obstaclesA,
+						channelConfig,
+					);
+					const [lowB, highB] = segmentChannel(
+						b,
+						points,
+						obstaclesB,
+						channelConfig,
+					);
+					if (b.coord < lowA || b.coord > highA) continue;
+					if (a.coord < lowB || a.coord > highB) continue;
+					const routeA = points[a.routeIndex] ?? [];
+					const routeB = points[b.routeIndex] ?? [];
+					const before =
+						conflictsOf(a.routeIndex, routeA) +
+						conflictsOf(b.routeIndex, routeB) -
+						countConflicts(routeA, routeB);
+					if (before === 0) continue;
+					const trialA = moved(a, b.coord);
+					const trialB = moved(b, a.coord);
+					if (
+						countObstacleHits(trialA, obstaclesA) >
+							countObstacleHits(routeA, obstaclesA) ||
+						countObstacleHits(trialB, obstaclesB) >
+							countObstacleHits(routeB, obstaclesB)
+					) {
+						continue;
+					}
+					points[a.routeIndex] = trialA;
+					points[b.routeIndex] = trialB;
+					const after =
+						conflictsOf(a.routeIndex, trialA) +
+						conflictsOf(b.routeIndex, trialB) -
+						countConflicts(trialA, trialB);
+					if (after < before) {
+						improved = true;
+					} else {
+						points[a.routeIndex] = routeA;
+						points[b.routeIndex] = routeB;
+					}
+				}
+			}
+		}
+		if (!improved) break;
 	}
 }
 

@@ -817,3 +817,85 @@ describe("degree growth keeps circles round (Codex #96, round 6)", () => {
 		expect(grown?.size.width).toBe(grown?.size.height);
 	});
 });
+
+describe("trunk crossing reduction", () => {
+	const crossings = (routes: Point[][]) => {
+		let total = 0;
+		for (let i = 0; i < routes.length; i += 1) {
+			for (let j = i + 1; j < routes.length; j += 1) {
+				const a = routes[i] ?? [];
+				const b = routes[j] ?? [];
+				for (let s = 0; s + 1 < a.length; s += 1) {
+					for (let t = 0; t + 1 < b.length; t += 1) {
+						const [p0, p1] = [a[s] as Point, a[s + 1] as Point];
+						const [q0, q1] = [b[t] as Point, b[t + 1] as Point];
+						const pv = p0.x === p1.x;
+						const qv = q0.x === q1.x;
+						if (pv === qv) continue;
+						const [v0, v1, h0, h1] = pv ? [p0, p1, q0, q1] : [q0, q1, p0, p1];
+						if (
+							v0.x > Math.min(h0.x, h1.x) &&
+							v0.x < Math.max(h0.x, h1.x) &&
+							h0.y > Math.min(v0.y, v1.y) &&
+							h0.y < Math.max(v0.y, v1.y)
+						) {
+							total += 1;
+						}
+					}
+				}
+			}
+		}
+		return total;
+	};
+
+	it("moves a trunk within its channel when that removes crossings", () => {
+		const routes = [
+			{
+				id: "a",
+				points: [
+					{ x: 0, y: 0 },
+					{ x: 40, y: 0 },
+					{ x: 40, y: 100 },
+					{ x: 200, y: 100 },
+				],
+			},
+			{
+				id: "b",
+				points: [
+					{ x: 0, y: 50 },
+					{ x: 120, y: 50 },
+					{ x: 120, y: 120 },
+					{ x: 200, y: 120 },
+				],
+			},
+		];
+		expect(crossings(routes.map((route) => route.points))).toBe(2);
+		const result = separateParallelSegments(routes, [], { spacing: 12 });
+		expect(crossings(result)).toBe(0);
+	});
+
+	it("keeps trunks when track separation is off", () => {
+		const routes = [
+			{
+				id: "a",
+				points: [
+					{ x: 0, y: 0 },
+					{ x: 40, y: 0 },
+					{ x: 40, y: 100 },
+					{ x: 200, y: 100 },
+				],
+			},
+			{
+				id: "b",
+				points: [
+					{ x: 0, y: 50 },
+					{ x: 120, y: 50 },
+					{ x: 120, y: 120 },
+					{ x: 200, y: 120 },
+				],
+			},
+		];
+		const result = separateParallelSegments(routes, [], { separate: false });
+		expect(crossings(result)).toBe(2);
+	});
+});
