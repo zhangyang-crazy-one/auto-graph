@@ -124,6 +124,8 @@ layout:
 - **Ordering**: groups and lanes stay contiguous with one consistent order across layers, so every container is a single rectangle; long edges travel inside the containers they start and end in.
 - **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
 - **Spacing between layers** is sized from what must fit there: one track per bending edge, edge labels, and container borders.
+- **Folding**: a flow much longer than `layout.targetAspectRatio` (default 1.6) — at least 6 layers and more than about a page along the flow — is cut into bands stacked in reading order, like wrapped text. Cuts avoid edges where possible and never split a group; swimlane diagrams are not folded (their lanes span every layer). `layout.fold: false` turns it off.
+- **Label backdrops**: edge labels, group titles and port labels are drawn on a white box fitted to their text, so lines passing underneath do not run through the glyphs.
 
 Explicit `constraints` still apply after the layout. `test/fixtures/benchmark/layout-baseline.md` compares both modes on the benchmark set.
 

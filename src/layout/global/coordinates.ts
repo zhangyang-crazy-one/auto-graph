@@ -85,6 +85,13 @@ export interface GlobalLayoutOptions {
 	layerSpacing?: number;
 	/** Gap between a container border and a neighbour outside it (default 24). */
 	containerSpacing?: number;
+	/**
+	 * Width / height the canvas should approach (default 1.6). A layout
+	 * whose flow runs much longer than this is folded into bands.
+	 */
+	targetAspectRatio?: number;
+	/** Fold long flows into bands (default true). */
+	fold?: boolean;
 }
 
 export interface GlobalLayoutInput {
@@ -234,11 +241,48 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		),
 	});
 
+	const fold =
+		input.options?.fold === false
+			? undefined
+			: planFold({
+					layering,
+					hierarchy,
+					starts: layerStarts.starts,
+					thickness: layerStarts.thickness,
+					crossExtent: crossExtentOf(
+						nodeIds,
+						cross.positions,
+						cross.bounds,
+						(id) => {
+							const size = sizeOf.get(id);
+							return size === undefined ? 0 : crossSize(size);
+						},
+					),
+					horizontalFlow,
+					targetAspectRatio: input.options?.targetAspectRatio ?? 1.6,
+					layerSpacing,
+					edgeSpacing,
+				});
+	if (fold !== undefined) {
+		diagnostics.push({
+			severity: "info",
+			code: "layout.global.folded",
+			message: `Folded ${ordering.layers.length} layers into ${fold.bands.length} bands to approach aspect ratio ${input.options?.targetAspectRatio ?? 1.6}.`,
+			detail: {
+				bands: fold.bands.length,
+				cuts: fold.bands
+					.slice(0, -1)
+					.map((band) => band.last)
+					.join(","),
+			},
+		});
+	}
+
 	const boxes = new Map<string, Box>();
 	for (const nodeId of nodeIds) {
 		const size = sizeOf.get(nodeId);
 		const layer = layering.layerOfNode.get(nodeId);
-		const crossCenter = cross.positions.get(nodeId);
+		let crossCenter = cross.positions.get(nodeId);
 		if (
 			size === undefined ||
 			layer === undefined ||
@@ -248,7 +292,16 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		}
 		const start = layerStarts.starts[layer] ?? 0;
 		const thickness = layerStarts.thickness[layer] ?? 0;
-		const mainCenter = start + thickness / 2;
+		let mainCenter = start + thickness / 2;
+		if (fold !== undefined) {
+			const band = fold.bands.find(
+				(candidate) => layer >= candidate.first && layer <= candidate.last,
+			);
+			if (band !== undefined) {
+				mainCenter -= band.mainOffset;
+				crossCenter += band.crossOffset;
+			}
+		}
 		boxes.set(
 			nodeId,
 			toScreenBox(direction, mainCenter, crossCenter, size, horizontalFlow),
@@ -286,6 +339,227 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		crossings: ordering.crossings,
 		layerCount: ordering.layers.length,
 	};
+}
+
+const MIN_FOLD_LAYERS = 6;
+const MIN_FOLD_WIDTH = 1200;
+const MIN_FOLD_HEIGHT = 900;
+
+interface FoldBand {
+	first: number;
+	last: number;
+	/** Subtracted from main coordinates of the band's layers. */
+	mainOffset: number;
+	/** Added to cross coordinates of the band's layers. */
+	crossOffset: number;
+}
+
+interface FoldInput {
+	layering: Layering;
+	hierarchy: ContainerHierarchy;
+	starts: readonly number[];
+	thickness: readonly number[];
+	crossExtent: readonly [number, number];
+	horizontalFlow: boolean;
+	targetAspectRatio: number;
+	layerSpacing: number;
+	edgeSpacing: number;
+}
+
+/** Cross-axis extent of all nodes and container rectangles. */
+function crossExtentOf(
+	nodeIds: readonly string[],
+	positions: ReadonlyMap<string, number>,
+	bounds: ReadonlyMap<string, readonly [number, number]>,
+	crossSizeOf: (nodeId: string) => number,
+): [number, number] {
+	let lo = Number.POSITIVE_INFINITY;
+	let hi = Number.NEGATIVE_INFINITY;
+	for (const id of nodeIds) {
+		const center = positions.get(id);
+		if (center === undefined) continue;
+		const half = crossSizeOf(id) / 2;
+		lo = Math.min(lo, center - half);
+		hi = Math.max(hi, center + half);
+	}
+	for (const [left, right] of bounds.values()) {
+		lo = Math.min(lo, left);
+		hi = Math.max(hi, right);
+	}
+	return Number.isFinite(lo) ? [lo, hi] : [0, 0];
+}
+
+/**
+ * Fold a flow that runs much longer than the target aspect ratio (plan P4).
+ *
+ * The layer sequence is cut into k contiguous bands, stacked across the
+ * flow in reading order (like wrapped text). Cuts are only allowed where no
+ * container spans the boundary, so groups stay single rectangles and
+ * swimlane bands (which span every layer) are never folded. For each k the
+ * cuts minimise Σ (band length − L/k)² plus a penalty per edge crossing a
+ * cut; the k whose canvas aspect lies closest to the target wins. Returns
+ * undefined when folding would not help.
+ */
+function planFold(input: FoldInput): { bands: FoldBand[] } | undefined {
+	const layerCount = input.starts.length;
+	if (layerCount < MIN_FOLD_LAYERS) return undefined;
+	const end = (layer: number) =>
+		(input.starts[layer] ?? 0) + (input.thickness[layer] ?? 0);
+	const mainLength = end(layerCount - 1) - (input.starts[0] ?? 0);
+	const crossLength = input.crossExtent[1] - input.crossExtent[0];
+	if (mainLength <= 0 || crossLength <= 0) return undefined;
+	const aspectOf = (main: number, cross: number) =>
+		input.horizontalFlow ? main / cross : cross / main;
+	const target = input.targetAspectRatio;
+	const distance = (aspect: number) => Math.abs(Math.log(aspect / target));
+	const unfolded = aspectOf(mainLength, crossLength);
+	// Only fold when the flow axis is the long one and clearly too long.
+	// A short row reads fine even when its aspect is extreme: fold only
+	// flows longer than about one page along the flow axis.
+	const flowTooLong = input.horizontalFlow
+		? unfolded > target * 2 && mainLength > MIN_FOLD_WIDTH
+		: unfolded < target / 2 && mainLength > MIN_FOLD_HEIGHT;
+	if (!flowTooLong) return undefined;
+
+	// Valid cut after layer l: no container spans l → l+1.
+	const spans = new Map<string, { min: number; max: number }>();
+	for (const vertex of input.layering.vertices.values()) {
+		let cursor: string | undefined = vertex.containerId;
+		while (cursor !== undefined && cursor !== input.hierarchy.rootId) {
+			const span = spans.get(cursor);
+			spans.set(cursor, {
+				min: Math.min(span?.min ?? vertex.layer, vertex.layer),
+				max: Math.max(span?.max ?? vertex.layer, vertex.layer),
+			});
+			cursor = input.hierarchy.containers.get(cursor)?.parentId;
+		}
+	}
+	const mainLaneLayers = new Set<number>();
+	for (const [nodeId] of input.hierarchy.mainAxisLaneOfNode) {
+		const layer = input.layering.layerOfNode.get(nodeId);
+		if (layer !== undefined) mainLaneLayers.add(layer);
+	}
+	const mainLaneSpan =
+		mainLaneLayers.size === 0
+			? undefined
+			: { min: Math.min(...mainLaneLayers), max: Math.max(...mainLaneLayers) };
+	const crossingAt = new Array<number>(layerCount).fill(0);
+	for (const segment of input.layering.segments) {
+		const layer = input.layering.vertices.get(segment.from)?.layer;
+		if (layer !== undefined) crossingAt[layer] = (crossingAt[layer] ?? 0) + 1;
+	}
+	const validCut = (layer: number) =>
+		layer >= 0 &&
+		layer < layerCount - 1 &&
+		![...spans.values()].some(
+			(span) => span.min <= layer && layer < span.max,
+		) &&
+		(mainLaneSpan === undefined ||
+			layer < mainLaneSpan.min ||
+			layer >= mainLaneSpan.max);
+
+	let best:
+		| { cuts: number[]; score: number; aspect: number; length: number }
+		| undefined;
+	const maxBands = Math.min(8, Math.floor(layerCount / 2));
+	for (let k = 2; k <= maxBands; k += 1) {
+		const ideal = mainLength / k;
+		// One edge across a cut weighs like a band ~30% off its ideal length.
+		const penalty = ideal * ideal * 0.1;
+		// dp[j][l]: best cost of splitting layers 0..l into j bands.
+		const dp: number[][] = Array.from({ length: k + 1 }, () =>
+			new Array<number>(layerCount).fill(Number.POSITIVE_INFINITY),
+		);
+		const from: number[][] = Array.from({ length: k + 1 }, () =>
+			new Array<number>(layerCount).fill(-1),
+		);
+		const bandCost = (first: number, last: number) => {
+			const length = end(last) - (input.starts[first] ?? 0);
+			return (length - ideal) ** 2;
+		};
+		for (let last = 0; last < layerCount; last += 1) {
+			(dp[1] as number[])[last] = bandCost(0, last);
+		}
+		for (let j = 2; j <= k; j += 1) {
+			for (let last = j - 1; last < layerCount; last += 1) {
+				for (let cut = j - 2; cut < last; cut += 1) {
+					if (!validCut(cut)) continue;
+					const previous = dp[j - 1]?.[cut] ?? Number.POSITIVE_INFINITY;
+					if (!Number.isFinite(previous)) continue;
+					const cost =
+						previous +
+						bandCost(cut + 1, last) +
+						penalty * (crossingAt[cut] ?? 0);
+					if (cost < (dp[j]?.[last] ?? Number.POSITIVE_INFINITY)) {
+						(dp[j] as number[])[last] = cost;
+						(from[j] as number[])[last] = cut;
+					}
+				}
+			}
+		}
+		if (!Number.isFinite(dp[k]?.[layerCount - 1] ?? Number.POSITIVE_INFINITY)) {
+			continue;
+		}
+		const cuts: number[] = [];
+		let last = layerCount - 1;
+		for (let j = k; j >= 2; j -= 1) {
+			const cut = from[j]?.[last] ?? -1;
+			cuts.unshift(cut);
+			last = cut;
+		}
+		const bands = bandRanges(cuts, layerCount);
+		const longest = Math.max(
+			...bands.map(
+				([first, lastLayer]) => end(lastLayer) - (input.starts[first] ?? 0),
+			),
+		);
+		const gapTotal = cuts.reduce(
+			(sum, cut) => sum + bandGap(input, crossingAt[cut] ?? 0),
+			0,
+		);
+		const aspect = aspectOf(longest, k * crossLength + gapTotal);
+		const score = distance(aspect);
+		if (best === undefined || score < best.score - 1e-9) {
+			best = { cuts, score, aspect, length: longest };
+		}
+	}
+	if (best === undefined || best.score >= distance(unfolded) - 1e-9) {
+		return undefined;
+	}
+	const bands: FoldBand[] = [];
+	let crossOffset = 0;
+	bandRanges(best.cuts, layerCount).forEach(([first, last], index) => {
+		bands.push({
+			first,
+			last,
+			mainOffset: (input.starts[first] ?? 0) - (input.starts[0] ?? 0),
+			crossOffset,
+		});
+		const cut = best?.cuts[index];
+		if (cut !== undefined) {
+			crossOffset += crossLength + bandGap(input, crossingAt[cut] ?? 0);
+		}
+	});
+	return { bands };
+}
+
+/** Gap between two folded bands: layer spacing plus a track per edge. */
+function bandGap(input: FoldInput, crossingEdges: number): number {
+	return input.layerSpacing + (crossingEdges + 1) * input.edgeSpacing;
+}
+
+function bandRanges(
+	cuts: readonly number[],
+	layerCount: number,
+): [number, number][] {
+	const ranges: [number, number][] = [];
+	let first = 0;
+	for (const cut of cuts) {
+		ranges.push([first, cut]);
+		first = cut + 1;
+	}
+	ranges.push([first, layerCount - 1]);
+	return ranges;
 }
 
 /** Screen box of a flow-coordinate rectangle. */

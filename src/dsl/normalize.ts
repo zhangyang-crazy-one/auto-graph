@@ -102,6 +102,12 @@ export function normalizeDiagramDsl(
 			...(primaryReadingDirection === undefined
 				? {}
 				: { primaryReadingDirection }),
+			...(dsl.layout?.targetAspectRatio === undefined
+				? {}
+				: { targetAspectRatio: dsl.layout.targetAspectRatio }),
+			...(dsl.layout?.fold === undefined
+				? {}
+				: { foldLayout: dsl.layout.fold }),
 			...(portShifting === undefined ? {} : { portShifting }),
 			...routingOptions,
 		},

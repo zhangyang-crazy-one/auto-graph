@@ -1,0 +1,38 @@
+title: 贷款审批全流程 Loan Approval
+layout: { direction: LR, mode: global }
+nodes:
+  apply:    { label: 客户提交申请 Apply, shape: rounded-rectangle }
+  kyc:      { label: 身份核验 KYC }
+  credit:   { label: 征信查询 Credit Check }
+  score:    { label: 风险评分模型 }
+  risk:     { label: 风险是否可接受？, shape: diamond }
+  manual:   { label: 人工复核 Manual Review }
+  collat:   { label: 抵押物评估 }
+  price:    { label: 利率定价 Pricing }
+  offer:    { label: 生成授信方案 }
+  sign:     { label: 电子签约 e-Sign }
+  disburse: { label: 放款 Disbursement }
+  notify:   { label: 通知客户 }
+  archive:  { label: 归档 Archive, shape: cylinder }
+  reject:   { label: 拒绝并告知原因 }
+  monitor:  { label: 贷后监控 Monitoring }
+  close:    { label: 结清 Close, shape: rounded-rectangle }
+edges:
+  - apply -> kyc
+  - kyc -> credit
+  - credit -> score
+  - score -> risk
+  - risk -> collat: 可接受
+  - risk -> manual: 待定
+  - risk -> reject: 拒绝
+  - manual -> collat: 通过
+  - manual -> reject: 不通过
+  - collat -> price
+  - price -> offer
+  - offer -> sign
+  - sign -> disburse
+  - disburse -> notify
+  - notify -> monitor
+  - monitor -> close
+  - close -> archive
+  - reject -> archive

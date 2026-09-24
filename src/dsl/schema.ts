@@ -389,6 +389,8 @@ export const diagramDslSchema = z
 				direction: directionSchema.optional(),
 				mode: layoutModeSchema.optional(),
 				primaryReadingDirection: primaryReadingDirectionSchema.optional(),
+				targetAspectRatio: z.number().positive().optional(),
+				fold: z.boolean().optional(),
 			})
 			.optional(),
 		routing: z

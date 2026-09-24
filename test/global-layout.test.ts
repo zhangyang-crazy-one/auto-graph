@@ -363,3 +363,104 @@ edges:
 		);
 	});
 });
+
+describe("folding long flows (P4)", () => {
+	const chain = (count: number) =>
+		Array.from({ length: count }, (_, index) => node(`n${index}`, 120, 40));
+	const chainEdges = (count: number) =>
+		edges(
+			...Array.from(
+				{ length: count - 1 },
+				(_, index) => [`n${index}`, `n${index + 1}`] as [string, string],
+			),
+		);
+	const aspect = (boxes: Map<string, Box>) => {
+		const u = union([...boxes.values()]);
+		return u.width / u.height;
+	};
+
+	it("folds a long LR chain into bands close to the target aspect", () => {
+		const input: GlobalLayoutInput = {
+			direction: "LR",
+			nodes: chain(16),
+			edges: chainEdges(16),
+		};
+		const flat = runGlobalLayout({ ...input, options: { fold: false } });
+		const folded = runGlobalLayout(input);
+		expect(aspect(flat.boxes)).toBeGreaterThan(8);
+		expect(Math.abs(Math.log(aspect(folded.boxes) / 1.6))).toBeLessThan(
+			Math.abs(Math.log(aspect(flat.boxes) / 1.6)),
+		);
+		expect(
+			folded.diagnostics.some((d) => d.code === "layout.global.folded"),
+		).toBe(true);
+		// Reading order: within a band x grows; the next band starts lower.
+		const box = (id: string) => folded.boxes.get(id) as Box;
+		let bands = 1;
+		for (let index = 1; index < 16; index += 1) {
+			const previous = box(`n${index - 1}`);
+			const current = box(`n${index}`);
+			if (current.x < previous.x) {
+				bands += 1;
+				expect(current.y).toBeGreaterThan(previous.y + previous.height);
+			}
+		}
+		expect(bands).toBeGreaterThan(1);
+	});
+
+	it("never cuts through a group", () => {
+		const { boxes } = runGlobalLayout({
+			direction: "LR",
+			nodes: chain(16),
+			edges: chainEdges(16),
+			groups: [group("mid", ["n4", "n5", "n6", "n7", "n8", "n9", "n10"])],
+		});
+		const members = ["n4", "n5", "n6", "n7", "n8", "n9", "n10"].map(
+			(id) => boxes.get(id) as Box,
+		);
+		// One band: all members share a row and keep left-to-right order.
+		for (let index = 1; index < members.length; index += 1) {
+			expect(members[index]?.y).toBe(members[0]?.y);
+			expect(members[index]?.x ?? 0).toBeGreaterThan(
+				members[index - 1]?.x ?? 0,
+			);
+		}
+	});
+
+	it("does not fold swimlanes or flows that are already balanced", () => {
+		const lanes = runGlobalLayout({
+			direction: "LR",
+			nodes: chain(16),
+			edges: chainEdges(16),
+			swimlanes: [
+				{
+					id: "s",
+					orientation: "horizontal",
+					headerHeight: 28,
+					padding: 16,
+					lanes: [
+						{
+							id: "a",
+							children: ["n0", "n1", "n2", "n3", "n4", "n5", "n6", "n7"],
+						},
+						{
+							id: "b",
+							children: ["n8", "n9", "n10", "n11", "n12", "n13", "n14", "n15"],
+						},
+					],
+				},
+			],
+		});
+		expect(
+			lanes.diagnostics.some((d) => d.code === "layout.global.folded"),
+		).toBe(false);
+		const short = runGlobalLayout({
+			direction: "LR",
+			nodes: chain(4),
+			edges: chainEdges(4),
+		});
+		expect(
+			short.diagnostics.some((d) => d.code === "layout.global.folded"),
+		).toBe(false);
+	});
+});

@@ -234,6 +234,12 @@ export function solveDiagram(
 					swimlanes: styledSwimlanes,
 					textMeasurer: options.textMeasurer,
 					declaredEdgeIds: diagram.edges.map((edge) => edge.id),
+					...(options.targetAspectRatio === undefined
+						? {}
+						: { targetAspectRatio: options.targetAspectRatio }),
+					...(options.foldLayout === undefined
+						? {}
+						: { fold: options.foldLayout }),
 				})
 			: runInitialLayout({
 					mode: initialLayoutMode,
@@ -244,8 +250,11 @@ export function solveDiagram(
 				});
 
 	diagnostics.push(...layout.diagnostics);
+	// The global layout folds long flows itself (P4); the Dagre-era stack
+	// rewraps would only undo its ordering.
 	const initialNodeBoxes =
 		initialLayoutMode === "positions" ||
+		initialLayoutMode === "global" ||
 		(diagram.direction !== "LR" && diagram.direction !== "RL")
 			? layout.boxes
 			: wrapVerticalStackIfNeeded(
@@ -259,6 +268,7 @@ export function solveDiagram(
 
 	// Horizontal rewrap for TB/BT layouts (Issue #60).
 	if (
+		initialLayoutMode !== "global" &&
 		(diagram.direction === "TB" || diagram.direction === "BT") &&
 		(options.maxRowDepth !== undefined ||
 			options.targetAspectRatio !== undefined)

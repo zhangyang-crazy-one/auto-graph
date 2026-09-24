@@ -8,6 +8,7 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 | cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 1.1 | 0 | 1.103 | 2.076 | 0.908 | 0.391 | 0.163 | 0.387 | 2 |
 | cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.417 | 0 | 1.177 | 1.728 | 0.919 | 0.703 | 0.134 | 0.403 | 2 |
 | cn-architecture.yaml | 0 | 3 | 14 | 0 | 0 | 0 | 13 | 2 | 0 | 1.471 | 1.442 | 0.928 | 0.466 | 0.097 | 1 | 0 |
+| cn-long-flow.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 2.278 | 0 | 1.172 | 1.752 | 0.827 | 0.048 | 0.118 | 1 | 0 |
 | microservice.auto-graph.yaml | 0 | 1 | 1 | 0 | 0 | 0 | 3 | 2.3 | 0 | 1.38 | 2.121 | 0.899 | 0.616 | 0.123 | 1 | 0 |
 | contract-swimlane.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.694 | 0.722 | 0 | 0.214 | 0.502 | 0 |
 | sysml-structure.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.187 | 2.412 | 0.854 | 0.556 | 0.193 | 0.346 | 0 |

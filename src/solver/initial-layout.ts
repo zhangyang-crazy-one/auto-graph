@@ -287,6 +287,8 @@ export function runGlobalInitialLayout(input: {
 	textMeasurer: TextMeasurer | undefined;
 	/** Edge ids in declaration order (the solver sorts edges by id). */
 	declaredEdgeIds?: readonly string[];
+	targetAspectRatio?: number;
+	fold?: boolean;
 }): InitialLayoutResult {
 	const seed = runDagreInitialLayout({
 		direction: input.direction,
@@ -351,6 +353,12 @@ export function runGlobalInitialLayout(input: {
 			padding: swimlane.padding ?? 16,
 		})),
 		seedBoxes: seed.boxes,
+		options: {
+			...(input.targetAspectRatio === undefined
+				? {}
+				: { targetAspectRatio: input.targetAspectRatio }),
+			...(input.fold === undefined ? {} : { fold: input.fold }),
+		},
 	});
 	return {
 		boxes: result.boxes,

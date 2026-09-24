@@ -24,6 +24,7 @@ const BENCHMARKS = [
 	"test/fixtures/benchmark/cn-swimlane.yaml",
 	"test/fixtures/benchmark/cn-vertical-lanes.yaml",
 	"test/fixtures/benchmark/cn-architecture.yaml",
+	"test/fixtures/benchmark/cn-long-flow.yaml",
 	"test/fixtures/issue-13/microservice.auto-graph.yaml",
 	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml",
 	"test/fixtures/phase-08/sysml-structure.auto-graph.yaml",

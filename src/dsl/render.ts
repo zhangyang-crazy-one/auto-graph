@@ -86,6 +86,12 @@ export function renderDiagramDsl(
 			normalized.diagram.metadata?.initialLayout,
 			normalized.diagram,
 		),
+		...(typeof normalized.diagram.metadata?.targetAspectRatio === "number"
+			? { targetAspectRatio: normalized.diagram.metadata.targetAspectRatio }
+			: {}),
+		...(typeof normalized.diagram.metadata?.foldLayout === "boolean"
+			? { foldLayout: normalized.diagram.metadata.foldLayout }
+			: {}),
 		routeKind:
 			normalized.diagram.metadata?.routeKind === "straight"
 				? "straight"

@@ -16,6 +16,11 @@ export interface SolveDiagramOptions {
 	initialLayout?: InitialLayoutMode;
 	/** When true, use recursive bottom-up layout for container groups (Issue #54, 方案 A). */
 	recursiveLayout?: boolean;
+	/**
+	 * Global layout only: fold flows that run much longer than
+	 * `targetAspectRatio` (default 1.6) into bands (default true).
+	 */
+	foldLayout?: boolean;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** When true, compute quality score after solving (Issue #54, 方案 E). */
