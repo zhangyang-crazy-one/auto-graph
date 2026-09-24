@@ -813,30 +813,61 @@ function laneBlockLayers(
 		succs.get(edge.source)?.push(edge.target);
 	}
 	const fixed = new Set(layer.keys());
-	const upper = new Map<string, number>();
-	for (const node of [...order].reverse()) {
-		if (fixed.has(node)) continue;
-		let bound = Number.POSITIVE_INFINITY;
-		for (const succ of succs.get(node) ?? []) {
-			const limit = fixed.has(succ)
-				? (layer.get(succ) ?? 0)
-				: (upper.get(succ) ?? Number.POSITIVE_INFINITY);
-			bound = Math.min(bound, limit - 1);
+	const placeFree = () => {
+		const upper = new Map<string, number>();
+		for (const node of [...order].reverse()) {
+			if (fixed.has(node)) continue;
+			let bound = Number.POSITIVE_INFINITY;
+			for (const succ of succs.get(node) ?? []) {
+				const limit = fixed.has(succ)
+					? (layer.get(succ) ?? 0)
+					: (upper.get(succ) ?? Number.POSITIVE_INFINITY);
+				bound = Math.min(bound, limit - 1);
+			}
+			upper.set(node, bound);
 		}
-		upper.set(node, bound);
-	}
-	for (const node of order) {
-		if (fixed.has(node)) continue;
-		const incoming = preds.get(node) ?? [];
-		const bound = upper.get(node) ?? Number.POSITIVE_INFINITY;
-		const earliest =
-			incoming.length === 0
-				? Number.NEGATIVE_INFINITY
-				: Math.max(...incoming.map((pred) => (layer.get(pred) ?? 0) + 1));
-		layer.set(
-			node,
-			Number.isFinite(earliest) ? earliest : Number.isFinite(bound) ? bound : 0,
-		);
+		for (const node of order) {
+			if (fixed.has(node)) continue;
+			const incoming = preds.get(node) ?? [];
+			const bound = upper.get(node) ?? Number.POSITIVE_INFINITY;
+			const earliest =
+				incoming.length === 0
+					? Number.NEGATIVE_INFINITY
+					: Math.max(...incoming.map((pred) => (layer.get(pred) ?? 0) + 1));
+			layer.set(
+				node,
+				Number.isFinite(earliest)
+					? earliest
+					: Number.isFinite(bound)
+						? bound
+						: 0,
+			);
+		}
+	};
+	// A free node squeezed between two lane layers (`a -> x -> b` with b on
+	// the layer right after a) cannot fit: make room by moving b's layer and
+	// every later fixed layer back, then place the free nodes again. Each
+	// round only moves layers later, and the graph is acyclic, so it ends.
+	for (let round = 0; round <= nodes.length; round += 1) {
+		placeFree();
+		let conflict: { at: number; shift: number } | undefined;
+		for (const node of order) {
+			if (fixed.has(node)) continue;
+			const at = layer.get(node) ?? 0;
+			for (const succ of succs.get(node) ?? []) {
+				if (!fixed.has(succ)) continue;
+				const target = layer.get(succ) ?? 0;
+				if (target <= at && (conflict === undefined || target < conflict.at)) {
+					conflict = { at: target, shift: at + 1 - target };
+				}
+			}
+		}
+		if (conflict === undefined) break;
+		const { at, shift } = conflict;
+		for (const node of fixed) {
+			const value = layer.get(node) ?? 0;
+			if (value >= at) layer.set(node, value + shift);
+		}
 	}
 	return layer;
 }

@@ -306,3 +306,31 @@ describe("main-axis lane layering (Codex #96, round 4)", () => {
 		).toBe(true);
 	});
 });
+
+describe("main-axis lane layering (Codex #96, round 5)", () => {
+	it("makes room for an external node between adjacent lane layers", () => {
+		const { layering } = solve(
+			["a", "x", "b"],
+			[
+				["a", "x"],
+				["x", "b"],
+			],
+			{
+				direction: "LR",
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "vertical",
+						lanes: [
+							{ id: "l0", children: ["a"] },
+							{ id: "l1", children: ["b"] },
+						],
+					},
+				],
+			},
+		);
+		const layerOf = (id: string) => layering.layerOfNode.get(id) ?? -1;
+		expect(layerOf("a")).toBeLessThan(layerOf("x"));
+		expect(layerOf("x")).toBeLessThan(layerOf("b"));
+	});
+});

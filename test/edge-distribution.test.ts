@@ -686,3 +686,115 @@ describe("collinear end segments", () => {
 		expect(split[1]?.[1]?.y).toBe(100);
 	});
 });
+
+describe("review follow-ups (Codex #96, round 5)", () => {
+	const rect = (box: Box) => computeShapeGeometry({ shape: "rectangle", box });
+
+	it("leaves edges that share an explicit port on the port", () => {
+		const hub = rect({ x: 0, y: 0, width: 60, height: 60 });
+		const t1 = rect({ x: 200, y: -100, width: 40, height: 40 });
+		const t2 = rect({ x: 200, y: 100, width: 40, height: 40 });
+		const port = { x: 60, y: 30 };
+		const edges = [
+			{
+				id: "up",
+				source: { nodeId: "hub", portId: "out" },
+				target: { nodeId: "t1" },
+				points: [
+					port,
+					{ x: 120, y: 30 },
+					{ x: 120, y: -80 },
+					{ x: 200, y: -80 },
+				],
+			},
+			{
+				id: "down",
+				source: { nodeId: "hub", portId: "out" },
+				target: { nodeId: "t2" },
+				points: [
+					port,
+					{ x: 130, y: 30 },
+					{ x: 130, y: 120 },
+					{ x: 200, y: 120 },
+				],
+			},
+		];
+		const result = finalizeCoordinatedEdges(
+			edges,
+			new Map([
+				["hub", hub],
+				["t1", t1],
+				["t2", t2],
+			]),
+			[
+				{ id: "hub", box: hub.box },
+				{ id: "t1", box: t1.box },
+				{ id: "t2", box: t2.box },
+			],
+			[],
+			[],
+			[],
+			undefined,
+			{},
+		);
+		for (const edge of result) expect(edge.points[0], edge.id).toEqual(port);
+	});
+
+	it("keeps nudged routes out of groups they do not belong to", () => {
+		const a = rect({ x: 0, y: 0, width: 40, height: 40 });
+		const b = rect({ x: 300, y: 200, width: 40, height: 40 });
+		const inner = rect({ x: 120, y: 90, width: 40, height: 40 });
+		const group = {
+			id: "g",
+			nodeIds: ["inner"],
+			groupIds: [],
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			box: { x: 100, y: 60, width: 100, height: 100 },
+		};
+		// The trunk at x = 150 clips the unrelated group only.
+		const edge = {
+			id: "outside",
+			source: { nodeId: "a" },
+			target: { nodeId: "b" },
+			points: [
+				{ x: 40, y: 20 },
+				{ x: 150, y: 20 },
+				{ x: 150, y: 220 },
+				{ x: 300, y: 220 },
+			],
+		};
+		const nodes = new Map([
+			["a", a],
+			["b", b],
+			["inner", inner],
+		]);
+		const entries = [...nodes].map(([id, geometry]) => ({
+			id,
+			box: geometry.box,
+		}));
+		const [without] = finalizeCoordinatedEdges(
+			[edge],
+			nodes,
+			entries.filter((entry) => entry.id !== "inner"),
+			[],
+			[],
+			[],
+			undefined,
+			{},
+		);
+		expect(without?.points[1]?.x).toBe(150);
+		const [withGroup] = finalizeCoordinatedEdges(
+			[edge],
+			nodes,
+			entries.filter((entry) => entry.id !== "inner"),
+			[],
+			[],
+			[],
+			undefined,
+			{},
+			[group],
+		);
+		const trunk = withGroup?.points[1]?.x ?? 150;
+		expect(trunk < 100 || trunk > 200).toBe(true);
+	});
+});

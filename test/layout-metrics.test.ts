@@ -218,3 +218,16 @@ describe("layout metrics review follow-ups (round 4)", () => {
 		expect(metrics.edgesThroughNodes).toBe(3);
 	});
 });
+
+describe("layout metrics review follow-ups (round 5)", () => {
+	it("measures at least the solver's bounds (crossing glyphs included)", () => {
+		const metrics = measureLayoutQuality(
+			diagram({
+				nodes: [node("a", box(10, 10, 40, 20))],
+				bounds: box(0, 0, 400, 200),
+			}),
+		);
+		expect(metrics.width).toBe(400);
+		expect(metrics.height).toBe(200);
+	});
+});

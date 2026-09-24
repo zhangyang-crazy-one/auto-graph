@@ -873,6 +873,7 @@ export function solveDiagram(
 			routingTextObstacles,
 			acceptedRailAllocations,
 			options,
+			coordinatedGroups,
 		);
 		edgeTextAnnotations = coordinateEdgeTextAnnotations(
 			coordinatedEdges,

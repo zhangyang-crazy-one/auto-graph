@@ -397,7 +397,9 @@ function canvasBox(diagram: CoordinatedDiagram): Box {
 			boxes.push({ x: point.x, y: point.y, width: 0, height: 0 });
 		}
 	}
-	return boxes.length === 0 ? diagram.bounds : union(boxes);
+	// The solver's bounds also cover what only it knows the extent of, such
+	// as hop/bridge glyphs drawn around edge crossings.
+	return union([...boxes, diagram.bounds]);
 }
 
 function annotationContentBox(annotation: SolvedTextAnnotation): Box {

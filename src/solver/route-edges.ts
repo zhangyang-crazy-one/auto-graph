@@ -424,6 +424,7 @@ export function coordinateEdges(
 		textObstacles,
 		railAllocations,
 		options,
+		groups,
 	);
 	pruneResolvedRouteDiagnostics(
 		diagnostics,
@@ -553,6 +554,7 @@ export function finalizeCoordinatedEdges(
 	textObstacles: readonly SolvedTextAnnotation[],
 	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
 	options: SolveDiagramOptions,
+	groups: readonly CoordinatedGroup[] = [],
 ): CoordinatedEdge[] {
 	const implicit = implicitAnchorDistribution(options);
 	// Every post-pass move is validated against the same obstacles the
@@ -563,13 +565,41 @@ export function finalizeCoordinatedEdges(
 	// Each edge is validated without its own endpoint nodes: with a margin
 	// or gutter its endpoints sit inside those expanded boxes, and such
 	// unavoidable hits must not act as a budget that hides a new hit.
+	// Groups and text surfaces follow the router's per-edge rules too: a
+	// group is only an obstacle for edges with no endpoint inside it, and an
+	// edge's own label and its endpoints' node labels are not obstacles for
+	// it. Port labels stay obstacles here: they sit outside the node, and a
+	// nudged track running over its own port label would push the final
+	// edge label onto it.
+	const margin = options.obstacleMargin ?? 0;
 	const obstacles: PostPassObstacle[] = [
 		...nodeObstacles.map((entry) => ({ box: entry.box, ownerId: entry.id })),
 		...hardObstacles.map((box) => ({ box })),
 		...softObstacles.map((box) => ({ box })),
-		...textObstacles
-			.filter(isLocalRouteClearanceText)
-			.map((annotation) => ({ box: textObstacleBox(annotation, options) })),
+		...textObstacles.filter(isLocalRouteClearanceText).map((annotation) => ({
+			box: textObstacleBox(annotation, options),
+			exemptEdgeIds: new Set(
+				edges
+					.filter(
+						(edge) =>
+							annotation.surfaceKind !== "port-label" &&
+							isEdgeConnectedTextAnnotation(edge, annotation),
+					)
+					.map((edge) => edge.id),
+			),
+		})),
+		...groups.map((group) => ({
+			box: margin === 0 ? group.box : expandBox(group.box, margin),
+			exemptEdgeIds: new Set(
+				edges
+					.filter(
+						(edge) =>
+							ancestorGroupIds(groups, edge.source.nodeId).has(group.id) ||
+							ancestorGroupIds(groups, edge.target.nodeId).has(group.id),
+					)
+					.map((edge) => edge.id),
+			),
+		})),
 	];
 	// Border detachment, endpoint spreading and outline snapping belong to
 	// implicit distribution. Obstacle-avoiding / explicit anchorCapacity
@@ -596,20 +626,35 @@ interface PostPassObstacle {
 	box: Box;
 	/** Node the obstacle belongs to, if any. */
 	ownerId?: string;
+	/**
+	 * Edges this obstacle does not apply to: a group's own edges, or the
+	 * edges a text surface belongs to (their label, their endpoint labels).
+	 */
+	exemptEdgeIds?: ReadonlySet<string>;
 }
 
-/** Obstacle boxes an edge must avoid: everything but its endpoint nodes. */
+/** Whether an edge must avoid the obstacle, mirroring the router's rules. */
+function obstacleAppliesTo(
+	obstacle: PostPassObstacle,
+	edge: CoordinatedEdge,
+): boolean {
+	if (
+		obstacle.ownerId !== undefined &&
+		(obstacle.ownerId === edge.source.nodeId ||
+			obstacle.ownerId === edge.target.nodeId)
+	) {
+		return false;
+	}
+	return obstacle.exemptEdgeIds?.has(edge.id) !== true;
+}
+
+/** Obstacle boxes an edge must avoid (the router's per-edge obstacle set). */
 function obstaclesForEdge(
 	edge: CoordinatedEdge,
 	obstacles: readonly PostPassObstacle[],
 ): Box[] {
 	return obstacles
-		.filter(
-			(obstacle) =>
-				obstacle.ownerId === undefined ||
-				(obstacle.ownerId !== edge.source.nodeId &&
-					obstacle.ownerId !== edge.target.nodeId),
-		)
+		.filter((obstacle) => obstacleAppliesTo(obstacle, edge))
 		.map((obstacle) => obstacle.box);
 }
 
@@ -831,8 +876,11 @@ function spreadCollidingEndpoints(
 				: bend.y > end.y
 					? "bottom"
 					: "top";
-			const nodeId =
-				role === "source" ? edge.source.nodeId : edge.target.nodeId;
+			const endpoint = role === "source" ? edge.source : edge.target;
+			// An explicit port is drawn at its anchor: several edges may share
+			// it on purpose, and moving them would detach them from the port.
+			if (endpoint.portId !== undefined) continue;
+			const nodeId = endpoint.nodeId;
 			const along = horizontal ? end.y : end.x;
 			const key = `${nodeId}|${side}|${Math.round(along)}`;
 			const group = groups.get(key) ?? [];
@@ -984,13 +1032,7 @@ function separateCoordinatedEdges(
 		edges.map((edge) => {
 			const ignoreObstacles = new Set<number>();
 			obstacles.forEach((obstacle, index) => {
-				if (
-					obstacle.ownerId !== undefined &&
-					(obstacle.ownerId === edge.source.nodeId ||
-						obstacle.ownerId === edge.target.nodeId)
-				) {
-					ignoreObstacles.add(index);
-				}
+				if (!obstacleAppliesTo(obstacle, edge)) ignoreObstacles.add(index);
 			});
 			return {
 				id: edge.id,
