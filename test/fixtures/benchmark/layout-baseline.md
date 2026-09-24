@@ -9,7 +9,7 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 | cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.417 | 0 | 1.177 | 1.728 | 0.919 | 0.703 | 0.134 | 0.403 | 2 |
 | cn-architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 11 | 2.231 | 0 | 1.228 | 2.488 | 0.911 | 0.526 | 0.1 | 1 | 0 |
 | cn-long-flow.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 2.278 | 0 | 1.172 | 1.752 | 0.827 | 0.048 | 0.118 | 1 | 0 |
-| microservice.auto-graph.yaml | 0 | 1 | 1 | 0 | 0 | 0 | 3 | 2.3 | 0 | 1.38 | 2.121 | 0.899 | 0.616 | 0.123 | 1 | 0 |
+| microservice.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 2.5 | 0 | 1.281 | 1.748 | 0.917 | 0.228 | 0.367 | 1 | 0 |
 | contract-swimlane.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.694 | 0.722 | 0 | 0.214 | 0.502 | 0 |
 | sysml-structure.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.187 | 2.412 | 0.854 | 0.556 | 0.193 | 0.346 | 0 |
 | fan-out.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.692 | 0 | 1.307 | 1.454 | 0.857 | 0.156 | 0.121 | 1 | 0 |
@@ -21,6 +21,6 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 | cn-vertical-lanes.yaml · dagre | 0 | 0 | 0 | 0 | 0 | 0 | 15 | 2.083 | 1425.067 | 1.252 | 1.502 | 0.966 | 1.771 | 0.5 | 0.107 | 4 |
 | contract-swimlane.auto-graph.yaml · dagre | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 16 | 1.098 | 12.033 | 0.856 | 0.836 | 0.115 | 0.537 | 0 |
 | swimlane.yaml · dagre | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 2 | 0 | 1.365 | 2.419 | 0.943 | 0.423 | 0.131 | 0.41 | 1 |
-| cn-architecture.yaml · dagre | 0 | 3 | 14 | 0 | 0 | 0 | 13 | 2 | 0 | 1.471 | 1.442 | 0.928 | 0.466 | 0.097 | 1 | 0 |
+| cn-architecture.yaml · dagre | 0 | 1 | 0 | 0 | 0 | 0 | 26 | 2.423 | 0 | 1.385 | 1.395 | 0.959 | 0.552 | 0.101 | 1 | 0 |
 | cn-long-flow.yaml · dagre | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0.889 | 0 | 1.099 | 13.992 | 0.875 | 0.009 | 0.083 | 1 | 0 |
 | fan-out.yaml · global | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.292 | 1.622 | 0.767 | 0.128 | 0.104 | 1 | 0 |
