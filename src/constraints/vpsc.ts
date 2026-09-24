@@ -484,6 +484,8 @@ export interface SeparationQpResult {
  * constraints, by scaled gradient projection. Every variable must carry at
  * least one term with positive weight (an anchor is enough).
  */
+const RELATIVE_COST_TOLERANCE = 1e-6;
+
 export function solveSeparationQp(
 	qp: SeparationQp,
 	options: SeparationQpOptions = {},
@@ -549,41 +551,58 @@ export function solveSeparationQp(
 			qp.constraints,
 		);
 
+	// FISTA (Beck & Teboulle) with adaptive restart (O'Donoghue & Candès),
+	// in the metric scaled by D = diag(Q). Q is diagonally dominant (every
+	// off-diagonal entry −2w is matched by +2w on both diagonals), so the
+	// eigenvalues of D⁻¹Q lie in (0, 2] and the fixed step 1/2 is safe.
+	// Same cost per iteration as plain gradient projection, O(1/k²) instead
+	// of O(1/k) convergence.
 	let projected = project(qp.initial as number[]);
 	let x = projected.positions;
+	let y = x;
+	let momentum = 1;
 	let iterations = 0;
+	const history: number[] = [];
 	for (; iterations < maxIterations; iterations += 1) {
-		const g = gradient(x);
-		const scaled = new Float64Array(n);
-		let numerator = 0;
-		for (let i = 0; i < n; i += 1) {
-			const value = (g[i] ?? 0) / (diagonal[i] ?? 1);
-			scaled[i] = value;
-			numerator += (g[i] ?? 0) * value;
-		}
-		const denominator = curvature(scaled);
-		if (!(numerator > 1e-12) || !(denominator > 0)) break;
-		const alpha = numerator / denominator;
+		const g = gradient(y);
 		const target = new Float64Array(n);
 		for (let i = 0; i < n; i += 1) {
-			target[i] = (x[i] ?? 0) - alpha * (scaled[i] ?? 0);
+			target[i] = (y[i] ?? 0) - (0.5 * (g[i] ?? 0)) / (diagonal[i] ?? 1);
 		}
 		projected = project(target);
-		const direction = projected.positions.map(
-			(value, i) => value - (x[i] ?? 0),
-		);
-		let descent = 0;
-		for (let i = 0; i < n; i += 1) descent += (g[i] ?? 0) * (direction[i] ?? 0);
-		const dQd = curvature(direction);
-		if (!(descent < 0)) break;
-		const beta = dQd > 0 ? Math.min(1, -descent / dQd) : 1;
+		const next = projected.positions;
 		let moved = 0;
-		x = x.map((value, i) => {
-			const step = beta * (direction[i] ?? 0);
+		let restart = 0;
+		for (let i = 0; i < n; i += 1) {
+			const step = (next[i] ?? 0) - (x[i] ?? 0);
 			moved = Math.max(moved, Math.abs(step));
-			return value + step;
-		});
+			restart += ((y[i] ?? 0) - (next[i] ?? 0)) * step;
+		}
+		if (restart > 0) {
+			// Momentum points uphill: drop it and continue from `next`.
+			momentum = 1;
+			y = next;
+		} else {
+			const following = (1 + Math.sqrt(1 + 4 * momentum * momentum)) / 2;
+			const factor = (momentum - 1) / following;
+			y = next.map((value, i) => value + factor * (value - (x[i] ?? 0)));
+			momentum = following;
+		}
+		x = next;
 		if (moved < tolerance) {
+			iterations += 1;
+			break;
+		}
+		// Weakly anchored components keep drifting by tiny amounts long after
+		// the objective has settled; stop once ten iterations improved the
+		// cost by less than a millionth.
+		const current = cost(x);
+		history.push(current);
+		const earlier = history[history.length - 11];
+		if (
+			earlier !== undefined &&
+			earlier - current <= RELATIVE_COST_TOLERANCE * Math.max(1, earlier)
+		) {
 			iterations += 1;
 			break;
 		}

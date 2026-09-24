@@ -42,6 +42,7 @@
 		"build": "tsup",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
+		"bench:scale": "DGE_SCALE=1 vitest run test/scale --reporter=verbose",
 		"lint": "biome ci .",
 		"format": "biome check --write .",
 		"verify": "npm run typecheck && npm run build && npm test && npm run lint"

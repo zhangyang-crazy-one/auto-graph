@@ -392,56 +392,64 @@ function transpose(
 	lower: ReadonlyMap<string, string[]>,
 ): string[][] {
 	const next = cloneLayers(layers);
+	const upper = new Map<string, string[]>();
+	for (const [from, targets] of lower) {
+		for (const to of targets) {
+			const list = upper.get(to) ?? [];
+			list.push(from);
+			upper.set(to, list);
+		}
+	}
+	const position = new Map<string, number>();
+	for (const layer of next) {
+		layer.forEach((id, index) => {
+			position.set(id, index);
+		});
+	}
+	// Crossings between the edges of `a` and of `b` (a left of b) with one
+	// neighbouring layer: pairs whose other ends are in inverted order.
+	const pairCrossings = (
+		a: readonly string[] | undefined,
+		b: readonly string[] | undefined,
+	): number => {
+		if (a === undefined || b === undefined) return 0;
+		let count = 0;
+		for (const x of a) {
+			const px = position.get(x) ?? 0;
+			for (const y of b) if (px > (position.get(y) ?? 0)) count += 1;
+		}
+		return count;
+	};
+	// Swapping adjacent a, b only changes crossings between their own edges,
+	// so compare c(a,b) with c(b,a) instead of recounting both layer gaps.
+	const cost = (left: string, right: string) =>
+		pairCrossings(upper.get(left), upper.get(right)) +
+		pairCrossings(lower.get(left), lower.get(right));
 	for (let round = 0; round < 4; round += 1) {
 		let improved = false;
 		for (let index = 0; index < next.length; index += 1) {
 			const layer = next[index] ?? [];
-			for (let position = 0; position + 1 < layer.length; position += 1) {
-				const a = layer[position] as string;
-				const b = layer[position + 1] as string;
+			for (let at = 0; at + 1 < layer.length; at += 1) {
+				const a = layer[at] as string;
+				const b = layer[at + 1] as string;
 				if (
 					layering.vertices.get(a)?.containerId !==
 					layering.vertices.get(b)?.containerId
 				) {
 					continue;
 				}
-				const before = localCrossings(next, index, lower);
-				layer[position] = b;
-				layer[position + 1] = a;
-				const after = localCrossings(next, index, lower);
-				if (after < before) {
+				if (cost(b, a) < cost(a, b)) {
+					layer[at] = b;
+					layer[at + 1] = a;
+					position.set(b, at);
+					position.set(a, at + 1);
 					improved = true;
-				} else {
-					layer[position] = a;
-					layer[position + 1] = b;
 				}
 			}
 		}
 		if (!improved) break;
 	}
 	return next;
-}
-
-function localCrossings(
-	layers: readonly string[][],
-	index: number,
-	lower: ReadonlyMap<string, string[]>,
-): number {
-	let total = 0;
-	if (index > 0)
-		total += crossingsBetween(
-			layers[index - 1] ?? [],
-			layers[index] ?? [],
-			lower,
-		);
-	if (index + 1 < layers.length) {
-		total += crossingsBetween(
-			layers[index] ?? [],
-			layers[index + 1] ?? [],
-			lower,
-		);
-	}
-	return total;
 }
 
 /** Total crossings of unit segments between consecutive layers. */
@@ -473,13 +481,26 @@ function crossingsBetween(
 			if (bottomIndex !== undefined) pairs.push([topIndex, bottomIndex]);
 		}
 	});
+	if (pairs.length < 2) return 0;
+	// Barth–Mutzel–Jünger: sort by (top, bottom) and count, for each pair,
+	// the earlier pairs with a strictly larger bottom index (inversions),
+	// with a Fenwick tree — O(E log V) instead of comparing all pairs.
+	// Equal tops sort by bottom, so they never count; equal bottoms fail
+	// the strict comparison. Same result as the pairwise definition.
+	pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	const size = bottom.length;
+	const tree = new Array<number>(size + 1).fill(0);
 	let crossings = 0;
-	for (let i = 0; i < pairs.length; i += 1) {
-		const [a0, a1] = pairs[i] as [number, number];
-		for (let j = i + 1; j < pairs.length; j += 1) {
-			const [b0, b1] = pairs[j] as [number, number];
-			if ((a0 - b0) * (a1 - b1) < 0) crossings += 1;
+	let inserted = 0;
+	for (const [, bottomIndex] of pairs) {
+		// Earlier pairs with bottom <= bottomIndex.
+		let atMost = 0;
+		for (let i = bottomIndex + 1; i > 0; i -= i & -i) atMost += tree[i] ?? 0;
+		crossings += inserted - atMost;
+		for (let i = bottomIndex + 1; i <= size; i += i & -i) {
+			tree[i] = (tree[i] ?? 0) + 1;
 		}
+		inserted += 1;
 	}
 	return crossings;
 }

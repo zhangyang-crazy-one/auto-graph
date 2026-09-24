@@ -341,13 +341,43 @@ function reduceCrossings(
 		clearance: config.clearance / 2,
 		minStub: config.minStub,
 	};
+	// Only routes whose bounding boxes touch can conflict.
+	const bounds = (route: readonly Point[]) => {
+		let minX = Number.POSITIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
+		let maxX = Number.NEGATIVE_INFINITY;
+		let maxY = Number.NEGATIVE_INFINITY;
+		for (const point of route) {
+			if (point.x < minX) minX = point.x;
+			if (point.x > maxX) maxX = point.x;
+			if (point.y < minY) minY = point.y;
+			if (point.y > maxY) maxY = point.y;
+		}
+		return { minX, minY, maxX, maxY };
+	};
+	const routeBounds = points.map(bounds);
 	const conflictsOf = (routeIndex: number, route: readonly Point[]) => {
+		const own = bounds(route);
 		let total = 0;
 		for (let other = 0; other < points.length; other += 1) {
 			if (other === routeIndex) continue;
+			const box = routeBounds[other];
+			if (
+				box === undefined ||
+				box.minX > own.maxX + EPSILON ||
+				box.maxX < own.minX - EPSILON ||
+				box.minY > own.maxY + EPSILON ||
+				box.maxY < own.minY - EPSILON
+			) {
+				continue;
+			}
 			total += countConflicts(route, points[other] ?? []);
 		}
 		return total;
+	};
+	const commit = (routeIndex: number, route: Point[]) => {
+		points[routeIndex] = route;
+		routeBounds[routeIndex] = bounds(route);
 	};
 	const moved = (segment: MovableSegment, coord: number): Point[] => {
 		const route = (points[segment.routeIndex] ?? []).map((point) => ({
@@ -431,7 +461,7 @@ function reduceCrossings(
 					const trial = moved(segment, coord);
 					if (countObstacleHits(trial, obstacles) > hitsBefore) continue;
 					if (conflictsOf(segment.routeIndex, trial) >= before) continue;
-					points[segment.routeIndex] = trial;
+					commit(segment.routeIndex, trial);
 					improved = true;
 					break;
 				}
@@ -478,8 +508,8 @@ function reduceCrossings(
 					) {
 						continue;
 					}
-					points[a.routeIndex] = trialA;
-					points[b.routeIndex] = trialB;
+					commit(a.routeIndex, trialA);
+					commit(b.routeIndex, trialB);
 					const after =
 						conflictsOf(a.routeIndex, trialA) +
 						conflictsOf(b.routeIndex, trialB) -
@@ -487,8 +517,8 @@ function reduceCrossings(
 					if (after < before) {
 						improved = true;
 					} else {
-						points[a.routeIndex] = routeA;
-						points[b.routeIndex] = routeB;
+						commit(a.routeIndex, routeA);
+						commit(b.routeIndex, routeB);
 					}
 				}
 			}

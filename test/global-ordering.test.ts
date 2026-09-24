@@ -3,6 +3,7 @@ import {
 	assignLayers,
 	buildContainerHierarchy,
 	type ContainerHierarchy,
+	countCrossings,
 	type HierarchyInput,
 	type Layering,
 	orderLayers,
@@ -357,5 +358,49 @@ describe("main-axis lane layering (Codex #96, round 6)", () => {
 		const layerOf = (id: string) => layering.layerOfNode.get(id) ?? -1;
 		expect(layerOf("a")).toBeLessThan(layerOf("x"));
 		expect(layerOf("x")).toBeLessThan(layerOf("b"));
+	});
+});
+
+describe("countCrossings", () => {
+	it("matches the pairwise definition on random layer pairs", () => {
+		let state = 17;
+		const random = () => {
+			state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+			return state / 2 ** 32;
+		};
+		for (let trial = 0; trial < 200; trial += 1) {
+			const top = Array.from(
+				{ length: 1 + Math.floor(random() * 8) },
+				(_, i) => `t${i}`,
+			);
+			const bottom = Array.from(
+				{ length: 1 + Math.floor(random() * 8) },
+				(_, i) => `b${i}`,
+			);
+			const lower = new Map<string, string[]>();
+			for (const id of top) {
+				lower.set(
+					id,
+					bottom.filter(() => random() < 0.35),
+				);
+			}
+			const pairs: [number, number][] = [];
+			top.forEach((id, i) => {
+				for (const target of lower.get(id) ?? []) {
+					pairs.push([i, bottom.indexOf(target)]);
+				}
+			});
+			let expected = 0;
+			for (let i = 0; i < pairs.length; i += 1) {
+				for (let j = i + 1; j < pairs.length; j += 1) {
+					const [a0, a1] = pairs[i] as [number, number];
+					const [b0, b1] = pairs[j] as [number, number];
+					if ((a0 - b0) * (a1 - b1) < 0) expected += 1;
+				}
+			}
+			expect(countCrossings([top, bottom], lower), `trial ${trial}`).toBe(
+				expected,
+			);
+		}
 	});
 });
