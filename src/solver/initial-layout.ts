@@ -18,21 +18,27 @@ import type { NormalizedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
 	NormalizedEdge,
+	NormalizedGroup,
 	NormalizedNode,
 	Swimlane,
 } from "../ir/elements.js";
 import type { Box, Insets, Point, Size } from "../ir/geometry.js";
 import type { LabelLayout } from "../ir/label-layout.js";
-import { applyEllipseCircleSize } from "../ir/semantic-roles.js";
-import { fitLabel } from "../labels/index.js";
+import {
+	fitLabel,
+	fitLabelToShape,
+	translateLabelLayout,
+} from "../labels/index.js";
 import {
 	type InitialLayoutResult,
+	longestFlowLength,
 	runComponentAwareDagreInitialLayout,
 	runDagreInitialLayout,
+	runGlobalLayout,
 } from "../layout/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
-import type { TextStyleOptions } from "../text/types.js";
-import { labelCjkTypography } from "./cjk-typography.js";
+import type { TextMeasurer, TextStyleOptions } from "../text/types.js";
+import { labelCjkTypography, typographyTextStyle } from "./cjk-typography.js";
 import {
 	CROSS_AXIS_SPREAD_THRESHOLD,
 	compactDetail,
@@ -243,6 +249,164 @@ export function runInitialLayout(input: {
 	});
 }
 
+/** Fitted size of an edge label, sized like `estimateEdgeLabelAnnotations` in labels.ts. */
+export function measureEdgeLabelSize(
+	edge: NormalizedEdge,
+	textMeasurer: TextMeasurer | undefined,
+): Size | undefined {
+	if (edge.label?.text === undefined) {
+		return undefined;
+	}
+	const layout = fitLabel(
+		edge.label.text,
+		{
+			font: typographyTextStyle(edge.label, {
+				fontFamily: "Arial",
+				fontSize: 12,
+				lineHeight: 14,
+			}),
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			minSize: { width: 0, height: 0 },
+			maxWidth: 200,
+		},
+		textMeasurer ?? createDefaultTextMeasurer(),
+	);
+	return layout.fittedSize;
+}
+
+/** A flow with at least this many steps in a row counts as long. */
+const LONG_FLOW_STEPS = 6;
+
+/**
+ * Resolve `initialLayout: "auto"`: swimlane diagrams and long flows (a
+ * chain of at least 6 steps) use the global layout — lanes as bands,
+ * straight hand-offs, folding. Diagrams that pin geometry (lane boxes,
+ * fixedSwimlaneGeometry, node positions) keep Dagre, as do short ones.
+ */
+export function resolveAutoLayoutMode(
+	diagram: NormalizedDiagram,
+	swimlanes: readonly Swimlane[],
+	nodes: readonly NormalizedNode[],
+	edges: readonly NormalizedEdge[],
+	options: SolveDiagramOptions,
+): "dagre" | "global" {
+	const pinned =
+		options.fixedSwimlaneGeometry !== undefined ||
+		diagram.metadata?.fixedSwimlaneGeometry !== undefined ||
+		swimlanes.some(
+			(swimlane) =>
+				swimlane.box !== undefined ||
+				swimlane.lanes.some((lane) => lane.box !== undefined),
+		) ||
+		nodes.some((node) => node.position !== undefined);
+	if (pinned) return "dagre";
+	if (swimlanes.length > 0) return "global";
+	const steps = longestFlowLength(
+		nodes.map((node) => node.id),
+		edges.map((edge) => ({
+			id: edge.id,
+			source: edge.source.nodeId,
+			target: edge.target.nodeId,
+		})),
+	);
+	return steps >= LONG_FLOW_STEPS ? "global" : "dagre";
+}
+
+/**
+ * Global layout (plan P3): hierarchy-aware layering and ordering, then a
+ * VPSC quadratic program for coordinates. Dagre runs first only to seed the
+ * ordering search, so the result never starts from a worse order.
+ */
+export function runGlobalInitialLayout(input: {
+	direction: NormalizedDiagram["direction"];
+	nodes: readonly NormalizedNode[];
+	edges: readonly NormalizedEdge[];
+	groups: readonly NormalizedGroup[];
+	swimlanes: readonly Swimlane[];
+	textMeasurer: TextMeasurer | undefined;
+	/** Edge ids in declaration order (the solver sorts edges by id). */
+	declaredEdgeIds?: readonly string[];
+	targetAspectRatio?: number;
+	fold?: boolean;
+}): InitialLayoutResult {
+	const seed = runDagreInitialLayout({
+		direction: input.direction,
+		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: input.edges.map((edge) => ({
+			id: edge.id,
+			sourceId: edge.source.nodeId,
+			targetId: edge.target.nodeId,
+		})),
+	});
+	// Cycle breaking follows the author's reading order: edges as declared,
+	// nodes by first appearance in those edges.
+	const edgeIndex = new Map(
+		(input.declaredEdgeIds ?? []).map((id, index) => [id, index]),
+	);
+	const declaredEdges = [...input.edges].sort(
+		(a, b) =>
+			(edgeIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+				(edgeIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+			a.id.localeCompare(b.id),
+	);
+	const firstSeen = new Map<string, number>();
+	for (const edge of declaredEdges) {
+		for (const id of [edge.source.nodeId, edge.target.nodeId]) {
+			if (!firstSeen.has(id)) firstSeen.set(id, firstSeen.size);
+		}
+	}
+	const declaredNodes = [...input.nodes].sort(
+		(a, b) =>
+			(firstSeen.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+				(firstSeen.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+			a.id.localeCompare(b.id),
+	);
+	const result = runGlobalLayout({
+		direction: input.direction,
+		nodes: declaredNodes.map((node) => ({ id: node.id, size: node.size })),
+		edges: declaredEdges.map((edge) => {
+			const labelSize = measureEdgeLabelSize(edge, input.textMeasurer);
+			return {
+				id: edge.id,
+				source: edge.source.nodeId,
+				target: edge.target.nodeId,
+				...(labelSize === undefined ? {} : { labelSize }),
+			};
+		}),
+		groups: input.groups.map((group) => {
+			const labelSize = group.labelLayout?.fittedSize ?? group.labelLayout?.box;
+			return {
+				id: group.id,
+				nodeIds: group.nodeIds,
+				groupIds: group.groupIds,
+				padding: group.padding,
+				headerHeight: labelSize?.height ?? 0,
+				labelWidth: labelSize?.width ?? 0,
+			};
+		}),
+		swimlanes: input.swimlanes.map((swimlane) => ({
+			id: swimlane.id,
+			orientation: swimlane.orientation,
+			lanes: swimlane.lanes,
+			headerHeight: swimlane.headerHeight ?? 28,
+			padding: swimlane.padding ?? 16,
+		})),
+		seedBoxes: seed.boxes,
+		options: {
+			...(input.targetAspectRatio === undefined
+				? {}
+				: { targetAspectRatio: input.targetAspectRatio }),
+			...(input.fold === undefined ? {} : { fold: input.fold }),
+		},
+	});
+	return {
+		boxes: result.boxes,
+		diagnostics: [...seed.diagnostics, ...result.diagnostics],
+		laneBoxes: result.laneBoxes,
+		groupBoxes: result.groupBoxes,
+	};
+}
+
 export function runPositionSeededInitialLayout(input: {
 	direction: NormalizedDiagram["direction"];
 	nodes: readonly NormalizedNode[];
@@ -335,12 +499,18 @@ export function prefitNodeLabelSize(
 		return node;
 	}
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
-	const layout = fitLabel(
+	// Shape-aware fit: the drawn outline (diamond, circle, hexagon, cylinder,
+	// …) must contain the measured text; caller size is a floor.
+	const fit = fitLabelToShape(
 		node.label.text,
 		{
+			shape: node.shape,
 			font: prefitLabelFont(node, options),
 			padding: DEFAULT_NODE_PADDING,
-			minSize: DEFAULT_NODE_MIN_SIZE,
+			minSize: {
+				width: Math.max(DEFAULT_NODE_MIN_SIZE.width, node.size.width),
+				height: Math.max(DEFAULT_NODE_MIN_SIZE.height, node.size.height),
+			},
 			maxWidth:
 				node.label.maxWidth ??
 				Math.max(node.size.width, DEFAULT_LABEL_MAX_WIDTH),
@@ -348,13 +518,7 @@ export function prefitNodeLabelSize(
 		},
 		measurer,
 	);
-	let width = Math.max(node.size.width, layout.fittedSize.width);
-	let height = Math.max(node.size.height, layout.fittedSize.height);
-	if (node.shape === "ellipse") {
-		const circle = applyEllipseCircleSize({ width, height });
-		width = circle.width;
-		height = circle.height;
-	}
+	const { width, height } = fit.size;
 	const resized = width !== node.size.width || height !== node.size.height;
 	if (resized) {
 		diagnostics.push({
@@ -369,11 +533,9 @@ export function prefitNodeLabelSize(
 			},
 		});
 	}
-	// Center the label layout within the node dimensions so the
-	// annotation is visually centered even when the node is larger
-	// than what the label text requires (codex P2).
-	const centeredLayout = expandLabelLayoutToNode(layout, { width, height });
-	return { ...node, size: { width, height }, labelLayout: centeredLayout };
+	// The shape fitter already centres the label (cylinders shift it below
+	// the top cap), so the annotation stays inside the outline.
+	return { ...node, size: { width, height }, labelLayout: fit.layout };
 }
 export function expandLabelLayoutToNode(
 	layout: LabelLayout,
@@ -390,15 +552,7 @@ export function expandLabelLayoutToNode(
 	if (offsetX === 0 && offsetY === 0) {
 		return layout;
 	}
-	return {
-		...layout,
-		box: {
-			x: layout.box.x + offsetX,
-			y: layout.box.y + offsetY,
-			width: layout.box.width,
-			height: layout.box.height,
-		},
-	};
+	return translateLabelLayout(layout, offsetX, offsetY);
 }
 
 export function wrapVerticalStackIfNeeded(

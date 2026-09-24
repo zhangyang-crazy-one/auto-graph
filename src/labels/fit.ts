@@ -90,7 +90,7 @@ function computeLabelLayout(
 		font: { ...options.font },
 		textBackend: prepared.backend,
 		lineHeight,
-		lines: buildLines(textLayout, contentBox, lineHeight),
+		lines: buildLines(textLayout, contentBox, lineHeight, options.align),
 		overflow,
 		diagnostics,
 	};
@@ -100,11 +100,15 @@ function buildLines(
 	textLayout: TextLayout,
 	contentBox: Box,
 	lineHeight: number,
+	align: LabelFitOptions["align"] = "start",
 ): LabelLineLayout[] {
 	return textLayout.lines.map((line, lineIndex) => ({
 		text: line.text,
 		box: {
-			x: contentBox.x,
+			x:
+				align === "center"
+					? contentBox.x + Math.max(0, (contentBox.width - line.width) / 2)
+					: contentBox.x,
 			y: contentBox.y + lineIndex * lineHeight,
 			width: line.width,
 			height: lineHeight,
@@ -185,4 +189,47 @@ function buildDiagnostics(
 	}
 
 	return diagnostics;
+}
+
+/**
+ * Move a label layout inside its owner. Box, content box and every line box
+ * / baseline shift together: `LabelLayout.lines` are owner-local, in the
+ * same frame as `box`.
+ */
+export function translateLabelLayout(
+	layout: LabelLayout,
+	dx: number,
+	dy: number,
+): LabelLayout {
+	if (dx === 0 && dy === 0) return layout;
+	return {
+		...layout,
+		box: { ...layout.box, x: layout.box.x + dx, y: layout.box.y + dy },
+		contentBox: {
+			...layout.contentBox,
+			x: layout.contentBox.x + dx,
+			y: layout.contentBox.y + dy,
+		},
+		lines: layout.lines.map((line) => ({
+			...line,
+			box: { ...line.box, x: line.box.x + dx, y: line.box.y + dy },
+			baselineY: line.baselineY + dy,
+		})),
+	};
+}
+
+/**
+ * Line geometry relative to the label box, the frame used by
+ * `SolvedTextAnnotation.lines` (whose `box` is already absolute).
+ */
+export function labelLinesRelativeToBox(
+	layout: LabelLayout,
+): LabelLayout["lines"] {
+	const { x, y } = layout.box;
+	if (x === 0 && y === 0) return layout.lines;
+	return layout.lines.map((line) => ({
+		...line,
+		box: { ...line.box, x: line.box.x - x, y: line.box.y - y },
+		baselineY: line.baselineY - y,
+	}));
 }

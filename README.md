@@ -110,6 +110,25 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## Global Layout
+
+`layout.mode: global` replaces the Dagre seed with a whole-canvas solver for diagrams with groups and swimlanes. Swimlane diagrams and long flows (a chain of at least 6 steps) use it by default, unless they pin geometry with lane boxes, `fixedSwimlaneGeometry` or node positions; set `layout.mode: dagre` to opt out (`layout.mode: auto` is the default).
+
+```yaml
+layout:
+  mode: global
+  direction: LR
+```
+
+- **Layering**: cycles are broken in declaration order (a "retry" edge written last is the one reversed), and sibling groups linked one way become tiers (e.g. services → data read left to right). In swimlanes, a hand-off between lanes does not advance the flow: it is drawn straight across the lanes, so a process that zig-zags between lanes stays compact instead of growing one step per hand-off.
+- **Ordering**: groups and lanes stay contiguous with one consistent order across layers, so every container is a single rectangle; long edges travel inside the containers they start and end in.
+- **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
+- **Spacing between layers** is sized from what must fit there: one track per bending edge, edge labels, and container borders.
+- **Folding**: a flow much longer than `layout.targetAspectRatio` (default 1.6) — at least 6 layers and more than about a page along the flow — is cut into bands stacked in reading order, like wrapped text. Cuts avoid edges where possible and never split a group; swimlane diagrams are not folded (their lanes span every layer). `layout.fold: false` turns it off.
+- **Label backdrops**: edge labels, group titles and port labels are drawn on a white box fitted to their text, so lines passing underneath do not run through the glyphs.
+
+Explicit `constraints` still apply after the layout. `test/fixtures/benchmark/layout-baseline.md` compares both modes on the benchmark set.
+
 ## Dense Routing Controls
 
 Dense, position-preserving diagrams can opt into obstacle-aware routing controls through YAML `routing` metadata. These controls are deterministic and headless; impossible layouts return structured diagnostics instead of relying on visual inspection.
@@ -149,6 +168,21 @@ routing:
 Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForBox(box, side, 3)`.
 
 Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG/Excalidraw render hops; draw.io should consume the same IR downstream (no in-repo draw.io exporter).
+
+### Edge distribution defaults
+
+With the default `orthogonal` router:
+
+- Edges sharing a node side get evenly spaced attach points, ordered by where the other node sits, projected onto the real shape outline. Nodes with many edges on one flow side grow before layout to keep the ports readable.
+- After routing, edges that share a corridor are nudged into parallel tracks (`routing.edgeSeparation: false` disables it, `{ spacing: 16 }` tunes the gap).
+- `relative-position` accepts `align: center` so `below` / `right-of` place a node directly under / beside its reference regardless of size.
+
+```yaml
+routing:
+  edgeSeparation: { spacing: 12 }
+constraints:
+  - { kind: relative-position, source: b, reference: a, relation: below, offset: { x: 0, y: 80 }, align: center }
+```
 
 ### Pretext sizing + semantic roles (#84 A/D)
 
@@ -190,6 +224,12 @@ Recommended operator actions after this contract lands on local fixtures:
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
 cat diagram.yaml | agh --json
+```
+
+`--metrics <path>` also writes whole-canvas layout quality metrics (overlaps, group overlap, label overflow, crossings, shared endpoints, whitespace, lane fill, …) as JSON, so agents can check a layout numerically without looking at it:
+
+```bash
+agh --input diagram.yaml --output diagram.svg --metrics diagram.metrics.json
 ```
 
 Supported output formats:

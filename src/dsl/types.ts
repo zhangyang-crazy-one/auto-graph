@@ -48,5 +48,7 @@ export interface RenderDiagramDslResult {
 	content?: string;
 	diagnostics: DslDiagnostic[];
 	diagram?: CoordinatedDiagram;
+	/** Normalized constraints of the rendered diagram (e.g. for metrics). */
+	constraints?: NormalizedDiagram["constraints"];
 	metadata?: JsonObject;
 }

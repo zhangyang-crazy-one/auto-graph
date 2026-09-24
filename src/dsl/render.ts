@@ -83,6 +83,12 @@ export function renderDiagramDsl(
 
 	const solved = solveDiagram(normalized.diagram, {
 		...solveInitialLayoutOption(normalized.diagram.metadata?.initialLayout),
+		...(typeof normalized.diagram.metadata?.targetAspectRatio === "number"
+			? { targetAspectRatio: normalized.diagram.metadata.targetAspectRatio }
+			: {}),
+		...(typeof normalized.diagram.metadata?.foldLayout === "boolean"
+			? { foldLayout: normalized.diagram.metadata.foldLayout }
+			: {}),
 		routeKind:
 			normalized.diagram.metadata?.routeKind === "straight"
 				? "straight"
@@ -111,6 +117,7 @@ export function renderDiagramDsl(
 			format: exported.format,
 			content: exported.content,
 			diagram: solved,
+			constraints: normalized.diagram.constraints,
 			diagnostics: sortDslDiagnostics([
 				...diagnostics,
 				...solveDiagnostics,
@@ -142,7 +149,12 @@ function toSolveDiagnostic(
 function solveInitialLayoutOption(
 	value: unknown,
 ): Pick<SolveDiagramOptions, "initialLayout"> {
-	return value === "positions" ? { initialLayout: "positions" } : {};
+	if (value === "positions" || value === "global" || value === "dagre") {
+		return { initialLayout: value };
+	}
+	// No explicit mode: let the solver pick (global for swimlanes and long
+	// flows unless geometry is pinned, Dagre otherwise).
+	return { initialLayout: "auto" };
 }
 
 function solvePortShiftingOption(value: unknown):
@@ -174,6 +186,7 @@ function solveDenseRoutingOptions(
 			| "textObstacleVertices"
 			| "fixedSwimlaneGeometry"
 			| "anchorCapacity"
+			| "edgeSeparation"
 			| "railRouting"
 			| "pagePolicy"
 			| "externalLabels"
@@ -192,6 +205,7 @@ function solveDenseRoutingOptions(
 		| "textObstacleVertices"
 		| "fixedSwimlaneGeometry"
 		| "anchorCapacity"
+		| "edgeSeparation"
 		| "railRouting"
 		| "pagePolicy"
 		| "externalLabels"
@@ -227,6 +241,12 @@ function solveDenseRoutingOptions(
 		isAnchorCapacityOptions(metadata.anchorCapacity)
 	) {
 		options.anchorCapacity = metadata.anchorCapacity;
+	}
+	if (
+		typeof metadata.edgeSeparation === "boolean" ||
+		isEdgeSeparationOptions(metadata.edgeSeparation)
+	) {
+		options.edgeSeparation = metadata.edgeSeparation;
 	}
 	if (
 		metadata.railRouting === false ||
@@ -274,6 +294,15 @@ function isAnchorCapacityOptions(
 		isJsonObject(value) &&
 		(value.minSpacing === undefined || typeof value.minSpacing === "number") &&
 		(value.grow === undefined || typeof value.grow === "boolean")
+	);
+}
+
+function isEdgeSeparationOptions(
+	value: unknown,
+): value is { spacing?: number } {
+	return (
+		isJsonObject(value) &&
+		(value.spacing === undefined || typeof value.spacing === "number")
 	);
 }
 

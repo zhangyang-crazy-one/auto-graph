@@ -1,8 +1,13 @@
+import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { Command, CommanderError } from "commander";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
 import { renderDiagramDsl } from "../dsl/render.js";
 import type { DslDiagnostic } from "../dsl/types.js";
+import {
+	containmentRelations,
+	measureLayoutQuality,
+} from "../quality/index.js";
 import {
 	readInputFile,
 	readStdin,
@@ -22,6 +27,7 @@ interface CliOptions {
 	output?: string;
 	format?: string;
 	json?: boolean;
+	metrics?: string;
 }
 
 export async function runCli(
@@ -44,6 +50,28 @@ export async function runCli(
 	}
 
 	const options = command.opts<CliOptions>();
+
+	if (
+		options.output !== undefined &&
+		options.metrics !== undefined &&
+		resolve(options.output) === resolve(options.metrics)
+	) {
+		// Writing metrics over the diagram would silently lose the output.
+		await writeDiagnostics(
+			stderr,
+			[
+				{
+					severity: "error",
+					layer: "io",
+					code: "io.output-metrics-conflict",
+					message: `--output and --metrics both write ${options.output}.`,
+					hint: "Choose a different file for --metrics.",
+				},
+			],
+			options.json === true,
+		);
+		return 2;
+	}
 
 	try {
 		const source =
@@ -71,6 +99,19 @@ export async function runCli(
 			await writeFileAtomic(options.output, result.content);
 		}
 
+		if (options.metrics !== undefined && result.diagram !== undefined) {
+			await writeFileAtomic(
+				options.metrics,
+				`${JSON.stringify(
+					measureLayoutQuality(result.diagram, {
+						containment: containmentRelations(result.constraints),
+					}),
+					null,
+					2,
+				)}\n`,
+			);
+		}
+
 		return 0;
 	} catch (error) {
 		const diagnostics = [toIoDiagnostic(error)];
@@ -90,7 +131,11 @@ function buildCommand(): Command {
 		.option("--input <path>", "Read diagram DSL from a file")
 		.option("--output <path>", "Write generated output to a file")
 		.option("--format <format>", "Output format: svg or excalidraw")
-		.option("--json", "Write diagnostics as JSON to stderr");
+		.option("--json", "Write diagnostics as JSON to stderr")
+		.option(
+			"--metrics <path>",
+			"Write whole-canvas layout quality metrics as JSON to a file",
+		);
 }
 
 async function writeDiagnostics(

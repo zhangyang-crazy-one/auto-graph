@@ -5,6 +5,7 @@ export * from "./geometry/index.js";
 export * from "./ir/index.js";
 export * from "./labels/index.js";
 export * from "./layout/index.js";
+export * from "./quality/index.js";
 export * from "./routing/index.js";
 export * from "./serialization/index.js";
 export * from "./solver/index.js";

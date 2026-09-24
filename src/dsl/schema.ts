@@ -3,7 +3,7 @@ import { createSchemaDiagnostic, sortDslDiagnostics } from "./diagnostics.js";
 import type { DslDiagnostic } from "./types.js";
 
 const directionSchema = z.enum(["TB", "LR", "BT", "RL"]);
-const layoutModeSchema = z.enum(["dagre", "positions"]);
+const layoutModeSchema = z.enum(["dagre", "positions", "global", "auto"]);
 const routeKindSchema = z.enum([
 	"orthogonal",
 	"straight",
@@ -335,6 +335,7 @@ const relativePositionConstraintSchema = z.object({
 	referenceId: z.string().optional(),
 	relation: z.enum(["above", "right-of", "below", "left-of"]),
 	offset: pointSchema.optional(),
+	align: z.enum(["start", "center"]).optional(),
 });
 
 const alignConstraintSchema = z.object({
@@ -388,6 +389,8 @@ export const diagramDslSchema = z
 				direction: directionSchema.optional(),
 				mode: layoutModeSchema.optional(),
 				primaryReadingDirection: primaryReadingDirectionSchema.optional(),
+				targetAspectRatio: z.number().positive().optional(),
+				fold: z.boolean().optional(),
 			})
 			.optional(),
 		routing: z
@@ -415,6 +418,14 @@ export const diagramDslSchema = z
 						z.object({
 							minSpacing: nonNegativeNumberSchema.optional(),
 							grow: z.boolean().optional(),
+						}),
+					])
+					.optional(),
+				edgeSeparation: z
+					.union([
+						z.boolean(),
+						z.object({
+							spacing: nonNegativeNumberSchema.optional(),
 						}),
 					])
 					.optional(),

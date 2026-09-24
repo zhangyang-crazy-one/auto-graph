@@ -6,6 +6,8 @@ import {
 	expandBox,
 	intersectsAabb,
 	queryBoxSpatialIndex,
+	shapeSideAttachRange,
+	shapeSidePoint,
 } from "../geometry/index.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import type { Diagnostic, RouteConflictClass } from "../ir/diagnostics.js";
@@ -22,7 +24,13 @@ import type {
 } from "../ir/elements.js";
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
-import { type RouteHardObstacleMetadata, routeEdge } from "../routing/index.js";
+import {
+	type RouteEdgeInput,
+	type RouteHardObstacleMetadata,
+	routeEdge,
+	separateParallelSegments,
+	simplifyRoute,
+} from "../routing/index.js";
 import {
 	ancestorGroupIds,
 	compactDetail,
@@ -302,7 +310,7 @@ export function coordinateEdges(
 			}
 		}
 
-		const route = routeEdge({
+		const routeInput: RouteEdgeInput = {
 			kind: options.routeKind ?? "orthogonal",
 			direction,
 			source: sourceGeometry,
@@ -354,7 +362,47 @@ export function coordinateEdges(
 			...(options.textObstacleVertices === undefined
 				? {}
 				: { textObstacleVertices: options.textObstacleVertices }),
-		});
+		};
+		let route = routeEdge(routeInput);
+		// Implicit anchor distribution pins an endpoint to one side. When that
+		// side is blocked (e.g. a neighbour sits right in front of it), retry
+		// with the router's free side choice and keep the cleaner result.
+		if (
+			route.diagnostics.length > 0 &&
+			implicitAnchorDistribution(options) &&
+			(sourceDistributedAnchor !== undefined ||
+				targetDistributedAnchor !== undefined)
+		) {
+			const freeSourceAnchor = edge.source.anchor ?? sourcePort?.side;
+			const freeTargetAnchor = edge.target.anchor ?? targetPort?.side;
+			const {
+				sourceAnchor: _pinnedSource,
+				targetAnchor: _pinnedTarget,
+				...unpinned
+			} = routeInput;
+			// Keep the distributed geometry: if the router still picks the
+			// pinned side it lands on its own slot instead of the side midpoint
+			// (which may be another edge's slot).
+			const retry = routeEdge({
+				...unpinned,
+				...(freeSourceAnchor === undefined
+					? {}
+					: { sourceAnchor: freeSourceAnchor }),
+				...(freeTargetAnchor === undefined
+					? {}
+					: { targetAnchor: freeTargetAnchor }),
+			});
+			// A retry may land on a side midpoint another edge already uses;
+			// spreadCollidingEndpoints separates such endpoints afterwards.
+			if (
+				compareRouteSeverity(
+					routeSeverity(retry, hardObstacles, routeInput.obstacles ?? []),
+					routeSeverity(route, hardObstacles, routeInput.obstacles ?? []),
+				) < 0
+			) {
+				route = retry;
+			}
+		}
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
 				...diagnostic,
@@ -367,7 +415,645 @@ export function coordinateEdges(
 		});
 	}
 
-	return coordinated;
+	const finalized = finalizeCoordinatedEdges(
+		coordinated,
+		nodes,
+		nodeObstacles,
+		hardObstacles,
+		softObstacles,
+		textObstacles,
+		railAllocations,
+		options,
+		groups,
+	);
+	pruneResolvedRouteDiagnostics(
+		diagnostics,
+		finalized,
+		nodeObstacles,
+		hardObstacles,
+		softObstacles,
+		textObstacles,
+		groups,
+		options,
+	);
+	return finalized;
+}
+
+/**
+ * How bad a routed candidate is, most serious first: hard-obstacle hits,
+ * soft-obstacle hits, error diagnostics, warnings, then any diagnostic. A
+ * retry must beat the original lexicographically, so trading search-budget
+ * warnings for a real collision never wins.
+ */
+function routeSeverity(
+	route: { points: readonly Point[]; diagnostics: readonly Diagnostic[] },
+	hardObstacles: readonly Box[],
+	softObstacles: readonly Box[],
+): number[] {
+	return [
+		routeObstacleHits(route.points, hardObstacles),
+		routeObstacleHits(route.points, softObstacles),
+		route.diagnostics.filter((diagnostic) => diagnostic.severity === "error")
+			.length,
+		route.diagnostics.filter((diagnostic) => diagnostic.severity === "warning")
+			.length,
+		route.diagnostics.length,
+	];
+}
+
+function compareRouteSeverity(
+	left: readonly number[],
+	right: readonly number[],
+): number {
+	for (let index = 0; index < left.length; index += 1) {
+		const difference = (left[index] ?? 0) - (right[index] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	return 0;
+}
+
+/** Route diagnostics that post-route repairs can make obsolete. */
+const RESOLVABLE_ROUTE_DIAGNOSTIC_CODES = new Set([
+	"routing.obstacle.unavoidable",
+	"route_obstacle_fallback",
+]);
+
+/**
+ * Post-route repairs (obstacle escape, endpoint spreading, …) can turn a
+ * fallback route clean. Drop obstacle diagnostics whose edge now avoids
+ * every obstacle the router considered, so remediation and deliverability
+ * are not triggered by stale evidence. Mutates `diagnostics` in place.
+ */
+export function pruneResolvedRouteDiagnostics(
+	diagnostics: Diagnostic[],
+	edges: readonly CoordinatedEdge[],
+	nodeObstacles: readonly NodeObstacleEntry[],
+	hardObstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	textObstacles: readonly SolvedTextAnnotation[],
+	groups: readonly CoordinatedGroup[],
+	options: SolveDiagramOptions,
+): void {
+	const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+	const clean = new Map<string, boolean>();
+	const isClean = (edge: CoordinatedEdge): boolean => {
+		const cached = clean.get(edge.id);
+		if (cached !== undefined) return cached;
+		const obstacles = [
+			...nodeObstacles
+				.filter(
+					(entry) =>
+						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
+				)
+				.map((entry) => entry.box),
+			...hardObstacles,
+			...softObstacles,
+			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+			...textObstacles
+				.filter(isLocalRouteClearanceText)
+				.filter(
+					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
+				)
+				.map((annotation) => textObstacleBox(annotation, options)),
+		];
+		const result = routeObstacleHits(edge.points, obstacles) === 0;
+		clean.set(edge.id, result);
+		return result;
+	};
+	for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+		const diagnostic = diagnostics[index];
+		if (
+			diagnostic === undefined ||
+			!RESOLVABLE_ROUTE_DIAGNOSTIC_CODES.has(diagnostic.code) ||
+			// A clean route over its detour budget is still over budget: that
+			// diagnostic is not about a collision, so keep it for remediation.
+			diagnostic.detail?.maxDetourRatio !== undefined ||
+			diagnostic.detail?.detourRatio !== undefined
+		) {
+			continue;
+		}
+		const edgeId = diagnostic.detail?.edgeId;
+		const edge = typeof edgeId === "string" ? edgeById.get(edgeId) : undefined;
+		if (edge !== undefined && isClean(edge)) diagnostics.splice(index, 1);
+	}
+}
+
+/**
+ * Cross-edge post-passes: spread coincident endpoints, nudge shared
+ * corridors into parallel tracks, detach border-hugging ends and snap
+ * endpoints onto non-rectangular outlines. Runs at the end of every
+ * `coordinateEdges` call and again over the whole edge set after single-edge
+ * reroutes (which cannot see their neighbours).
+ */
+export function finalizeCoordinatedEdges(
+	edges: CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	nodeObstacles: readonly NodeObstacleEntry[],
+	hardObstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	textObstacles: readonly SolvedTextAnnotation[],
+	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
+	options: SolveDiagramOptions,
+	groups: readonly CoordinatedGroup[] = [],
+): CoordinatedEdge[] {
+	const implicit = implicitAnchorDistribution(options);
+	// Every post-pass move is validated against the same obstacles the
+	// router avoided: nodes, hard blocks, policy soft obstacles (tables,
+	// panels, title bars, lane corridors) and text surfaces.
+	// Node obstacles are the router's (obstacleMargin / routingGutter
+	// expanded) boxes, so no pass can move a route into requested clearance.
+	// Each edge is validated without its own endpoint nodes: with a margin
+	// or gutter its endpoints sit inside those expanded boxes, and such
+	// unavoidable hits must not act as a budget that hides a new hit.
+	// Groups and text surfaces follow the router's per-edge rules too: a
+	// group is only an obstacle for edges with no endpoint inside it, and an
+	// edge's own label and its endpoints' node labels are not obstacles for
+	// it. Port labels stay obstacles here: they sit outside the node, and a
+	// nudged track running over its own port label would push the final
+	// edge label onto it.
+	const margin = options.obstacleMargin ?? 0;
+	const obstacles: PostPassObstacle[] = [
+		...nodeObstacles.map((entry) => ({ box: entry.box, ownerId: entry.id })),
+		...hardObstacles.map((box) => ({ box })),
+		...softObstacles.map((box) => ({ box })),
+		...textObstacles.filter(isLocalRouteClearanceText).map((annotation) => ({
+			box: textObstacleBox(annotation, options),
+			exemptEdgeIds: new Set(
+				edges
+					.filter(
+						(edge) =>
+							annotation.surfaceKind !== "port-label" &&
+							isEdgeConnectedTextAnnotation(edge, annotation),
+					)
+					.map((edge) => edge.id),
+			),
+		})),
+		...groups.map((group) => ({
+			box: margin === 0 ? group.box : expandBox(group.box, margin),
+			exemptEdgeIds: new Set(
+				edges
+					.filter(
+						(edge) =>
+							ancestorGroupIds(groups, edge.source.nodeId).has(group.id) ||
+							ancestorGroupIds(groups, edge.target.nodeId).has(group.id),
+					)
+					.map((edge) => edge.id),
+			),
+		})),
+	];
+	// Border detachment, endpoint spreading and outline snapping belong to
+	// implicit distribution. Obstacle-avoiding / explicit anchorCapacity
+	// pages keep the router's geometry: the strict dense label gate is tuned
+	// against it and extra stubs there create unresolved label crossings.
+	// Detach first so every endpoint has its final side before coincident
+	// endpoints on that side are spread apart.
+	const detached = implicit
+		? detachBorderHuggingEnds(edges, nodes, obstacles)
+		: edges;
+	const spread = implicit
+		? spreadCollidingEndpoints(detached, nodes, obstacles)
+		: detached;
+	const separated = separateCoordinatedEdges(
+		spread,
+		obstacles,
+		railAllocations,
+		options,
+	);
+	return implicit ? snapEndpointsToShapeOutline(separated, nodes) : separated;
+}
+
+interface PostPassObstacle {
+	box: Box;
+	/** Node the obstacle belongs to, if any. */
+	ownerId?: string;
+	/**
+	 * Edges this obstacle does not apply to: a group's own edges, or the
+	 * edges a text surface belongs to (their label, their endpoint labels).
+	 */
+	exemptEdgeIds?: ReadonlySet<string>;
+}
+
+/** Whether an edge must avoid the obstacle, mirroring the router's rules. */
+function obstacleAppliesTo(
+	obstacle: PostPassObstacle,
+	edge: CoordinatedEdge,
+): boolean {
+	if (
+		obstacle.ownerId !== undefined &&
+		(obstacle.ownerId === edge.source.nodeId ||
+			obstacle.ownerId === edge.target.nodeId)
+	) {
+		return false;
+	}
+	return obstacle.exemptEdgeIds?.has(edge.id) !== true;
+}
+
+/** Obstacle boxes an edge must avoid (the router's per-edge obstacle set). */
+function obstaclesForEdge(
+	edge: CoordinatedEdge,
+	obstacles: readonly PostPassObstacle[],
+): Box[] {
+	return obstacles
+		.filter((obstacle) => obstacleAppliesTo(obstacle, edge))
+		.map((obstacle) => obstacle.box);
+}
+
+/** Number of (segment, obstacle) pairs where a route enters an obstacle. */
+function routeObstacleHits(
+	points: readonly Point[],
+	obstacles: readonly Box[],
+): number {
+	let hits = 0;
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const start = points[index];
+		const end = points[index + 1];
+		if (start === undefined || end === undefined) continue;
+		for (const box of obstacles) {
+			if (segmentIntersectsBox(start, end, box)) hits += 1;
+		}
+	}
+	return hits;
+}
+
+/** Outward offset applied to an end segment that runs along its node border. */
+const BORDER_HUGGING_STUB = 12;
+
+/**
+ * Fallback routes can leave an anchor by running along the node's own
+ * border (e.g. straight down the right edge). Shift that end segment
+ * outward by a short stub so the edge visibly leaves the node; the adjacent
+ * segment is perpendicular, so the route stays orthogonal.
+ */
+function detachBorderHuggingEnds(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	allObstacles: readonly PostPassObstacle[],
+): CoordinatedEdge[] {
+	return edges.map((edge) => {
+		const obstacles = obstaclesForEdge(edge, allObstacles);
+		let points = edge.points.map((point) => ({ ...point }));
+		let changed = false;
+		for (const role of ["source", "target"] as const) {
+			if (points.length < 3) break;
+			const box = nodes.get(
+				role === "source" ? edge.source.nodeId : edge.target.nodeId,
+			)?.box;
+			if (box === undefined) continue;
+			const ordered = role === "source" ? points : [...points].reverse();
+			const end = ordered[0];
+			const next = ordered[1];
+			if (end === undefined || next === undefined) continue;
+			const vertical = Math.abs(end.x - next.x) < 0.5;
+			const horizontal = Math.abs(end.y - next.y) < 0.5;
+			let offset: Point | undefined;
+			if (vertical && Math.abs(end.x - (box.x + box.width)) < 0.5) {
+				offset = { x: BORDER_HUGGING_STUB, y: 0 };
+			} else if (vertical && Math.abs(end.x - box.x) < 0.5) {
+				offset = { x: -BORDER_HUGGING_STUB, y: 0 };
+			} else if (horizontal && Math.abs(end.y - (box.y + box.height)) < 0.5) {
+				offset = { x: 0, y: BORDER_HUGGING_STUB };
+			} else if (horizontal && Math.abs(end.y - box.y) < 0.5) {
+				offset = { x: 0, y: -BORDER_HUGGING_STUB };
+			}
+			if (offset === undefined) continue;
+			const shiftedEnd = { x: end.x + offset.x, y: end.y + offset.y };
+			const shiftedNext = { x: next.x + offset.x, y: next.y + offset.y };
+			const rebuilt = compactRoutePoints([
+				end,
+				shiftedEnd,
+				shiftedNext,
+				...ordered.slice(2),
+			]);
+			const candidate = role === "source" ? rebuilt : rebuilt.reverse();
+			// The outward stub must not trade a border graze for a collision.
+			if (
+				routeObstacleHits(candidate, obstacles) >
+				routeObstacleHits(points, obstacles)
+			) {
+				continue;
+			}
+			points = candidate;
+			changed = true;
+		}
+		return changed ? { ...edge, points } : edge;
+	});
+}
+
+/**
+ * Routes attach to bounding-box sides. For non-rectangular shapes an
+ * off-centre attach point would float beside the drawn outline, so extend
+ * (or trim) the first/last segment along its own axis until it meets the
+ * outline. The segment direction is unchanged, so routes stay orthogonal.
+ */
+function snapEndpointsToShapeOutline(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+): CoordinatedEdge[] {
+	return edges.map((edge) => {
+		if (edge.points.length < 2) return edge;
+		const points = edge.points.map((point) => ({ ...point }));
+		let changed = false;
+		for (const role of ["source", "target"] as const) {
+			const endpoint = role === "source" ? edge.source : edge.target;
+			// An explicit port is drawn at its own anchor; moving the connector
+			// onto the outline would detach it from the port marker.
+			if (endpoint.portId !== undefined) continue;
+			const geometry = nodes.get(endpoint.nodeId);
+			if (
+				geometry === undefined ||
+				geometry.shape === "rectangle" ||
+				geometry.shape === "rounded-rectangle"
+			) {
+				continue;
+			}
+			const at = role === "source" ? 0 : points.length - 1;
+			const end = points[at];
+			const neighbour = points[role === "source" ? 1 : points.length - 2];
+			if (end === undefined || neighbour === undefined) continue;
+			const { box } = geometry;
+			const horizontal = Math.abs(end.y - neighbour.y) < 0.5;
+			let side: "top" | "right" | "bottom" | "left" | undefined;
+			if (horizontal && Math.abs(end.x - box.x) < 0.5 && neighbour.x < end.x) {
+				side = "left";
+			} else if (
+				horizontal &&
+				Math.abs(end.x - (box.x + box.width)) < 0.5 &&
+				neighbour.x > end.x
+			) {
+				side = "right";
+			} else if (
+				!horizontal &&
+				Math.abs(end.y - box.y) < 0.5 &&
+				neighbour.y < end.y
+			) {
+				side = "top";
+			} else if (
+				!horizontal &&
+				Math.abs(end.y - (box.y + box.height)) < 0.5 &&
+				neighbour.y > end.y
+			) {
+				side = "bottom";
+			}
+			if (side === undefined) continue;
+			const t = horizontal
+				? (end.y - box.y) / Math.max(1e-9, box.height)
+				: (end.x - box.x) / Math.max(1e-9, box.width);
+			const outline = shapeSidePoint(geometry.shape, box, side, t);
+			if (
+				Math.abs(outline.x - end.x) > 1e-6 ||
+				Math.abs(outline.y - end.y) > 1e-6
+			) {
+				points[at] = outline;
+				changed = true;
+			}
+		}
+		return changed ? { ...edge, points } : edge;
+	});
+}
+
+/** Gap between endpoints spread apart on a shared node side. */
+const COLLIDING_ENDPOINT_SPACING = 12;
+
+type EndpointSide = "top" | "right" | "bottom" | "left";
+
+/**
+ * Routers pick sides per edge, so two edges that were not distributed
+ * together can still land on the same side midpoint of a node. Spread such
+ * coincident endpoints along the side (ordered by where each route turns
+ * next), moving the first bend with them so routes stay orthogonal.
+ */
+function spreadCollidingEndpoints(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	allObstacles: readonly PostPassObstacle[],
+): CoordinatedEdge[] {
+	// A straight 2-point route cannot slide an endpoint without breaking
+	// orthogonality, so give it a zero-length dogleg at its midpoint; moving
+	// an endpoint then becomes a small jog there. Unused doglegs are
+	// simplified away at the end.
+	const expanded = new Set<number>();
+	const routes = edges.map((edge, index) => {
+		const points = edge.points.map((point) => ({ ...point }));
+		const [a, b] = points;
+		if (
+			points.length === 2 &&
+			a !== undefined &&
+			b !== undefined &&
+			(Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5)
+		) {
+			const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+			expanded.add(index);
+			return [a, middle, { ...middle }, b];
+		}
+		return points;
+	});
+	interface EndpointRef {
+		edgeIndex: number;
+		role: "source" | "target";
+		nodeId: string;
+		side: EndpointSide;
+		/** Coordinate of the route's next turn along the side axis. */
+		heading: number;
+	}
+	const groups = new Map<string, EndpointRef[]>();
+	edges.forEach((edge, edgeIndex) => {
+		const route = routes[edgeIndex] ?? [];
+		if (route.length < 3) return;
+		for (const role of ["source", "target"] as const) {
+			const at = role === "source" ? 0 : route.length - 1;
+			const step = role === "source" ? 1 : -1;
+			const end = route[at];
+			const bend = route[at + step];
+			const next = route[at + 2 * step];
+			if (end === undefined || bend === undefined || next === undefined) {
+				continue;
+			}
+			const horizontal = Math.abs(end.y - bend.y) < 0.5;
+			const side: EndpointSide = horizontal
+				? bend.x > end.x
+					? "right"
+					: "left"
+				: bend.y > end.y
+					? "bottom"
+					: "top";
+			const endpoint = role === "source" ? edge.source : edge.target;
+			// An explicit port is drawn at its anchor: several edges may share
+			// it on purpose, and moving them would detach them from the port.
+			if (endpoint.portId !== undefined) continue;
+			const nodeId = endpoint.nodeId;
+			const along = horizontal ? end.y : end.x;
+			const key = `${nodeId}|${side}|${Math.round(along)}`;
+			const group = groups.get(key) ?? [];
+			group.push({
+				edgeIndex,
+				role,
+				nodeId,
+				side,
+				heading: horizontal ? next.y : next.x,
+			});
+			groups.set(key, group);
+		}
+	});
+
+	for (const group of groups.values()) {
+		if (group.length < 2) continue;
+		const first = group[0];
+		if (first === undefined) continue;
+		const geometry = nodes.get(first.nodeId);
+		if (geometry === undefined) continue;
+		const side = first.side;
+		const alongY = side === "left" || side === "right";
+		const sideStart = alongY ? geometry.box.y : geometry.box.x;
+		const sideLength = alongY ? geometry.box.height : geometry.box.width;
+		if (sideLength <= 0) continue;
+		const [rangeStart, rangeEnd] = shapeSideAttachRange(
+			geometry.shape,
+			geometry.box,
+			side,
+		);
+		const sorted = [...group].sort(
+			(a, b) =>
+				a.heading - b.heading ||
+				(edges[a.edgeIndex]?.id ?? "").localeCompare(
+					edges[b.edgeIndex]?.id ?? "",
+				) ||
+				a.role.localeCompare(b.role),
+		);
+		const count = sorted.length;
+		const endpointOf = (ref: EndpointRef): Point | undefined => {
+			const route = routes[ref.edgeIndex] ?? [];
+			return ref.role === "source" ? route[0] : route.at(-1);
+		};
+		const origin = endpointOf(first);
+		if (origin === undefined) continue;
+		const centerT = ((alongY ? origin.y : origin.x) - sideStart) / sideLength;
+		const stepT = Math.min(
+			COLLIDING_ENDPOINT_SPACING / sideLength,
+			(rangeEnd - rangeStart) / count,
+		);
+		const halfSpan = (stepT * (count - 1)) / 2;
+		const startT = Math.min(
+			Math.max(centerT - halfSpan, rangeStart),
+			Math.max(rangeStart, rangeEnd - 2 * halfSpan),
+		);
+		sorted.forEach((ref, index) => {
+			const route = routes[ref.edgeIndex] ?? [];
+			const at = ref.role === "source" ? 0 : route.length - 1;
+			const step = ref.role === "source" ? 1 : -1;
+			const end = route[at];
+			const bend = route[at + step];
+			const next = route[at + 2 * step];
+			if (end === undefined || bend === undefined || next === undefined) {
+				return;
+			}
+			const moved = shapeSidePoint(
+				"rectangle",
+				geometry.box,
+				side,
+				startT + index * stepT,
+			);
+			const oldAlong = alongY ? bend.y : bend.x;
+			const newAlong = alongY ? moved.y : moved.x;
+			const nextAlong = alongY ? next.y : next.x;
+			// Keep the segment after the bend pointing the same way (a dogleg
+			// placeholder, where next == bend, may point either way).
+			const placeholder = Math.abs(nextAlong - oldAlong) < 1e-9;
+			if (
+				!placeholder &&
+				(Math.sign(nextAlong - newAlong) !== Math.sign(nextAlong - oldAlong) ||
+					Math.abs(nextAlong - newAlong) < 1)
+			) {
+				return;
+			}
+			const shifted = route.map((point) => ({ ...point }));
+			shifted[at] = moved;
+			shifted[at + step] = alongY
+				? { x: bend.x, y: moved.y }
+				: { x: moved.x, y: bend.y };
+			// The separation pass never moves first/last segments, so a spread
+			// that creates a collision could not be repaired later: reject it.
+			const edge = edges[ref.edgeIndex];
+			const obstacles =
+				edge === undefined ? [] : obstaclesForEdge(edge, allObstacles);
+			if (
+				routeObstacleHits(shifted, obstacles) >
+				routeObstacleHits(route, obstacles)
+			) {
+				return;
+			}
+			route[at] = shifted[at] as Point;
+			route[at + step] = shifted[at + step] as Point;
+		});
+	}
+
+	return edges.map((edge, index) => {
+		const route = routes[index] ?? edge.points;
+		return {
+			...edge,
+			points: expanded.has(index) ? simplifyRoute(route) : route,
+		};
+	});
+}
+
+function implicitAnchorDistribution(options: SolveDiagramOptions): boolean {
+	return (
+		options.anchorCapacity === undefined &&
+		(options.routeKind ?? "orthogonal") === "orthogonal"
+	);
+}
+
+/**
+ * Post-route nudging: spread edges that share a corridor into parallel
+ * tracks so fan-out / fan-in bundles stay readable. Rail-allocated edges
+ * are kept fixed.
+ */
+function separateCoordinatedEdges(
+	edges: CoordinatedEdge[],
+	obstacles: readonly PostPassObstacle[],
+	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
+	options: SolveDiagramOptions,
+): CoordinatedEdge[] {
+	const routeKind = options.routeKind ?? "orthogonal";
+	if (routeKind === "straight" || edges.length === 0) {
+		return edges;
+	}
+	// Track spreading can be switched off (or has nothing to spread); the
+	// obstacle-escape repair always runs on orthogonal routes.
+	const separate = !(
+		edges.length < 2 ||
+		options.edgeSeparation === false ||
+		routeKind === "short-orthogonal-jumps"
+	);
+	const spacing =
+		typeof options.edgeSeparation === "object"
+			? options.edgeSeparation.spacing
+			: undefined;
+	const separated = separateParallelSegments(
+		edges.map((edge) => {
+			const ignoreObstacles = new Set<number>();
+			obstacles.forEach((obstacle, index) => {
+				if (!obstacleAppliesTo(obstacle, edge)) ignoreObstacles.add(index);
+			});
+			return {
+				id: edge.id,
+				points: edge.points,
+				fixed: railAllocations?.has(edge.id) === true,
+				ignoreObstacles,
+			};
+		}),
+		obstacles.map((obstacle) => obstacle.box),
+		{
+			separate,
+			// End splitting belongs to implicit distribution, like border
+			// detachment: explicit rail/gutter pages keep their port segments.
+			splitEnds: implicitAnchorDistribution(options),
+			...(spacing === undefined ? {} : { spacing }),
+		},
+	);
+	return edges.map((edge, index) => ({
+		...edge,
+		points: separated[index] ?? edge.points,
+	}));
 }
 
 export type RailOccupancyState = Map<

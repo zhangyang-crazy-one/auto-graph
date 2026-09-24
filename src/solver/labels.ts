@@ -24,7 +24,7 @@ import type {
 	SolvedTextAnnotation,
 	TextSurfaceKind,
 } from "../ir/label-layout.js";
-import { fitLabel } from "../labels/index.js";
+import { fitLabel, labelLinesRelativeToBox } from "../labels/index.js";
 import { createDefaultTextMeasurer } from "../text/index.js";
 import type { TextMeasurer } from "../text/types.js";
 import {
@@ -465,7 +465,7 @@ export function buildTextAnnotation(input: {
 		},
 		anchor: input.anchor,
 		paddings: input.layout.padding,
-		lines: input.layout.lines,
+		lines: labelLinesRelativeToBox(input.layout),
 		fontFamily:
 			input.typography?.fontFamily ??
 			normalizeOutputFontFamily(input.layout.font),

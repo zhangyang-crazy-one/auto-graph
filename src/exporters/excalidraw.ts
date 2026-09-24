@@ -14,6 +14,7 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import type { ExportOptions } from "./types.js";
 
 type ExcalidrawElement =
@@ -147,6 +148,10 @@ export function exportExcalidraw(
 
 	for (const edge of diagram.edges) {
 		elements.push(...renderArrowElements(edge, diagram.edgeCrossings ?? []));
+	}
+	// Labels after every arrow: element order is z-order, and a label's
+	// backdrop must cover all strokes, not only its own edge's.
+	for (const edge of diagram.edges) {
 		elements.push(
 			...renderEdgeLabelAnnotations(edge, diagram.textAnnotations ?? []),
 		);
@@ -533,20 +538,32 @@ function excalidrawSquaredDistance(
 function renderEdgeLabelAnnotations(
 	edge: CoordinatedEdge,
 	annotations: readonly SolvedTextAnnotation[],
-): ExcalidrawTextElement[] {
+): Array<ExcalidrawShapeElement | ExcalidrawTextElement> {
 	const matching = annotations.filter(
 		(annotation) =>
 			annotation.surfaceKind === "edge-label" && annotation.ownerId === edge.id,
 	);
-	return matching.map((annotation, index) => {
+	return matching.flatMap((annotation, index) => {
 		const role =
 			typeof annotation.placementDetail?.role === "string"
 				? annotation.placementDetail.role
 				: "label";
-		return renderAnnotationText(
-			`edge-label:${edge.id}:${role}:${index}`,
-			annotation,
-		);
+		const id = `edge-label:${edge.id}:${role}:${index}`;
+		return [
+			// Text-fitted white box so the arrow behind the label stays out of
+			// the way; grouped with the text so they move together.
+			{
+				...baseElement(
+					`${id}:backdrop`,
+					"rectangle",
+					labelBackdropBox(annotation),
+				),
+				strokeColor: "transparent",
+				backgroundColor: LABEL_BACKDROP_FILL,
+				groupIds: [id],
+			},
+			{ ...renderAnnotationText(id, annotation), groupIds: [id] },
+		];
 	});
 }
 

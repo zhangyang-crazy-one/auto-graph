@@ -81,6 +81,12 @@ interface RouteQuality {
 	readonly endpointCrossingLength: number;
 	readonly softCrossings: number;
 	readonly softCrossingLength: number;
+	/**
+	 * Number of route ends (0–2) whose first/last segment does not leave or
+	 * enter along the anchor side's normal, e.g. a vertical segment entering
+	 * a `left` anchor while hugging the node border.
+	 */
+	readonly directionPenalty: number;
 	readonly excessiveLength: number;
 	readonly backtrackDistance: number;
 	readonly anchorPenalty: number;
@@ -97,6 +103,7 @@ function routeQuality(
 	endpointObstacles: readonly Box[],
 	maxBacktrackingRatio?: number,
 	anchorPenalty = 0,
+	anchors?: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
 ): RouteQuality {
 	const hard = routeObstacleCrossingStats(points, hardObstacles);
 	const endpoints = routeObstacleCrossingStats(points, endpointObstacles);
@@ -113,6 +120,8 @@ function routeQuality(
 		endpointCrossingLength: endpoints.length,
 		softCrossings: soft.count,
 		softCrossingLength: soft.length,
+		directionPenalty:
+			anchors === undefined ? 0 : routeDirectionPenalty(points, anchors),
 		excessiveLength,
 		backtrackDistance: routeBacktrackDistance(points, source, target),
 		anchorPenalty,
@@ -129,12 +138,70 @@ function compareRouteQuality(left: RouteQuality, right: RouteQuality): number {
 		left.endpointCrossingLength - right.endpointCrossingLength ||
 		left.softCrossings - right.softCrossings ||
 		left.softCrossingLength - right.softCrossingLength ||
+		left.directionPenalty - right.directionPenalty ||
 		left.excessiveLength - right.excessiveLength ||
 		left.routeLength - right.routeLength ||
 		left.bendCount - right.bendCount ||
 		left.backtrackDistance - right.backtrackDistance ||
 		left.anchorPenalty - right.anchorPenalty
 	);
+}
+
+function anchorNormal(anchor: AnchorName): Point | undefined {
+	switch (anchor) {
+		case "left":
+			return { x: -1, y: 0 };
+		case "right":
+			return { x: 1, y: 0 };
+		case "top":
+			return { x: 0, y: -1 };
+		case "bottom":
+			return { x: 0, y: 1 };
+		default:
+			return undefined;
+	}
+}
+
+function segmentLeavesAlong(from: Point, to: Point, normal: Point): boolean {
+	const dx = to.x - from.x;
+	const dy = to.y - from.y;
+	if (normal.x !== 0) {
+		return Math.abs(dy) < 0.5 && dx * normal.x > 0;
+	}
+	return Math.abs(dx) < 0.5 && dy * normal.y > 0;
+}
+
+function routeDirectionPenalty(
+	points: readonly Point[],
+	anchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+): number {
+	if (points.length < 2) return 0;
+	let penalty = 0;
+	const sourceNormal = anchorNormal(anchors.sourceAnchor);
+	const first = points[0];
+	const second = points[1];
+	if (
+		sourceNormal !== undefined &&
+		first !== undefined &&
+		second !== undefined &&
+		!segmentLeavesAlong(first, second, sourceNormal)
+	) {
+		penalty += 1;
+	}
+	const targetNormal = anchorNormal(anchors.targetAnchor);
+	const last = points.at(-1);
+	const beforeLast = points.at(-2);
+	if (
+		targetNormal !== undefined &&
+		last !== undefined &&
+		beforeLast !== undefined &&
+		// The final segment must travel against the target side's outward
+		// normal, i.e. point "into" the node.
+		!segmentLeavesAlong(last, beforeLast, targetNormal)
+	) {
+		penalty += 1;
+	}
+	return penalty;
 }
 
 function routeObstacleCrossingStats(
@@ -684,6 +751,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			source: Point,
 			target: Point,
 			anchorPenalty: number,
+			anchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
 		): void => {
 			if (
 				routeIntersectsObstacles(candidate, softObstacles, softObstacleIndex) ||
@@ -702,6 +770,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				endpointObstacles,
 				input.maxBacktrackingRatio,
 				anchorPenalty,
+				anchors,
 			);
 			cleanTournament.push({ points: candidate, source, target, quality });
 		};
@@ -811,7 +880,10 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				) &&
 				!routeIntersectsEndpointInteriors(finalized, endpointObstacles)
 			) {
-				considerClean(finalized, source, target, anchorPenalty);
+				considerClean(finalized, source, target, anchorPenalty, {
+					sourceAnchor: pair.sourceAnchor,
+					targetAnchor: pair.targetAnchor,
+				});
 				continue;
 			}
 			recordRejected(finalized, source, target, endpointObstacles);
@@ -855,7 +927,10 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					) &&
 					!routeIntersectsEndpointInteriors(fullFinalized, endpointObstacles)
 				) {
-					considerClean(fullFinalized, source, target, anchorPenalty);
+					considerClean(fullFinalized, source, target, anchorPenalty, {
+						sourceAnchor: pair.sourceAnchor,
+						targetAnchor: pair.targetAnchor,
+					});
 					continue;
 				}
 				recordRejected(fullFinalized, source, target, endpointObstacles);
@@ -895,7 +970,10 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					) &&
 					!routeIntersectsEndpointInteriors(gridFinalized, endpointObstacles)
 				) {
-					considerClean(gridFinalized, source, target, anchorPenalty);
+					considerClean(gridFinalized, source, target, anchorPenalty, {
+						sourceAnchor: pair.sourceAnchor,
+						targetAnchor: pair.targetAnchor,
+					});
 				} else {
 					recordRejected(gridFinalized, source, target, endpointObstacles);
 				}
@@ -996,6 +1074,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					endpointObstacles,
 					input.maxBacktrackingRatio,
 					anchorPenalty,
+					{ sourceAnchor, targetAnchor },
 				),
 			}));
 		},

@@ -9,4 +9,10 @@ export interface LabelFitOptions {
 	minSize?: Partial<Size>;
 	maxWidth?: number;
 	overflow?: "allow" | "diagnose" | "truncate";
+	/**
+	 * Horizontal alignment of line boxes inside the content box. `center`
+	 * centres each wrapped line (node labels); default `start` keeps lines
+	 * left-aligned at the content origin.
+	 */
+	align?: "start" | "center";
 }

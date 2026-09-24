@@ -75,11 +75,14 @@ import {
 	reserveSideGutters,
 	stableByConstraintId,
 	stableUniqueById,
+	textAnnotationContentBox,
 } from "./helpers.js";
 import {
 	edgeBounds,
 	prefitNodeLabelSize,
 	reportPostGrowthOverlaps,
+	resolveAutoLayoutMode,
+	runGlobalInitialLayout,
 	runInitialLayout,
 	wrapHorizontalStackIfNeeded,
 	wrapVerticalStackIfNeeded,
@@ -106,6 +109,7 @@ import {
 	buildRoutingAllocationReport,
 	expandNodeBoxesForAnchorCapacity,
 	expandNodeBoxesForPorts,
+	growNodesForEdgeDegree,
 	portLabelBox,
 } from "./ports.js";
 import type { RemediationPassState } from "./remediation.js";
@@ -121,7 +125,9 @@ import {
 	coordinateEdges,
 	edgeIdsFromRouteTextDiagnostics,
 	edgeLabelRerouteIterations,
+	finalizeCoordinatedEdges,
 	isPreRouteTextObstacle,
+	pruneResolvedRouteDiagnostics,
 	replaceRouteDiagnosticsForEdge,
 	reportRouteTextClearance,
 	resourceFlowLabelHardObstacles,
@@ -186,9 +192,14 @@ export function solveDiagram(
 				prefitNodeLabelSize(node, options, diagnostics),
 			)
 		: cjkStyledNodes;
-	const styledNodes = styledNodesBase.map(cloneNormalizedNodeForSolver);
 	const styledEdges = edges.map((edge) =>
 		enhanceEdgeCjkTypography(edge, cjkTypography, diagnostics),
+	);
+	const styledNodes = growNodesForEdgeDegree(
+		styledNodesBase.map(cloneNormalizedNodeForSolver),
+		styledEdges,
+		diagram.direction,
+		options,
 	);
 	const styledGroups = groups.map((group) =>
 		enhanceGroupCjkTypography(group, cjkTypography, diagnostics),
@@ -197,7 +208,16 @@ export function solveDiagram(
 		enhanceSwimlaneCjkTypography(swimlane, cjkTypography, diagnostics),
 	);
 	const constraints = stableByConstraintId(diagram.constraints);
-	const initialLayoutMode = options.initialLayout ?? "dagre";
+	const initialLayoutMode =
+		options.initialLayout === "auto"
+			? resolveAutoLayoutMode(
+					diagram,
+					styledSwimlanes,
+					styledNodes,
+					styledEdges,
+					options,
+				)
+			: (options.initialLayout ?? "dagre");
 	const useRecursive = options.recursiveLayout === true;
 	if (useRecursive && initialLayoutMode === "positions") {
 		diagnostics.push({
@@ -215,17 +235,36 @@ export function solveDiagram(
 				edges: styledEdges,
 				constraints,
 			})
-		: runInitialLayout({
-				mode: initialLayoutMode,
-				componentAware: options.maxStackDepth === undefined,
-				direction: diagram.direction,
-				nodes: styledNodes,
-				edges: styledEdges,
-			});
+		: initialLayoutMode === "global"
+			? runGlobalInitialLayout({
+					direction: diagram.direction,
+					nodes: styledNodes,
+					edges: styledEdges,
+					groups: styledGroups,
+					swimlanes: styledSwimlanes,
+					textMeasurer: options.textMeasurer,
+					declaredEdgeIds: diagram.edges.map((edge) => edge.id),
+					...(options.targetAspectRatio === undefined
+						? {}
+						: { targetAspectRatio: options.targetAspectRatio }),
+					...(options.foldLayout === undefined
+						? {}
+						: { fold: options.foldLayout }),
+				})
+			: runInitialLayout({
+					mode: initialLayoutMode,
+					componentAware: options.maxStackDepth === undefined,
+					direction: diagram.direction,
+					nodes: styledNodes,
+					edges: styledEdges,
+				});
 
 	diagnostics.push(...layout.diagnostics);
+	// The global layout folds long flows itself (P4); the Dagre-era stack
+	// rewraps would only undo its ordering.
 	const initialNodeBoxes =
 		initialLayoutMode === "positions" ||
+		initialLayoutMode === "global" ||
 		(diagram.direction !== "LR" && diagram.direction !== "RL")
 			? layout.boxes
 			: wrapVerticalStackIfNeeded(
@@ -239,6 +278,7 @@ export function solveDiagram(
 
 	// Horizontal rewrap for TB/BT layouts (Issue #60).
 	if (
+		initialLayoutMode !== "global" &&
 		(diagram.direction === "TB" || diagram.direction === "BT") &&
 		(options.maxRowDepth !== undefined ||
 			options.targetAspectRatio !== undefined)
@@ -307,13 +347,17 @@ export function solveDiagram(
 	});
 
 	diagnostics.push(...constrained.diagnostics);
-	const contractSwimlanes =
+	// The global layout already placed lanes as bands: keep its lane boxes
+	// instead of re-stacking the lanes with the contract heuristics.
+	const globalLaneBoxes = "laneBoxes" in layout ? layout.laneBoxes : undefined;
+	const contractSwimlanes = (
 		options.fixedSwimlaneGeometry === true ||
 		options.fixedSwimlaneGeometry === "diagnose-overflow"
 			? styledSwimlanes.filter(
 					(swimlane) => !hasFixedSwimlaneGeometry(swimlane),
 				)
-			: styledSwimlanes;
+			: styledSwimlanes
+	).filter((swimlane) => globalLaneBoxes?.has(swimlane.id) !== true);
 	const swimlaneContracts =
 		contractSwimlanes.length === 0
 			? {
@@ -334,6 +378,33 @@ export function solveDiagram(
 					Math.max(0, options?.minLaneGutter ?? 0),
 					options.distributeContainedChildren ?? true,
 				);
+	for (const swimlane of styledSwimlanes) {
+		const lanes = globalLaneBoxes?.get(swimlane.id);
+		if (lanes === undefined || hasFixedSwimlaneGeometry(swimlane)) continue;
+		const padding = swimlane.padding ?? 16;
+		// Constraint repair may have nudged a child: lanes still enclose it.
+		const laneBoxes = lanes.map((laneBox, index) =>
+			unionBoxes([
+				laneBox,
+				...(swimlane.lanes[index]?.children ?? [])
+					.map((child) => constrained.boxes.get(child))
+					.filter((box): box is Box => box !== undefined)
+					.map((box) => ({
+						x: box.x - padding,
+						y: box.y - padding,
+						width: box.width + 2 * padding,
+						height: box.height + 2 * padding,
+					})),
+			]),
+		);
+		swimlaneContracts.layouts.set(swimlane.id, {
+			box: unionBoxes(laneBoxes),
+			slotWidth: 0,
+			slotHeight: 0,
+			laneStep: 0,
+			laneBoxes,
+		});
+	}
 	// Distribution may resolve overlaps that were reported earlier
 	// by repairOverlaps — clean those up before continuing.
 	removeResolvedOverlapDiagnostics(diagnostics, constrained.boxes);
@@ -383,6 +454,9 @@ export function solveDiagram(
 		constrained.boxes,
 		options,
 		diagnostics,
+		!useRecursive && initialLayoutMode === "global" && "groupBoxes" in layout
+			? layout.groupBoxes
+			: undefined,
 	);
 	let coordinatedSwimlanes = coordinateSwimlanes(
 		styledSwimlanes,
@@ -612,7 +686,7 @@ export function solveDiagram(
 		coordinatedEdges,
 		[
 			...coordinatedNodes.map((node) => node.box),
-			...baseTextAnnotations.map((annotation) => annotation.box),
+			...baseTextAnnotations.map(textAnnotationContentBox),
 			...frameTextAnnotation.map((annotation) => annotation.box),
 		],
 		options,
@@ -738,7 +812,7 @@ export function solveDiagram(
 				candidateEdges,
 				[
 					...coordinatedNodes.map((node) => node.box),
-					...baseTextAnnotations.map((annotation) => annotation.box),
+					...baseTextAnnotations.map(textAnnotationContentBox),
 					...frameTextAnnotation.map((annotation) => annotation.box),
 				],
 				options,
@@ -810,6 +884,47 @@ export function solveDiagram(
 	}
 	coordinatedEdges = [...routeLabelFeedbackState.edges];
 	edgeTextAnnotations = [...routeLabelFeedbackState.edgeTextAnnotations];
+	if (routeLabelFeedbackState.changedEdgeIds.size > 0) {
+		// Single-edge reroutes could not see their neighbours; re-run the
+		// cross-edge post-passes over the whole set and re-place labels.
+		coordinatedEdges = finalizeCoordinatedEdges(
+			coordinatedEdges,
+			nodeGeometryById,
+			routeObstacleEntries,
+			policyHardObstacles,
+			policySoftObstacles,
+			routingTextObstacles,
+			acceptedRailAllocations,
+			options,
+			coordinatedGroups,
+		);
+		edgeTextAnnotations = coordinateEdgeTextAnnotations(
+			coordinatedEdges,
+			[
+				...coordinatedNodes.map((node) => node.box),
+				...baseTextAnnotations.map(textAnnotationContentBox),
+				...frameTextAnnotation.map((annotation) => annotation.box),
+			],
+			options,
+		);
+		const prunedRouteDiagnostics = [
+			...routeLabelFeedbackState.edgeRoutingDiagnostics,
+		];
+		pruneResolvedRouteDiagnostics(
+			prunedRouteDiagnostics,
+			coordinatedEdges,
+			routeObstacleEntries,
+			policyHardObstacles,
+			policySoftObstacles,
+			routingTextObstacles,
+			coordinatedGroups,
+			options,
+		);
+		routeLabelFeedbackState = {
+			...routeLabelFeedbackState,
+			edgeRoutingDiagnostics: prunedRouteDiagnostics,
+		};
+	}
 	edgeRoutingDiagnostics.splice(
 		0,
 		edgeRoutingDiagnostics.length,

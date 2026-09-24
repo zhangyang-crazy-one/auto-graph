@@ -1,0 +1,148 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { parse, stringify } from "yaml";
+import { renderDiagramDsl } from "../../src/dsl/index.js";
+import {
+	containmentRelations,
+	LAYOUT_METRIC_HARD_KEYS,
+	type LayoutMetrics,
+	measureLayoutQuality,
+} from "../../src/quality/index.js";
+import { DeterministicTextMeasurer } from "../../src/text/index.js";
+
+/**
+ * Layout quality ratchet (global-solver plan, P0).
+ *
+ * Solves a fixed benchmark set and compares whole-canvas metrics against
+ * the committed baseline. Hard metrics (overlaps, label overflow, edges
+ * through nodes, collapsed endpoints) may never get worse. Refresh the
+ * baseline after an intentional improvement with:
+ *
+ *   UPDATE_LAYOUT_BASELINE=1 npx vitest run test/benchmark/layout-baseline.test.ts
+ */
+const BENCHMARKS = [
+	"test/fixtures/benchmark/cn-swimlane.yaml",
+	"test/fixtures/benchmark/cn-vertical-lanes.yaml",
+	"test/fixtures/benchmark/cn-architecture.yaml",
+	"test/fixtures/benchmark/cn-long-flow.yaml",
+	"test/fixtures/issue-13/microservice.auto-graph.yaml",
+	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml",
+	"test/fixtures/phase-08/sysml-structure.auto-graph.yaml",
+	"examples/fan-out.yaml",
+	"examples/swimlane.yaml",
+	"examples/flowchart.yaml",
+	"examples/architecture.yaml",
+	"examples/groups.yaml",
+	// Swimlane diagrams and long flows default to the global layout; keep
+	// the Dagre path covered for them, and the global path for the rest.
+	"test/fixtures/benchmark/cn-swimlane.yaml#dagre",
+	"test/fixtures/benchmark/cn-vertical-lanes.yaml#dagre",
+	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml#dagre",
+	"examples/swimlane.yaml#dagre",
+	"test/fixtures/benchmark/cn-architecture.yaml#dagre",
+	"test/fixtures/benchmark/cn-long-flow.yaml#dagre",
+	"examples/fan-out.yaml#global",
+] as const;
+
+const BASELINE_URL = new URL(
+	"../fixtures/benchmark/layout-baseline.json",
+	import.meta.url,
+);
+const REPORT_URL = new URL(
+	"../fixtures/benchmark/layout-baseline.md",
+	import.meta.url,
+);
+const REPO_ROOT = new URL("../../", import.meta.url);
+
+type Baseline = Record<string, LayoutMetrics>;
+
+function solveBenchmark(entry: string): LayoutMetrics {
+	const [path = entry, mode] = entry.split("#");
+	let source = readFileSync(new URL(path, REPO_ROOT), "utf8");
+	if (mode !== undefined) {
+		const document = parse(source) as { layout?: Record<string, unknown> };
+		document.layout = { ...document.layout, mode };
+		source = stringify(document);
+	}
+	const result = renderDiagramDsl(source, {
+		sourcePath: path,
+		textMeasurer: new DeterministicTextMeasurer(),
+	});
+	if (result.diagram === undefined) {
+		throw new Error(`${path} did not solve`);
+	}
+	return measureLayoutQuality(result.diagram, {
+		containment: containmentRelations(result.constraints),
+	});
+}
+
+const current: Baseline = Object.fromEntries(
+	BENCHMARKS.map((path) => [path, solveBenchmark(path)]),
+);
+
+describe("layout quality baseline", () => {
+	if (process.env.UPDATE_LAYOUT_BASELINE === "1") {
+		writeFileSync(BASELINE_URL, `${JSON.stringify(current, null, "\t")}\n`);
+		writeFileSync(REPORT_URL, renderReport(current));
+	}
+
+	const baseline: Baseline = existsSync(BASELINE_URL)
+		? (JSON.parse(readFileSync(BASELINE_URL, "utf8")) as Baseline)
+		: current;
+
+	it.each(BENCHMARKS)("%s does not regress hard metrics", (path) => {
+		const before = baseline[path];
+		const after = current[path];
+		expect(before, `missing baseline for ${path}`).toBeDefined();
+		expect(after).toBeDefined();
+		for (const key of LAYOUT_METRIC_HARD_KEYS) {
+			expect(after?.[key], `${path}: ${key}`).toBeLessThanOrEqual(
+				before?.[key] ?? 0,
+			);
+		}
+	});
+
+	it("is deterministic", () => {
+		const path = BENCHMARKS[0];
+		expect(solveBenchmark(path)).toEqual(current[path]);
+	});
+});
+
+const REPORT_COLUMNS: Array<[keyof LayoutMetrics, string]> = [
+	["nodeOverlaps", "node overlap"],
+	["groupOverlaps", "group overlap"],
+	["foreignNodesInGroups", "foreign in group"],
+	["labelOverflows", "label overflow"],
+	["edgesThroughNodes", "edge through node"],
+	["sharedEndpoints", "shared endpoint"],
+	["crossings", "crossings"],
+	["bendsPerEdge", "bends/edge"],
+	["overlappingSegmentLength", "overlap len"],
+	["meanDetour", "detour"],
+	["aspectRatio", "aspect"],
+	["whitespaceRatio", "whitespace"],
+	["gapCV", "gap CV"],
+	["largestEmptyRatio", "largest empty"],
+	["laneFill", "lane fill"],
+	["sparseLanes", "sparse lanes"],
+];
+
+function renderReport(metrics: Baseline): string {
+	const header = `| benchmark | ${REPORT_COLUMNS.map(([, label]) => label).join(" | ")} |`;
+	const divider = `|---|${REPORT_COLUMNS.map(() => "---:").join("|")}|`;
+	const rows = Object.entries(metrics).map(
+		([path, values]) =>
+			`| ${path.replace(/^.*\//, "").replace("#", " · ")} | ${REPORT_COLUMNS.map(([key]) => values[key]).join(" | ")} |`,
+	);
+	return [
+		"# Layout quality baseline",
+		"",
+		"Generated by `test/benchmark/layout-baseline.test.ts` with the deterministic text measurer.",
+		"Hard metrics (first six columns) must stay at or below these values; see `src/quality/layout-metrics.ts` for definitions.",
+		"",
+		header,
+		divider,
+		...rows,
+		"",
+	].join("\n");
+}

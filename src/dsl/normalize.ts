@@ -22,7 +22,11 @@ import {
 	applyEllipseCircleSize,
 	resolveNodeShape,
 } from "../ir/semantic-roles.js";
-import { fitLabel } from "../labels/index.js";
+import {
+	fitLabel,
+	fitLabelToShape,
+	translateLabelLayout,
+} from "../labels/index.js";
 import { createDefaultTextMeasurer, type TextMeasurer } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import type { DiagramDsl } from "./schema.js";
@@ -98,6 +102,12 @@ export function normalizeDiagramDsl(
 			...(primaryReadingDirection === undefined
 				? {}
 				: { primaryReadingDirection }),
+			...(dsl.layout?.targetAspectRatio === undefined
+				? {}
+				: { targetAspectRatio: dsl.layout.targetAspectRatio }),
+			...(dsl.layout?.fold === undefined
+				? {}
+				: { foldLayout: dsl.layout.fold }),
 			...(portShifting === undefined ? {} : { portShifting }),
 			...routingOptions,
 		},
@@ -144,6 +154,14 @@ function normalizeDenseRoutingOptions(
 				: objectWithoutUndefined({
 						minSpacing: routing.anchorCapacity.minSpacing,
 						grow: routing.anchorCapacity.grow,
+					});
+	}
+	if (routing.edgeSeparation !== undefined) {
+		options.edgeSeparation =
+			typeof routing.edgeSeparation === "boolean"
+				? routing.edgeSeparation
+				: objectWithoutUndefined({
+						spacing: routing.edgeSeparation.spacing,
 					});
 	}
 	if (routing.railRouting !== undefined) {
@@ -220,17 +238,6 @@ function normalizeNodes(
 		.map((id) => {
 			const node = dsl.nodes[id];
 			const label = toLabel(node?.label);
-			const labelLayout =
-				label === undefined ? undefined : fitDslLabel(label, measurer);
-			const fittedSize = labelLayout?.fittedSize;
-			const nodeCompartments =
-				node?.compartments === undefined
-					? undefined
-					: compartments(node.compartments);
-			const compartmentWidth =
-				nodeCompartments === undefined
-					? 0
-					: compartmentNaturalWidth(id, label, nodeCompartments, measurer);
 			const role =
 				node?.role === undefined
 					? undefined
@@ -239,6 +246,18 @@ function normalizeNodes(
 				...(node?.shape === undefined ? {} : { shape: node.shape }),
 				...(role === undefined ? {} : { role }),
 			});
+			const shapeFit =
+				label === undefined ? undefined : fitDslLabel(label, shape, measurer);
+			const fittedLabelLayout = shapeFit?.layout;
+			const fittedSize = shapeFit?.size;
+			const nodeCompartments =
+				node?.compartments === undefined
+					? undefined
+					: compartments(node.compartments);
+			const compartmentWidth =
+				nodeCompartments === undefined
+					? 0
+					: compartmentNaturalWidth(id, label, nodeCompartments, measurer);
 			let size = {
 				width: Math.max(
 					DEFAULT_NODE_MIN_SIZE.width,
@@ -255,6 +274,19 @@ function normalizeNodes(
 			if (shape === "ellipse") {
 				size = applyEllipseCircleSize(size);
 			}
+			// The shape fitter already placed the label for its size (including
+			// the cylinder cap offset). Re-centre only when compartments or
+			// circle sizing changed the final size.
+			const sizeUnchanged =
+				fittedSize !== undefined &&
+				Math.abs(fittedSize.width - size.width) < 1e-6 &&
+				Math.abs(fittedSize.height - size.height) < 1e-6;
+			const labelLayout =
+				fittedLabelLayout === undefined
+					? undefined
+					: sizeUnchanged
+						? fittedLabelLayout
+						: centerLabelLayoutInSize(fittedLabelLayout, size);
 
 			return {
 				id,
@@ -276,6 +308,15 @@ function normalizeNodes(
 				...(labelLayout === undefined ? {} : { labelLayout }),
 			};
 		});
+}
+
+function centerLabelLayoutInSize(
+	layout: NonNullable<NormalizedNode["labelLayout"]>,
+	size: { width: number; height: number },
+): NonNullable<NormalizedNode["labelLayout"]> {
+	const x = Math.max(0, (size.width - layout.box.width) / 2);
+	const y = Math.max(0, (size.height - layout.box.height) / 2);
+	return translateLabelLayout(layout, x - layout.box.x, y - layout.box.y);
 }
 
 function compartmentHeight(value: NodeCompartments): number {
@@ -669,7 +710,7 @@ function normalizeGroups(
 			const group = dsl.groups?.[id];
 			const label = toLabel(group?.label);
 			const labelLayout =
-				label === undefined ? undefined : fitDslLabel(label, measurer);
+				label === undefined ? undefined : fitDslGroupLabel(label, measurer);
 
 			return {
 				id,
@@ -712,6 +753,9 @@ function normalizeConstraints(dsl: DiagramDsl): Constraint[] {
 					...(constraint.offset === undefined
 						? {}
 						: { offset: point(constraint.offset) }),
+					...(constraint.align === undefined
+						? {}
+						: { align: constraint.align }),
 				});
 				break;
 			case "align":
@@ -965,10 +1009,31 @@ function toLabel(
 		: { text: value.text, maxWidth: value.maxWidth };
 }
 
-function fitDslLabel(label: Label, measurer: TextMeasurer) {
+function fitDslGroupLabel(label: Label, measurer: TextMeasurer) {
 	return fitLabel(
 		label.text,
 		{
+			font: DEFAULT_FONT,
+			padding: DEFAULT_NODE_PADDING,
+			minSize: DEFAULT_NODE_MIN_SIZE,
+			maxWidth: label.maxWidth ?? DEFAULT_LABEL_MAX_WIDTH,
+			overflow: "diagnose",
+		},
+		measurer,
+	);
+}
+
+function fitDslLabel(
+	label: Label,
+	shape: NormalizedNode["shape"],
+	measurer: TextMeasurer,
+) {
+	// Shape-aware + balanced wrapping: the node outline (diamond, circle,
+	// hexagon, …) must contain the Pretext-measured text box.
+	return fitLabelToShape(
+		label.text,
+		{
+			shape,
 			font: DEFAULT_FONT,
 			padding: DEFAULT_NODE_PADDING,
 			minSize: DEFAULT_NODE_MIN_SIZE,

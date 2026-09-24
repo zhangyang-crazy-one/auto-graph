@@ -142,6 +142,14 @@ routing:
 
 本地 route/label 反馈循环耗尽后，残余冲突进入有界 remediation 轮次（默认最多 2 次）。应用顺序为 grow → rails → external-label。`pageSplit` **不会**自动物化拆页。
 
+### 连线分布默认行为
+
+默认 `orthogonal` 路由下：
+
+- 共享同一节点边的连线端口沿该边均分，按对端节点位置排序，并投影到真实形状轮廓（菱形 / 六边形 / 椭圆 / 平行四边形 / 圆柱）。某一流向侧连线较多的节点会在布局前自动增高/加宽。
+- 路由后，共用走线通道的连线会被分离成等距平行轨道（`routing.edgeSeparation: false` 关闭，`{ spacing: 16 }` 调整间距）。
+- `relative-position` 支持 `align: center`，`below` / `right-of` 会与参考节点中心对齐，不受节点尺寸影响。
+
 ### `remediationPolicy` 应用矩阵
 
 | 键 | `suggest` / `off` | `auto` |
@@ -177,6 +185,12 @@ cat diagram.yaml | agh --json
 - `excalidraw`
 
 格式优先级为 CLI `--format`、DSL 中的 `output.format`，最后默认 `svg`。
+
+`--metrics <path>` 会额外输出整张画布的布局质量指标 JSON（节点/分组重叠、文字溢出外形、交叉、共享端点、空白率、泳道填充率等），智能体无需"看图"即可用数值自检：
+
+```bash
+agh --input diagram.yaml --output diagram.svg --metrics diagram.metrics.json
+```
 
 ## 当前范围
 

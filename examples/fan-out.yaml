@@ -1,0 +1,28 @@
+title: Fan-out / Fan-in
+layout: { direction: LR }
+nodes:
+  web:    { label: Web, shape: rounded-rectangle }
+  mobile: { label: Mobile, shape: rounded-rectangle }
+  partner: { label: Partner API, shape: rounded-rectangle }
+  gw:     { label: API Gateway, shape: hexagon }
+  auth:   { label: Auth }
+  users:  { label: Users }
+  orders: { label: Orders }
+  billing: { label: Billing }
+  search: { label: Search }
+  db:     { label: Primary DB, shape: cylinder }
+  cache:  { label: Cache, shape: cylinder }
+edges:
+  - web -> gw
+  - mobile -> gw
+  - partner -> gw
+  - gw -> auth
+  - gw -> users
+  - gw -> orders
+  - gw -> billing
+  - gw -> search
+  - users -> db
+  - orders -> db
+  - billing -> db
+  - users -> cache
+  - search -> cache

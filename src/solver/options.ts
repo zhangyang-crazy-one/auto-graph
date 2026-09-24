@@ -9,13 +9,22 @@ import type { Insets } from "../ir/geometry.js";
 import type { RouteKind } from "../routing/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
-export type InitialLayoutMode = "dagre" | "positions";
+/**
+ * `auto` picks `global` for swimlane diagrams and long flows (unless
+ * geometry is pinned) and `dagre` otherwise.
+ */
+export type InitialLayoutMode = "dagre" | "positions" | "global" | "auto";
 
 export interface SolveDiagramOptions {
 	/** Selects the seed coordinates before constraints, routing, and export. */
 	initialLayout?: InitialLayoutMode;
 	/** When true, use recursive bottom-up layout for container groups (Issue #54, 方案 A). */
 	recursiveLayout?: boolean;
+	/**
+	 * Global layout only: fold flows that run much longer than
+	 * `targetAspectRatio` (default 1.6) into bands (default true).
+	 */
+	foldLayout?: boolean;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** When true, compute quality score after solving (Issue #54, 方案 E). */
@@ -103,6 +112,12 @@ export interface SolveDiagramOptions {
 	maxDetourRatio?: number;
 	/** Attach-point tournament size per preferred side (default 3, max 5). */
 	maxAttachPointsPerSide?: number;
+	/**
+	 * Spread collinear, overlapping interior segments of different edges into
+	 * evenly spaced parallel tracks after routing (default on for orthogonal
+	 * route kinds). `false` disables; `spacing` sets the track gap (default 12).
+	 */
+	edgeSeparation?: boolean | { spacing?: number };
 }
 
 export interface PortShiftingOptions {

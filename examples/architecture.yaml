@@ -24,10 +24,12 @@ constraints:
     reference: web
     relation: right-of
     offset: { x: 140, y: 0 }
+    align: center
   - kind: relative-position
     source: db
     reference: api
     relation: right-of
     offset: { x: 140, y: 0 }
+    align: center
 output:
   format: svg

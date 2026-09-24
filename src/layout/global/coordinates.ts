@@ -1,0 +1,1364 @@
+import {
+	solveSeparationQp,
+	type VpscConstraint,
+} from "../../constraints/vpsc.js";
+import type { Diagnostic } from "../../ir/diagnostics.js";
+import type { Box, DiagramDirection, Insets, Size } from "../../ir/geometry.js";
+import {
+	buildContainerHierarchy,
+	type ContainerHierarchy,
+	containerId,
+	containerPath,
+	ROOT_CONTAINER_ID,
+} from "./hierarchy.js";
+import { assignLayers, type Layering } from "./layering.js";
+import { orderLayers } from "./ordering.js";
+import { seedOrderFromBoxes } from "./seed.js";
+
+/**
+ * Global coordinate assignment (plan P3).
+ *
+ * Works in flow coordinates: the *main* axis runs along the layers (y for
+ * TB/BT, x for LR/RL) and the *cross* axis runs along each layer.
+ *
+ * Cross axis — one convex quadratic program solved with VPSC projection:
+ *
+ *   minimise  Σ_segments ω (x_u − x_v)²          (straight edges; ω = 1, 2, 8
+ *                                                 for real–real, real–dummy,
+ *                                                 dummy–dummy segments)
+ *           + Σ_containers κ (r_C − l_C)²         (tight containers)
+ *           + Σ_vars ε (x − x⁰)²                  (stay near the ordering)
+ *   subject to
+ *     neighbours in a layer:   right(A) + gap ≤ left(B)   where A, B are the
+ *                              sibling subtrees (vertex or container) that
+ *                              separate u and v under their lowest common
+ *                              container
+ *     containment:             l_C + pad ≤ x_v − w_v/2,  x_v + w_v/2 + pad ≤ r_C
+ *     nesting:                 l_C + pad ≤ l_D,  r_D + pad ≤ r_C
+ *     lanes of one swimlane:   r_k = l_{k+1}, and every lane equally thick
+ *
+ * so every container is one rectangle that never interleaves with a sibling.
+ *
+ * Main axis — layers are stacked; the gap after layer ℓ is sized from what
+ * has to fit between it and the next layer: orthogonal edge tracks
+ * ((k+1)·s for k bending segments), edge labels, and the padding/header of
+ * every container that closes after ℓ or opens before ℓ+1.
+ */
+export interface GlobalLayoutNode {
+	id: string;
+	size: Size;
+}
+
+export interface GlobalLayoutEdge {
+	id: string;
+	source: string;
+	target: string;
+	/** Size of the edge label, if any, to reserve room between layers. */
+	labelSize?: Size;
+}
+
+export interface GlobalLayoutGroup {
+	id: string;
+	nodeIds: readonly string[];
+	groupIds: readonly string[];
+	/** Padding around members; the header sits on top. */
+	padding: Insets;
+	headerHeight: number;
+	/** Width the group title needs (content width, without padding). */
+	labelWidth: number;
+}
+
+export interface GlobalLayoutSwimlane {
+	id: string;
+	orientation: "horizontal" | "vertical";
+	lanes: readonly { id: string; children: readonly string[] }[];
+	headerHeight: number;
+	padding: number;
+}
+
+export interface GlobalLayoutOptions {
+	/** Gap between two nodes of one layer (default 48). */
+	nodeSpacing?: number;
+	/** Gap between parallel edge tracks (default 12). */
+	edgeSpacing?: number;
+	/** Minimum gap between consecutive layers (default 56). */
+	layerSpacing?: number;
+	/** Gap between a container border and a neighbour outside it (default 24). */
+	containerSpacing?: number;
+	/**
+	 * Width / height the canvas should approach (default 1.6). A layout
+	 * whose flow runs much longer than this is folded into bands.
+	 */
+	targetAspectRatio?: number;
+	/** Fold long flows into bands (default true). */
+	fold?: boolean;
+}
+
+export interface GlobalLayoutInput {
+	direction: DiagramDirection;
+	nodes: readonly GlobalLayoutNode[];
+	edges: readonly GlobalLayoutEdge[];
+	groups?: readonly GlobalLayoutGroup[];
+	swimlanes?: readonly GlobalLayoutSwimlane[];
+	/** An existing layout (e.g. Dagre) used as an extra ordering start. */
+	seedBoxes?: ReadonlyMap<string, Box>;
+	options?: GlobalLayoutOptions;
+}
+
+export interface GlobalLayoutResult {
+	boxes: Map<string, Box>;
+	/**
+	 * Outer box of every lane (header and padding included), per swimlane id,
+	 * in lane order. Lanes of one swimlane abut and never overlap.
+	 */
+	laneBoxes: Map<string, Box[]>;
+	/**
+	 * Solved outer box of every group (padding and header included). It can
+	 * be wider than members + padding, e.g. to fit a long title.
+	 */
+	groupBoxes: Map<string, Box>;
+	diagnostics: Diagnostic[];
+	crossings: number;
+	layerCount: number;
+}
+
+interface AxisInsets {
+	crossBefore: number;
+	crossAfter: number;
+	mainBefore: number;
+	mainAfter: number;
+}
+
+const ZERO_INSETS: AxisInsets = {
+	crossBefore: 0,
+	crossAfter: 0,
+	mainBefore: 0,
+	mainAfter: 0,
+};
+
+const SEGMENT_WEIGHT_REAL = 1;
+const SEGMENT_WEIGHT_MIXED = 2;
+const SEGMENT_WEIGHT_DUMMY = 8;
+const CONTAINER_TIGHTNESS = 0.05;
+const ORDER_ANCHOR = 0.001;
+const EDGE_LABEL_MARGIN = 8;
+const MIN_EMPTY_LANE = 24;
+
+export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
+	const nodeSpacing = input.options?.nodeSpacing ?? 48;
+	const edgeSpacing = input.options?.edgeSpacing ?? 12;
+	const layerSpacing = input.options?.layerSpacing ?? 56;
+	const containerSpacing = input.options?.containerSpacing ?? 24;
+	const direction = input.direction;
+	const horizontalFlow = direction === "LR" || direction === "RL";
+	const nodeIds = input.nodes.map((node) => node.id);
+	const nodeSet = new Set(nodeIds);
+	const sizeOf = new Map(input.nodes.map((node) => [node.id, node.size]));
+	const mainSize = (size: Size) => (horizontalFlow ? size.width : size.height);
+	const crossSize = (size: Size) => (horizontalFlow ? size.height : size.width);
+
+	const hierarchy = buildContainerHierarchy({
+		direction,
+		nodeIds,
+		groups: (input.groups ?? []).map((group) => ({
+			id: group.id,
+			nodeIds: group.nodeIds,
+			groupIds: group.groupIds,
+		})),
+		swimlanes: (input.swimlanes ?? []).map((swimlane) => ({
+			id: swimlane.id,
+			orientation: swimlane.orientation,
+			lanes: swimlane.lanes,
+		})),
+	});
+	const diagnostics: Diagnostic[] = [...hierarchy.diagnostics];
+	const edges = input.edges.filter(
+		(edge) => nodeSet.has(edge.source) && nodeSet.has(edge.target),
+	);
+	const layering = assignLayers(nodeIds, edges, hierarchy);
+	const edgeEndpoints = new Map(
+		edges.map((edge) => [
+			edge.id,
+			{ source: edge.source, target: edge.target },
+		]),
+	);
+	const seeds =
+		input.seedBoxes === undefined
+			? []
+			: [
+					seedOrderFromBoxes(
+						layering,
+						input.seedBoxes,
+						direction,
+						edgeEndpoints,
+					),
+				];
+	const ordering = orderLayers(layering, hierarchy, { seeds });
+
+	const insets = containerInsets(input, hierarchy, direction);
+	const minCross = containerMinCross(input, hierarchy, insets, horizontalFlow);
+	const vertexCross = (id: string): number => {
+		const nodeId = layering.vertices.get(id)?.nodeId;
+		const size = nodeId === undefined ? undefined : sizeOf.get(nodeId);
+		return size === undefined ? 0 : crossSize(size);
+	};
+
+	const cross = solveCrossAxis({
+		layering,
+		layers: ordering.layers,
+		hierarchy,
+		insets,
+		minCross,
+		vertexCross,
+		nodeSpacing,
+		edgeSpacing,
+		containerSpacing,
+	});
+	if (cross.unsatisfiable > 0) {
+		diagnostics.push({
+			severity: "warning",
+			code: "layout.global.unsatisfiable-separation",
+			message: `${cross.unsatisfiable} cross-axis separation constraint(s) could not be satisfied; some containers may overlap.`,
+			detail: { count: cross.unsatisfiable },
+		});
+	}
+
+	const layerStarts = solveMainAxis({
+		layering,
+		layers: ordering.layers,
+		hierarchy,
+		insets,
+		crossOf: cross.positions,
+		mainSizeOf: (nodeId) => {
+			const size = sizeOf.get(nodeId);
+			return size === undefined ? 0 : mainSize(size);
+		},
+		edges,
+		mainLabelSize: (size) => mainSize(size),
+		layerSpacing,
+		edgeSpacing,
+		containerSpacing,
+		swimlanePadding: new Map(
+			(input.swimlanes ?? []).map((swimlane) => [
+				swimlane.id,
+				swimlane.padding,
+			]),
+		),
+	});
+
+	const fold =
+		input.options?.fold === false
+			? undefined
+			: planFold({
+					layering,
+					hierarchy,
+					starts: layerStarts.starts,
+					thickness: layerStarts.thickness,
+					crossExtent: crossExtentOf(
+						nodeIds,
+						cross.positions,
+						cross.bounds,
+						(id) => {
+							const size = sizeOf.get(id);
+							return size === undefined ? 0 : crossSize(size);
+						},
+					),
+					horizontalFlow,
+					targetAspectRatio: input.options?.targetAspectRatio ?? 1.6,
+					layerSpacing,
+					edgeSpacing,
+				});
+	if (fold !== undefined) {
+		diagnostics.push({
+			severity: "info",
+			code: "layout.global.folded",
+			message: `Folded ${ordering.layers.length} layers into ${fold.bands.length} bands to approach aspect ratio ${input.options?.targetAspectRatio ?? 1.6}.`,
+			detail: {
+				bands: fold.bands.length,
+				cuts: fold.bands
+					.slice(0, -1)
+					.map((band) => band.last)
+					.join(","),
+			},
+		});
+	}
+
+	const boxes = new Map<string, Box>();
+	for (const nodeId of nodeIds) {
+		const size = sizeOf.get(nodeId);
+		const layer = layering.layerOfNode.get(nodeId);
+		let crossCenter = cross.positions.get(nodeId);
+		if (
+			size === undefined ||
+			layer === undefined ||
+			crossCenter === undefined
+		) {
+			continue;
+		}
+		const start = layerStarts.starts[layer] ?? 0;
+		const thickness = layerStarts.thickness[layer] ?? 0;
+		let mainCenter = start + thickness / 2;
+		if (fold !== undefined) {
+			const band = fold.bands.find(
+				(candidate) => layer >= candidate.first && layer <= candidate.last,
+			);
+			if (band !== undefined) {
+				mainCenter -= band.mainOffset;
+				crossCenter += band.crossOffset;
+			}
+		}
+		boxes.set(
+			nodeId,
+			toScreenBox(direction, mainCenter, crossCenter, size, horizontalFlow),
+		);
+	}
+	const laneBoxes = computeLaneBoxes({
+		input,
+		hierarchy,
+		layering,
+		insets,
+		crossBounds: cross.bounds,
+		starts: layerStarts.starts,
+		thickness: layerStarts.thickness,
+		sizeOf,
+		mainSize,
+		crossSize,
+		crossOf: cross.positions,
+	});
+	const groupBoxes = new Map<string, Box>();
+	if (fold === undefined) {
+		for (const group of input.groups ?? []) {
+			const id = containerId("group", group.id);
+			const bounds = cross.bounds.get(id);
+			const inset = insets.get(id) ?? ZERO_INSETS;
+			const members = nodeIds.filter((nodeId) =>
+				containerPath(
+					hierarchy,
+					hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId,
+				).includes(id),
+			);
+			let lo = Number.POSITIVE_INFINITY;
+			let hi = Number.NEGATIVE_INFINITY;
+			for (const nodeId of members) {
+				const layer = layering.layerOfNode.get(nodeId);
+				const size = sizeOf.get(nodeId);
+				if (layer === undefined || size === undefined) continue;
+				const center =
+					(layerStarts.starts[layer] ?? 0) +
+					(layerStarts.thickness[layer] ?? 0) / 2;
+				lo = Math.min(lo, center - mainSize(size) / 2);
+				hi = Math.max(hi, center + mainSize(size) / 2);
+			}
+			if (bounds === undefined || !Number.isFinite(lo)) continue;
+			groupBoxes.set(
+				group.id,
+				toScreenRect(
+					direction,
+					[lo - inset.mainBefore, hi + inset.mainAfter],
+					bounds,
+				),
+			);
+		}
+	}
+	const shift = normalizeBoxes(boxes);
+	for (const [id, box] of groupBoxes) {
+		groupBoxes.set(id, {
+			x: round(box.x - shift.x),
+			y: round(box.y - shift.y),
+			width: round(box.width),
+			height: round(box.height),
+		});
+	}
+	for (const [id, lanes] of laneBoxes) {
+		laneBoxes.set(
+			id,
+			lanes.map((box) => ({
+				x: round(box.x - shift.x),
+				y: round(box.y - shift.y),
+				width: round(box.width),
+				height: round(box.height),
+			})),
+		);
+	}
+	return {
+		boxes,
+		laneBoxes,
+		groupBoxes,
+		diagnostics,
+		crossings: ordering.crossings,
+		layerCount: ordering.layers.length,
+	};
+}
+
+const MIN_FOLD_LAYERS = 6;
+const MIN_FOLD_WIDTH = 1200;
+const MIN_FOLD_HEIGHT = 900;
+
+interface FoldBand {
+	first: number;
+	last: number;
+	/** Subtracted from main coordinates of the band's layers. */
+	mainOffset: number;
+	/** Added to cross coordinates of the band's layers. */
+	crossOffset: number;
+}
+
+interface FoldInput {
+	layering: Layering;
+	hierarchy: ContainerHierarchy;
+	starts: readonly number[];
+	thickness: readonly number[];
+	crossExtent: readonly [number, number];
+	horizontalFlow: boolean;
+	targetAspectRatio: number;
+	layerSpacing: number;
+	edgeSpacing: number;
+}
+
+/** Cross-axis extent of all nodes and container rectangles. */
+function crossExtentOf(
+	nodeIds: readonly string[],
+	positions: ReadonlyMap<string, number>,
+	bounds: ReadonlyMap<string, readonly [number, number]>,
+	crossSizeOf: (nodeId: string) => number,
+): [number, number] {
+	let lo = Number.POSITIVE_INFINITY;
+	let hi = Number.NEGATIVE_INFINITY;
+	for (const id of nodeIds) {
+		const center = positions.get(id);
+		if (center === undefined) continue;
+		const half = crossSizeOf(id) / 2;
+		lo = Math.min(lo, center - half);
+		hi = Math.max(hi, center + half);
+	}
+	for (const [left, right] of bounds.values()) {
+		lo = Math.min(lo, left);
+		hi = Math.max(hi, right);
+	}
+	return Number.isFinite(lo) ? [lo, hi] : [0, 0];
+}
+
+/**
+ * Fold a flow that runs much longer than the target aspect ratio (plan P4).
+ *
+ * The layer sequence is cut into k contiguous bands, stacked across the
+ * flow in reading order (like wrapped text). Cuts are only allowed where no
+ * container spans the boundary, so groups stay single rectangles and
+ * swimlane bands (which span every layer) are never folded. For each k the
+ * cuts minimise Σ (band length − L/k)² plus a penalty per edge crossing a
+ * cut; the k whose canvas aspect lies closest to the target wins. Returns
+ * undefined when folding would not help.
+ */
+function planFold(input: FoldInput): { bands: FoldBand[] } | undefined {
+	const layerCount = input.starts.length;
+	if (layerCount < MIN_FOLD_LAYERS) return undefined;
+	const end = (layer: number) =>
+		(input.starts[layer] ?? 0) + (input.thickness[layer] ?? 0);
+	const mainLength = end(layerCount - 1) - (input.starts[0] ?? 0);
+	const crossLength = input.crossExtent[1] - input.crossExtent[0];
+	if (mainLength <= 0 || crossLength <= 0) return undefined;
+	const aspectOf = (main: number, cross: number) =>
+		input.horizontalFlow ? main / cross : cross / main;
+	const target = input.targetAspectRatio;
+	const distance = (aspect: number) => Math.abs(Math.log(aspect / target));
+	const unfolded = aspectOf(mainLength, crossLength);
+	// Only fold when the flow axis is the long one and clearly too long.
+	// A short row reads fine even when its aspect is extreme: fold only
+	// flows longer than about one page along the flow axis.
+	const flowTooLong = input.horizontalFlow
+		? unfolded > target * 2 && mainLength > MIN_FOLD_WIDTH
+		: unfolded < target / 2 && mainLength > MIN_FOLD_HEIGHT;
+	if (!flowTooLong) return undefined;
+
+	// Valid cut after layer l: no container spans l → l+1.
+	const spans = new Map<string, { min: number; max: number }>();
+	for (const vertex of input.layering.vertices.values()) {
+		let cursor: string | undefined = vertex.containerId;
+		while (cursor !== undefined && cursor !== input.hierarchy.rootId) {
+			const span = spans.get(cursor);
+			spans.set(cursor, {
+				min: Math.min(span?.min ?? vertex.layer, vertex.layer),
+				max: Math.max(span?.max ?? vertex.layer, vertex.layer),
+			});
+			cursor = input.hierarchy.containers.get(cursor)?.parentId;
+		}
+	}
+	const mainLaneLayers = new Set<number>();
+	for (const [nodeId] of input.hierarchy.mainAxisLaneOfNode) {
+		const layer = input.layering.layerOfNode.get(nodeId);
+		if (layer !== undefined) mainLaneLayers.add(layer);
+	}
+	const mainLaneSpan =
+		mainLaneLayers.size === 0
+			? undefined
+			: { min: Math.min(...mainLaneLayers), max: Math.max(...mainLaneLayers) };
+	const crossingAt = new Array<number>(layerCount).fill(0);
+	for (const segment of input.layering.segments) {
+		const layer = input.layering.vertices.get(segment.from)?.layer;
+		if (layer !== undefined) crossingAt[layer] = (crossingAt[layer] ?? 0) + 1;
+	}
+	const validCut = (layer: number) =>
+		layer >= 0 &&
+		layer < layerCount - 1 &&
+		![...spans.values()].some(
+			(span) => span.min <= layer && layer < span.max,
+		) &&
+		(mainLaneSpan === undefined ||
+			layer < mainLaneSpan.min ||
+			layer >= mainLaneSpan.max);
+
+	let best:
+		| { cuts: number[]; score: number; aspect: number; length: number }
+		| undefined;
+	const maxBands = Math.min(8, Math.floor(layerCount / 2));
+	for (let k = 2; k <= maxBands; k += 1) {
+		const ideal = mainLength / k;
+		// One edge across a cut weighs like a band ~30% off its ideal length.
+		const penalty = ideal * ideal * 0.1;
+		// dp[j][l]: best cost of splitting layers 0..l into j bands.
+		const dp: number[][] = Array.from({ length: k + 1 }, () =>
+			new Array<number>(layerCount).fill(Number.POSITIVE_INFINITY),
+		);
+		const from: number[][] = Array.from({ length: k + 1 }, () =>
+			new Array<number>(layerCount).fill(-1),
+		);
+		const bandCost = (first: number, last: number) => {
+			const length = end(last) - (input.starts[first] ?? 0);
+			return (length - ideal) ** 2;
+		};
+		for (let last = 0; last < layerCount; last += 1) {
+			(dp[1] as number[])[last] = bandCost(0, last);
+		}
+		for (let j = 2; j <= k; j += 1) {
+			for (let last = j - 1; last < layerCount; last += 1) {
+				for (let cut = j - 2; cut < last; cut += 1) {
+					if (!validCut(cut)) continue;
+					const previous = dp[j - 1]?.[cut] ?? Number.POSITIVE_INFINITY;
+					if (!Number.isFinite(previous)) continue;
+					const cost =
+						previous +
+						bandCost(cut + 1, last) +
+						penalty * (crossingAt[cut] ?? 0);
+					if (cost < (dp[j]?.[last] ?? Number.POSITIVE_INFINITY)) {
+						(dp[j] as number[])[last] = cost;
+						(from[j] as number[])[last] = cut;
+					}
+				}
+			}
+		}
+		if (!Number.isFinite(dp[k]?.[layerCount - 1] ?? Number.POSITIVE_INFINITY)) {
+			continue;
+		}
+		const cuts: number[] = [];
+		let last = layerCount - 1;
+		for (let j = k; j >= 2; j -= 1) {
+			const cut = from[j]?.[last] ?? -1;
+			cuts.unshift(cut);
+			last = cut;
+		}
+		const bands = bandRanges(cuts, layerCount);
+		const longest = Math.max(
+			...bands.map(
+				([first, lastLayer]) => end(lastLayer) - (input.starts[first] ?? 0),
+			),
+		);
+		const gapTotal = cuts.reduce(
+			(sum, cut) => sum + bandGap(input, crossingAt[cut] ?? 0),
+			0,
+		);
+		const aspect = aspectOf(longest, k * crossLength + gapTotal);
+		const score = distance(aspect);
+		if (best === undefined || score < best.score - 1e-9) {
+			best = { cuts, score, aspect, length: longest };
+		}
+	}
+	if (best === undefined || best.score >= distance(unfolded) - 1e-9) {
+		return undefined;
+	}
+	const bands: FoldBand[] = [];
+	let crossOffset = 0;
+	bandRanges(best.cuts, layerCount).forEach(([first, last], index) => {
+		bands.push({
+			first,
+			last,
+			mainOffset: (input.starts[first] ?? 0) - (input.starts[0] ?? 0),
+			crossOffset,
+		});
+		const cut = best?.cuts[index];
+		if (cut !== undefined) {
+			crossOffset += crossLength + bandGap(input, crossingAt[cut] ?? 0);
+		}
+	});
+	return { bands };
+}
+
+/** Gap between two folded bands: layer spacing plus a track per edge. */
+function bandGap(input: FoldInput, crossingEdges: number): number {
+	return input.layerSpacing + (crossingEdges + 1) * input.edgeSpacing;
+}
+
+function bandRanges(
+	cuts: readonly number[],
+	layerCount: number,
+): [number, number][] {
+	const ranges: [number, number][] = [];
+	let first = 0;
+	for (const cut of cuts) {
+		ranges.push([first, cut]);
+		first = cut + 1;
+	}
+	ranges.push([first, layerCount - 1]);
+	return ranges;
+}
+
+/** Screen box of a flow-coordinate rectangle. */
+function toScreenRect(
+	direction: DiagramDirection,
+	main: readonly [number, number],
+	cross: readonly [number, number],
+): Box {
+	const flip = direction === "BT" || direction === "RL";
+	const m0 = flip ? -main[1] : main[0];
+	const m1 = flip ? -main[0] : main[1];
+	const horizontalFlow = direction === "LR" || direction === "RL";
+	return horizontalFlow
+		? { x: m0, y: cross[0], width: m1 - m0, height: cross[1] - cross[0] }
+		: { x: cross[0], y: m0, width: cross[1] - cross[0], height: m1 - m0 };
+}
+
+interface LaneBoxInput {
+	input: GlobalLayoutInput;
+	hierarchy: ContainerHierarchy;
+	layering: Layering;
+	insets: ReadonlyMap<string, AxisInsets>;
+	crossBounds: ReadonlyMap<string, readonly [number, number]>;
+	starts: readonly number[];
+	thickness: readonly number[];
+	sizeOf: ReadonlyMap<string, Size>;
+	mainSize: (size: Size) => number;
+	crossSize: (size: Size) => number;
+	crossOf: ReadonlyMap<string, number>;
+}
+
+/**
+ * Lane rectangles in screen space. Lanes across the flow take their cross
+ * extent from the QP bounds and share the swimlane's main extent; lanes
+ * along the flow take the main extent of their layer block (meeting in the
+ * middle of the gap between blocks) and share the swimlane's cross extent.
+ */
+function computeLaneBoxes(context: LaneBoxInput): Map<string, Box[]> {
+	const { input, hierarchy, layering, starts, thickness, sizeOf } = context;
+	const direction = input.direction;
+	const result = new Map<string, Box[]>();
+	const mainRange = (nodeId: string): [number, number] | undefined => {
+		const layer = layering.layerOfNode.get(nodeId);
+		const size = sizeOf.get(nodeId);
+		if (layer === undefined || size === undefined) return undefined;
+		const center = (starts[layer] ?? 0) + (thickness[layer] ?? 0) / 2;
+		const half = context.mainSize(size) / 2;
+		return [center - half, center + half];
+	};
+	const crossRange = (nodeId: string): [number, number] | undefined => {
+		const center = context.crossOf.get(nodeId);
+		const size = sizeOf.get(nodeId);
+		if (center === undefined || size === undefined) return undefined;
+		const half = context.crossSize(size) / 2;
+		return [center - half, center + half];
+	};
+	const extent = (
+		ids: readonly string[],
+		range: (id: string) => [number, number] | undefined,
+	): [number, number] | undefined => {
+		let lo = Number.POSITIVE_INFINITY;
+		let hi = Number.NEGATIVE_INFINITY;
+		for (const id of ids) {
+			const r = range(id);
+			if (r === undefined) continue;
+			lo = Math.min(lo, r[0]);
+			hi = Math.max(hi, r[1]);
+		}
+		return Number.isFinite(lo) ? [lo, hi] : undefined;
+	};
+	for (const swimlane of input.swimlanes ?? []) {
+		const members = swimlane.lanes.flatMap((lane) => [...lane.children]);
+		const laneIds = swimlane.lanes.map((lane) =>
+			containerId("lane", `${swimlane.id}/${lane.id}`),
+		);
+		const header = swimlane.headerHeight;
+		const pad = swimlane.padding;
+		const laneInsets = toAxisInsets(
+			{
+				top: pad + (swimlane.orientation === "vertical" ? header : 0),
+				right: pad,
+				bottom: pad,
+				left: pad + (swimlane.orientation === "horizontal" ? header : 0),
+			},
+			direction,
+		);
+		const axis = hierarchy.laneAxis.get(swimlane.id);
+		const main = extent(members, mainRange);
+		const cross = extent(members, crossRange);
+		if (main === undefined || cross === undefined) continue;
+		if (axis === "cross") {
+			const mainSpan: [number, number] = [
+				main[0] - laneInsets.mainBefore,
+				main[1] + laneInsets.mainAfter,
+			];
+			const lanes = laneIds.map((id) => {
+				const bounds = context.crossBounds.get(id);
+				return bounds === undefined
+					? undefined
+					: toScreenRect(direction, mainSpan, bounds);
+			});
+			if (lanes.every((box) => box !== undefined)) {
+				result.set(swimlane.id, lanes as Box[]);
+			}
+			continue;
+		}
+		// Lanes along the flow: one block of layers each, sharing the
+		// swimlane container's solved cross extent.
+		const solved = context.crossBounds.get(
+			containerId("swimlane", swimlane.id),
+		);
+		const crossSpan: [number, number] = solved
+			? [solved[0], solved[1]]
+			: [cross[0] - laneInsets.crossBefore, cross[1] + laneInsets.crossAfter];
+		// Natural main range per lane. Layering reserves one empty layer for
+		// an empty lane (after the previous lane's last layer), so empty
+		// lanes get a slot of their own instead of covering a neighbour.
+		let lastLayer = -1;
+		let lastEnd = main[0];
+		const natural = swimlane.lanes.map((lane): [number, number] => {
+			const members = lane.children.filter((id) =>
+				layering.layerOfNode.has(id),
+			);
+			const range = extent(members, mainRange);
+			if (range !== undefined) {
+				lastLayer = Math.max(
+					lastLayer,
+					...members.map((id) => layering.layerOfNode.get(id) ?? 0),
+				);
+				lastEnd = range[1];
+				return range;
+			}
+			lastLayer += 1;
+			const reserved = starts[lastLayer];
+			const at =
+				reserved === undefined
+					? lastEnd + laneInsets.mainBefore + laneInsets.mainAfter
+					: reserved + (thickness[lastLayer] ?? 0) / 2;
+			lastEnd = at;
+			return [at, at];
+		});
+		const ranges = natural.map(([lo, hi]): [number, number] => [
+			lo - laneInsets.mainBefore,
+			hi + laneInsets.mainAfter,
+		]);
+		// Consecutive lanes meet in the middle of the gap between them.
+		for (let index = 1; index < ranges.length; index += 1) {
+			const previous = ranges[index - 1] as [number, number];
+			const current = ranges[index] as [number, number];
+			const border =
+				previous[1] <= current[0]
+					? (previous[1] + current[0]) / 2
+					: previous[1];
+			previous[1] = border;
+			current[0] = border;
+			if (current[1] < current[0]) current[1] = current[0];
+		}
+		result.set(
+			swimlane.id,
+			ranges.map((range) => toScreenRect(direction, range, crossSpan)),
+		);
+	}
+	return result;
+}
+
+function toScreenBox(
+	direction: DiagramDirection,
+	mainCenter: number,
+	crossCenter: number,
+	size: Size,
+	horizontalFlow: boolean,
+): Box {
+	const main =
+		direction === "BT" || direction === "RL" ? -mainCenter : mainCenter;
+	const cx = horizontalFlow ? main : crossCenter;
+	const cy = horizontalFlow ? crossCenter : main;
+	return {
+		x: round(cx - size.width / 2),
+		y: round(cy - size.height / 2),
+		width: size.width,
+		height: size.height,
+	};
+}
+
+/** Shift boxes so the top-left one sits at the origin; returns the shift. */
+function normalizeBoxes(boxes: Map<string, Box>): { x: number; y: number } {
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	for (const box of boxes.values()) {
+		minX = Math.min(minX, box.x);
+		minY = Math.min(minY, box.y);
+	}
+	if (!Number.isFinite(minX) || !Number.isFinite(minY)) return { x: 0, y: 0 };
+	for (const [id, box] of boxes) {
+		boxes.set(id, { ...box, x: round(box.x - minX), y: round(box.y - minY) });
+	}
+	return { x: minX, y: minY };
+}
+
+function round(value: number): number {
+	return Math.round(value * 100) / 100;
+}
+
+/** Screen-space insets of every container, mapped onto flow axes. */
+function containerInsets(
+	input: GlobalLayoutInput,
+	hierarchy: ContainerHierarchy,
+	direction: DiagramDirection,
+): Map<string, AxisInsets> {
+	const result = new Map<string, AxisInsets>();
+	for (const group of input.groups ?? []) {
+		const id = containerId("group", group.id);
+		if (!hierarchy.containers.has(id)) continue;
+		result.set(
+			id,
+			toAxisInsets(
+				{
+					top: group.padding.top + group.headerHeight,
+					right: group.padding.right,
+					bottom: group.padding.bottom,
+					left: group.padding.left,
+				},
+				direction,
+			),
+		);
+	}
+	for (const swimlane of input.swimlanes ?? []) {
+		const header = swimlane.headerHeight;
+		const pad = swimlane.padding;
+		const laneInsets = toAxisInsets(
+			{
+				top: pad + (swimlane.orientation === "vertical" ? header : 0),
+				right: pad,
+				bottom: pad,
+				left: pad + (swimlane.orientation === "horizontal" ? header : 0),
+			},
+			direction,
+		);
+		for (const lane of swimlane.lanes) {
+			const id = containerId("lane", `${swimlane.id}/${lane.id}`);
+			if (hierarchy.containers.has(id)) result.set(id, laneInsets);
+		}
+		// Lanes along the flow have no containers of their own: the swimlane
+		// carries their header and padding across the flow.
+		if (hierarchy.laneAxis.get(swimlane.id) === "main") {
+			const id = containerId("swimlane", swimlane.id);
+			if (hierarchy.containers.has(id)) result.set(id, laneInsets);
+		}
+	}
+	return result;
+}
+
+function toAxisInsets(insets: Insets, direction: DiagramDirection): AxisInsets {
+	switch (direction) {
+		case "BT":
+			return {
+				crossBefore: insets.left,
+				crossAfter: insets.right,
+				mainBefore: insets.bottom,
+				mainAfter: insets.top,
+			};
+		case "LR":
+			return {
+				crossBefore: insets.top,
+				crossAfter: insets.bottom,
+				mainBefore: insets.left,
+				mainAfter: insets.right,
+			};
+		case "RL":
+			return {
+				crossBefore: insets.top,
+				crossAfter: insets.bottom,
+				mainBefore: insets.right,
+				mainAfter: insets.left,
+			};
+		default:
+			return {
+				crossBefore: insets.left,
+				crossAfter: insets.right,
+				mainBefore: insets.top,
+				mainAfter: insets.bottom,
+			};
+	}
+}
+
+function containerMinCross(
+	input: GlobalLayoutInput,
+	hierarchy: ContainerHierarchy,
+	insets: ReadonlyMap<string, AxisInsets>,
+	horizontalFlow: boolean,
+): Map<string, number> {
+	const result = new Map<string, number>();
+	for (const [id, container] of hierarchy.containers) {
+		if (id === ROOT_CONTAINER_ID || container.kind === "swimlane") continue;
+		const inset = insets.get(id) ?? ZERO_INSETS;
+		const padding = inset.crossBefore + inset.crossAfter;
+		result.set(
+			id,
+			container.kind === "lane" ? padding + MIN_EMPTY_LANE : padding,
+		);
+	}
+	if (!horizontalFlow) {
+		// Group titles run along x, which is the cross axis in TB/BT flows.
+		for (const group of input.groups ?? []) {
+			const id = containerId("group", group.id);
+			if (!result.has(id)) continue;
+			result.set(
+				id,
+				Math.max(
+					result.get(id) ?? 0,
+					group.labelWidth + group.padding.left + group.padding.right,
+				),
+			);
+		}
+	}
+	return result;
+}
+
+interface CrossAxisInput {
+	layering: Layering;
+	layers: readonly (readonly string[])[];
+	hierarchy: ContainerHierarchy;
+	insets: ReadonlyMap<string, AxisInsets>;
+	minCross: ReadonlyMap<string, number>;
+	vertexCross: (vertexId: string) => number;
+	nodeSpacing: number;
+	edgeSpacing: number;
+	containerSpacing: number;
+}
+
+function solveCrossAxis(input: CrossAxisInput): {
+	positions: Map<string, number>;
+	/** Cross-axis [left, right] of every container. */
+	bounds: Map<string, readonly [number, number]>;
+	unsatisfiable: number;
+} {
+	const { layering, layers, hierarchy, insets } = input;
+	const vertexIds = layers.flat();
+	const index = new Map<string, number>();
+	vertexIds.forEach((id, i) => {
+		index.set(id, i);
+	});
+	const containers = [...hierarchy.containers.keys()]
+		.filter((id) => id !== ROOT_CONTAINER_ID)
+		.sort();
+	const leftVar = new Map<string, number>();
+	const rightVar = new Map<string, number>();
+	let size = vertexIds.length;
+	for (const id of containers) {
+		leftVar.set(id, size);
+		rightVar.set(id, size + 1);
+		size += 2;
+	}
+	const inset = (id: string) => insets.get(id) ?? ZERO_INSETS;
+	const isDummy = (id: string) =>
+		layering.vertices.get(id)?.nodeId === undefined;
+	const pathOf = new Map<string, string[]>();
+	const path = (vertexId: string): string[] => {
+		let cached = pathOf.get(vertexId);
+		if (cached === undefined) {
+			const vertex = layering.vertices.get(vertexId);
+			cached = containerPath(
+				hierarchy,
+				vertex?.containerId ?? hierarchy.rootId,
+			);
+			pathOf.set(vertexId, cached);
+		}
+		return cached;
+	};
+
+	// Separation constraints, deduplicated per variable pair (largest gap).
+	const separation = new Map<string, VpscConstraint>();
+	const addConstraint = (left: number, right: number, gap: number) => {
+		const key = `${left}>${right}`;
+		const existing = separation.get(key);
+		if (existing === undefined || existing.gap < gap) {
+			separation.set(key, { left, right, gap });
+		}
+	};
+	const equalities: VpscConstraint[] = [];
+
+	for (const layer of layers) {
+		for (let k = 1; k < layer.length; k += 1) {
+			const u = layer[k - 1] as string;
+			const v = layer[k] as string;
+			const pu = path(u);
+			const pv = path(v);
+			let depth = 0;
+			while (
+				depth < pu.length &&
+				depth < pv.length &&
+				pu[depth] === pv[depth]
+			) {
+				depth += 1;
+			}
+			const a = pu[depth];
+			const b = pv[depth];
+			const aIsVertex = a === undefined;
+			const bIsVertex = b === undefined;
+			let gap: number;
+			if (aIsVertex && bIsVertex) {
+				const dummies = Number(isDummy(u)) + Number(isDummy(v));
+				gap =
+					dummies === 0
+						? input.nodeSpacing
+						: dummies === 1
+							? Math.max(input.edgeSpacing, input.nodeSpacing / 2)
+							: input.edgeSpacing;
+			} else if (
+				!aIsVertex &&
+				!bIsVertex &&
+				hierarchy.containers.get(a)?.kind === "lane" &&
+				hierarchy.containers.get(b)?.kind === "lane"
+			) {
+				gap = 0;
+			} else if ((aIsVertex && isDummy(u)) || (bIsVertex && isDummy(v))) {
+				gap = input.edgeSpacing;
+			} else {
+				gap = input.containerSpacing;
+			}
+			const leftIndex = aIsVertex
+				? (index.get(u) as number)
+				: (rightVar.get(a) as number);
+			const rightIndex = bIsVertex
+				? (index.get(v) as number)
+				: (leftVar.get(b) as number);
+			const leftHalf = aIsVertex ? input.vertexCross(u) / 2 : 0;
+			const rightHalf = bIsVertex ? input.vertexCross(v) / 2 : 0;
+			addConstraint(leftIndex, rightIndex, leftHalf + gap + rightHalf);
+		}
+	}
+
+	// Containment of vertices and nested containers.
+	for (const id of vertexIds) {
+		const containerOf = layering.vertices.get(id)?.containerId;
+		if (containerOf === undefined || containerOf === ROOT_CONTAINER_ID)
+			continue;
+		const l = leftVar.get(containerOf);
+		const r = rightVar.get(containerOf);
+		if (l === undefined || r === undefined) continue;
+		const half = input.vertexCross(id) / 2;
+		const vi = index.get(id) as number;
+		addConstraint(l, vi, inset(containerOf).crossBefore + half);
+		addConstraint(vi, r, half + inset(containerOf).crossAfter);
+	}
+	for (const id of containers) {
+		const container = hierarchy.containers.get(id);
+		const parent = container?.parentId;
+		const l = leftVar.get(id) as number;
+		const r = rightVar.get(id) as number;
+		addConstraint(l, r, input.minCross.get(id) ?? 0);
+		if (parent === undefined || parent === ROOT_CONTAINER_ID) continue;
+		const pl = leftVar.get(parent);
+		const pr = rightVar.get(parent);
+		if (pl === undefined || pr === undefined) continue;
+		addConstraint(pl, l, inset(parent).crossBefore);
+		addConstraint(r, pr, inset(parent).crossAfter);
+	}
+	// Lanes of one swimlane abut in their fixed order.
+	const lanesBySwimlane: string[][] = [];
+	for (const id of containers) {
+		const container = hierarchy.containers.get(id);
+		if (container?.kind !== "swimlane") continue;
+		const lanes = container.childIds.filter(
+			(child) => hierarchy.containers.get(child)?.kind === "lane",
+		);
+		lanesBySwimlane.push(lanes);
+		for (let k = 1; k < lanes.length; k += 1) {
+			equalities.push({
+				left: rightVar.get(lanes[k - 1] as string) as number,
+				right: leftVar.get(lanes[k] as string) as number,
+				gap: 0,
+				equality: true,
+			});
+		}
+	}
+
+	// Objective.
+	const pairs: { a: number; b: number; weight: number }[] = [];
+	for (const segment of layering.segments) {
+		const a = index.get(segment.from);
+		const b = index.get(segment.to);
+		if (a === undefined || b === undefined) continue;
+		const dummies = Number(isDummy(segment.from)) + Number(isDummy(segment.to));
+		pairs.push({
+			a,
+			b,
+			weight:
+				dummies === 0
+					? SEGMENT_WEIGHT_REAL
+					: dummies === 1
+						? SEGMENT_WEIGHT_MIXED
+						: SEGMENT_WEIGHT_DUMMY,
+		});
+	}
+	for (const id of containers) {
+		pairs.push({
+			a: leftVar.get(id) as number,
+			b: rightVar.get(id) as number,
+			weight: CONTAINER_TIGHTNESS,
+		});
+	}
+
+	// Initial positions: pack every layer, centred on 0.
+	const initial = new Array<number>(size).fill(0);
+	for (const layer of layers) {
+		let cursor = 0;
+		const positions: number[] = [];
+		layer.forEach((id, k) => {
+			const half = input.vertexCross(id) / 2;
+			if (k > 0) {
+				const prev = layer[k - 1] as string;
+				cursor +=
+					input.vertexCross(prev) / 2 +
+					(isDummy(prev) || isDummy(id)
+						? input.edgeSpacing
+						: input.nodeSpacing) +
+					half;
+			}
+			positions.push(cursor);
+		});
+		const mean =
+			positions.length === 0
+				? 0
+				: positions.reduce((sum, value) => sum + value, 0) / positions.length;
+		layer.forEach((id, k) => {
+			initial[index.get(id) as number] = (positions[k] as number) - mean;
+		});
+	}
+	const subtreeVertices = new Map<string, number[]>();
+	for (const id of vertexIds) {
+		for (const container of path(id)) {
+			const list = subtreeVertices.get(container) ?? [];
+			list.push(index.get(id) as number);
+			subtreeVertices.set(container, list);
+		}
+	}
+	for (const id of containers) {
+		const members = subtreeVertices.get(id) ?? [];
+		const xs = members.map((i) => initial[i] as number);
+		const lo = xs.length === 0 ? 0 : Math.min(...xs);
+		const hi = xs.length === 0 ? 0 : Math.max(...xs);
+		initial[leftVar.get(id) as number] = lo - inset(id).crossBefore;
+		initial[rightVar.get(id) as number] = hi + inset(id).crossAfter;
+	}
+	const anchors = initial.map((target, v) => ({
+		v,
+		target,
+		weight: ORDER_ANCHOR,
+	}));
+
+	const constraints = [...separation.values(), ...equalities];
+	let solved = solveSeparationQp({
+		size,
+		pairs,
+		anchors,
+		constraints,
+		initial,
+	});
+
+	// Equal lane thickness per swimlane (second pass, warm start).
+	const uniform: VpscConstraint[] = [];
+	for (const lanes of lanesBySwimlane) {
+		if (lanes.length < 2) continue;
+		const thickness = Math.max(
+			...lanes.map(
+				(lane) =>
+					(solved.positions[rightVar.get(lane) as number] as number) -
+					(solved.positions[leftVar.get(lane) as number] as number),
+			),
+		);
+		for (const lane of lanes) {
+			uniform.push({
+				left: leftVar.get(lane) as number,
+				right: rightVar.get(lane) as number,
+				gap: thickness,
+			});
+		}
+	}
+	if (uniform.length > 0) {
+		solved = solveSeparationQp({
+			size,
+			pairs,
+			anchors,
+			constraints: [...constraints, ...uniform],
+			initial: solved.positions,
+		});
+	}
+
+	const positions = new Map<string, number>();
+	for (const id of vertexIds) {
+		const vertex = layering.vertices.get(id);
+		const value = solved.positions[index.get(id) as number] as number;
+		positions.set(vertex?.nodeId ?? id, value);
+	}
+	const bounds = new Map<string, readonly [number, number]>();
+	for (const id of containers) {
+		bounds.set(id, [
+			solved.positions[leftVar.get(id) as number] as number,
+			solved.positions[rightVar.get(id) as number] as number,
+		]);
+	}
+	return { positions, bounds, unsatisfiable: solved.unsatisfiable.length };
+}
+
+interface MainAxisInput {
+	layering: Layering;
+	layers: readonly (readonly string[])[];
+	hierarchy: ContainerHierarchy;
+	insets: ReadonlyMap<string, AxisInsets>;
+	crossOf: ReadonlyMap<string, number>;
+	mainSizeOf: (nodeId: string) => number;
+	edges: readonly GlobalLayoutEdge[];
+	mainLabelSize: (size: Size) => number;
+	layerSpacing: number;
+	edgeSpacing: number;
+	containerSpacing: number;
+	swimlanePadding: ReadonlyMap<string, number>;
+}
+
+function solveMainAxis(input: MainAxisInput): {
+	starts: number[];
+	thickness: number[];
+} {
+	const { layering, layers, hierarchy } = input;
+	const layerCount = layers.length;
+	const thickness = layers.map((layer) =>
+		Math.max(
+			0,
+			...layer.map((id) => {
+				const nodeId = layering.vertices.get(id)?.nodeId;
+				return nodeId === undefined ? 0 : input.mainSizeOf(nodeId);
+			}),
+		),
+	);
+	const inset = (id: string) => input.insets.get(id) ?? ZERO_INSETS;
+
+	// Layer span of every container (real members only).
+	const span = new Map<string, { min: number; max: number }>();
+	for (const [nodeId, layer] of layering.layerOfNode) {
+		const deepest = hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId;
+		for (const id of containerPath(hierarchy, deepest)) {
+			const current = span.get(id);
+			span.set(id, {
+				min: Math.min(current?.min ?? layer, layer),
+				max: Math.max(current?.max ?? layer, layer),
+			});
+		}
+	}
+
+	const gaps: number[] = [];
+	for (let layer = 0; layer + 1 < layerCount; layer += 1) {
+		// Orthogonal tracks for segments that change cross position.
+		let bending = 0;
+		for (const segment of layering.segments) {
+			const from = layering.vertices.get(segment.from);
+			if (from?.layer !== layer) continue;
+			const a = input.crossOf.get(from.nodeId ?? from.id);
+			const toVertex = layering.vertices.get(segment.to);
+			const b = input.crossOf.get(toVertex?.nodeId ?? segment.to);
+			if (a !== undefined && b !== undefined && Math.abs(a - b) > 1) {
+				bending += 1;
+			}
+		}
+		const channel = (bending + 1) * input.edgeSpacing;
+
+		// Container borders that close after `layer` or open before `layer+1`.
+		const upper = new Set<string>();
+		const lower = new Set<string>();
+		for (const id of layers[layer] ?? []) {
+			const nodeId = layering.vertices.get(id)?.nodeId;
+			if (nodeId !== undefined) {
+				upper.add(hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId);
+			}
+		}
+		for (const id of layers[layer + 1] ?? []) {
+			const nodeId = layering.vertices.get(id)?.nodeId;
+			if (nodeId !== undefined) {
+				lower.add(hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId);
+			}
+		}
+		let borders = 0;
+		for (const a of upper) {
+			const pa = containerPath(hierarchy, a);
+			for (const b of lower) {
+				const pb = containerPath(hierarchy, b);
+				const closing = pa
+					.filter((id) => !pb.includes(id) && span.get(id)?.max === layer)
+					.reduce((sum, id) => sum + inset(id).mainAfter, 0);
+				const opening = pb
+					.filter((id) => !pa.includes(id) && span.get(id)?.min === layer + 1)
+					.reduce((sum, id) => sum + inset(id).mainBefore, 0);
+				if (closing + opening > 0) {
+					borders = Math.max(
+						borders,
+						closing + opening + input.containerSpacing,
+					);
+				}
+			}
+		}
+
+		// Lanes that run along the flow change between these layers.
+		let laneBreak = 0;
+		for (const id of layers[layer] ?? []) {
+			const nodeId = layering.vertices.get(id)?.nodeId;
+			const lane =
+				nodeId === undefined
+					? undefined
+					: hierarchy.mainAxisLaneOfNode.get(nodeId);
+			if (lane === undefined) continue;
+			for (const other of layers[layer + 1] ?? []) {
+				const otherNode = layering.vertices.get(other)?.nodeId;
+				const next =
+					otherNode === undefined
+						? undefined
+						: hierarchy.mainAxisLaneOfNode.get(otherNode);
+				if (
+					next !== undefined &&
+					next.swimlaneId === lane.swimlaneId &&
+					next.laneIndex !== lane.laneIndex
+				) {
+					laneBreak = Math.max(
+						laneBreak,
+						2 * (input.swimlanePadding.get(lane.swimlaneId) ?? 0),
+					);
+				}
+			}
+		}
+
+		gaps.push(Math.max(input.layerSpacing, channel) + borders + laneBreak);
+	}
+
+	// Edge labels need room between the two layers they sit between.
+	for (const edge of input.edges) {
+		if (edge.labelSize === undefined) continue;
+		const a = layering.layerOfNode.get(edge.source);
+		const b = layering.layerOfNode.get(edge.target);
+		if (a === undefined || b === undefined || a === b) continue;
+		const top = Math.min(a, b);
+		const bottom = Math.max(a, b);
+		const middle = top + Math.floor((bottom - top - 1) / 2);
+		const need = input.mainLabelSize(edge.labelSize) + 2 * EDGE_LABEL_MARGIN;
+		gaps[middle] = Math.max(gaps[middle] ?? 0, need);
+	}
+
+	const starts: number[] = [];
+	let cursor = 0;
+	for (let layer = 0; layer < layerCount; layer += 1) {
+		starts.push(cursor);
+		cursor += (thickness[layer] ?? 0) + (gaps[layer] ?? 0);
+	}
+	return { starts, thickness };
+}
