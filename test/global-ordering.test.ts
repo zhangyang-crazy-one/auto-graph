@@ -273,3 +273,35 @@ describe("constrained ordering", () => {
 		expect(solve(nodes, edges).ordering).toEqual(solve(nodes, edges).ordering);
 	});
 });
+
+describe("main-axis lane layering (Codex #96, round 4)", () => {
+	it("places an external predecessor before its lane successor", () => {
+		const { layering } = solve(
+			["x", "a", "b"],
+			[
+				["x", "a"],
+				["a", "b"],
+			],
+			{
+				direction: "LR",
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "vertical",
+						lanes: [
+							{ id: "l0", children: ["a"] },
+							{ id: "l1", children: ["b"] },
+						],
+					},
+				],
+			},
+		);
+		const layerOf = (id: string) => layering.layerOfNode.get(id) ?? -1;
+		expect(layerOf("x")).toBeLessThan(layerOf("a"));
+		expect(
+			layering.segments.some(
+				(segment) => segment.from === "x" && segment.to === "a",
+			),
+		).toBe(true);
+	});
+});

@@ -530,7 +530,10 @@ export function growNodesForEdgeDegree(
 			outgoing.get(node.id) ?? 0,
 			incoming.get(node.id) ?? 0,
 		);
-		if (count < DEGREE_GROWTH_MIN_EDGES || (node.ports?.length ?? 0) > 0) {
+		// `count` only includes endpoints without a port or anchor, so a node
+		// that mixes declared ports with free edges still grows for the free
+		// ones (the port-capacity pass sizes the declared ports later).
+		if (count < DEGREE_GROWTH_MIN_EDGES) {
 			return node;
 		}
 		const side: AnchorSide = horizontalFlow ? "right" : "bottom";

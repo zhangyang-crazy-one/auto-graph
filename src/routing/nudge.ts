@@ -27,6 +27,12 @@ export interface SeparableRoute {
 	points: readonly Point[];
 	/** Fixed routes (e.g. allocated rails) are never moved but still count for crossings. */
 	fixed?: boolean;
+	/**
+	 * Indices into the obstacle list this route may touch (its own endpoint
+	 * nodes). They neither bound its channel nor count as hits, so they
+	 * cannot hide a new hit on a foreign obstacle.
+	 */
+	ignoreObstacles?: ReadonlySet<number>;
 }
 
 export interface EdgeSeparationOptions {
@@ -72,6 +78,11 @@ export function separateParallelSegments(
 	const minStub = Math.max(1, options.minStub ?? 10);
 	const maxPasses = Math.max(1, options.maxPasses ?? 2);
 	const points = routes.map((route) => compact(route.points));
+	const routeObstacles = routes.map((route) =>
+		route.ignoreObstacles === undefined || route.ignoreObstacles.size === 0
+			? obstacles
+			: obstacles.filter((_, index) => !route.ignoreObstacles?.has(index)),
+	);
 	const movable = routes.map(
 		(route, index) => route.fixed !== true && isOrthogonal(points[index] ?? []),
 	);
@@ -115,7 +126,7 @@ export function separateParallelSegments(
 					applyBundle(
 						members,
 						points,
-						obstacles,
+						routeObstacles,
 						{ spacing, clearance, minStub },
 						lockedCoords,
 					)
@@ -127,7 +138,13 @@ export function separateParallelSegments(
 		if (!moved) break;
 	}
 
-	escapeObstacles(points, movable, obstacles, { clearance, minStub }, routes);
+	escapeObstacles(
+		points,
+		movable,
+		routeObstacles,
+		{ clearance, minStub },
+		routes,
+	);
 
 	return points.map((route) => compact(route));
 }
@@ -141,12 +158,13 @@ export function separateParallelSegments(
 function escapeObstacles(
 	points: Point[][],
 	movable: readonly boolean[],
-	obstacles: readonly Box[],
+	routeObstacles: readonly (readonly Box[])[],
 	config: { clearance: number; minStub: number },
 	routes: readonly SeparableRoute[],
 ): void {
 	for (let routeIndex = 0; routeIndex < points.length; routeIndex += 1) {
 		if (movable[routeIndex] !== true) continue;
+		const obstacles = routeObstacles[routeIndex] ?? [];
 		for (
 			let index = 1;
 			index <= (points[routeIndex]?.length ?? 0) - 3;
@@ -242,7 +260,7 @@ function neighbourBounds(
 function applyBundle(
 	members: MovableSegment[],
 	points: Point[][],
-	obstacles: readonly Box[],
+	routeObstacles: readonly (readonly Box[])[],
 	config: { spacing: number; clearance: number; minStub: number },
 	lockedCoords: readonly number[] = [],
 ): boolean {
@@ -256,7 +274,7 @@ function applyBundle(
 			const [memberLow, memberHigh] = segmentChannel(
 				member,
 				points,
-				obstacles,
+				routeObstacles[member.routeIndex] ?? [],
 				{
 					...config,
 					clearance,
@@ -318,7 +336,10 @@ function applyBundle(
 	const obstacleHitsBefore = new Map(
 		memberRouteIndexes.map((routeIndex) => [
 			routeIndex,
-			countObstacleHits(points[routeIndex] ?? [], obstacles),
+			countObstacleHits(
+				points[routeIndex] ?? [],
+				routeObstacles[routeIndex] ?? [],
+			),
 		]),
 	);
 
@@ -363,7 +384,7 @@ function applyBundle(
 	const trial = applyOrder(points, members, best, slots);
 	for (const [routeIndex, route] of trial) {
 		const before = obstacleHitsBefore.get(routeIndex) ?? 0;
-		if (countObstacleHits(route, obstacles) > before) {
+		if (countObstacleHits(route, routeObstacles[routeIndex] ?? []) > before) {
 			return false;
 		}
 	}

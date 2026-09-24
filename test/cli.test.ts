@@ -151,6 +151,51 @@ describe("agh CLI contract", () => {
 		expect(await readFile(outputPath, "utf8")).toContain("<svg");
 	});
 
+	it("runCli refuses to write metrics over the output file", async () => {
+		await using workspace = await tempWorkspace();
+		const inputPath = join(workspace.path, "diagram.yaml");
+		const outputPath = join(workspace.path, "diagram.svg");
+		await writeFile(inputPath, VALID_DSL, "utf8");
+		await writeFile(outputPath, "original content", "utf8");
+		const io = memoryIo();
+
+		const exitCode = await runCli(
+			[
+				"--input",
+				inputPath,
+				"--output",
+				outputPath,
+				"--metrics",
+				join(workspace.path, ".", "diagram.svg"),
+			],
+			io.environment,
+		);
+
+		expect(exitCode).toBe(2);
+		expect(io.stderr()).toContain("io.output-metrics-conflict");
+		expect(await readFile(outputPath, "utf8")).toBe("original content");
+	});
+
+	it("runCli writes layout metrics next to the output", async () => {
+		await using workspace = await tempWorkspace();
+		const inputPath = join(workspace.path, "diagram.yaml");
+		const outputPath = join(workspace.path, "diagram.svg");
+		const metricsPath = join(workspace.path, "metrics.json");
+		await writeFile(inputPath, VALID_DSL, "utf8");
+		const io = memoryIo();
+
+		const exitCode = await runCli(
+			["--input", inputPath, "--output", outputPath, "--metrics", metricsPath],
+			io.environment,
+		);
+
+		expect(exitCode).toBe(0);
+		expect(await readFile(outputPath, "utf8")).toContain("<svg");
+		expect(JSON.parse(await readFile(metricsPath, "utf8"))).toHaveProperty(
+			"nodeOverlaps",
+		);
+	});
+
 	it("runCli emits warnings to stderr without blocking output", async () => {
 		const io = memoryIo(`%FOO bar
 ---

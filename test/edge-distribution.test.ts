@@ -13,6 +13,7 @@ import type {
 } from "../src/ir/index.js";
 import { separateParallelSegments } from "../src/routing/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { growNodesForEdgeDegree } from "../src/solver/ports.js";
 import {
 	finalizeCoordinatedEdges,
 	pruneResolvedRouteDiagnostics,
@@ -537,5 +538,111 @@ describe("review follow-ups (Codex #96, round 3)", () => {
 			const trunk = routed.points[1]?.x ?? 0;
 			expect(trunk, routed.id).toBeLessThanOrEqual(expanded.x);
 		}
+	});
+});
+
+describe("review follow-ups (Codex #96, round 4)", () => {
+	it("does not treat a route's own endpoint boxes as obstacles", () => {
+		// The trunk runs through the (expanded) box of its own target node:
+		// that is expected clearance overlap, not something to escape.
+		const route = {
+			id: "own",
+			points: [
+				{ x: 0, y: 0 },
+				{ x: 50, y: 0 },
+				{ x: 50, y: 100 },
+				{ x: 150, y: 100 },
+			],
+			ignoreObstacles: new Set([0]),
+		};
+		const [out] = separateParallelSegments(
+			[route],
+			[{ x: 40, y: 60, width: 120, height: 60 }],
+			{ separate: false },
+		);
+		expect(out?.[1]?.x).toBe(50);
+	});
+
+	it("keeps explicit-port endpoints on their port anchor", () => {
+		const diamond = computeShapeGeometry({
+			shape: "diamond",
+			box: { x: 0, y: 0, width: 100, height: 60 },
+		});
+		const target = computeShapeGeometry({
+			shape: "rectangle",
+			box: { x: 200, y: 0, width: 60, height: 40 },
+		});
+		// Off-centre point on the diamond's right bounding-box side.
+		const start = { x: 100, y: 15 };
+		const [edge] = finalizeCoordinatedEdges(
+			[
+				{
+					id: "ported",
+					source: { nodeId: "d", portId: "out" },
+					target: { nodeId: "t" },
+					points: [
+						start,
+						{ x: 150, y: 15 },
+						{ x: 150, y: 20 },
+						{ x: 200, y: 20 },
+					],
+				},
+			],
+			new Map([
+				["d", diamond],
+				["t", target],
+			]),
+			[
+				{ id: "d", box: diamond.box },
+				{ id: "t", box: target.box },
+			],
+			[],
+			[],
+			[],
+			undefined,
+			{},
+		);
+		expect(edge?.points[0]).toEqual(start);
+	});
+
+	it("keeps over-budget detour diagnostics on clean routes", () => {
+		const edges = [
+			{
+				id: "long",
+				source: { nodeId: "a" },
+				target: { nodeId: "b" },
+				points: [
+					{ x: 0, y: 0 },
+					{ x: 100, y: 0 },
+				],
+			},
+		];
+		const diagnostics = [
+			{
+				severity: "warning" as const,
+				code: "routing.obstacle.unavoidable",
+				message: "over detour budget",
+				detail: { edgeId: "long", detourRatio: 3.4, maxDetourRatio: 3 },
+			},
+		];
+		pruneResolvedRouteDiagnostics(diagnostics, edges, [], [], [], [], [], {});
+		expect(diagnostics).toHaveLength(1);
+	});
+
+	it("grows a node with declared ports for its unported edges", () => {
+		const node = {
+			id: "hub",
+			shape: "rectangle" as const,
+			size: { width: 120, height: 40 },
+			padding: { top: 8, right: 8, bottom: 8, left: 8 },
+			ports: [{ id: "p", side: "left" as const, kind: "flow" as const }],
+		};
+		const edges = ["a", "b", "c", "d"].map((id) => ({
+			id: `hub-${id}`,
+			source: { nodeId: "hub" },
+			target: { nodeId: id },
+		}));
+		const [grown] = growNodesForEdgeDegree([node], edges, "LR", {});
+		expect(grown?.size.height).toBeGreaterThan(40);
 	});
 });

@@ -197,15 +197,13 @@ export function measureLayoutQuality(
 				continue;
 			}
 			const inner = insetBox(node.box, 1);
-			if (
-				segments(edge.points).some(
-					([a, b]) =>
-						segmentHitsBox(a, b, inner) &&
-						segmentEntersShape(a, b, node.shape, node.box),
-				)
-			) {
-				edgesThroughNodes += 1;
-			}
+			// Every traversing segment counts, so a route that enters the same
+			// node again is a regression even when one crossing was baseline.
+			edgesThroughNodes += segments(edge.points).filter(
+				([a, b]) =>
+					segmentHitsBox(a, b, inner) &&
+					segmentEntersShape(a, b, node.shape, node.box),
+			).length;
 		}
 	}
 
@@ -366,6 +364,7 @@ export function containmentRelations(
 export const LAYOUT_METRIC_HARD_KEYS = [
 	"nodeOverlaps",
 	"groupOverlaps",
+	"groupOverlapAreaRatio",
 	"foreignNodesInGroups",
 	"labelOverflows",
 	"edgesThroughNodes",

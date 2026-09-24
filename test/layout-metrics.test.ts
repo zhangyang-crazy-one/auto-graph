@@ -188,3 +188,33 @@ describe("layout metrics review follow-ups (round 3)", () => {
 		expect(metrics.meanDetour).toBeCloseTo(1, 6);
 	});
 });
+
+describe("layout metrics review follow-ups (round 4)", () => {
+	it("counts every segment that passes through a node", () => {
+		const metrics = measureLayoutQuality(
+			diagram({
+				nodes: [
+					node("a", box(0, 0, 20, 20)),
+					node("wall", box(100, 0, 20, 200)),
+					node("b", box(300, 0, 20, 20)),
+				],
+				edges: [
+					{
+						id: "zigzag",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 20, y: 10 },
+							{ x: 200, y: 10 },
+							{ x: 200, y: 100 },
+							{ x: 50, y: 100 },
+							{ x: 50, y: 150 },
+							{ x: 300, y: 150 },
+						],
+					},
+				],
+			}),
+		);
+		expect(metrics.edgesThroughNodes).toBe(3);
+	});
+});

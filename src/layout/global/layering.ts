@@ -305,18 +305,41 @@ function laneBlockLayers(
 			offset += maxLocal + 1;
 		}
 	}
-	// Remaining nodes: longest path over the whole DAG, respecting fixed ones.
+	// Remaining nodes: longest path over the whole DAG around the fixed lane
+	// blocks. A node that only feeds lane nodes (no placed predecessor) is
+	// put right before its earliest placed successor — possibly at a negative
+	// layer, normalised later — so `x -> a` never collapses onto a's layer.
 	const order = topologicalOrder(nodes, edges);
 	const preds = new Map<string, string[]>(nodes.map((id) => [id, []]));
-	for (const edge of edges) preds.get(edge.target)?.push(edge.source);
+	const succs = new Map<string, string[]>(nodes.map((id) => [id, []]));
+	for (const edge of edges) {
+		preds.get(edge.target)?.push(edge.source);
+		succs.get(edge.source)?.push(edge.target);
+	}
+	const fixed = new Set(layer.keys());
+	const upper = new Map<string, number>();
+	for (const node of [...order].reverse()) {
+		if (fixed.has(node)) continue;
+		let bound = Number.POSITIVE_INFINITY;
+		for (const succ of succs.get(node) ?? []) {
+			const limit = fixed.has(succ)
+				? (layer.get(succ) ?? 0)
+				: (upper.get(succ) ?? Number.POSITIVE_INFINITY);
+			bound = Math.min(bound, limit - 1);
+		}
+		upper.set(node, bound);
+	}
 	for (const node of order) {
-		if (layer.has(node)) continue;
+		if (fixed.has(node)) continue;
 		const incoming = preds.get(node) ?? [];
+		const bound = upper.get(node) ?? Number.POSITIVE_INFINITY;
+		const earliest =
+			incoming.length === 0
+				? Number.NEGATIVE_INFINITY
+				: Math.max(...incoming.map((pred) => (layer.get(pred) ?? 0) + 1));
 		layer.set(
 			node,
-			incoming.length === 0
-				? 0
-				: Math.max(...incoming.map((pred) => (layer.get(pred) ?? 0) + 1)),
+			Number.isFinite(earliest) ? earliest : Number.isFinite(bound) ? bound : 0,
 		);
 	}
 	return layer;

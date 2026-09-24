@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { Command, CommanderError } from "commander";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
@@ -49,6 +50,28 @@ export async function runCli(
 	}
 
 	const options = command.opts<CliOptions>();
+
+	if (
+		options.output !== undefined &&
+		options.metrics !== undefined &&
+		resolve(options.output) === resolve(options.metrics)
+	) {
+		// Writing metrics over the diagram would silently lose the output.
+		await writeDiagnostics(
+			stderr,
+			[
+				{
+					severity: "error",
+					layer: "io",
+					code: "io.output-metrics-conflict",
+					message: `--output and --metrics both write ${options.output}.`,
+					hint: "Choose a different file for --metrics.",
+				},
+			],
+			options.json === true,
+		);
+		return 2;
+	}
 
 	try {
 		const source =
