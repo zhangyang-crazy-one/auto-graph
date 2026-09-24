@@ -1,5 +1,6 @@
 /** Extracted from solve.ts — behavior-preserving #77 split. */
 
+import { relativePositionBox } from "../constraints/solver.js";
 import { expandBoxForQuery, intersectsAabb } from "../geometry/index.js";
 import type { Constraint } from "../ir/constraints.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
@@ -418,33 +419,7 @@ export function expectedRelativeBox(
 	reference: Box,
 	constraint: Extract<Constraint, { kind: "relative-position" }>,
 ): Box {
-	const offset = constraint.offset ?? { x: 0, y: 0 };
-	switch (constraint.relation) {
-		case "above":
-			return {
-				...source,
-				x: reference.x + offset.x,
-				y: reference.y - source.height + offset.y,
-			};
-		case "right-of":
-			return {
-				...source,
-				x: reference.x + reference.width + offset.x,
-				y: reference.y + offset.y,
-			};
-		case "below":
-			return {
-				...source,
-				x: reference.x + offset.x,
-				y: reference.y + reference.height + offset.y,
-			};
-		case "left-of":
-			return {
-				...source,
-				x: reference.x - source.width + offset.x,
-				y: reference.y + offset.y,
-			};
-	}
+	return relativePositionBox(source, reference, constraint);
 }
 
 export function paddedContentBox(

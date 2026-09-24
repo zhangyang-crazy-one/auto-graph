@@ -106,6 +106,7 @@ import {
 	buildRoutingAllocationReport,
 	expandNodeBoxesForAnchorCapacity,
 	expandNodeBoxesForPorts,
+	growNodesForEdgeDegree,
 	portLabelBox,
 } from "./ports.js";
 import type { RemediationPassState } from "./remediation.js";
@@ -186,9 +187,14 @@ export function solveDiagram(
 				prefitNodeLabelSize(node, options, diagnostics),
 			)
 		: cjkStyledNodes;
-	const styledNodes = styledNodesBase.map(cloneNormalizedNodeForSolver);
 	const styledEdges = edges.map((edge) =>
 		enhanceEdgeCjkTypography(edge, cjkTypography, diagnostics),
+	);
+	const styledNodes = growNodesForEdgeDegree(
+		styledNodesBase.map(cloneNormalizedNodeForSolver),
+		styledEdges,
+		diagram.direction,
+		options,
 	);
 	const styledGroups = groups.map((group) =>
 		enhanceGroupCjkTypography(group, cjkTypography, diagnostics),

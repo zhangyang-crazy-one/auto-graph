@@ -598,10 +598,12 @@ export function applyHorizontalSwimlaneContract(
 	);
 	const top = Math.min(...populatedBounds.map((box) => box.y));
 	const left = Math.min(...populatedBounds.map((box) => box.x));
-	const slotWidth =
-		Math.max(...populatedBounds.map((box) => box.width)) +
-		headerHeight +
-		padding * 2;
+	// Horizontal lanes stack along y while the flow runs along x. Every lane
+	// shares one x offset so the main-axis order computed by the initial
+	// layout (flow rank) stays aligned across lanes instead of each lane
+	// being left-packed independently.
+	const right = Math.max(...populatedBounds.map((box) => box.x + box.width));
+	const slotWidth = right - left + headerHeight + padding * 2;
 	const slotHeight =
 		Math.max(...populatedBounds.map((box) => box.height)) + padding * 2;
 	const laneStep = slotHeight + laneGutter;
@@ -623,7 +625,7 @@ export function applyHorizontalSwimlaneContract(
 			diagnostics,
 			movedChildIds,
 			{
-				x: target.x - bounds.x,
+				x: target.x - left,
 				y: target.y - bounds.y,
 			},
 		);

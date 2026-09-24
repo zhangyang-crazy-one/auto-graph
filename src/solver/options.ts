@@ -103,6 +103,12 @@ export interface SolveDiagramOptions {
 	maxDetourRatio?: number;
 	/** Attach-point tournament size per preferred side (default 3, max 5). */
 	maxAttachPointsPerSide?: number;
+	/**
+	 * Spread collinear, overlapping interior segments of different edges into
+	 * evenly spaced parallel tracks after routing (default on for orthogonal
+	 * route kinds). `false` disables; `spacing` sets the track gap (default 12).
+	 */
+	edgeSeparation?: boolean | { spacing?: number };
 }
 
 export interface PortShiftingOptions {

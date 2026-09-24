@@ -24,15 +24,18 @@ constraints:
     reference: start
     relation: below
     offset: { x: 0, y: 100 }
+    align: center
   - kind: relative-position
     source: decide
     reference: review
     relation: below
     offset: { x: 0, y: 100 }
+    align: center
   - kind: relative-position
     source: done
     reference: decide
     relation: below
     offset: { x: 0, y: 100 }
+    align: center
 output:
   format: svg

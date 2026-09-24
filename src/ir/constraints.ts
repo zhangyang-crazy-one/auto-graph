@@ -30,6 +30,12 @@ export interface RelativePositionConstraint extends ConstraintBase {
 	referenceId: string;
 	relation: RelativePositionRelation;
 	offset?: Point;
+	/**
+	 * Cross-axis alignment against the reference. `start` (default) aligns
+	 * left/top edges; `center` centres the source on the reference, so
+	 * `below` + `align: center` means "directly below" regardless of size.
+	 */
+	align?: "start" | "center";
 }
 
 export type AlignmentAxis =

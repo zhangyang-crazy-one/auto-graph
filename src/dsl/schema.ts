@@ -335,6 +335,7 @@ const relativePositionConstraintSchema = z.object({
 	referenceId: z.string().optional(),
 	relation: z.enum(["above", "right-of", "below", "left-of"]),
 	offset: pointSchema.optional(),
+	align: z.enum(["start", "center"]).optional(),
 });
 
 const alignConstraintSchema = z.object({
@@ -415,6 +416,14 @@ export const diagramDslSchema = z
 						z.object({
 							minSpacing: nonNegativeNumberSchema.optional(),
 							grow: z.boolean().optional(),
+						}),
+					])
+					.optional(),
+				edgeSeparation: z
+					.union([
+						z.boolean(),
+						z.object({
+							spacing: nonNegativeNumberSchema.optional(),
 						}),
 					])
 					.optional(),

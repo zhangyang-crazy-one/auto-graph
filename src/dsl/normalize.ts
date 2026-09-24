@@ -146,6 +146,14 @@ function normalizeDenseRoutingOptions(
 						grow: routing.anchorCapacity.grow,
 					});
 	}
+	if (routing.edgeSeparation !== undefined) {
+		options.edgeSeparation =
+			typeof routing.edgeSeparation === "boolean"
+				? routing.edgeSeparation
+				: objectWithoutUndefined({
+						spacing: routing.edgeSeparation.spacing,
+					});
+	}
 	if (routing.railRouting !== undefined) {
 		options.railRouting = routing.railRouting;
 	}
@@ -220,9 +228,9 @@ function normalizeNodes(
 		.map((id) => {
 			const node = dsl.nodes[id];
 			const label = toLabel(node?.label);
-			const labelLayout =
+			const fittedLabelLayout =
 				label === undefined ? undefined : fitDslLabel(label, measurer);
-			const fittedSize = labelLayout?.fittedSize;
+			const fittedSize = fittedLabelLayout?.fittedSize;
 			const nodeCompartments =
 				node?.compartments === undefined
 					? undefined
@@ -255,6 +263,12 @@ function normalizeNodes(
 			if (shape === "ellipse") {
 				size = applyEllipseCircleSize(size);
 			}
+			// Circle sizing can make the node taller than the fitted label;
+			// keep the label box centred inside the final node size.
+			const labelLayout =
+				fittedLabelLayout === undefined
+					? undefined
+					: centerLabelLayoutInSize(fittedLabelLayout, size);
 
 			return {
 				id,
@@ -276,6 +290,26 @@ function normalizeNodes(
 				...(labelLayout === undefined ? {} : { labelLayout }),
 			};
 		});
+}
+
+function centerLabelLayoutInSize(
+	layout: NonNullable<NormalizedNode["labelLayout"]>,
+	size: { width: number; height: number },
+): NonNullable<NormalizedNode["labelLayout"]> {
+	const x = Math.max(0, (size.width - layout.box.width) / 2);
+	const y = Math.max(0, (size.height - layout.box.height) / 2);
+	if (x === layout.box.x && y === layout.box.y) return layout;
+	const dx = x - layout.box.x;
+	const dy = y - layout.box.y;
+	return {
+		...layout,
+		box: { ...layout.box, x, y },
+		contentBox: {
+			...layout.contentBox,
+			x: layout.contentBox.x + dx,
+			y: layout.contentBox.y + dy,
+		},
+	};
 }
 
 function compartmentHeight(value: NodeCompartments): number {
@@ -712,6 +746,9 @@ function normalizeConstraints(dsl: DiagramDsl): Constraint[] {
 					...(constraint.offset === undefined
 						? {}
 						: { offset: point(constraint.offset) }),
+					...(constraint.align === undefined
+						? {}
+						: { align: constraint.align }),
 				});
 				break;
 			case "align":

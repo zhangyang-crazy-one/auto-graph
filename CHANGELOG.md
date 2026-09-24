@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Edge distribution: even ports, parallel-track separation, flow-ordered lanes
+
+- **Default port distribution** (`routeKind: "orthogonal"` without `anchorCapacity`): endpoints sharing a node side are split evenly along it (`(i+1)/(n+1)`), ordered by the opposite node so a fan does not cross itself, and projected onto the drawn outline of diamond / hexagon / ellipse / parallelogram / cylinder shapes. Sides are chosen by flow direction (LR → left/right whenever nodes are horizontally separated), so fan-out edges no longer collapse onto one point.
+- **Degree-based pre-growth**: nodes with ≥3 edges on a flow side grow along that side before layout so ports keep ~14px spacing.
+- **Edge separation (nudging)**: after routing, collinear overlapping interior segments of different edges are spread into evenly spaced parallel tracks inside their free channel; track order minimises crossings. Opt out / tune with `edgeSeparation: false | { spacing }` (API and DSL `routing.edgeSeparation`).
+- **Exit/entry direction**: route ranking penalises end segments that do not leave/enter along the anchor normal (no more edges running down a node border). Fallback routes that still hug a border get a short outward stub.
+- **Blocked-side retry and endpoint spreading**: a pinned side that cannot avoid obstacles is retried with free side choice; coincident endpoints on one side are spread apart afterwards.
+- **Horizontal swimlane contract** keeps one shared x offset for all lanes, preserving flow order across lanes instead of left-packing each lane.
+- **`relative-position` `align: center`** (opt-in) centres the source on the reference's cross axis; default `start` is unchanged.
+- Ellipse/circle node labels are re-centred after circle sizing.
+
 ### Pretext sizing + semantic roles (#84 A/D)
 
 - **Pretext sizing contract**: `maxWidth` is wrap-only; fitted boxes grow to wrapped text + padding; DSL/prefit use `overflow: "diagnose"` (no truncate). `deliverabilityMode` enables `prefitLabelSize` by default. Ellipse nodes use circle diameter `max(w,h)`.

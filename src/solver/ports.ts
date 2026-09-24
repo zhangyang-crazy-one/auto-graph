@@ -1,6 +1,10 @@
 /** Extracted from solve.ts — behavior-preserving #77 split. */
 
-import type { computeShapeGeometry } from "../geometry/index.js";
+import {
+	type computeShapeGeometry,
+	shapeSideAttachRange,
+	shapeSidePoint,
+} from "../geometry/index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type {
 	NormalizedDiagram,
@@ -30,6 +34,9 @@ import {
 	stableStrings,
 } from "./helpers.js";
 import type { PortShiftingOptions, SolveDiagramOptions } from "./options.js";
+
+/** Minimum anchor gap used when distribution is implicit (no growth). */
+const IMPLICIT_ANCHOR_MIN_SPACING = 8;
 
 export function buildRoutingAllocationReport(
 	acceptedRails: readonly RoutingRailAllocation[],
@@ -477,6 +484,118 @@ export function anchorSideForEndpoint(
 	return direction === "BT" ? "top" : "bottom";
 }
 
+/** Desired gap between neighbouring attach points on a grown node side. */
+const DEGREE_GROWTH_ANCHOR_SPACING = 14;
+/** Fan-out / fan-in count from which nodes grow to fit evenly spaced anchors. */
+const DEGREE_GROWTH_MIN_EDGES = 3;
+
+/**
+ * Pre-layout sizing for implicit anchor distribution: a node whose flow-side
+ * (right/left in LR, bottom/top in TB) carries many edges grows along that
+ * side so its anchors can keep `DEGREE_GROWTH_ANCHOR_SPACING`. Runs before
+ * the initial layout, so Dagre and overlap repair see the final size.
+ * Returns the (possibly replaced) node list; input nodes are not mutated.
+ */
+export function growNodesForEdgeDegree(
+	nodes: readonly NormalizedNode[],
+	edges: readonly NormalizedEdge[],
+	direction: NormalizedDiagram["direction"],
+	options: SolveDiagramOptions,
+): NormalizedNode[] {
+	const routeKind = options.routeKind ?? "orthogonal";
+	if (options.anchorCapacity !== undefined || routeKind !== "orthogonal") {
+		return [...nodes];
+	}
+	const outgoing = new Map<string, number>();
+	const incoming = new Map<string, number>();
+	for (const edge of edges) {
+		if (edge.source.nodeId === edge.target.nodeId) continue;
+		if (edge.source.portId === undefined && edge.source.anchor === undefined) {
+			outgoing.set(
+				edge.source.nodeId,
+				(outgoing.get(edge.source.nodeId) ?? 0) + 1,
+			);
+		}
+		if (edge.target.portId === undefined && edge.target.anchor === undefined) {
+			incoming.set(
+				edge.target.nodeId,
+				(incoming.get(edge.target.nodeId) ?? 0) + 1,
+			);
+		}
+	}
+	const horizontalFlow = direction === "LR" || direction === "RL";
+	return nodes.map((node) => {
+		const count = Math.max(
+			outgoing.get(node.id) ?? 0,
+			incoming.get(node.id) ?? 0,
+		);
+		if (count < DEGREE_GROWTH_MIN_EDGES || (node.ports?.length ?? 0) > 0) {
+			return node;
+		}
+		const side: AnchorSide = horizontalFlow ? "right" : "bottom";
+		const current = horizontalFlow ? node.size.height : node.size.width;
+		// Solve span * fraction(span) >= needed; fixed corner / cap insets make
+		// the usable fraction grow with the span, so iterate to a fixed point.
+		const needed = (count + 1) * DEGREE_GROWTH_ANCHOR_SPACING;
+		let required = Math.max(current, needed);
+		for (let iteration = 0; iteration < 6; iteration += 1) {
+			const probe: Box = horizontalFlow
+				? { x: 0, y: 0, width: node.size.width, height: required }
+				: { x: 0, y: 0, width: required, height: node.size.height };
+			const [start, end] = shapeSideAttachRange(node.shape, probe, side);
+			const usable = Math.max(1e-3, end - start) * required;
+			if (usable >= needed - 0.5) break;
+			required += needed - usable;
+		}
+		required = Math.ceil(required);
+		if (required <= current) return node;
+		const size = horizontalFlow
+			? { width: node.size.width, height: required }
+			: { width: required, height: node.size.height };
+		const grown: NormalizedNode = { ...node, size };
+		recenterNodeLabelLayout(grown, { x: 0, y: 0, ...size });
+		return grown;
+	});
+}
+
+/** Minimum free gap before a side-by-side neighbour counts as "beside". */
+const FLOW_SIDE_MIN_GAP = 16;
+
+/**
+ * Pick the attach side for an endpoint by the diagram's flow direction:
+ * in LR/RL diagrams any node that is horizontally separated connects via
+ * left/right (a comb of Z-shaped routes), and top/bottom are used only when
+ * the nodes are stacked with no horizontal gap. TB/BT mirror this.
+ */
+export function flowAwareAnchorSide(
+	ownBox: Box,
+	otherBox: Box,
+	direction: NormalizedDiagram["direction"],
+): AnchorSide {
+	const gapX = Math.max(
+		otherBox.x - (ownBox.x + ownBox.width),
+		ownBox.x - (otherBox.x + otherBox.width),
+	);
+	const gapY = Math.max(
+		otherBox.y - (ownBox.y + ownBox.height),
+		ownBox.y - (otherBox.y + otherBox.height),
+	);
+	const ownCenter = boxCenter(ownBox);
+	const otherCenter = boxCenter(otherBox);
+	const horizontal: AnchorSide =
+		otherCenter.x >= ownCenter.x ? "right" : "left";
+	const vertical: AnchorSide = otherCenter.y >= ownCenter.y ? "bottom" : "top";
+	const horizontalFlow = direction === "LR" || direction === "RL";
+	if (horizontalFlow) {
+		if (gapX >= FLOW_SIDE_MIN_GAP) return horizontal;
+		if (gapY > 0) return vertical;
+	} else {
+		if (gapY >= FLOW_SIDE_MIN_GAP) return vertical;
+		if (gapX > 0) return horizontal;
+	}
+	return anchorSideForEndpoint(undefined, ownBox, otherBox, direction);
+}
+
 export function distributedAnchorPointsByEndpoint(
 	edges: readonly NormalizedEdge[],
 	boxes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
@@ -484,15 +603,28 @@ export function distributedAnchorPointsByEndpoint(
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[] = [],
 ): Map<string, DistributedAnchor> {
+	// Distribute shared-side endpoints by default for orthogonal routers so
+	// fan-out / fan-in edges never start from the same point. Straight and
+	// short-orthogonal-jumps routes keep their own attach logic unless the
+	// caller opts in via `anchorCapacity`.
+	const routeKind = options.routeKind ?? "orthogonal";
 	const enabled =
 		options.anchorCapacity !== false &&
 		(options.anchorCapacity !== undefined ||
-			(options.routeKind ?? "orthogonal") === "obstacle-avoiding");
+			routeKind === "obstacle-avoiding" ||
+			routeKind === "orthogonal");
 	if (!enabled) return new Map();
 
 	const config =
 		typeof options.anchorCapacity === "object" ? options.anchorCapacity : {};
-	const minSpacing = Math.max(1, config.minSpacing ?? 16);
+	// Implicit default-orthogonal distribution never grows nodes, so it
+	// packs anchors tighter before spilling to adjacent sides.
+	const implicitCompact =
+		options.anchorCapacity === undefined && routeKind === "orthogonal";
+	const minSpacing = Math.max(
+		1,
+		config.minSpacing ?? (implicitCompact ? IMPLICIT_ANCHOR_MIN_SPACING : 16),
+	);
 	const endpointsByNodeSide = new Map<
 		string,
 		{
@@ -500,8 +632,23 @@ export function distributedAnchorPointsByEndpoint(
 			role: EndpointRole;
 			nodeId: string;
 			side: AnchorSide;
+			/** Center of the opposite endpoint's node. */
+			other: Point;
 		}[]
 	>();
+
+	// Implicit mode groups endpoints by flow-aware sides, so edges fanning
+	// out across ranks share (and split) one side instead of some of them
+	// being classified top/bottom and then collapsing onto the router's
+	// default side midpoint.
+	const sideFor = (
+		anchor: NormalizedEdge["source"]["anchor"] | undefined,
+		ownBox: Box,
+		otherBox: Box,
+	): AnchorSide | undefined =>
+		implicitCompact && anchor === undefined
+			? flowAwareAnchorSide(ownBox, otherBox, direction)
+			: distributableAnchorSide(anchor, ownBox, otherBox, direction);
 
 	for (const edge of edges) {
 		const sourceBox = boxes.get(edge.source.nodeId)?.box;
@@ -510,12 +657,7 @@ export function distributedAnchorPointsByEndpoint(
 			continue;
 		}
 		if (edge.source.portId === undefined) {
-			const sourceSide = distributableAnchorSide(
-				edge.source.anchor,
-				sourceBox,
-				targetBox,
-				direction,
-			);
+			const sourceSide = sideFor(edge.source.anchor, sourceBox, targetBox);
 			if (sourceSide !== undefined) {
 				const key = `${edge.source.nodeId}:${sourceSide}`;
 				const endpoints = endpointsByNodeSide.get(key) ?? [];
@@ -524,17 +666,13 @@ export function distributedAnchorPointsByEndpoint(
 					role: "source",
 					nodeId: edge.source.nodeId,
 					side: sourceSide,
+					other: boxCenter(targetBox),
 				});
 				endpointsByNodeSide.set(key, endpoints);
 			}
 		}
 		if (edge.target.portId === undefined) {
-			const targetSide = distributableAnchorSide(
-				edge.target.anchor,
-				targetBox,
-				sourceBox,
-				direction,
-			);
+			const targetSide = sideFor(edge.target.anchor, targetBox, sourceBox);
 			if (targetSide !== undefined) {
 				const key = `${edge.target.nodeId}:${targetSide}`;
 				const endpoints = endpointsByNodeSide.get(key) ?? [];
@@ -543,6 +681,7 @@ export function distributedAnchorPointsByEndpoint(
 					role: "target",
 					nodeId: edge.target.nodeId,
 					side: targetSide,
+					other: boxCenter(sourceBox),
 				});
 				endpointsByNodeSide.set(key, endpoints);
 			}
@@ -551,15 +690,29 @@ export function distributedAnchorPointsByEndpoint(
 
 	const distributed = new Map<string, DistributedAnchor>();
 	for (const endpoints of endpointsByNodeSide.values()) {
+		// A lone endpoint keeps the router's free side choice so it can
+		// still detour around obstacles.
 		if (endpoints.length <= 1) continue;
+		// Implicit mode orders endpoints along the side by where the opposite
+		// node sits so neighbouring edges fan out without crossing right at
+		// the node boundary. Explicit modes keep stable edge id / role order.
+		const alongY =
+			endpoints[0]?.side === "left" || endpoints[0]?.side === "right";
 		const sorted = [...endpoints].sort((a, b) => {
+			if (implicitCompact) {
+				const byPosition = alongY
+					? a.other.y - b.other.y
+					: a.other.x - b.other.x;
+				if (Math.abs(byPosition) > 0.5) return byPosition;
+			}
 			const byEdge = a.edgeId.localeCompare(b.edgeId);
 			return byEdge === 0 ? a.role.localeCompare(b.role) : byEdge;
 		});
 		const first = sorted[0];
 		if (first === undefined) continue;
-		const box = boxes.get(first.nodeId)?.box;
-		if (box === undefined) continue;
+		const geometry = boxes.get(first.nodeId);
+		const box = geometry?.box;
+		if (geometry === undefined || box === undefined) continue;
 		const primarySide = first.side;
 		const vertical = primarySide === "left" || primarySide === "right";
 		const availableSpan = vertical ? box.height : box.width;
@@ -576,13 +729,23 @@ export function distributedAnchorPointsByEndpoint(
 			if (endpoint === undefined) continue;
 			distributed.set(endpointDistributionKey(endpoint.edgeId, endpoint.role), {
 				anchor: primarySide,
-				point: distributedAnchorPoint(
-					box,
-					primarySide,
-					index,
-					Math.max(primaryEndpoints.length, Math.min(3, slotCount)),
-					minSpacing,
-				),
+				point: implicitCompact
+					? evenlyDistributedAnchorPoint(
+							geometry,
+							primarySide,
+							index,
+							primaryEndpoints.length,
+						)
+					: // Explicit anchorCapacity / obstacle-avoiding pages keep the
+						// compact centred slots their rail and remediation tuning
+						// assumes (dense MBSE acceptance).
+						distributedAnchorPoint(
+							box,
+							primarySide,
+							index,
+							Math.max(primaryEndpoints.length, Math.min(3, slotCount)),
+							minSpacing,
+						),
 			});
 		}
 		if (spilledEndpoints.length > 0) {
@@ -625,13 +788,20 @@ export function distributedAnchorPointsByEndpoint(
 					endpointDistributionKey(endpoint.edgeId, endpoint.role),
 					{
 						anchor: spillSide,
-						point: distributedAnchorPoint(
-							box,
-							spillSide,
-							spillGroupIndex,
-							Math.max(3, spillGroupSize),
-							minSpacing,
-						),
+						point: implicitCompact
+							? evenlyDistributedAnchorPoint(
+									geometry,
+									spillSide,
+									spillGroupIndex,
+									spillGroupSize,
+								)
+							: distributedAnchorPoint(
+									box,
+									spillSide,
+									spillGroupIndex,
+									Math.max(3, spillGroupSize),
+									minSpacing,
+								),
 					},
 				);
 			}
@@ -695,6 +865,28 @@ export function distributedAnchorPoint(
 		case "bottom":
 			return { x: center.x + offset, y: box.y + box.height };
 	}
+}
+
+/**
+ * Evenly split a node side into `count + 1` equal gaps and return the
+ * `index`-th attach point on the bounding-box side. Rectangles use the whole
+ * side (minus corner rounding); pointed shapes (diamond, hexagon tips,
+ * ellipse) keep points near the tip. Routing works on the bounding-box
+ * point; `snapEndpointsToShapeOutline` moves it onto the drawn outline after
+ * the route is final.
+ */
+export function evenlyDistributedAnchorPoint(
+	geometry: Pick<ReturnType<typeof computeShapeGeometry>, "shape" | "box">,
+	side: AnchorSide,
+	index: number,
+	count: number,
+): Point {
+	const [start, end] = shapeSideAttachRange(geometry.shape, geometry.box, side);
+	const t =
+		count <= 1
+			? (start + end) / 2
+			: start + ((index + 1) / (count + 1)) * (end - start);
+	return shapeSidePoint("rectangle", geometry.box, side, t);
 }
 
 export function endpointDistributionKey(

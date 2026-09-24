@@ -441,7 +441,7 @@ function applyRelative(
 			continue;
 		}
 
-		const next = relativeBox(source, reference, constraint);
+		const next = relativePositionBox(source, reference, constraint);
 		setUnlockedBox(
 			constraint.sourceId,
 			next,
@@ -988,36 +988,44 @@ function collectTargets(
 	return targets;
 }
 
-function relativeBox(
+/** Target box for a relative-position constraint (shared with solver checks). */
+export function relativePositionBox(
 	source: Box,
 	reference: Box,
-	constraint: RelativePositionConstraint,
+	constraint: Pick<RelativePositionConstraint, "relation" | "offset" | "align">,
 ): Box {
 	const offset = constraint.offset ?? { x: 0, y: 0 };
+	const center = constraint.align === "center";
+	const crossX = center
+		? reference.x + (reference.width - source.width) / 2 + offset.x
+		: reference.x + offset.x;
+	const crossY = center
+		? reference.y + (reference.height - source.height) / 2 + offset.y
+		: reference.y + offset.y;
 	switch (constraint.relation) {
 		case "above":
 			return {
 				...source,
-				x: reference.x + offset.x,
+				x: crossX,
 				y: reference.y - source.height + offset.y,
 			};
 		case "right-of":
 			return {
 				...source,
 				x: reference.x + reference.width + offset.x,
-				y: reference.y + offset.y,
+				y: crossY,
 			};
 		case "below":
 			return {
 				...source,
-				x: reference.x + offset.x,
+				x: crossX,
 				y: reference.y + reference.height + offset.y,
 			};
 		case "left-of":
 			return {
 				...source,
 				x: reference.x - source.width + offset.x,
-				y: reference.y + offset.y,
+				y: crossY,
 			};
 	}
 }

@@ -6,6 +6,8 @@ import {
 	expandBox,
 	intersectsAabb,
 	queryBoxSpatialIndex,
+	shapeSideAttachRange,
+	shapeSidePoint,
 } from "../geometry/index.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import type { Diagnostic, RouteConflictClass } from "../ir/diagnostics.js";
@@ -22,7 +24,12 @@ import type {
 } from "../ir/elements.js";
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
-import { type RouteHardObstacleMetadata, routeEdge } from "../routing/index.js";
+import {
+	type RouteEdgeInput,
+	type RouteHardObstacleMetadata,
+	routeEdge,
+	separateParallelSegments,
+} from "../routing/index.js";
 import {
 	ancestorGroupIds,
 	compactDetail,
@@ -302,7 +309,7 @@ export function coordinateEdges(
 			}
 		}
 
-		const route = routeEdge({
+		const routeInput: RouteEdgeInput = {
 			kind: options.routeKind ?? "orthogonal",
 			direction,
 			source: sourceGeometry,
@@ -354,7 +361,42 @@ export function coordinateEdges(
 			...(options.textObstacleVertices === undefined
 				? {}
 				: { textObstacleVertices: options.textObstacleVertices }),
-		});
+		};
+		let route = routeEdge(routeInput);
+		// Implicit anchor distribution pins an endpoint to one side. When that
+		// side is blocked (e.g. a neighbour sits right in front of it), retry
+		// with the router's free side choice and keep the cleaner result.
+		if (
+			route.diagnostics.length > 0 &&
+			implicitAnchorDistribution(options) &&
+			(sourceDistributedAnchor !== undefined ||
+				targetDistributedAnchor !== undefined)
+		) {
+			const freeSourceAnchor = edge.source.anchor ?? sourcePort?.side;
+			const freeTargetAnchor = edge.target.anchor ?? targetPort?.side;
+			const {
+				sourceAnchor: _pinnedSource,
+				targetAnchor: _pinnedTarget,
+				...unpinned
+			} = routeInput;
+			// Keep the distributed geometry: if the router still picks the
+			// pinned side it lands on its own slot instead of the side midpoint
+			// (which may be another edge's slot).
+			const retry = routeEdge({
+				...unpinned,
+				...(freeSourceAnchor === undefined
+					? {}
+					: { sourceAnchor: freeSourceAnchor }),
+				...(freeTargetAnchor === undefined
+					? {}
+					: { targetAnchor: freeTargetAnchor }),
+			});
+			// A retry may land on a side midpoint another edge already uses;
+			// spreadCollidingEndpoints separates such endpoints afterwards.
+			if (retry.diagnostics.length < route.diagnostics.length) {
+				route = retry;
+			}
+		}
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
 				...diagnostic,
@@ -367,7 +409,345 @@ export function coordinateEdges(
 		});
 	}
 
-	return coordinated;
+	const implicit = implicitAnchorDistribution(options);
+	const spread = implicit
+		? spreadCollidingEndpoints(coordinated, nodes)
+		: coordinated;
+	const separated = separateCoordinatedEdges(
+		spread,
+		nodes,
+		hardObstacles,
+		textObstacles
+			.filter(isLocalRouteClearanceText)
+			.map((annotation) => textObstacleBox(annotation, options)),
+		railAllocations,
+		options,
+	);
+	return implicit
+		? snapEndpointsToShapeOutline(
+				detachBorderHuggingEnds(separated, nodes),
+				nodes,
+			)
+		: separated;
+}
+
+/** Outward offset applied to an end segment that runs along its node border. */
+const BORDER_HUGGING_STUB = 12;
+
+/**
+ * Fallback routes can leave an anchor by running along the node's own
+ * border (e.g. straight down the right edge). Shift that end segment
+ * outward by a short stub so the edge visibly leaves the node; the adjacent
+ * segment is perpendicular, so the route stays orthogonal.
+ */
+function detachBorderHuggingEnds(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+): CoordinatedEdge[] {
+	return edges.map((edge) => {
+		let points = edge.points.map((point) => ({ ...point }));
+		let changed = false;
+		for (const role of ["source", "target"] as const) {
+			if (points.length < 3) break;
+			const box = nodes.get(
+				role === "source" ? edge.source.nodeId : edge.target.nodeId,
+			)?.box;
+			if (box === undefined) continue;
+			const ordered = role === "source" ? points : [...points].reverse();
+			const end = ordered[0];
+			const next = ordered[1];
+			if (end === undefined || next === undefined) continue;
+			const vertical = Math.abs(end.x - next.x) < 0.5;
+			const horizontal = Math.abs(end.y - next.y) < 0.5;
+			let offset: Point | undefined;
+			if (vertical && Math.abs(end.x - (box.x + box.width)) < 0.5) {
+				offset = { x: BORDER_HUGGING_STUB, y: 0 };
+			} else if (vertical && Math.abs(end.x - box.x) < 0.5) {
+				offset = { x: -BORDER_HUGGING_STUB, y: 0 };
+			} else if (horizontal && Math.abs(end.y - (box.y + box.height)) < 0.5) {
+				offset = { x: 0, y: BORDER_HUGGING_STUB };
+			} else if (horizontal && Math.abs(end.y - box.y) < 0.5) {
+				offset = { x: 0, y: -BORDER_HUGGING_STUB };
+			}
+			if (offset === undefined) continue;
+			const shiftedEnd = { x: end.x + offset.x, y: end.y + offset.y };
+			const shiftedNext = { x: next.x + offset.x, y: next.y + offset.y };
+			const rebuilt = compactRoutePoints([
+				end,
+				shiftedEnd,
+				shiftedNext,
+				...ordered.slice(2),
+			]);
+			points = role === "source" ? rebuilt : rebuilt.reverse();
+			changed = true;
+		}
+		return changed ? { ...edge, points } : edge;
+	});
+}
+
+/**
+ * Routes attach to bounding-box sides. For non-rectangular shapes an
+ * off-centre attach point would float beside the drawn outline, so extend
+ * (or trim) the first/last segment along its own axis until it meets the
+ * outline. The segment direction is unchanged, so routes stay orthogonal.
+ */
+function snapEndpointsToShapeOutline(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+): CoordinatedEdge[] {
+	return edges.map((edge) => {
+		if (edge.points.length < 2) return edge;
+		const points = edge.points.map((point) => ({ ...point }));
+		let changed = false;
+		for (const role of ["source", "target"] as const) {
+			const geometry = nodes.get(
+				role === "source" ? edge.source.nodeId : edge.target.nodeId,
+			);
+			if (
+				geometry === undefined ||
+				geometry.shape === "rectangle" ||
+				geometry.shape === "rounded-rectangle"
+			) {
+				continue;
+			}
+			const at = role === "source" ? 0 : points.length - 1;
+			const end = points[at];
+			const neighbour = points[role === "source" ? 1 : points.length - 2];
+			if (end === undefined || neighbour === undefined) continue;
+			const { box } = geometry;
+			const horizontal = Math.abs(end.y - neighbour.y) < 0.5;
+			let side: "top" | "right" | "bottom" | "left" | undefined;
+			if (horizontal && Math.abs(end.x - box.x) < 0.5 && neighbour.x < end.x) {
+				side = "left";
+			} else if (
+				horizontal &&
+				Math.abs(end.x - (box.x + box.width)) < 0.5 &&
+				neighbour.x > end.x
+			) {
+				side = "right";
+			} else if (
+				!horizontal &&
+				Math.abs(end.y - box.y) < 0.5 &&
+				neighbour.y < end.y
+			) {
+				side = "top";
+			} else if (
+				!horizontal &&
+				Math.abs(end.y - (box.y + box.height)) < 0.5 &&
+				neighbour.y > end.y
+			) {
+				side = "bottom";
+			}
+			if (side === undefined) continue;
+			const t = horizontal
+				? (end.y - box.y) / Math.max(1e-9, box.height)
+				: (end.x - box.x) / Math.max(1e-9, box.width);
+			const outline = shapeSidePoint(geometry.shape, box, side, t);
+			if (
+				Math.abs(outline.x - end.x) > 1e-6 ||
+				Math.abs(outline.y - end.y) > 1e-6
+			) {
+				points[at] = outline;
+				changed = true;
+			}
+		}
+		return changed ? { ...edge, points } : edge;
+	});
+}
+
+/** Gap between endpoints spread apart on a shared node side. */
+const COLLIDING_ENDPOINT_SPACING = 12;
+
+type EndpointSide = "top" | "right" | "bottom" | "left";
+
+/**
+ * Routers pick sides per edge, so two edges that were not distributed
+ * together can still land on the same side midpoint of a node. Spread such
+ * coincident endpoints along the side (ordered by where each route turns
+ * next), moving the first bend with them so routes stay orthogonal.
+ */
+function spreadCollidingEndpoints(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+): CoordinatedEdge[] {
+	const routes = edges.map((edge) =>
+		edge.points.map((point) => ({ ...point })),
+	);
+	interface EndpointRef {
+		edgeIndex: number;
+		role: "source" | "target";
+		nodeId: string;
+		side: EndpointSide;
+		/** Coordinate of the route's next turn along the side axis. */
+		heading: number;
+	}
+	const groups = new Map<string, EndpointRef[]>();
+	edges.forEach((edge, edgeIndex) => {
+		const route = routes[edgeIndex] ?? [];
+		if (route.length < 3) return;
+		for (const role of ["source", "target"] as const) {
+			const at = role === "source" ? 0 : route.length - 1;
+			const step = role === "source" ? 1 : -1;
+			const end = route[at];
+			const bend = route[at + step];
+			const next = route[at + 2 * step];
+			if (end === undefined || bend === undefined || next === undefined) {
+				continue;
+			}
+			const horizontal = Math.abs(end.y - bend.y) < 0.5;
+			const side: EndpointSide = horizontal
+				? bend.x > end.x
+					? "right"
+					: "left"
+				: bend.y > end.y
+					? "bottom"
+					: "top";
+			const nodeId =
+				role === "source" ? edge.source.nodeId : edge.target.nodeId;
+			const along = horizontal ? end.y : end.x;
+			const key = `${nodeId}|${side}|${Math.round(along)}`;
+			const group = groups.get(key) ?? [];
+			group.push({
+				edgeIndex,
+				role,
+				nodeId,
+				side,
+				heading: horizontal ? next.y : next.x,
+			});
+			groups.set(key, group);
+		}
+	});
+
+	for (const group of groups.values()) {
+		if (group.length < 2) continue;
+		const first = group[0];
+		if (first === undefined) continue;
+		const geometry = nodes.get(first.nodeId);
+		if (geometry === undefined) continue;
+		const side = first.side;
+		const alongY = side === "left" || side === "right";
+		const sideStart = alongY ? geometry.box.y : geometry.box.x;
+		const sideLength = alongY ? geometry.box.height : geometry.box.width;
+		if (sideLength <= 0) continue;
+		const [rangeStart, rangeEnd] = shapeSideAttachRange(
+			geometry.shape,
+			geometry.box,
+			side,
+		);
+		const sorted = [...group].sort(
+			(a, b) =>
+				a.heading - b.heading ||
+				(edges[a.edgeIndex]?.id ?? "").localeCompare(
+					edges[b.edgeIndex]?.id ?? "",
+				) ||
+				a.role.localeCompare(b.role),
+		);
+		const count = sorted.length;
+		const endpointOf = (ref: EndpointRef): Point | undefined => {
+			const route = routes[ref.edgeIndex] ?? [];
+			return ref.role === "source" ? route[0] : route.at(-1);
+		};
+		const origin = endpointOf(first);
+		if (origin === undefined) continue;
+		const centerT = ((alongY ? origin.y : origin.x) - sideStart) / sideLength;
+		const stepT = Math.min(
+			COLLIDING_ENDPOINT_SPACING / sideLength,
+			(rangeEnd - rangeStart) / count,
+		);
+		const halfSpan = (stepT * (count - 1)) / 2;
+		const startT = Math.min(
+			Math.max(centerT - halfSpan, rangeStart),
+			Math.max(rangeStart, rangeEnd - 2 * halfSpan),
+		);
+		sorted.forEach((ref, index) => {
+			const route = routes[ref.edgeIndex] ?? [];
+			const at = ref.role === "source" ? 0 : route.length - 1;
+			const step = ref.role === "source" ? 1 : -1;
+			const end = route[at];
+			const bend = route[at + step];
+			const next = route[at + 2 * step];
+			if (end === undefined || bend === undefined || next === undefined) {
+				return;
+			}
+			const moved = shapeSidePoint(
+				"rectangle",
+				geometry.box,
+				side,
+				startT + index * stepT,
+			);
+			const oldAlong = alongY ? bend.y : bend.x;
+			const newAlong = alongY ? moved.y : moved.x;
+			const nextAlong = alongY ? next.y : next.x;
+			// Keep the segment after the bend pointing the same way.
+			if (
+				Math.sign(nextAlong - newAlong) !== Math.sign(nextAlong - oldAlong) ||
+				Math.abs(nextAlong - newAlong) < 1
+			) {
+				return;
+			}
+			route[at] = moved;
+			route[at + step] = alongY
+				? { x: bend.x, y: moved.y }
+				: { x: moved.x, y: bend.y };
+		});
+	}
+
+	return edges.map((edge, index) => ({
+		...edge,
+		points: routes[index] ?? edge.points,
+	}));
+}
+
+function implicitAnchorDistribution(options: SolveDiagramOptions): boolean {
+	return (
+		options.anchorCapacity === undefined &&
+		(options.routeKind ?? "orthogonal") === "orthogonal"
+	);
+}
+
+/**
+ * Post-route nudging: spread edges that share a corridor into parallel
+ * tracks so fan-out / fan-in bundles stay readable. Rail-allocated edges
+ * are kept fixed.
+ */
+function separateCoordinatedEdges(
+	edges: CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	hardObstacles: readonly Box[],
+	textObstacleBoxes: readonly Box[],
+	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
+	options: SolveDiagramOptions,
+): CoordinatedEdge[] {
+	const routeKind = options.routeKind ?? "orthogonal";
+	if (
+		edges.length < 2 ||
+		options.edgeSeparation === false ||
+		routeKind === "straight" ||
+		routeKind === "short-orthogonal-jumps"
+	) {
+		return edges;
+	}
+	const spacing =
+		typeof options.edgeSeparation === "object"
+			? options.edgeSeparation.spacing
+			: undefined;
+	const separated = separateParallelSegments(
+		edges.map((edge) => ({
+			id: edge.id,
+			points: edge.points,
+			fixed: railAllocations?.has(edge.id) === true,
+		})),
+		[
+			...[...nodes.values()].map((geometry) => geometry.box),
+			...hardObstacles,
+			...textObstacleBoxes,
+		],
+		spacing === undefined ? {} : { spacing },
+	);
+	return edges.map((edge, index) => ({
+		...edge,
+		points: separated[index] ?? edge.points,
+	}));
 }
 
 export type RailOccupancyState = Map<

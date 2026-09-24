@@ -1,0 +1,27 @@
+title: Order Swimlane
+layout: { direction: LR }
+swimlanes:
+  flow:
+    label: Order Process
+    layout: contract
+    orientation: horizontal
+    lanes:
+      customer: { label: Customer, children: [place, pay, receive] }
+      shop:     { label: Shop, children: [check, pack] }
+      bank:     { label: Bank, children: [charge, refund] }
+nodes:
+  place:   { label: Place order }
+  pay:     { label: Pay }
+  receive: { label: Receive goods }
+  check:   { label: Check stock, shape: diamond }
+  pack:    { label: Pack & ship }
+  charge:  { label: Charge card }
+  refund:  { label: Refund }
+edges:
+  - place -> check
+  - check -> pay: in stock
+  - check -> refund: out of stock
+  - pay -> charge
+  - charge -> pack
+  - pack -> receive
+  - charge -> refund: failed

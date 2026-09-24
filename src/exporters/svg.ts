@@ -1,4 +1,5 @@
 import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
+import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -995,7 +996,7 @@ function shapePoints(
 	const bottom = box.y + box.height;
 	const midX = box.x + box.width / 2;
 	const midY = box.y + box.height / 2;
-	const skew = Math.min(box.width * 0.2, 24);
+	const skew = shapeSkew(box);
 	switch (shape) {
 		case "diamond":
 			return [
@@ -1025,7 +1026,7 @@ function shapePoints(
 
 function formatCylinderPath(box: Box): string {
 	const rx = box.width / 2;
-	const ry = Math.min(12, box.height / 4);
+	const ry = cylinderCapRadius(box);
 	const left = box.x;
 	const right = box.x + box.width;
 	const top = box.y;

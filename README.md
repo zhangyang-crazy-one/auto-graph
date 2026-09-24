@@ -150,6 +150,21 @@ Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForB
 
 Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG/Excalidraw render hops; draw.io should consume the same IR downstream (no in-repo draw.io exporter).
 
+### Edge distribution defaults
+
+With the default `orthogonal` router:
+
+- Edges sharing a node side get evenly spaced attach points, ordered by where the other node sits, projected onto the real shape outline. Nodes with many edges on one flow side grow before layout to keep the ports readable.
+- After routing, edges that share a corridor are nudged into parallel tracks (`routing.edgeSeparation: false` disables it, `{ spacing: 16 }` tunes the gap).
+- `relative-position` accepts `align: center` so `below` / `right-of` place a node directly under / beside its reference regardless of size.
+
+```yaml
+routing:
+  edgeSeparation: { spacing: 12 }
+constraints:
+  - { kind: relative-position, source: b, reference: a, relation: below, offset: { x: 0, y: 80 }, align: center }
+```
+
 ### Pretext sizing + semantic roles (#84 A/D)
 
 - Node boxes grow from Pretext measurement + padding. Caller `size` is a **floor**, not a truncate cap. `label.maxWidth` only controls wrapping.
