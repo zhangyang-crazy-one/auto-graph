@@ -111,6 +111,7 @@ export function renderDiagramDsl(
 			format: exported.format,
 			content: exported.content,
 			diagram: solved,
+			constraints: normalized.diagram.constraints,
 			diagnostics: sortDslDiagnostics([
 				...diagnostics,
 				...solveDiagnostics,

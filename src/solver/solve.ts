@@ -125,6 +125,7 @@ import {
 	edgeLabelRerouteIterations,
 	finalizeCoordinatedEdges,
 	isPreRouteTextObstacle,
+	pruneResolvedRouteDiagnostics,
 	replaceRouteDiagnosticsForEdge,
 	reportRouteTextClearance,
 	resourceFlowLabelHardObstacles,
@@ -839,6 +840,23 @@ export function solveDiagram(
 			],
 			options,
 		);
+		const prunedRouteDiagnostics = [
+			...routeLabelFeedbackState.edgeRoutingDiagnostics,
+		];
+		pruneResolvedRouteDiagnostics(
+			prunedRouteDiagnostics,
+			coordinatedEdges,
+			nodeGeometryById,
+			policyHardObstacles,
+			policySoftObstacles,
+			routingTextObstacles,
+			coordinatedGroups,
+			options,
+		);
+		routeLabelFeedbackState = {
+			...routeLabelFeedbackState,
+			edgeRoutingDiagnostics: prunedRouteDiagnostics,
+		};
 	}
 	edgeRoutingDiagnostics.splice(
 		0,

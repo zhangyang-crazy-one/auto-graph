@@ -98,3 +98,47 @@ describe("layout metrics", () => {
 		expect(metrics.crossings).toBe(2);
 	});
 });
+
+describe("layout metrics review follow-ups", () => {
+	it("does not count intentional node containment as overlap", () => {
+		const d = diagram({
+			nodes: [
+				node("outer", box(0, 0, 200, 100)),
+				node("inner", box(20, 20, 40, 20)),
+			],
+		});
+		expect(measureLayoutQuality(d).nodeOverlaps).toBe(1);
+		expect(
+			measureLayoutQuality(d, {
+				containment: [{ containerId: "outer", childIds: ["inner"] }],
+			}).nodeOverlaps,
+		).toBe(0);
+	});
+
+	it("counts an edge label on top of a group title", () => {
+		const annotation = (
+			surfaceKind: "edge-label" | "group-label",
+			ownerId: string,
+			b: ReturnType<typeof box>,
+		) => ({
+			text: ownerId,
+			ownerId,
+			surfaceKind,
+			box: b,
+			anchor: b,
+			paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+			lines: [],
+			fontFamily: "Arial",
+			fontSize: 12,
+		});
+		const metrics = measureLayoutQuality(
+			diagram({
+				textAnnotations: [
+					annotation("group-label", "services", box(0, 0, 100, 20)),
+					annotation("edge-label", "e1", box(50, 5, 40, 14)),
+				],
+			}),
+		);
+		expect(metrics.edgeLabelCollisions).toBe(1);
+	});
+});

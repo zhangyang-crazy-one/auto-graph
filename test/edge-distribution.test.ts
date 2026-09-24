@@ -13,7 +13,10 @@ import type {
 } from "../src/ir/index.js";
 import { separateParallelSegments } from "../src/routing/index.js";
 import { solveDiagram } from "../src/solver/index.js";
-import { finalizeCoordinatedEdges } from "../src/solver/route-edges.js";
+import {
+	finalizeCoordinatedEdges,
+	pruneResolvedRouteDiagnostics,
+} from "../src/solver/route-edges.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("edge separation (nudging)", () => {
@@ -351,5 +354,122 @@ describe("finalizeCoordinatedEdges", () => {
 		}
 		// And the shared trunk was still separated.
 		expect(result[0]?.points[1]?.x).not.toBe(result[1]?.points[1]?.x);
+	});
+});
+
+describe("review follow-ups (Codex #96, round 2)", () => {
+	it("keeps every obstacle escape on a route, not only the last", () => {
+		// One route with two interior segments, each clipping an obstacle.
+		const route = {
+			id: "r",
+			points: [
+				{ x: 0, y: 0 },
+				{ x: 50, y: 0 },
+				{ x: 50, y: 100 },
+				{ x: 150, y: 100 },
+				{ x: 150, y: 200 },
+				{ x: 300, y: 200 },
+			],
+		};
+		const obstacles = [
+			{ x: 45, y: 30, width: 20, height: 40 }, // clips x = 50
+			{ x: 100, y: 95, width: 20, height: 20 }, // clips y = 100
+		];
+		const [separated] = separateParallelSegments([route], obstacles);
+		expect(separated).toBeDefined();
+		for (const [index, box] of obstacles.entries()) {
+			const hit = (separated ?? []).some((point, i, all) => {
+				const next = all[i + 1];
+				if (next === undefined) return false;
+				return (
+					Math.max(point.x, next.x) > box.x &&
+					Math.min(point.x, next.x) < box.x + box.width &&
+					Math.max(point.y, next.y) > box.y &&
+					Math.min(point.y, next.y) < box.y + box.height
+				);
+			});
+			expect(hit, `obstacle ${index}`).toBe(false);
+		}
+	});
+
+	it("moves a free track off a fixed rail it is stacked on", () => {
+		const rail = {
+			id: "rail",
+			fixed: true,
+			points: [
+				{ x: 0, y: 10 },
+				{ x: 100, y: 10 },
+				{ x: 100, y: 200 },
+				{ x: 300, y: 200 },
+			],
+		};
+		const free = {
+			id: "free",
+			points: [
+				{ x: 0, y: 40 },
+				{ x: 100, y: 40 },
+				{ x: 100, y: 240 },
+				{ x: 300, y: 240 },
+			],
+		};
+		const [railOut, freeOut] = separateParallelSegments([rail, free], []);
+		// The rail never moves.
+		expect(railOut).toEqual(rail.points);
+		// The free trunk no longer shares x = 100 with the rail.
+		expect(Math.abs((freeOut?.[1]?.x ?? 100) - 100)).toBeGreaterThanOrEqual(11);
+	});
+
+	it("drops obstacle diagnostics once the final route is clean", () => {
+		const nodes = new Map(
+			[
+				["a", { x: 0, y: 0, width: 40, height: 20 }],
+				["b", { x: 200, y: 0, width: 40, height: 20 }],
+				["c", { x: 0, y: 100, width: 40, height: 20 }],
+				["d", { x: 200, y: 100, width: 40, height: 20 }],
+				["blocker", { x: 100, y: 90, width: 20, height: 40 }],
+			].map(([id, box]) => [
+				id as string,
+				computeShapeGeometry({ shape: "rectangle", box: box as Box }),
+			]),
+		);
+		const edges = [
+			{
+				id: "clean",
+				source: { nodeId: "a" },
+				target: { nodeId: "b" },
+				points: [
+					{ x: 40, y: 10 },
+					{ x: 200, y: 10 },
+				],
+			},
+			{
+				id: "blocked",
+				source: { nodeId: "c" },
+				target: { nodeId: "d" },
+				points: [
+					{ x: 40, y: 110 },
+					{ x: 200, y: 110 },
+				],
+			},
+		];
+		const diagnostics = edges.map((edge) => ({
+			severity: "warning" as const,
+			code: "routing.obstacle.unavoidable",
+			message: "stale",
+			detail: { edgeId: edge.id },
+		}));
+		pruneResolvedRouteDiagnostics(
+			diagnostics,
+			edges,
+			nodes,
+			[],
+			[],
+			[],
+			[],
+			{},
+		);
+		expect(diagnostics.map((diagnostic) => diagnostic.detail.edgeId)).toEqual([
+			"blocked",
+		]);
 	});
 });

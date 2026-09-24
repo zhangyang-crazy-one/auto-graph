@@ -71,6 +71,10 @@ export function separateParallelSegments(
 		(route, index) => route.fixed !== true && isOrthogonal(points[index] ?? []),
 	);
 
+	// Fixed routes (e.g. allocated rails) never move, but their segments are
+	// locked bundle members: movable tracks must keep clear of them.
+	const locked = collectLockedSegments(points, routes);
+
 	for (let pass = 0; pass < maxPasses; pass += 1) {
 		let moved = false;
 		for (const orientation of ["v", "h"] as const) {
@@ -83,13 +87,32 @@ export function separateParallelSegments(
 					.filter(
 						(segment): segment is MovableSegment => segment !== undefined,
 					);
-				if (members.length < 2) continue;
+				if (members.length === 0) continue;
+				const lockedCoords = locked
+					.filter(
+						(fixed) =>
+							fixed.orientation === orientation &&
+							members.some(
+								(member) =>
+									Math.abs(member.coord - fixed.coord) < spacing - EPSILON &&
+									Math.min(member.max, fixed.max) -
+										Math.max(member.min, fixed.min) >
+										EPSILON,
+							),
+					)
+					.map((fixed) => fixed.coord);
+				const distinctRoutes = new Set(
+					members.map((member) => member.routeIndex),
+				).size;
+				if (distinctRoutes < 2 && lockedCoords.length === 0) continue;
 				if (
-					applyBundle(members, points, obstacles, {
-						spacing,
-						clearance,
-						minStub,
-					})
+					applyBundle(
+						members,
+						points,
+						obstacles,
+						{ spacing, clearance, minStub },
+						lockedCoords,
+					)
 				) {
 					moved = true;
 				}
@@ -118,8 +141,13 @@ function escapeObstacles(
 ): void {
 	for (let routeIndex = 0; routeIndex < points.length; routeIndex += 1) {
 		if (movable[routeIndex] !== true) continue;
-		const route = points[routeIndex] ?? [];
-		for (let index = 1; index <= route.length - 3; index += 1) {
+		for (
+			let index = 1;
+			index <= (points[routeIndex]?.length ?? 0) - 3;
+			index += 1
+		) {
+			// Re-read every time: an earlier escape on this route replaced it.
+			const route = points[routeIndex] ?? [];
 			const segment = describeSegment(routeIndex, index, route);
 			if (segment === undefined) continue;
 			const start = route[index];
@@ -210,6 +238,7 @@ function applyBundle(
 	points: Point[][],
 	obstacles: readonly Box[],
 	config: { spacing: number; clearance: number; minStub: number },
+	lockedCoords: readonly number[] = [],
 ): boolean {
 	const count = members.length;
 	// Clearance to obstacles is soft: prefer the configured value, but shrink
@@ -239,6 +268,28 @@ function applyBundle(
 		[low, high] = bundleChannel(Math.min(config.clearance, clearance));
 	}
 	if (!(low <= high)) return false;
+	if (lockedCoords.length > 0) {
+		// Keep the whole bundle inside one gap between locked tracks: prefer
+		// the gap holding the bundle's current mean, else the nearest gap
+		// wide enough for it.
+		const mean = members.reduce((sum, member) => sum + member.coord, 0) / count;
+		const cuts = [...new Set(lockedCoords)].sort((a, b) => a - b);
+		const gaps: Array<[number, number]> = [];
+		let gapLow = low;
+		for (const cut of cuts) {
+			gaps.push([gapLow, Math.min(high, cut - config.spacing)]);
+			gapLow = Math.max(gapLow, cut + config.spacing);
+		}
+		gaps.push([gapLow, high]);
+		const needed = (count - 1) * 3;
+		const usable = gaps.filter(([a, b]) => b - a >= needed - 1e-9);
+		if (usable.length === 0) return false;
+		const distance = ([a, b]: [number, number]): number =>
+			mean < a ? a - mean : mean > b ? mean - b : 0;
+		usable.sort((x, y) => distance(x) - distance(y) || x[0] - y[0]);
+		const chosen = usable[0] as [number, number];
+		[low, high] = chosen;
+	}
 
 	let spacing = config.spacing;
 	const width = high - low;
@@ -456,6 +507,23 @@ function segmentChannel(
 	return [low, high];
 }
 
+/** Every axis-aligned segment of fixed routes (ports included). */
+function collectLockedSegments(
+	points: readonly Point[][],
+	routes: readonly SeparableRoute[],
+): MovableSegment[] {
+	const segments: MovableSegment[] = [];
+	for (let routeIndex = 0; routeIndex < points.length; routeIndex += 1) {
+		if (routes[routeIndex]?.fixed !== true) continue;
+		const route = points[routeIndex] ?? [];
+		for (let index = 0; index + 1 < route.length; index += 1) {
+			const segment = describeSegment(routeIndex, index, route);
+			if (segment !== undefined) segments.push(segment);
+		}
+	}
+	return segments;
+}
+
 function collectMovableSegments(
 	points: readonly Point[][],
 	movable: readonly boolean[],
@@ -579,10 +647,7 @@ function clusterSegments(
 	}
 	return [...groups.entries()]
 		.sort((a, b) => a[0] - b[0])
-		.map(([, group]) => group)
-		.filter(
-			(group) => new Set(group.map((segment) => segment.routeIndex)).size > 1,
-		);
+		.map(([, group]) => group);
 }
 
 /** Proper crossings plus collinear overlaps between two orthogonal polylines. */

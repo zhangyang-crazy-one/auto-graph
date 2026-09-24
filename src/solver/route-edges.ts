@@ -410,7 +410,7 @@ export function coordinateEdges(
 		});
 	}
 
-	return finalizeCoordinatedEdges(
+	const finalized = finalizeCoordinatedEdges(
 		coordinated,
 		nodes,
 		hardObstacles,
@@ -419,6 +419,78 @@ export function coordinateEdges(
 		railAllocations,
 		options,
 	);
+	pruneResolvedRouteDiagnostics(
+		diagnostics,
+		finalized,
+		nodes,
+		hardObstacles,
+		softObstacles,
+		textObstacles,
+		groups,
+		options,
+	);
+	return finalized;
+}
+
+/** Route diagnostics that post-route repairs can make obsolete. */
+const RESOLVABLE_ROUTE_DIAGNOSTIC_CODES = new Set([
+	"routing.obstacle.unavoidable",
+	"route_obstacle_fallback",
+]);
+
+/**
+ * Post-route repairs (obstacle escape, endpoint spreading, …) can turn a
+ * fallback route clean. Drop obstacle diagnostics whose edge now avoids
+ * every obstacle the router considered, so remediation and deliverability
+ * are not triggered by stale evidence. Mutates `diagnostics` in place.
+ */
+export function pruneResolvedRouteDiagnostics(
+	diagnostics: Diagnostic[],
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	hardObstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	textObstacles: readonly SolvedTextAnnotation[],
+	groups: readonly CoordinatedGroup[],
+	options: SolveDiagramOptions,
+): void {
+	const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+	const clean = new Map<string, boolean>();
+	const isClean = (edge: CoordinatedEdge): boolean => {
+		const cached = clean.get(edge.id);
+		if (cached !== undefined) return cached;
+		const obstacles = [
+			...[...nodes.entries()]
+				.filter(
+					([id]) => id !== edge.source.nodeId && id !== edge.target.nodeId,
+				)
+				.map(([, geometry]) => geometry.box),
+			...hardObstacles,
+			...softObstacles,
+			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+			...textObstacles
+				.filter(isLocalRouteClearanceText)
+				.filter(
+					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
+				)
+				.map((annotation) => textObstacleBox(annotation, options)),
+		];
+		const result = routeObstacleHits(edge.points, obstacles) === 0;
+		clean.set(edge.id, result);
+		return result;
+	};
+	for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+		const diagnostic = diagnostics[index];
+		if (
+			diagnostic === undefined ||
+			!RESOLVABLE_ROUTE_DIAGNOSTIC_CODES.has(diagnostic.code)
+		) {
+			continue;
+		}
+		const edgeId = diagnostic.detail?.edgeId;
+		const edge = typeof edgeId === "string" ? edgeById.get(edgeId) : undefined;
+		if (edge !== undefined && isClean(edge)) diagnostics.splice(index, 1);
+	}
 }
 
 /**
@@ -455,6 +527,7 @@ export function finalizeCoordinatedEdges(
 		? spreadCollidingEndpoints(
 				detachBorderHuggingEnds(edges, nodes, obstacles),
 				nodes,
+				obstacles,
 			)
 		: edges;
 	const separated = separateCoordinatedEdges(
@@ -630,6 +703,7 @@ type EndpointSide = "top" | "right" | "bottom" | "left";
 function spreadCollidingEndpoints(
 	edges: readonly CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	obstacles: readonly Box[],
 ): CoordinatedEdge[] {
 	// A straight 2-point route cannot slide an endpoint without breaking
 	// orthogonality, so give it a zero-length dogleg at its midpoint; moving
@@ -766,10 +840,21 @@ function spreadCollidingEndpoints(
 			) {
 				return;
 			}
-			route[at] = moved;
-			route[at + step] = alongY
+			const shifted = route.map((point) => ({ ...point }));
+			shifted[at] = moved;
+			shifted[at + step] = alongY
 				? { x: bend.x, y: moved.y }
 				: { x: moved.x, y: bend.y };
+			// The separation pass never moves first/last segments, so a spread
+			// that creates a collision could not be repaired later: reject it.
+			if (
+				routeObstacleHits(shifted, obstacles) >
+				routeObstacleHits(route, obstacles)
+			) {
+				return;
+			}
+			route[at] = shifted[at] as Point;
+			route[at + step] = shifted[at + step] as Point;
 		});
 	}
 

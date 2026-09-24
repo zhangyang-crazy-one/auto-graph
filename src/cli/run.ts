@@ -3,7 +3,10 @@ import { Command, CommanderError } from "commander";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
 import { renderDiagramDsl } from "../dsl/render.js";
 import type { DslDiagnostic } from "../dsl/types.js";
-import { measureLayoutQuality } from "../quality/index.js";
+import {
+	containmentRelations,
+	measureLayoutQuality,
+} from "../quality/index.js";
 import {
 	readInputFile,
 	readStdin,
@@ -76,7 +79,13 @@ export async function runCli(
 		if (options.metrics !== undefined && result.diagram !== undefined) {
 			await writeFileAtomic(
 				options.metrics,
-				`${JSON.stringify(measureLayoutQuality(result.diagram), null, 2)}\n`,
+				`${JSON.stringify(
+					measureLayoutQuality(result.diagram, {
+						containment: containmentRelations(result.constraints),
+					}),
+					null,
+					2,
+				)}\n`,
 			);
 		}
 

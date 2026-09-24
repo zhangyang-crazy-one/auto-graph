@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../../src/dsl/index.js";
 import {
+	containmentRelations,
 	LAYOUT_METRIC_HARD_KEYS,
 	type LayoutMetrics,
 	measureLayoutQuality,
@@ -53,7 +54,9 @@ function solveBenchmark(path: string): LayoutMetrics {
 	if (result.diagram === undefined) {
 		throw new Error(`${path} did not solve`);
 	}
-	return measureLayoutQuality(result.diagram);
+	return measureLayoutQuality(result.diagram, {
+		containment: containmentRelations(result.constraints),
+	});
 }
 
 const current: Baseline = Object.fromEntries(

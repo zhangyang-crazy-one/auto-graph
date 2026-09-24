@@ -1,4 +1,5 @@
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
+import type { Constraint } from "../ir/constraints.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { NodeShape } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
@@ -69,6 +70,15 @@ export interface LayoutMetrics {
 }
 
 export interface LayoutMetricsOptions {
+	/**
+	 * Intentional containment (a node placed inside another node, e.g. from
+	 * `containment` constraints). These pairs are not counted as overlaps.
+	 * Nodes whose `parentId` names another node are excluded automatically.
+	 */
+	containment?: ReadonlyArray<{
+		containerId: string;
+		childIds: readonly string[];
+	}>;
 	/** Target width / height ratio for `aspectDeviation` (default 16/9). */
 	targetAspectRatio?: number;
 	/** Occupancy grid resolution per axis for `largestEmptyRatio` (default 48). */
@@ -90,12 +100,27 @@ export function measureLayoutQuality(
 	const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
 	// Hard geometry --------------------------------------------------------
+	const containedPairs = new Set<string>();
+	const pairKey = (a: string, b: string): string =>
+		a < b ? `${a}|${b}` : `${b}|${a}`;
+	for (const relation of options.containment ?? []) {
+		for (const childId of relation.childIds) {
+			containedPairs.add(pairKey(relation.containerId, childId));
+		}
+	}
+	for (const node of nodes) {
+		if (node.parentId !== undefined && nodeById.has(node.parentId)) {
+			containedPairs.add(pairKey(node.parentId, node.id));
+		}
+	}
 	let nodeOverlaps = 0;
 	for (let i = 0; i < nodes.length; i += 1) {
 		for (let j = i + 1; j < nodes.length; j += 1) {
 			const a = nodes[i];
 			const b = nodes[j];
-			if (a && b && overlapArea(a.box, b.box) > EPSILON) nodeOverlaps += 1;
+			if (a === undefined || b === undefined) continue;
+			if (containedPairs.has(pairKey(a.id, b.id))) continue;
+			if (overlapArea(a.box, b.box) > EPSILON) nodeOverlaps += 1;
 		}
 	}
 
@@ -188,15 +213,18 @@ export function measureLayoutQuality(
 		(annotation) => annotation.surfaceKind === "edge-label",
 	);
 	let edgeLabelCollisions = 0;
-	for (let i = 0; i < edgeLabels.length; i += 1) {
-		const label = edgeLabels[i];
-		if (label === undefined) continue;
+	for (const label of edgeLabels) {
 		const hitsNode = nodes.some(
 			(node) => overlapArea(label.box, node.box) > EPSILON,
 		);
-		const hitsLabel = edgeLabels.some(
-			(other, index) =>
-				index !== i && overlapArea(label.box, other.box) > EPSILON,
+		// Any other text surface: edge labels, group / swimlane / frame
+		// titles, port labels, … (node labels are covered by the node box).
+		// Compared by visible text extent: group labels are fitted with a
+		// node-sized minimum and padding that is not drawn.
+		const hitsLabel = annotations.some(
+			(other) =>
+				other !== label &&
+				overlapArea(label.box, annotationContentBox(other)) > EPSILON,
 		);
 		if (hitsNode || hitsLabel) edgeLabelCollisions += 1;
 	}
@@ -318,6 +346,22 @@ export function measureLayoutQuality(
 	};
 }
 
+/** Containment relations from normalized constraints, for `containment`. */
+export function containmentRelations(
+	constraints: readonly Constraint[] | undefined,
+): Array<{ containerId: string; childIds: string[] }> {
+	return (constraints ?? []).flatMap((constraint) =>
+		constraint.kind === "containment"
+			? [
+					{
+						containerId: constraint.containerId,
+						childIds: [...constraint.childIds],
+					},
+				]
+			: [],
+	);
+}
+
 /** Keys where a larger value is worse, used by regression ratchets. */
 export const LAYOUT_METRIC_HARD_KEYS = [
 	"nodeOverlaps",
@@ -355,6 +399,25 @@ function canvasBox(diagram: CoordinatedDiagram): Box {
 		}
 	}
 	return boxes.length === 0 ? diagram.bounds : union(boxes);
+}
+
+function annotationContentBox(annotation: SolvedTextAnnotation): Box {
+	return {
+		x: annotation.box.x + annotation.paddings.left,
+		y: annotation.box.y + annotation.paddings.top,
+		width: Math.max(
+			0,
+			annotation.box.width -
+				annotation.paddings.left -
+				annotation.paddings.right,
+		),
+		height: Math.max(
+			0,
+			annotation.box.height -
+				annotation.paddings.top -
+				annotation.paddings.bottom,
+		),
+	};
 }
 
 /**
