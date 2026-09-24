@@ -464,3 +464,85 @@ describe("folding long flows (P4)", () => {
 		).toBe(false);
 	});
 });
+
+describe("review follow-ups (Codex #96, round 6)", () => {
+	it("keeps two along-the-flow swimlanes apart with their padding", () => {
+		const lanes = (id: string, a: string, b: string) => ({
+			id,
+			orientation: "vertical" as const,
+			headerHeight: 28,
+			padding: 16,
+			lanes: [
+				{ id: "l0", children: [a] },
+				{ id: "l1", children: [b] },
+			],
+		});
+		const result = runGlobalLayout({
+			direction: "LR",
+			nodes: ["a1", "b1", "a2", "b2"].map((id) => node(id)),
+			edges: edges(["a1", "b1"], ["a2", "b2"]),
+			swimlanes: [lanes("s1", "a1", "b1"), lanes("s2", "a2", "b2")],
+		});
+		const envelope = (id: string) => union(result.laneBoxes.get(id) ?? []);
+		expect(overlaps(envelope("s1"), envelope("s2"))).toBe(false);
+	});
+
+	it("gives a leading empty along-the-flow lane its own slot", () => {
+		const result = runGlobalLayout({
+			direction: "LR",
+			nodes: [node("x")],
+			edges: [],
+			swimlanes: [
+				{
+					id: "s",
+					orientation: "vertical",
+					headerHeight: 28,
+					padding: 16,
+					lanes: [
+						{ id: "empty", children: [] },
+						{ id: "full", children: ["x"] },
+					],
+				},
+			],
+		});
+		const [empty, full] = result.laneBoxes.get("s") ?? [];
+		const x = result.boxes.get("x") as Box;
+		expect(empty).toBeDefined();
+		expect(overlaps(empty as Box, full as Box)).toBe(false);
+		expect(inside(centre(x), empty as Box)).toBe(false);
+		expect(inside(centre(x), full as Box)).toBe(true);
+	});
+
+	it("returns group boxes wide enough for the group title", () => {
+		const result = runGlobalLayout({
+			direction: "TB",
+			nodes: [node("only", 40, 40)],
+			edges: [],
+			groups: [{ ...group("g", ["only"]), labelWidth: 300 }],
+		});
+		expect(result.groupBoxes.get("g")?.width ?? 0).toBeGreaterThanOrEqual(
+			300 + PAD.left + PAD.right - 1e-6,
+		);
+	});
+
+	it("never lets a synthetic vertex overwrite a real node", () => {
+		const hierarchy = buildContainerHierarchy({
+			direction: "LR",
+			nodeIds: ["a", "b", "\u0000dummy:long:1", "c"],
+			groups: [],
+			swimlanes: [],
+		});
+		const layering = assignLayers(
+			["a", "b", "\u0000dummy:long:1", "c"],
+			[
+				{ id: "ab", source: "a", target: "b" },
+				{ id: "bc", source: "b", target: "c" },
+				{ id: "long", source: "a", target: "c" },
+			],
+			hierarchy,
+		);
+		expect(layering.vertices.get("\u0000dummy:long:1")?.nodeId).toBe(
+			"\u0000dummy:long:1",
+		);
+	});
+});

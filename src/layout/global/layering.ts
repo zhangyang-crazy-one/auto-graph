@@ -146,7 +146,7 @@ export function assignLayers(
 		const switchLayer = top + Math.ceil((bottom - top) / 2);
 		let previous = upper;
 		for (let layer = top + 1; layer < bottom; layer += 1) {
-			const id = `__dummy__:${edge.id}:${layer}`;
+			const id = syntheticVertexId(vertices, `dummy:${edge.id}:${layer}`);
 			const fromUpper = covering(upperChain, layer);
 			const fromLower = covering(lowerChain, layer);
 			const containerId =
@@ -171,6 +171,23 @@ export function assignLayers(
 		layers[vertex.layer]?.push(vertex.id);
 	}
 	return { vertices, layers, segments, reversedEdgeIds, layerOfNode };
+}
+
+/**
+ * Id for a dummy or filler vertex. Node ids are arbitrary strings, so the
+ * id lives in a NUL-prefixed namespace and, should it still be taken
+ * (real vertices are inserted first), gets a deterministic `#n` suffix: a
+ * synthetic vertex can never overwrite a real node.
+ */
+function syntheticVertexId(
+	vertices: ReadonlyMap<string, LayerVertex>,
+	base: string,
+): string {
+	let id = `\u0000${base}`;
+	for (let suffix = 1; vertices.has(id); suffix += 1) {
+		id = `\u0000${base}#${suffix}`;
+	}
+	return id;
 }
 
 /** Containers from `containerId` up to (excluding) the root, deepest first. */
@@ -324,7 +341,7 @@ function addContainerFillers(
 		if (range === undefined) continue;
 		for (let layer = range.min; layer <= range.max; layer += 1) {
 			if (occupied.get(container.id)?.has(layer)) continue;
-			const id = `__fill__:${container.id}:${layer}`;
+			const id = syntheticVertexId(vertices, `fill:${container.id}:${layer}`);
 			vertices.set(id, { id, containerId: container.id, layer, filler: true });
 			occupy(container.id, layer);
 		}
@@ -783,8 +800,17 @@ function laneBlockLayers(
 		a[0].localeCompare(b[0]),
 	)) {
 		let offset = 0;
-		for (const laneIndex of [...lanes[1].keys()].sort((a, b) => a - b)) {
+		const laneCount = Math.max(
+			hierarchy.mainAxisLaneCount.get(lanes[0]) ?? 0,
+			...[...lanes[1].keys()].map((index) => index + 1),
+		);
+		for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
 			const members = lanes[1].get(laneIndex) ?? [];
+			if (members.length === 0) {
+				// Reserve one empty layer so an empty lane keeps its slot.
+				offset += 1;
+				continue;
+			}
 			const memberSet = new Set(members);
 			const local = longestPathLayers(
 				members,
@@ -850,7 +876,7 @@ function laneBlockLayers(
 	// round only moves layers later, and the graph is acyclic, so it ends.
 	for (let round = 0; round <= nodes.length; round += 1) {
 		placeFree();
-		let conflict: { at: number; shift: number } | undefined;
+		let conflict: { node: string; at: number; shift: number } | undefined;
 		for (const node of order) {
 			if (fixed.has(node)) continue;
 			const at = layer.get(node) ?? 0;
@@ -858,15 +884,27 @@ function laneBlockLayers(
 				if (!fixed.has(succ)) continue;
 				const target = layer.get(succ) ?? 0;
 				if (target <= at && (conflict === undefined || target < conflict.at)) {
-					conflict = { at: target, shift: at + 1 - target };
+					conflict = { node, at: target, shift: at + 1 - target };
 				}
 			}
 		}
 		if (conflict === undefined) break;
 		const { at, shift } = conflict;
+		// Move the blocked suffix only: fixed nodes on or after the blocked
+		// layer that are not upstream of the squeezed node. Its fixed
+		// ancestors (e.g. `a` in `a -> x -> b` with a and b co-layered) stay,
+		// so the gap actually opens.
+		const upstream = new Set<string>();
+		const stack = [...(preds.get(conflict.node) ?? [])];
+		while (stack.length > 0) {
+			const id = stack.pop() as string;
+			if (upstream.has(id)) continue;
+			upstream.add(id);
+			stack.push(...(preds.get(id) ?? []));
+		}
 		for (const node of fixed) {
 			const value = layer.get(node) ?? 0;
-			if (value >= at) layer.set(node, value + shift);
+			if (value >= at && !upstream.has(node)) layer.set(node, value + shift);
 		}
 	}
 	return layer;

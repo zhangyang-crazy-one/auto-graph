@@ -57,6 +57,8 @@ export interface ContainerHierarchy {
 	laneAxis: Map<string, LaneAxis>;
 	/** For lanes on the main axis: node id → [swimlane id, lane index]. */
 	mainAxisLaneOfNode: Map<string, { swimlaneId: string; laneIndex: number }>;
+	/** Number of lanes of every swimlane whose lanes run along the flow. */
+	mainAxisLaneCount: Map<string, number>;
 	diagnostics: Diagnostic[];
 }
 
@@ -91,16 +93,30 @@ export function buildContainerHierarchy(
 		string,
 		{ swimlaneId: string; laneIndex: number }
 	>();
+	const mainAxisLaneCount = new Map<string, number>();
 
 	for (const swimlane of input.swimlanes) {
 		const axis = laneAxisFor(swimlane.orientation, input.direction);
 		laneAxis.set(swimlane.id, axis);
 		if (axis === "main") {
-			// Lanes along the flow constrain layering, not cross-axis order.
+			// Lanes along the flow constrain layering, not cross-axis order,
+			// but the swimlane itself is still one container across the flow:
+			// two such swimlanes must not overlap with their headers/padding.
+			const swimlaneId = containerId("swimlane", swimlane.id);
+			containers.set(swimlaneId, {
+				id: swimlaneId,
+				kind: "swimlane",
+				parentId: root.id,
+				childIds: [],
+				nodeIds: [],
+			});
+			root.childIds.push(swimlaneId);
+			mainAxisLaneCount.set(swimlane.id, swimlane.lanes.length);
 			swimlane.lanes.forEach((lane, laneIndex) => {
 				for (const child of lane.children) {
 					if (!nodeSet.has(child) || mainAxisLaneOfNode.has(child)) continue;
 					mainAxisLaneOfNode.set(child, { swimlaneId: swimlane.id, laneIndex });
+					if (!laneOfNode.has(child)) laneOfNode.set(child, swimlaneId);
 				}
 			});
 			continue;
@@ -249,6 +265,7 @@ export function buildContainerHierarchy(
 		containerOfNode,
 		laneAxis,
 		mainAxisLaneOfNode,
+		mainAxisLaneCount,
 		diagnostics,
 	};
 }

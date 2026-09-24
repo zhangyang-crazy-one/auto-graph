@@ -112,6 +112,11 @@ export interface GlobalLayoutResult {
 	 * in lane order. Lanes of one swimlane abut and never overlap.
 	 */
 	laneBoxes: Map<string, Box[]>;
+	/**
+	 * Solved outer box of every group (padding and header included). It can
+	 * be wider than members + padding, e.g. to fit a long title.
+	 */
+	groupBoxes: Map<string, Box>;
 	diagnostics: Diagnostic[];
 	crossings: number;
 	layerCount: number;
@@ -320,7 +325,50 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		crossSize,
 		crossOf: cross.positions,
 	});
+	const groupBoxes = new Map<string, Box>();
+	if (fold === undefined) {
+		for (const group of input.groups ?? []) {
+			const id = containerId("group", group.id);
+			const bounds = cross.bounds.get(id);
+			const inset = insets.get(id) ?? ZERO_INSETS;
+			const members = nodeIds.filter((nodeId) =>
+				containerPath(
+					hierarchy,
+					hierarchy.containerOfNode.get(nodeId) ?? hierarchy.rootId,
+				).includes(id),
+			);
+			let lo = Number.POSITIVE_INFINITY;
+			let hi = Number.NEGATIVE_INFINITY;
+			for (const nodeId of members) {
+				const layer = layering.layerOfNode.get(nodeId);
+				const size = sizeOf.get(nodeId);
+				if (layer === undefined || size === undefined) continue;
+				const center =
+					(layerStarts.starts[layer] ?? 0) +
+					(layerStarts.thickness[layer] ?? 0) / 2;
+				lo = Math.min(lo, center - mainSize(size) / 2);
+				hi = Math.max(hi, center + mainSize(size) / 2);
+			}
+			if (bounds === undefined || !Number.isFinite(lo)) continue;
+			groupBoxes.set(
+				group.id,
+				toScreenRect(
+					direction,
+					[lo - inset.mainBefore, hi + inset.mainAfter],
+					bounds,
+				),
+			);
+		}
+	}
 	const shift = normalizeBoxes(boxes);
+	for (const [id, box] of groupBoxes) {
+		groupBoxes.set(id, {
+			x: round(box.x - shift.x),
+			y: round(box.y - shift.y),
+			width: round(box.width),
+			height: round(box.height),
+		});
+	}
 	for (const [id, lanes] of laneBoxes) {
 		laneBoxes.set(
 			id,
@@ -335,6 +383,7 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 	return {
 		boxes,
 		laneBoxes,
+		groupBoxes,
 		diagnostics,
 		crossings: ordering.crossings,
 		layerCount: ordering.layers.length,
@@ -666,44 +715,55 @@ function computeLaneBoxes(context: LaneBoxInput): Map<string, Box[]> {
 			}
 			continue;
 		}
-		// Lanes along the flow: one block of layers each.
-		const crossSpan: [number, number] = [
-			cross[0] - laneInsets.crossBefore,
-			cross[1] + laneInsets.crossAfter,
-		];
-		const natural = swimlane.lanes.map((lane) =>
-			extent(lane.children, mainRange),
+		// Lanes along the flow: one block of layers each, sharing the
+		// swimlane container's solved cross extent.
+		const solved = context.crossBounds.get(
+			containerId("swimlane", swimlane.id),
 		);
-		const ranges: [number, number][] = [];
-		let cursor = main[0] - laneInsets.mainBefore;
-		natural.forEach((range, index) => {
-			if (range === undefined) {
-				const width = laneInsets.mainBefore + laneInsets.mainAfter;
-				ranges.push([cursor, cursor + width]);
-				cursor += width;
-				return;
+		const crossSpan: [number, number] = solved
+			? [solved[0], solved[1]]
+			: [cross[0] - laneInsets.crossBefore, cross[1] + laneInsets.crossAfter];
+		// Natural main range per lane. Layering reserves one empty layer for
+		// an empty lane (after the previous lane's last layer), so empty
+		// lanes get a slot of their own instead of covering a neighbour.
+		let lastLayer = -1;
+		let lastEnd = main[0];
+		const natural = swimlane.lanes.map((lane): [number, number] => {
+			const members = lane.children.filter((id) =>
+				layering.layerOfNode.has(id),
+			);
+			const range = extent(members, mainRange);
+			if (range !== undefined) {
+				lastLayer = Math.max(
+					lastLayer,
+					...members.map((id) => layering.layerOfNode.get(id) ?? 0),
+				);
+				lastEnd = range[1];
+				return range;
 			}
-			const start = Math.max(cursor, range[0] - laneInsets.mainBefore);
-			const nextRange = natural.slice(index + 1).find((r) => r !== undefined);
-			const naturalEnd = range[1] + laneInsets.mainAfter;
-			const end =
-				nextRange === undefined
-					? naturalEnd
-					: Math.max(
-							naturalEnd,
-							(naturalEnd + nextRange[0] - laneInsets.mainBefore) / 2,
-						);
-			ranges.push([
-				index === 0 ? range[0] - laneInsets.mainBefore : start,
-				end,
-			]);
-			cursor = end;
+			lastLayer += 1;
+			const reserved = starts[lastLayer];
+			const at =
+				reserved === undefined
+					? lastEnd + laneInsets.mainBefore + laneInsets.mainAfter
+					: reserved + (thickness[lastLayer] ?? 0) / 2;
+			lastEnd = at;
+			return [at, at];
 		});
-		// Close gaps so consecutive lanes share their border.
+		const ranges = natural.map(([lo, hi]): [number, number] => [
+			lo - laneInsets.mainBefore,
+			hi + laneInsets.mainAfter,
+		]);
+		// Consecutive lanes meet in the middle of the gap between them.
 		for (let index = 1; index < ranges.length; index += 1) {
 			const previous = ranges[index - 1] as [number, number];
 			const current = ranges[index] as [number, number];
-			current[0] = previous[1];
+			const border =
+				previous[1] <= current[0]
+					? (previous[1] + current[0]) / 2
+					: previous[1];
+			previous[1] = border;
+			current[0] = border;
 			if (current[1] < current[0]) current[1] = current[0];
 		}
 		result.set(
@@ -789,6 +849,12 @@ function containerInsets(
 		);
 		for (const lane of swimlane.lanes) {
 			const id = containerId("lane", `${swimlane.id}/${lane.id}`);
+			if (hierarchy.containers.has(id)) result.set(id, laneInsets);
+		}
+		// Lanes along the flow have no containers of their own: the swimlane
+		// carries their header and padding across the flow.
+		if (hierarchy.laneAxis.get(swimlane.id) === "main") {
+			const id = containerId("swimlane", swimlane.id);
 			if (hierarchy.containers.has(id)) result.set(id, laneInsets);
 		}
 	}

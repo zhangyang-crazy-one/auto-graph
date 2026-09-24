@@ -334,3 +334,28 @@ describe("main-axis lane layering (Codex #96, round 5)", () => {
 		expect(layerOf("x")).toBeLessThan(layerOf("b"));
 	});
 });
+
+describe("main-axis lane layering (Codex #96, round 6)", () => {
+	it("opens a gap when both lane endpoints share a layer", () => {
+		const { layering } = solve(
+			["a", "x", "b"],
+			[
+				["a", "x"],
+				["x", "b"],
+			],
+			{
+				direction: "LR",
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "vertical",
+						lanes: [{ id: "l0", children: ["a", "b"] }],
+					},
+				],
+			},
+		);
+		const layerOf = (id: string) => layering.layerOfNode.get(id) ?? -1;
+		expect(layerOf("a")).toBeLessThan(layerOf("x"));
+		expect(layerOf("x")).toBeLessThan(layerOf("b"));
+	});
+});

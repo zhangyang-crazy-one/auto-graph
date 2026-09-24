@@ -34,4 +34,6 @@ export interface InitialLayoutResult {
 	diagnostics: Diagnostic[];
 	/** Lane boxes per swimlane id, when the layout placed lanes itself. */
 	laneBoxes?: Map<string, Box[]>;
+	/** Solved group boxes the rendered groups should at least cover. */
+	groupBoxes?: Map<string, Box>;
 }

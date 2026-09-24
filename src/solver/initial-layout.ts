@@ -364,6 +364,7 @@ export function runGlobalInitialLayout(input: {
 		boxes: result.boxes,
 		diagnostics: [...seed.diagnostics, ...result.diagnostics],
 		laneBoxes: result.laneBoxes,
+		groupBoxes: result.groupBoxes,
 	};
 }
 

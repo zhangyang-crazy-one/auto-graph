@@ -3,6 +3,7 @@
 import {
 	computeContainerGeometry,
 	computeShapeGeometry,
+	unionBoxes,
 } from "../geometry/index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { NormalizedDiagram } from "../ir/diagram.js";
@@ -102,11 +103,26 @@ export function coordinateFrame(
 	};
 }
 
+function boxesOverlap(a: Box, b: Box): boolean {
+	return (
+		a.x < b.x + b.width &&
+		b.x < a.x + a.width &&
+		a.y < b.y + b.height &&
+		b.y < a.y + a.height
+	);
+}
+
 export function coordinateGroups(
 	groups: readonly NormalizedGroup[],
 	nodeBoxes: ReadonlyMap<string, Box>,
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[],
+	/**
+	 * Boxes a layout reserved for groups (e.g. the global layout widening a
+	 * group for its title). A group also covers its reserved box, as long as
+	 * the two still overlap (members may have moved since).
+	 */
+	reservedBoxes?: ReadonlyMap<string, Box>,
 ): CoordinatedGroup[] {
 	const coordinated: CoordinatedGroup[] = [];
 	const groupBoxes = new Map<string, Box>();
@@ -153,11 +169,16 @@ export function coordinateGroups(
 				: { labelLayout: group.labelLayout }),
 			obstacleMargin: options.obstacleMargin ?? 0,
 		});
-		groupBoxes.set(group.id, geometry.box);
+		const reserved = reservedBoxes?.get(group.id);
+		const box =
+			reserved !== undefined && boxesOverlap(reserved, geometry.box)
+				? unionBoxes([geometry.box, reserved])
+				: geometry.box;
+		groupBoxes.set(group.id, box);
 		diagnostics.push(...geometry.diagnostics);
 		coordinated.push({
 			...group,
-			box: geometry.box,
+			box,
 		});
 	}
 

@@ -444,6 +444,9 @@ export function solveDiagram(
 		constrained.boxes,
 		options,
 		diagnostics,
+		!useRecursive && initialLayoutMode === "global" && "groupBoxes" in layout
+			? layout.groupBoxes
+			: undefined,
 	);
 	let coordinatedSwimlanes = coordinateSwimlanes(
 		styledSwimlanes,

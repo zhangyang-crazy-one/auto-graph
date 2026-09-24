@@ -798,3 +798,22 @@ describe("review follow-ups (Codex #96, round 5)", () => {
 		expect(trunk < 100 || trunk > 200).toBe(true);
 	});
 });
+
+describe("degree growth keeps circles round (Codex #96, round 6)", () => {
+	it("grows a circular ellipse in both dimensions", () => {
+		const hub = {
+			id: "start",
+			shape: "ellipse" as const,
+			size: { width: 80, height: 80 },
+			padding: { top: 8, right: 8, bottom: 8, left: 8 },
+		};
+		const edges = ["a", "b", "c", "d", "e"].map((id) => ({
+			id: `start-${id}`,
+			source: { nodeId: "start" },
+			target: { nodeId: id },
+		}));
+		const [grown] = growNodesForEdgeDegree([hub], edges, "LR", {});
+		expect(grown?.size.height).toBeGreaterThan(80);
+		expect(grown?.size.width).toBe(grown?.size.height);
+	});
+});

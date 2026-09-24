@@ -553,9 +553,16 @@ export function growNodesForEdgeDegree(
 		}
 		required = Math.ceil(required);
 		if (required <= current) return node;
-		const size = horizontalFlow
-			? { width: node.size.width, height: required }
-			: { width: required, height: node.size.height };
+		// Circles (DSL ellipses, start/end terminators) stay circles: grow
+		// both dimensions instead of stretching one into an oval.
+		const circular =
+			node.shape === "ellipse" &&
+			Math.abs(node.size.width - node.size.height) < 0.5;
+		const size = circular
+			? { width: required, height: required }
+			: horizontalFlow
+				? { width: node.size.width, height: required }
+				: { width: required, height: node.size.height };
 		const grown: NormalizedNode = { ...node, size };
 		recenterNodeLabelLayout(grown, { x: 0, y: 0, ...size });
 		return grown;
