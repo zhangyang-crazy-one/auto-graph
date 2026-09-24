@@ -93,6 +93,18 @@ describe("agh CLI contract", () => {
 		}
 	});
 
+	it("runCli writes the geometry contract with --format geometry", async () => {
+		const io = memoryIo(VALID_DSL);
+
+		const exitCode = await runCli(["--format", "geometry"], io.environment);
+
+		expect(exitCode).toBe(0);
+		const document = JSON.parse(io.stdout());
+		expect(document.format).toBe("dge-geometry");
+		expect(document.version).toBe(1);
+		expect(io.stderr()).toBe("");
+	});
+
 	it("runCli reads stdin and writes Excalidraw JSON to stdout", async () => {
 		const io = memoryIo(VALID_DSL);
 

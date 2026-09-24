@@ -236,8 +236,33 @@ Supported output formats:
 
 - `svg`
 - `excalidraw`
+- `geometry` — the solved geometry contract (below)
 
 Format precedence is CLI `--format`, then DSL `output.format`, then `svg`.
+
+## Geometry Contract
+
+`--format geometry` (or `exportGeometry(diagram)` in TypeScript) returns the solved diagram as plain numbers, so an agent or app can draw it with any renderer instead of writing another SVG layout routine. The format is versioned (`"format": "dge-geometry", "version": 1`) and described by a JSON Schema in [`schema/dge-geometry.v1.schema.json`](schema/dge-geometry.v1.schema.json) (also `geometryJsonSchema()`).
+
+One coordinate system (px, origin top left, y down), every number rounded to 3 decimals, byte-stable for the same input:
+
+- `nodes`: box, outline as a primitive (`rect` + corner radius, `ellipse`, `polygon`, `cylinder`) **and** as path commands (`M`/`L`/`A`/`Z`), ports.
+- `containers`: groups, swimlanes and lanes with their boxes, lane headers, parent and children.
+- `edges`: source/target point and side, the route `points`, the stroke `path` (shortened to the arrowhead base, with jump arcs or gaps cut in where it passes under another edge), arrowhead triangles, crossings, label reference.
+- `texts`: every label with its box, font, lines (left `x`, baseline `y`, width, line box), the backdrop box to paint behind it and its rotation.
+- `zOrder`: back-to-front paint list; `metrics`: layout quality; `diagnostics`.
+
+Rendering is a loop over `zOrder`; `renderGeometrySvg(document)` is a ~100-line reference renderer that uses nothing but the document.
+
+```ts
+import { exportGeometry, renderDiagramDsl } from "@crazyhappyone/auto-graph";
+
+const { diagram } = renderDiagramDsl(source);
+const geometry = exportGeometry(diagram!);
+for (const paint of geometry.zOrder) {
+  // draw paint.kind ("container" | "edge" | "node" | "port" | "backdrop" | "text") by id
+}
+```
 
 ## Current Scope
 
