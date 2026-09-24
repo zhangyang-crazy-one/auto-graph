@@ -13,7 +13,10 @@ import type {
 } from "../src/ir/index.js";
 import { separateParallelSegments } from "../src/routing/index.js";
 import { solveDiagram } from "../src/solver/index.js";
-import { growNodesForEdgeDegree } from "../src/solver/ports.js";
+import {
+	flowAwareAnchorSide,
+	growNodesForEdgeDegree,
+} from "../src/solver/ports.js";
 import {
 	finalizeCoordinatedEdges,
 	pruneResolvedRouteDiagnostics,
@@ -897,5 +900,26 @@ describe("trunk crossing reduction", () => {
 		];
 		const result = separateParallelSegments(routes, [], { separate: false });
 		expect(crossings(result)).toBe(2);
+	});
+});
+
+describe("backward edges across rows", () => {
+	it("leaves and enters across the flow when running far back", () => {
+		// A folded band's return edge: e-sign at the right end of row 1,
+		// disbursement at the left end of row 2 (LR flow).
+		const sign = { x: 1000, y: 0, width: 120, height: 40 };
+		const disburse = { x: 0, y: 200, width: 120, height: 40 };
+		expect(flowAwareAnchorSide(sign, disburse, "LR", "source")).toBe("bottom");
+		expect(flowAwareAnchorSide(disburse, sign, "LR", "target")).toBe("top");
+	});
+
+	it("keeps flow sides for forward edges and short loops back", () => {
+		const a = { x: 0, y: 0, width: 120, height: 40 };
+		const b = { x: 300, y: 200, width: 120, height: 40 };
+		expect(flowAwareAnchorSide(a, b, "LR", "source")).toBe("right");
+		// Loop back to the step right before, one row up: along < across.
+		const c = { x: 0, y: 0, width: 120, height: 40 };
+		const d = { x: 160, y: 300, width: 120, height: 40 };
+		expect(flowAwareAnchorSide(d, c, "LR", "source")).toBe("left");
 	});
 });
