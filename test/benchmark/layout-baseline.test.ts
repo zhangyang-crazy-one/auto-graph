@@ -32,13 +32,14 @@ const BENCHMARKS = [
 	"examples/flowchart.yaml",
 	"examples/architecture.yaml",
 	"examples/groups.yaml",
-	// Same inputs solved with the global layout (`layout.mode: global`).
-	"test/fixtures/benchmark/cn-swimlane.yaml#global",
-	"test/fixtures/benchmark/cn-vertical-lanes.yaml#global",
+	// Swimlane diagrams default to the global layout; keep the Dagre path
+	// covered for them, and the global path for diagrams without lanes.
+	"test/fixtures/benchmark/cn-swimlane.yaml#dagre",
+	"test/fixtures/benchmark/cn-vertical-lanes.yaml#dagre",
+	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml#dagre",
+	"examples/swimlane.yaml#dagre",
 	"test/fixtures/benchmark/cn-architecture.yaml#global",
-	"test/fixtures/phase-08/contract-swimlane.auto-graph.yaml#global",
 	"examples/fan-out.yaml#global",
-	"examples/swimlane.yaml#global",
 ] as const;
 
 const BASELINE_URL = new URL(

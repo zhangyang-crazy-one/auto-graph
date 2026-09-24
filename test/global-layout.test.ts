@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { Box } from "../src/ir/index.js";
 import {
 	assignLayers,
@@ -7,6 +8,7 @@ import {
 	type GlobalLayoutInput,
 	runGlobalLayout,
 } from "../src/layout/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 const PAD = { top: 12, right: 12, bottom: 12, left: 12 };
 
@@ -323,5 +325,41 @@ describe("swimlane hand-offs", () => {
 			lanes({ one: ["a", "b"] }),
 		);
 		expect(layer.get("b")).toBe(1);
+	});
+});
+
+describe("default layout mode", () => {
+	const yaml = (mode?: string) => `
+layout: { direction: LR${mode === undefined ? "" : `, mode: ${mode}`} }
+swimlanes:
+  flow:
+    orientation: horizontal
+    lanes:
+      one: { children: [a] }
+      two: { children: [b] }
+nodes:
+  a: { label: A }
+  b: { label: B }
+edges:
+  - a -> b
+`;
+	const centreX = (source: string, id: string) => {
+		const result = renderDiagramDsl(source, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const box = result.diagram?.nodes.find((node) => node.id === id)?.box;
+		return box === undefined ? Number.NaN : box.x + box.width / 2;
+	};
+
+	it("solves swimlane diagrams with the global layout by default", () => {
+		// Global: the hand-off a → b is drawn straight across the lanes.
+		expect(centreX(yaml(), "b")).toBeCloseTo(centreX(yaml(), "a"), 0);
+		expect(centreX(yaml(), "b")).toBeCloseTo(centreX(yaml("global"), "b"), 6);
+	});
+
+	it("keeps Dagre when the mode is set explicitly", () => {
+		expect(centreX(yaml("dagre"), "b")).toBeGreaterThan(
+			centreX(yaml("dagre"), "a") + 40,
+		);
 	});
 });
