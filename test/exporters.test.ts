@@ -9,12 +9,14 @@ import {
 	exportExcalidraw,
 	exportSvg,
 } from "../src/exporters/index.js";
+import { labelBackdropBox } from "../src/exporters/label-backdrop.js";
 import type {
 	CoordinatedDiagram,
 	LabelLayout,
 	LabelLineLayout,
 } from "../src/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("exporters", () => {
 	it("computes arrowhead geometry from the final non-zero segment", () => {
@@ -1217,3 +1219,68 @@ function createLabelLine(
 		lineIndex: options.lineIndex,
 	};
 }
+
+describe("label backdrops", () => {
+	const source = `
+layout: { direction: LR }
+nodes:
+  a: { label: Start }
+  b: { label: Middle }
+  c: { label: End }
+edges:
+  - a -> b: 通过 approve
+  - b -> c: next
+  - a -> c: skip
+`;
+	const render = (format: "svg" | "excalidraw") =>
+		renderDiagramDsl(source, {
+			format,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+
+	it("draws a text-fitted white box behind every SVG edge label", () => {
+		const result = render("svg");
+		const svg = result.content ?? "";
+		const labels = (result.diagram?.textAnnotations ?? []).filter(
+			(annotation) => annotation.surfaceKind === "edge-label",
+		);
+		expect(labels.length).toBe(3);
+		for (const label of labels) {
+			const backdrop = svg.indexOf(
+				`class="label-backdrop" data-for="${label.ownerId}"`,
+			);
+			const text = svg.indexOf(
+				`class="edge-label" data-for="${label.ownerId}"`,
+			);
+			expect(backdrop, label.ownerId).toBeGreaterThan(-1);
+			expect(backdrop).toBeLessThan(text);
+			// Every edge path is painted before the backdrops.
+			expect(svg.lastIndexOf('class="edge"')).toBeLessThan(backdrop);
+			const box = labelBackdropBox(label);
+			const line = label.lines[0];
+			if (line !== undefined) {
+				expect(box.width).toBeCloseTo(line.box.width + 6, 6);
+			}
+			expect(box.width).toBeLessThanOrEqual(label.box.width + 6 + 1e-6);
+		}
+	});
+
+	it("puts Excalidraw label backdrops above every arrow", () => {
+		const scene = JSON.parse(render("excalidraw").content ?? "{}") as {
+			elements: { id: string; type: string; backgroundColor: string }[];
+		};
+		const lastArrow = scene.elements.reduce(
+			(last, element, index) => (element.type === "arrow" ? index : last),
+			-1,
+		);
+		const backdrops = scene.elements
+			.map((element, index) => ({ element, index }))
+			.filter(({ element }) => element.id.endsWith(":backdrop"));
+		expect(backdrops.length).toBe(3);
+		for (const { element, index } of backdrops) {
+			expect(index).toBeGreaterThan(lastArrow);
+			expect(element.backgroundColor).toBe("#ffffff");
+			expect(scene.elements[index + 1]?.type).toBe("text");
+		}
+	});
+});

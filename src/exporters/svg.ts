@@ -17,6 +17,7 @@ import type {
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
+import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import type { ExportOptions } from "./types.js";
 
 const NODE_FILL = "#f8fafc";
@@ -451,11 +452,14 @@ function renderPorts(
 						? [
 								`  <text class="port-label" data-for="${escapeAttribute(`${node.id}.${port.id}`)}" x="${formatNumber(portLabelX(port.anchor.x, port.side))}" y="${formatNumber(port.anchor.y - 8)}" text-anchor="${port.side === "left" ? "end" : "start"}" font-family="${FONT_FAMILY}" font-size="10" fill="#111827">${escapeXml(port.label.text)}</text>`,
 							]
-						: (renderSolvedTextAnnotation(annotation, "port-label", {
-								indent: "  ",
-								mode: "center",
-								textAnchor: port.side === "left" ? "end" : "start",
-							}) ?? []);
+						: [
+								renderLabelBackdrop(annotation, "  "),
+								...(renderSolvedTextAnnotation(annotation, "port-label", {
+									indent: "  ",
+									mode: "center",
+									textAnchor: port.side === "left" ? "end" : "start",
+								}) ?? []),
+							];
 				})()),
 	]);
 }
@@ -581,12 +585,17 @@ function renderLabel(
 ): string[] {
 	const annotation = findAnnotation(annotations, surfaceKind, item.id);
 	if (annotation !== undefined) {
-		return (
-			renderSolvedTextAnnotation(annotation, "label", {
+		return [
+			// Group titles sit on the group border where edges may pass;
+			// node labels are already covered by their node's fill.
+			...(surfaceKind === "group-label"
+				? [renderLabelBackdrop(annotation, "  ")]
+				: []),
+			...(renderSolvedTextAnnotation(annotation, "label", {
 				indent: "  ",
 				mode: "center",
-			}) ?? []
-		);
+			}) ?? []),
+		];
 	}
 	const labelLayout = item.labelLayout;
 	if (labelLayout?.lines !== undefined && labelLayout.lines.length > 0) {
@@ -762,13 +771,13 @@ function renderEdgeLabel(
 			annotation.surfaceKind === "edge-label" && annotation.ownerId === edge.id,
 	);
 	if (matching.length > 0) {
-		return matching.flatMap(
-			(annotation) =>
-				renderSolvedTextAnnotation(annotation, "edge-label", {
-					indent: "  ",
-					mode: "center",
-				}) ?? [],
-		);
+		return matching.flatMap((annotation) => [
+			renderLabelBackdrop(annotation, "  "),
+			...(renderSolvedTextAnnotation(annotation, "edge-label", {
+				indent: "  ",
+				mode: "center",
+			}) ?? []),
+		]);
 	}
 	const placement = labelPlacementOnPolyline(edge.points);
 	if (placement === undefined) {
@@ -777,6 +786,15 @@ function renderEdgeLabel(
 	return [
 		`  <text class="edge-label" data-for="${escapeAttribute(edge.id)}" x="${formatNumber(placement.x)}" y="${formatNumber(placement.y)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT_FAMILY}" font-size="12" fill="#111827">${escapeXml(edge.label.text)}</text>`,
 	];
+}
+
+/** White box fitted to a label's text so strokes behind it do not show. */
+function renderLabelBackdrop(
+	annotation: SolvedTextAnnotation,
+	indentation: string,
+): string {
+	const box = labelBackdropBox(annotation);
+	return `${indentation}<rect class="label-backdrop" data-for="${escapeAttribute(annotation.ownerId)}" data-text-surface="${escapeAttribute(annotation.surfaceKind)}" x="${formatNumber(box.x)}" y="${formatNumber(box.y)}" width="${formatNumber(box.width)}" height="${formatNumber(box.height)}" rx="2" fill="${LABEL_BACKDROP_FILL}"/>`;
 }
 
 function renderArrowhead(edge: CoordinatedEdge): string {
