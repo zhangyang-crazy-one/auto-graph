@@ -8,6 +8,7 @@ import {
 	queryBoxSpatialIndex,
 	shapeSideAttachRange,
 	shapeSidePoint,
+	sidePointAtFraction,
 } from "../geometry/index.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import type { Diagnostic, RouteConflictClass } from "../ir/diagnostics.js";
@@ -28,9 +29,14 @@ import {
 	type RouteEdgeInput,
 	type RouteHardObstacleMetadata,
 	routeEdge,
+	routeEndDirectionPenalty,
 	separateParallelSegments,
 	simplifyRoute,
 } from "../routing/index.js";
+import {
+	assignSameSideSlots,
+	freeFractions,
+} from "../routing/same-side-slots.js";
 import {
 	ancestorGroupIds,
 	compactDetail,
@@ -201,6 +207,30 @@ export function coordinateEdges(
 		softObstacles,
 		options,
 	);
+	const shortPath =
+		(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
+	const sameSideSlots = shortPath
+		? assignSameSideSlots({
+				edges: allocationEdges,
+				nodes,
+				direction,
+				maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
+				occupied: occupiedPortFractions(coordinatedNodes, nodes),
+			})
+		: undefined;
+	if (sameSideSlots !== undefined) {
+		diagnostics.push(...sameSideSlots.diagnostics);
+	}
+	// Fractions taken per node side (ports and slots), for slot retries.
+	const slotOccupancy =
+		sameSideSlots === undefined
+			? undefined
+			: occupiedPortFractions(coordinatedNodes, nodes);
+	for (const slot of sameSideSlots?.assignments.values() ?? []) {
+		const key = `${slot.nodeId}:${slot.anchor}`;
+		slotOccupancy?.set(key, [...(slotOccupancy.get(key) ?? []), slot.fraction]);
+	}
+
 	for (const edge of edges) {
 		railAllocations?.delete(edge.id);
 		const source = nodes.get(edge.source.nodeId);
@@ -250,9 +280,23 @@ export function coordinateEdges(
 			targetDistributedAnchor,
 		);
 		const sourceAnchor =
-			edge.source.anchor ?? sourceDistributedAnchor?.anchor ?? sourcePort?.side;
+			edge.source.anchor ??
+			sourceDistributedAnchor?.anchor ??
+			sourcePort?.side ??
+			sameSideSlots?.assignments.get(`${edge.id}:source`)?.anchor;
 		const targetAnchor =
-			edge.target.anchor ?? targetDistributedAnchor?.anchor ?? targetPort?.side;
+			edge.target.anchor ??
+			targetDistributedAnchor?.anchor ??
+			targetPort?.side ??
+			sameSideSlots?.assignments.get(`${edge.id}:target`)?.anchor;
+		const sourcePreassign =
+			sourcePort !== undefined
+				? { point: sourcePort.anchor, anchor: sourcePort.side }
+				: sameSideSlots?.assignments.get(`${edge.id}:source`);
+		const targetPreassign =
+			targetPort !== undefined
+				? { point: targetPort.anchor, anchor: targetPort.side }
+				: sameSideSlots?.assignments.get(`${edge.id}:target`);
 		const routeTextObstacles = textObstacles
 			.filter(isLocalRouteClearanceText)
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
@@ -327,6 +371,27 @@ export function coordinateEdges(
 			}
 		}
 
+		// RSOP (#86/#87): foreign nodes/groups are hard; text stays soft with
+		// finite cost so micro-clear can run without treating nodes as soft.
+		const routeSoftObstacles = shortPath
+			? [...softObstacles, ...routeTextObstacles]
+			: [
+					...routeNodeObstacles,
+					...softObstacles,
+					...routeGroupObstacles,
+					...routeTextObstacles,
+				];
+		const routeHardObstacles = shortPath
+			? [...hardObstacles, ...routeNodeObstacles, ...routeGroupObstacles]
+			: hardObstacles;
+		const routeHardMetadata: readonly RouteHardObstacleMetadata[] = shortPath
+			? [
+					...routeHardObstacleMetadata,
+					...routeNodeObstacles.map(() => ({ kind: "node" as const })),
+					...routeGroupObstacles.map(() => ({ kind: "node" as const })),
+				]
+			: routeHardObstacleMetadata;
+		const nudgePitch = options.idealNudgingDistance ?? 10;
 		const routeInput: RouteEdgeInput = {
 			kind: options.routeKind ?? "orthogonal",
 			direction,
@@ -334,20 +399,21 @@ export function coordinateEdges(
 			target: targetGeometry,
 			...(sourceAnchor === undefined ? {} : { sourceAnchor }),
 			...(targetAnchor === undefined ? {} : { targetAnchor }),
-			obstacles: [
-				...routeNodeObstacles,
-				...softObstacles,
-				...routeGroupObstacles,
-				...routeTextObstacles,
-			],
+			...(sourcePreassign === undefined
+				? {}
+				: { sourcePoint: sourcePreassign.point }),
+			...(targetPreassign === undefined
+				? {}
+				: { targetPoint: targetPreassign.point }),
+			obstacles: routeSoftObstacles,
 			blockingObstacles: nodeObstacles
 				.filter(
 					(entry) =>
 						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
 				)
 				.map((entry) => entry.box),
-			hardObstacles,
-			hardObstacleMetadata: routeHardObstacleMetadata,
+			hardObstacles: routeHardObstacles,
+			hardObstacleMetadata: routeHardMetadata,
 			corridorMargin,
 			...(options.maxCorners === undefined
 				? {}
@@ -359,9 +425,8 @@ export function coordinateEdges(
 			...(options.maxBacktrackingRatio === undefined
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
+			...(shortPath ? { softTextClearPitch: nudgePitch } : {}),
 			...(() => {
-				const shortPath =
-					(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
 				const densePolicy =
 					shortPath ||
 					options.deliverabilityMode === "strict" ||
@@ -426,12 +491,143 @@ export function coordinateEdges(
 				route = retry;
 			}
 		}
+		// Same-side slots (#92) are a preference: the facing side can be
+		// walled off by nodes between the two ends (a column of nodes) or by
+		// port labels. When the pinned route cannot clear a hard obstacle, or
+		// can only reach its slot along the node border, try the slotted end
+		// on the node's other sides (at a free fraction there) and keep the
+		// cleanest result.
+		if (sameSideSlots !== undefined && slotOccupancy !== undefined) {
+			const misdirected = (points: readonly Point[]): number =>
+				routeEndDirectionPenalty(points, {
+					sourceAnchor: sideOfBox(points[0], source.box),
+					targetAnchor: sideOfBox(points.at(-1), target.box),
+				});
+			const score = (candidate: typeof route) => [
+				...routeSeverity(
+					candidate,
+					routeHardObstacles,
+					routeInput.obstacles ?? [],
+				),
+				misdirected(candidate.points),
+			];
+			const blocked = (candidate: typeof route) =>
+				routeObstacleHits(candidate.points, routeHardObstacles) > 0 ||
+				misdirected(candidate.points) > 0;
+			let relocated: Partial<RouteEdgeInput> = {};
+			for (const endpoint of ["source", "target"] as const) {
+				if (!blocked(route)) break;
+				const endEdge = endpoint === "source" ? edge.source : edge.target;
+				const slot = sameSideSlots.assignments.get(`${edge.id}:${endpoint}`);
+				const port = endpoint === "source" ? sourcePort : targetPort;
+				const geometry = endpoint === "source" ? source : target;
+				if (slot === undefined || port !== undefined || endEdge.anchor) {
+					continue;
+				}
+				let best = {
+					route,
+					score: score(route),
+					side: slot.anchor,
+					fraction: slot.fraction,
+				};
+				for (const side of ["right", "bottom", "left", "top"] as const) {
+					if (side === slot.anchor) continue;
+					const key = `${endEdge.nodeId}:${side}`;
+					const fraction =
+						freeFractions(1, slotOccupancy.get(key) ?? [])[0] ?? 0.5;
+					const point = sidePointAtFraction(geometry.box, side, fraction);
+					const candidate = routeEdge({
+						...routeInput,
+						...relocated,
+						...(endpoint === "source"
+							? { sourceAnchor: side, sourcePoint: point }
+							: { targetAnchor: side, targetPoint: point }),
+					});
+					const candidateScore = score(candidate);
+					if (compareRouteSeverity(candidateScore, best.score) < 0) {
+						best = { route: candidate, score: candidateScore, side, fraction };
+					}
+				}
+				if (best.route !== route) {
+					route = best.route;
+					const point = sidePointAtFraction(
+						geometry.box,
+						best.side,
+						best.fraction,
+					);
+					relocated = {
+						...relocated,
+						...(endpoint === "source"
+							? { sourceAnchor: best.side, sourcePoint: point }
+							: { targetAnchor: best.side, targetPoint: point }),
+					};
+					const key = `${endEdge.nodeId}:${best.side}`;
+					slotOccupancy.set(key, [
+						...(slotOccupancy.get(key) ?? []),
+						best.fraction,
+					]);
+				}
+			}
+		}
+		// #95: a short-orthogonal route that still enters a hard obstacle
+		// (foreign node, group, hard text) is never delivered as the answer
+		// when the general obstacle-avoiding router finds a clean one within
+		// the detour and bend budget; otherwise the pierce stays reported
+		// (`routing.obstacle.unavoidable`).
+		// Strict pages keep the 0–2 bend contract (#84) and report unsat.
+		if (
+			shortPath &&
+			options.deliverabilityMode !== "strict" &&
+			routeObstacleHits(route.points, routeHardObstacles) > 0
+		) {
+			const detour = routeInput.maxDetourRatio ?? 3;
+			const routed = routeEdge({
+				...routeInput,
+				kind: "obstacle-avoiding",
+			});
+			// Keep slot and port points: the fallback may slide an end along
+			// its side, onto another edge's slot.
+			const around = {
+				...routed,
+				points: pinRouteEnds(
+					routed.points,
+					routeInput.sourcePoint,
+					routeInput.targetPoint,
+				),
+			};
+			if (
+				routeObstacleHits(around.points, routeHardObstacles) === 0 &&
+				around.points.length - 2 <= SHORT_PATH_FALLBACK_MAX_BENDS &&
+				polylineLength(around.points) <=
+					detour * manhattan(around.points[0], around.points.at(-1))
+			) {
+				route = {
+					points: around.points,
+					diagnostics: [
+						...around.diagnostics.filter(
+							(diagnostic) => diagnostic.severity !== "error",
+						),
+						{
+							severity: "info",
+							code: "routing.short-orthogonal.obstacle-fallback",
+							message:
+								"No 0–2 bend short-orthogonal route clears the hard obstacles; used an obstacle-avoiding route within maxDetourRatio instead of piercing.",
+							detail: {
+								routingPolicy: "short-orthogonal-jumps",
+								bends: around.points.length - 2,
+							},
+						},
+					],
+				};
+			}
+		}
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
 				...diagnostic,
 				detail: { ...diagnostic.detail, edgeId: edge.id },
 			})),
 		);
+
 		coordinated.push({
 			...edge,
 			points: route.points,
@@ -1201,6 +1397,90 @@ function spreadCollidingEndpoints(
 	});
 }
 
+/** Bends allowed on the obstacle-avoiding fallback of a short route (#95). */
+const SHORT_PATH_FALLBACK_MAX_BENDS = 6;
+
+/**
+ * Move a route's ends back onto pinned points by shifting the first/last
+ * segment across (it keeps its direction). Ends whose segment cannot be
+ * shifted that way are left as they are.
+ */
+function pinRouteEnds(
+	points: readonly Point[],
+	sourcePoint: Point | undefined,
+	targetPoint: Point | undefined,
+): Point[] {
+	const pinned = points.map((point) => ({ ...point }));
+	const pin = (endIndex: number, nextIndex: number, to: Point) => {
+		const end = pinned[endIndex];
+		const next = pinned[nextIndex];
+		if (end === undefined || next === undefined || pinned.length < 3) return;
+		if (Math.abs(end.y - next.y) < 0.5 && Math.abs(end.x - to.x) < 0.5) {
+			end.y = to.y;
+			next.y = to.y;
+		} else if (Math.abs(end.x - next.x) < 0.5 && Math.abs(end.y - to.y) < 0.5) {
+			end.x = to.x;
+			next.x = to.x;
+		}
+	};
+	if (sourcePoint !== undefined) pin(0, 1, sourcePoint);
+	if (targetPoint !== undefined) {
+		pin(pinned.length - 1, pinned.length - 2, targetPoint);
+	}
+	return pinned;
+}
+
+function polylineLength(points: readonly Point[]): number {
+	let length = 0;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		length += Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+	}
+	return length;
+}
+
+function manhattan(a: Point | undefined, b: Point | undefined): number {
+	if (a === undefined || b === undefined) return 0;
+	return Math.max(1, Math.abs(b.x - a.x) + Math.abs(b.y - a.y));
+}
+
+/** The side of `box` that `point` lies on (the nearest one). */
+function sideOfBox(point: Point | undefined, box: Box): AnchorName {
+	if (point === undefined) return "center";
+	const distances: [AnchorName, number][] = [
+		["left", Math.abs(point.x - box.x)],
+		["right", Math.abs(point.x - (box.x + box.width))],
+		["top", Math.abs(point.y - box.y)],
+		["bottom", Math.abs(point.y - (box.y + box.height))],
+	];
+	distances.sort((left, right) => left[1] - right[1]);
+	return (distances[0] as [AnchorName, number])[0];
+}
+
+/** Side fractions taken by named ports, keyed `${nodeId}:${side}`. */
+function occupiedPortFractions(
+	coordinatedNodes: readonly CoordinatedNode[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+): Map<string, number[]> {
+	const occupied = new Map<string, number[]>();
+	for (const node of coordinatedNodes) {
+		const box = nodes.get(node.id)?.box;
+		if (box === undefined) continue;
+		for (const port of node.ports ?? []) {
+			const horizontal = port.side === "top" || port.side === "bottom";
+			const span = horizontal ? box.width : box.height;
+			if (!(span > 0)) continue;
+			const fraction = horizontal
+				? (port.anchor.x - box.x) / span
+				: (port.anchor.y - box.y) / span;
+			const key = `${node.id}:${port.side}`;
+			occupied.set(key, [...(occupied.get(key) ?? []), fraction]);
+		}
+	}
+	return occupied;
+}
+
 function implicitAnchorDistribution(options: SolveDiagramOptions): boolean {
 	return (
 		options.anchorCapacity === undefined &&
@@ -1226,11 +1506,7 @@ function separateCoordinatedEdges(
 	}
 	// Track spreading can be switched off (or has nothing to spread); the
 	// obstacle-escape repair always runs on orthogonal routes.
-	const separate = !(
-		edges.length < 2 ||
-		options.edgeSeparation === false ||
-		routeKind === "short-orthogonal-jumps"
-	);
+	const separate = !(edges.length < 2 || options.edgeSeparation === false);
 	const spacing =
 		typeof options.edgeSeparation === "object"
 			? options.edgeSeparation.spacing
@@ -1255,6 +1531,8 @@ function separateCoordinatedEdges(
 			// End splitting belongs to implicit distribution, like border
 			// detachment: explicit rail/gutter pages keep their port segments.
 			splitEnds: implicitAnchorDistribution(options),
+			// Short-orthogonal end segments are most of the route.
+			lockEnds: routeKind === "short-orthogonal-jumps",
 			// A node hit outweighs any number of label or group grazes.
 			obstacleWeights: obstacles.map((obstacle) => obstacle.weight ?? 1),
 			...(spacing === undefined ? {} : { spacing }),

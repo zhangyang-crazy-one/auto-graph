@@ -55,6 +55,13 @@ export interface EdgeSeparationOptions {
 	 */
 	splitEnds?: boolean;
 	/**
+	 * Treat every route's first and last segment as a locked track that
+	 * interior segments must keep clear of (default false). Useful when end
+	 * segments are long, as on 0–2 bend short-orthogonal routes, where an
+	 * interior segment can otherwise lie on another edge's end segment.
+	 */
+	lockEnds?: boolean;
+	/**
 	 * Weight of a hit on each obstacle (default 1). Nodes get a large
 	 * weight so no move trades a label or group graze for a node hit.
 	 */
@@ -120,8 +127,13 @@ export function separateParallelSegments(
 	}
 
 	// Fixed routes (e.g. allocated rails) never move, but their segments are
-	// locked bundle members: movable tracks must keep clear of them.
-	const locked = collectLockedSegments(points, routes);
+	// locked bundle members: movable tracks must keep clear of them (and of
+	// every route's end segments with `lockEnds`).
+	const locked = collectLockedSegments(
+		points,
+		routes,
+		options.lockEnds === true,
+	);
 
 	const passes = options.separate === false ? 0 : maxPasses;
 	for (let pass = 0; pass < passes; pass += 1) {
@@ -953,12 +965,21 @@ function segmentChannel(
 function collectLockedSegments(
 	points: readonly Point[][],
 	routes: readonly SeparableRoute[],
+	lockEnds: boolean,
 ): MovableSegment[] {
 	const segments: MovableSegment[] = [];
 	for (let routeIndex = 0; routeIndex < points.length; routeIndex += 1) {
-		if (routes[routeIndex]?.fixed !== true) continue;
 		const route = points[routeIndex] ?? [];
-		for (let index = 0; index + 1 < route.length; index += 1) {
+		// A fixed route is locked whole. With `lockEnds`, every other route's
+		// first and last segment (which attach to ports and never move) is
+		// locked too, so tracks keep clear of them.
+		const indices =
+			routes[routeIndex]?.fixed === true
+				? route.slice(1).map((_, index) => index)
+				: route.length < 2 || !lockEnds
+					? []
+					: [...new Set([0, route.length - 2])];
+		for (const index of indices) {
 			const segment = describeSegment(routeIndex, index, route);
 			if (segment !== undefined) segments.push(segment);
 		}

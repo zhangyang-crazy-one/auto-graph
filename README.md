@@ -240,8 +240,37 @@ routing:
 | 2-point `route_obstacle_fallback` through hard obstacles | **never deliverable** |
 
 Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForBox(box, side, 3)`.
+`attachSlotFractions(2) → [0.25, 0.75]` (not 1/3–2/3).
 
-Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG/Excalidraw render hops; draw.io should consume the same IR downstream (no in-repo draw.io exporter).
+### Named port equal-division docking (#91)
+
+| Ports on one side | Fractions |
+|---|---|
+| 1 | `{0.5}` |
+| 2 | `{0.25, 0.75}` |
+| 3 | `{0.25, 0.5, 0.75}` |
+| n > 3 | `(i+1)/(n+1)` |
+
+Named `portId` endpoints pin to `port.anchor`. Spacing below `minPortSpacing` grows the node or emits `routing.port.capacity_exhausted` — never silent mid-stack. `portGeometry` only pins the matching side (other cardinals stay on node geometry).
+
+### Readable Short-Orthogonal Pipeline (RSOP, #86 / #92–#95)
+
+For `short-orthogonal-jumps`:
+
+1. Pre-route same-side slots for anonymous endpoints, ordered by where the other end lies and placed between the side's named ports (never on a port's fraction).
+2. 0–2 bend candidates per slot pair: the midline, escape stubs, and middle channels swept past neighbouring obstacles; soft-text micro-clear (node hard / text soft); an end that runs along its node's border instead of leaving along the side's normal costs more than a text hit.
+3. A slot whose side is walled off (nodes in between, port labels) is retried on the node's other sides at a free fraction.
+4. Accepted geometry never enters a foreign node, zone or hard text (#95). If no 0–2 bend route clears, `degraded-ok` pages take an obstacle-avoiding route within `maxDetourRatio` (≤6 bends, `routing.short-orthogonal.obstacle-fallback`); `strict` pages report `routing.obstacle.unavoidable` / unsatisfiable.
+5. Edge separation spreads collinear interior segments into parallel tracks before labels are placed, keeping clear of every route's end segments (overlapping parallels and shared endpoints are 0 on the dense MBSE pages).
+6. Refresh `edgeCrossings` for exporters.
+
+`rsopChannelNudge: true` additionally runs the greedy Left-Edge channel track assignment + nudge (`idealNudgingDistance`, default **10**; MLCM / metro-line LP deferred). Track/slot/port exhaustion emits `routing.channel.capacity_exhausted` or `routing.port.capacity_exhausted` → rail/page-split / grow remediation — never `route_obstacle_fallback` flyers.
+
+### External label shelves (#93)
+
+Without `pageBounds` external label callouts stack in a column right of the drawing. With `pageBounds` they are packed in reading order into columns inside the page: a callout never overlaps another callout, a key, a node, a group, a table/matrix or an evidence panel, and a row is never reused. Callouts that find no free spot stay on their edge and `routing.label-shelf.capacity_exhausted` reports how many (the `external-label` plan's `detail.unplacedCount`). Keys of crowded labels move along their own edge until they clear the other keys and routes.
+
+Solved diagrams may include `edgeCrossings: [{ x, y, underEdgeId, overEdgeId, style }]`. SVG, Excalidraw, and draw.io (`exportDrawio` / `--format drawio`) render hops from that IR.
 
 ### Edge distribution defaults
 
@@ -328,6 +357,7 @@ page: A4                     # A3, A5, letter, legal, slide (16:9), slide-4:3, "
 ```bash
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
+agh --input diagram.yaml --format drawio --output diagram.drawio
 agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
 agh --list-views
@@ -345,6 +375,7 @@ Supported output formats:
 
 - `svg`
 - `excalidraw`
+- `drawio` — draw.io XML with crossings as jumps
 - `geometry` — the solved geometry contract (below)
 
 Format precedence is CLI `--format`, then DSL `output.format`, then `svg`.

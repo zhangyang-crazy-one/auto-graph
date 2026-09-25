@@ -158,6 +158,74 @@ describe("short-orthogonal-jumps (#84 §C)", () => {
 	});
 });
 
+describe("short-orthogonal hard-obstacle gate (#95)", () => {
+	it("never delivers a route through a blocker on the midline in degraded-ok mode", () => {
+		const blocker = { x: 100, y: -40, width: 40, height: 200 };
+		const solved = solveDiagram(
+			{
+				id: "short-path-blocked-degraded",
+				direction: "LR",
+				nodes: [
+					{
+						id: "a",
+						shape: "rectangle",
+						size: { width: 80, height: 40 },
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						position: { x: 0, y: 40 },
+					},
+					{
+						id: "blocker",
+						shape: "rectangle",
+						size: { width: blocker.width, height: blocker.height },
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						position: { x: blocker.x, y: blocker.y },
+					},
+					{
+						id: "b",
+						shape: "rectangle",
+						size: { width: 80, height: 40 },
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						position: { x: 200, y: 40 },
+					},
+				],
+				edges: [
+					{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } },
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "short-orthogonal-jumps",
+				deliverabilityMode: "degraded-ok",
+				maxAttachPointsPerSide: 3,
+				maxDetourRatio: 3,
+			},
+		);
+
+		const points = solved.edges[0]?.points ?? [];
+		const box = solved.nodes.find((node) => node.id === "blocker")?.box;
+		expect(box).toBeDefined();
+		for (let index = 1; index < points.length; index += 1) {
+			const a = points[index - 1];
+			const b = points[index];
+			if (a === undefined || b === undefined || box === undefined) continue;
+			const enters =
+				Math.max(a.x, b.x) > box.x + 0.5 &&
+				Math.min(a.x, b.x) < box.x + box.width - 0.5 &&
+				Math.max(a.y, b.y) > box.y + 0.5 &&
+				Math.min(a.y, b.y) < box.y + box.height - 0.5;
+			expect(enters).toBe(false);
+		}
+		expect(solved.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.short-orthogonal.obstacle-fallback",
+			}),
+		);
+	});
+});
+
 describe("edge crossings / jumps (#84)", () => {
 	it("detects orthogonal crossings with deterministic over/under", () => {
 		const crossings = detectOrthogonalEdgeCrossings([

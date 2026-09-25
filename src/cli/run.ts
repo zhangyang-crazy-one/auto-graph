@@ -263,7 +263,7 @@ function buildCommand(): Command {
 		.option("--output <path>", "Write generated output to a file")
 		.option(
 			"--format <format>",
-			"Output format: svg, excalidraw or geometry (solved geometry JSON)",
+			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON)",
 		)
 		.option(
 			"--font <file>",

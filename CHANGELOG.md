@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Dense MBSE issues on top of RSOP (#76, #88, #91–#95)
+
+- **Merged #90** (RSOP soft-text clear, draw.io jumps, #91 port docking, #92 same-side slots) with main's views, page fitting, agent reports and incremental stability; `--format` now takes `svg`, `excalidraw`, `drawio` and `geometry`.
+- **Slots respect ports (#92/#94)**: anonymous same-side slots are placed between a side's named ports and ordered by where the other end lies; every endpoint gets its own fraction (overflow is reported, never stacked). A slot whose side is walled off is retried on the node's other sides.
+- **No border-hugging ends**: short-orthogonal candidates that leave/enter along a node border pay a direction penalty; micro-clear keeps end segments on the side normal; new channel-sweep candidates run the middle segment beside an obstacle instead of only on the midline.
+- **Edge separation on short-orthogonal (#88)**: main's separator now runs for `short-orthogonal-jumps` before labels are placed, keeping clear of every route's end segments (`lockEnds`); `rsopChannelNudge` is opt-in. Fixed the RSOP nudge reverting every move (it counted the edge's own end nodes as hits) and its track centring. Dense SV-1 / AV-1 / OV-5b pages: overlapping parallels, shared endpoints and slot collisions all 0.
+- **Hard gate (#95)**: a short-orthogonal route that still enters a foreign node, zone or hard text falls back (non-strict) to a clean obstacle-avoiding route within `maxDetourRatio`; strict pages keep the unsat report.
+- **Label shelves (#93)**: capacity-aware packing inside `pageBounds` (columns, obstacle clearance, no row reuse); leftovers stay inline with `routing.label-shelf.capacity_exhausted`; callout shelves take part in text-collision diagnostics; crowded keys move along their own edge.
+- **No zigzag fallback (#76)**: the greedy obstacle push inserted a single waypoint and produced diagonal zigzags (81 bends on OV-5b); it now makes orthogonal detours around the union of the obstacles it meets.
+
+### Port equal-division docking (#91) + same-side slots / stubs (#92)
+
+- **Named ports (#91)**: equal-division fractions `{0.5}` / `{0.25,0.75}` / `{0.25,0.5,0.75}` (n>3 → `(i+1)/(n+1)`); `portGeometry` pins only the matching side; capacity → `routing.port.capacity_exhausted`.
+- **Same-side slots (#92)**: pre-route anonymous endpoint assignment via `attachSlotFractions`; ported ends skipped.
+- **Escape stubs (#92)**: short-orthogonal prefers candidates with a separable interior span (stub pitch = `idealNudgingDistance`, default 10); same-Y 0-bend remains fallback when no separable candidate exists.
+- **Honest Left-Edge**: channel nudge is greedy Left-Edge / interval coloring — MLCM LP explicitly deferred (docs no longer claim MLCM-style).
+
+### Readable Short-Orthogonal Pipeline / RSOP (#86–#89)
+
+- **Soft-text micro-clear (#87)**: short-orthogonal uses layered cost `length + α·bends + β·textHits`; foreign nodes are hard; text is soft with ±track-pitch micro-detours; never flyer past `maxDetourRatio`.
+- **Channel tracks + nudge (#88)**: post-process assigns greedy Left-Edge tracks in shared gutters and nudges by `idealNudgingDistance` (default 10); capacity exhaustion emits `routing.channel.capacity_exhausted`.
+- **draw.io jump parity (#89)**: thin `exportDrawio` / CLI `--format drawio` maps `edgeCrossings` to `jumpStyle` + crossing metadata; SVG/Excalidraw hops unchanged.
+- **Shelf honesty**: external callout shelves clamp inside `pageBounds` when set.
+
 ### Shape-aware label fitting (global layout plan P1)
 
 - **Node labels fit their drawn outline**: node sizes come from exact containment bounds for the Pretext-measured text box: diamond `2w×2h`, circle by the text diagonal, hexagon `w + 2·skew·h/H`, parallelogram `w + skew·(H+h)/H`, cylinder `h + 2m + 2r_y` with the label shifted below the top cap. Applied in DSL normalization and the solver prefit path. Label overflow is now 0 on every layout benchmark.
@@ -32,7 +56,7 @@
 
 - **`routeKind: "short-orthogonal-jumps"`**: prefer 0–2 bend attach-slot routes; reject flying detours beyond `maxDetourRatio` (default 3); do not treat 2-point `route_obstacle_fallback` as success.
 - **Attach slots (25/50/75)**: public `attachSlotFractions` / `attachSlotsForBox` helpers; dense and short-path profiles default `maxAttachPointsPerSide=3`.
-- **`edgeCrossings` IR**: declared edge–edge jump/gap/bridge records; SVG and Excalidraw render hops. draw.io consumers should map IR (no in-repo draw.io exporter yet).
+- **`edgeCrossings` IR**: declared edge–edge jump/gap/bridge records; SVG, Excalidraw, and draw.io render hops from the same IR.
 - **Deliverability**: short-path capacity failures emit `routing.obstacle.unavoidable` + rail/split remediation instead of flyer geometry marked clean.
 
 ### Dense remediation loop

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { computeShapeGeometry, intersectsAabb } from "../src/geometry/index.js";
 import type { Box, Point } from "../src/ir/index.js";
-import { routeEdge, simplifyRoute } from "../src/routing/index.js";
+import {
+	greedyRerouteAroundObstacles,
+	routeEdge,
+	simplifyRoute,
+} from "../src/routing/index.js";
 
 describe("routing", () => {
 	it("removes duplicate and collinear points while preserving semantic route order", () => {
@@ -617,33 +621,42 @@ it("tries later anchors before accepting an excessive backtracking route", () =>
 	expect(routeIntersectsObstacle(result.points, obstacle)).toBe(false);
 });
 
-it("honors requested reroute attempts above three in hard-clear fallback", () => {
-	const obstacles = [
-		{ x: 389, y: -90, width: 106, height: 88 },
-		{ x: 127, y: 70, width: 31, height: 100 },
-		{ x: 187, y: -134, width: 51, height: 120 },
-		{ x: 343, y: 103, width: 62, height: 123 },
-		{ x: 430, y: -12, width: 114, height: 141 },
-		{ x: 376, y: -1, width: 48, height: 113 },
+it("greedy reroute honors the attempt cap and detours orthogonally (#76)", () => {
+	// A blocker with a stack of wider obstacles above and below it: the
+	// detour must widen around the stack instead of zigzagging into it.
+	const obstacles = [{ x: 200, y: 0, width: 40, height: 40 }];
+	for (let k = 1; k <= 7; k += 1) {
+		obstacles.push(
+			{ x: 190 - k * 4, y: -k * 24, width: 60 + k * 8, height: 20 },
+			{ x: 190 - k * 4, y: 44 + (k - 1) * 24, width: 60 + k * 8, height: 20 },
+		);
+	}
+	const straight = [
+		{ x: 80, y: 20 },
+		{ x: 500, y: 20 },
 	];
-	const threeAttempts = routeEdge({
-		kind: "obstacle-avoiding",
-		direction: "LR",
-		source: shape(0, 0),
-		target: shape(500, 0),
-		obstacles,
-		maxRoutingAttempts: 3,
-	});
-	const fourAttempts = routeEdge({
-		kind: "obstacle-avoiding",
-		direction: "LR",
-		source: shape(0, 0),
-		target: shape(500, 0),
-		obstacles,
-		maxRoutingAttempts: 4,
-	});
 
-	expect(fourAttempts.points).not.toEqual(threeAttempts.points);
+	expect(greedyRerouteAroundObstacles(straight, obstacles, 0)).toEqual(
+		straight,
+	);
+	for (const attempts of [1, 4]) {
+		const rerouted = greedyRerouteAroundObstacles(
+			straight,
+			obstacles,
+			attempts,
+		);
+		expect(rerouted[0]).toEqual(straight[0]);
+		expect(rerouted.at(-1)).toEqual(straight[1]);
+		for (const obstacle of obstacles) {
+			expect(routeIntersectsObstacle(rerouted, obstacle)).toBe(false);
+		}
+		for (let index = 1; index < rerouted.length; index += 1) {
+			const a = rerouted[index - 1] as Point;
+			const b = rerouted[index] as Point;
+			expect(a.x === b.x || a.y === b.y).toBe(true);
+		}
+		expect(rerouted.length - 2).toBeLessThanOrEqual(4);
+	}
 });
 
 it("dodges obstacles in obstacle-avoiding straight mode", () => {

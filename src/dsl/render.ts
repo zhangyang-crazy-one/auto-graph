@@ -1,4 +1,5 @@
 import {
+	exportDrawio,
 	exportExcalidraw,
 	exportGeometry,
 	exportSvg,
@@ -37,7 +38,8 @@ export function resolveOutputFormat(
 	if (
 		selected === "svg" ||
 		selected === "excalidraw" ||
-		selected === "geometry"
+		selected === "geometry" ||
+		selected === "drawio"
 	) {
 		return { format: selected, diagnostics: [] };
 	}
@@ -50,7 +52,7 @@ export function resolveOutputFormat(
 				code: "validate.output-format.unsupported",
 				message: `Unsupported output format "${selected}".`,
 				path: ["output", "format"],
-				hint: "Use svg, excalidraw or geometry.",
+				hint: "Use svg, excalidraw, drawio or geometry.",
 			},
 		],
 	};
@@ -64,9 +66,11 @@ export function exportDiagram(
 	const content =
 		format === "svg"
 			? exportSvg(diagram, options)
-			: format === "geometry"
-				? `${JSON.stringify(exportGeometry(diagram), null, 2)}\n`
-				: exportExcalidraw(diagram);
+			: format === "drawio"
+				? exportDrawio(diagram)
+				: format === "geometry"
+					? `${JSON.stringify(exportGeometry(diagram), null, 2)}\n`
+					: exportExcalidraw(diagram);
 
 	return { format, content, diagnostics: [] };
 }
