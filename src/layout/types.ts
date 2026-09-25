@@ -1,5 +1,5 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
-import type { Box, DiagramDirection, Size } from "../ir/geometry.js";
+import type { Box, DiagramDirection, Point, Size } from "../ir/geometry.js";
 
 export interface DagreLayoutOptions {
 	nodesep: number;
@@ -36,4 +36,6 @@ export interface InitialLayoutResult {
 	laneBoxes?: Map<string, Box[]>;
 	/** Solved group boxes the rendered groups should at least cover. */
 	groupBoxes?: Map<string, Box>;
+	/** Edge routes the layout computed itself (global layout). */
+	routes?: Map<string, Point[]>;
 }

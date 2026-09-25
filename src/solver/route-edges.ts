@@ -194,10 +194,27 @@ export function coordinateEdges(
 		hardObstacleMetadata ??
 		hardObstacles.map(() => ({ kind: "evidence" as const }));
 
+	const layeredCheck = layeredRouteValidator(
+		nodes,
+		textObstacles,
+		hardObstacles,
+		softObstacles,
+		options,
+	);
 	for (const edge of edges) {
 		railAllocations?.delete(edge.id);
 		const source = nodes.get(edge.source.nodeId);
 		const target = nodes.get(edge.target.nodeId);
+		const layered =
+			source === undefined || target === undefined
+				? undefined
+				: layeredCheck(edge, source.box, target.box);
+		if (layered !== undefined) {
+			const points = layered.map((point) => ({ ...point }));
+			LAYERED_ROUTES.add(points);
+			coordinated.push({ ...edge, points });
+			continue;
+		}
 		if (source === undefined || target === undefined) {
 			diagnostics.push({
 				severity: "error",
@@ -621,19 +638,44 @@ export function finalizeCoordinatedEdges(
 	// against it and extra stubs there create unresolved label crossings.
 	// Detach first so every endpoint has its final side before coincident
 	// endpoints on that side are spread apart.
+	// Routes taken from the global layout are final: the post-passes route
+	// the others around them, and only their ends are snapped to outlines.
+	const layered = new Set(
+		edges
+			.filter((edge) => LAYERED_ROUTES.has(edge.points))
+			.map((edge) => edge.id),
+	);
+	const free = edges.filter((edge) => !layered.has(edge.id));
 	const detached = implicit
-		? detachBorderHuggingEnds(edges, nodes, obstacles)
-		: edges;
+		? detachBorderHuggingEnds(free, nodes, obstacles)
+		: free;
+	const detachedById = new Map(detached.map((edge) => [edge.id, edge]));
+	// Layered ends stay put; the others move off them.
 	const spread = implicit
-		? spreadCollidingEndpoints(detached, nodes, obstacles)
+		? spreadCollidingEndpoints(
+				edges.map((edge) => detachedById.get(edge.id) ?? edge),
+				nodes,
+				obstacles,
+				layered,
+			)
 		: detached;
+	const byId = new Map(spread.map((edge) => [edge.id, edge]));
 	const separated = separateCoordinatedEdges(
-		spread,
+		edges.map((edge) => byId.get(edge.id) ?? edge),
 		obstacles,
 		railAllocations,
 		options,
+		layered,
 	);
-	return implicit ? snapEndpointsToShapeOutline(separated, nodes) : separated;
+	const snapped = snapEndpointsToShapeOutline(
+		separated,
+		nodes,
+		implicit ? undefined : layered,
+	);
+	for (const edge of snapped) {
+		if (layered.has(edge.id)) LAYERED_ROUTES.add(edge.points);
+	}
+	return snapped;
 }
 
 interface PostPassObstacle {
@@ -689,6 +731,95 @@ function routeObstacleHits(
 		}
 	}
 	return hits;
+}
+
+/** Point arrays of routes taken from the global layout. */
+const LAYERED_ROUTES = new WeakSet<readonly Point[]>();
+
+/**
+ * The global layout's route for an edge, if it may be used as is: no port
+ * or explicit anchor, both ends on their node boxes, orthogonal, and no
+ * pass through another node, a fixed text surface or a policy obstacle (a
+ * constraint or repair pass may have moved things since the layout).
+ */
+function layeredRouteValidator(
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	textObstacles: readonly SolvedTextAnnotation[],
+	hardObstacles: readonly Box[],
+	softObstacles: readonly Box[],
+	options: SolveDiagramOptions,
+): (
+	edge: NormalizedEdge,
+	sourceBox: Box,
+	targetBox: Box,
+) => Point[] | undefined {
+	const routes = options.layeredRoutes;
+	if (routes === undefined || routes.size === 0) return () => undefined;
+	const nodeBoxes = [...nodes.entries()].map(([id, geometry]) => ({
+		id,
+		box: insetBox(geometry.box, 1),
+	}));
+	// Edge labels are placed after routing (these are rough estimates) and
+	// the label feedback pass moves them off routes: only fixed text counts.
+	const texts = textObstacles.filter(
+		(annotation) =>
+			isLocalRouteClearanceText(annotation) &&
+			annotation.surfaceKind !== "edge-label",
+	);
+	const onBorder = (point: Point, box: Box) => {
+		const tolerance = 0.6;
+		const inside =
+			point.x >= box.x - tolerance &&
+			point.x <= box.x + box.width + tolerance &&
+			point.y >= box.y - tolerance &&
+			point.y <= box.y + box.height + tolerance;
+		return (
+			inside &&
+			(Math.abs(point.x - box.x) < tolerance ||
+				Math.abs(point.x - box.x - box.width) < tolerance ||
+				Math.abs(point.y - box.y) < tolerance ||
+				Math.abs(point.y - box.y - box.height) < tolerance)
+		);
+	};
+	return (edge, sourceBox, targetBox) => {
+		const route = routes.get(edge.id);
+		if (route === undefined || route.length < 2) return undefined;
+		if (
+			edge.source.portId !== undefined ||
+			edge.target.portId !== undefined ||
+			edge.source.anchor !== undefined ||
+			edge.target.anchor !== undefined
+		) {
+			return undefined;
+		}
+		const points = route as Point[];
+		const first = points[0] as Point;
+		const last = points[points.length - 1] as Point;
+		if (!onBorder(first, sourceBox) || !onBorder(last, targetBox)) {
+			return undefined;
+		}
+		for (let index = 0; index + 1 < points.length; index += 1) {
+			const a = points[index] as Point;
+			const b = points[index + 1] as Point;
+			if (Math.abs(a.x - b.x) > 1e-6 && Math.abs(a.y - b.y) > 1e-6) {
+				return undefined;
+			}
+		}
+		const others = nodeBoxes
+			.filter(
+				(entry) =>
+					entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
+			)
+			.map((entry) => entry.box);
+		if (routeObstacleHits(points, others) > 0) return undefined;
+		if (routeObstacleHits(points, hardObstacles) > 0) return undefined;
+		if (routeObstacleHits(points, softObstacles) > 0) return undefined;
+		const textBoxes = texts
+			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
+			.map((annotation) => textObstacleBox(annotation, options));
+		if (routeObstacleHits(points, textBoxes) > 0) return undefined;
+		return points;
+	};
 }
 
 /** Weight of a node hit against label / group hits in the post-passes. */
@@ -776,9 +907,11 @@ function detachBorderHuggingEnds(
 function snapEndpointsToShapeOutline(
 	edges: readonly CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	only?: ReadonlySet<string>,
 ): CoordinatedEdge[] {
 	return edges.map((edge) => {
 		if (edge.points.length < 2) return edge;
+		if (only !== undefined && !only.has(edge.id)) return edge;
 		const points = edge.points.map((point) => ({ ...point }));
 		let changed = false;
 		for (const role of ["source", "target"] as const) {
@@ -854,6 +987,7 @@ function spreadCollidingEndpoints(
 	edges: readonly CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	allObstacles: readonly PostPassObstacle[],
+	fixedEdgeIds: ReadonlySet<string> = new Set(),
 ): CoordinatedEdge[] {
 	// A straight 2-point route cannot slide an endpoint without breaking
 	// orthogonality, so give it a zero-length dogleg at its midpoint; moving
@@ -965,6 +1099,7 @@ function spreadCollidingEndpoints(
 			Math.max(rangeStart, rangeEnd - 2 * halfSpan),
 		);
 		const tryMove = (ref: EndpointRef, t: number): boolean => {
+			if (fixedEdgeIds.has(edges[ref.edgeIndex]?.id ?? "")) return false;
 			const route = routes[ref.edgeIndex] ?? [];
 			const at = ref.role === "source" ? 0 : route.length - 1;
 			const step = ref.role === "source" ? 1 : -1;
@@ -1074,6 +1209,7 @@ function separateCoordinatedEdges(
 	obstacles: readonly PostPassObstacle[],
 	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
 	options: SolveDiagramOptions,
+	fixedEdgeIds: ReadonlySet<string> = new Set(),
 ): CoordinatedEdge[] {
 	const routeKind = options.routeKind ?? "orthogonal";
 	if (routeKind === "straight" || edges.length === 0) {
@@ -1099,7 +1235,8 @@ function separateCoordinatedEdges(
 			return {
 				id: edge.id,
 				points: edge.points,
-				fixed: railAllocations?.has(edge.id) === true,
+				fixed:
+					railAllocations?.has(edge.id) === true || fixedEdgeIds.has(edge.id),
 				ignoreObstacles,
 			};
 		}),

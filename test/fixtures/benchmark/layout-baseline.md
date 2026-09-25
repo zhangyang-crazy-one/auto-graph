@@ -5,15 +5,15 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 
 | benchmark | node overlap | group overlap | foreign in group | label overflow | edge through node | shared endpoint | crossings | bends/edge | overlap len | detour | aspect | whitespace | gap CV | largest empty | lane fill | sparse lanes |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 1.55 | 0 | 1.136 | 2.285 | 0.897 | 0.379 | 0.134 | 0.369 | 2 |
-| cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 1.75 | 0 | 1.176 | 1.146 | 0.88 | 0.734 | 0.121 | 0.441 | 2 |
-| cn-architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 13 | 2.154 | 0 | 1.225 | 1.996 | 0.895 | 0.519 | 0.146 | 1 | 0 |
-| cn-long-flow.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 2.167 | 0 | 1.168 | 1.918 | 0.804 | 0.051 | 0.113 | 1 | 0 |
+| cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 1.6 | 0 | 1.161 | 2.301 | 0.898 | 0.387 | 0.143 | 0.37 | 2 |
+| cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1.138 | 1.149 | 0.876 | 0.734 | 0.161 | 0.441 | 2 |
+| cn-architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 2.769 | 0 | 1.209 | 1.996 | 0.895 | 0.519 | 0.146 | 1 | 0 |
+| cn-long-flow.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.889 | 0 | 1.383 | 1.986 | 0.801 | 0.051 | 0.111 | 1 | 0 |
 | microservice.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 7 | 2.8 | 0 | 1.285 | 1.754 | 0.916 | 0.228 | 0.367 | 1 | 0 |
 | contract-swimlane.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.694 | 0.722 | 0 | 0.214 | 0.502 | 0 |
 | sysml-structure.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.187 | 2.412 | 0.854 | 0.556 | 0.193 | 0.346 | 0 |
 | fan-out.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.692 | 0 | 1.307 | 1.454 | 0.857 | 0.156 | 0.121 | 1 | 0 |
-| swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.857 | 0 | 1.273 | 2.433 | 0.82 | 0.267 | 0.15 | 0.416 | 0 |
+| swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.429 | 0 | 1.206 | 2.485 | 0.811 | 0.272 | 0.138 | 0.416 | 0 |
 | flowchart.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0.312 | 0.699 | 0 | 0.088 | 1 | 0 |
 | architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 4.769 | 0.816 | 0 | 0.192 | 1 | 0 |
 | groups.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.215 | 0.866 | 0.221 | 0.405 | 1 | 0 |
@@ -23,4 +23,4 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 | swimlane.yaml · dagre | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 2 | 0 | 1.352 | 2.574 | 0.945 | 0.331 | 0.158 | 0.39 | 1 |
 | cn-architecture.yaml · dagre | 0 | 1 | 0 | 0 | 0 | 0 | 32 | 2.423 | 0 | 1.445 | 1.199 | 0.951 | 0.591 | 0.092 | 1 | 0 |
 | cn-long-flow.yaml · dagre | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0.889 | 0 | 1.094 | 14.945 | 0.854 | 0.009 | 0.083 | 1 | 0 |
-| fan-out.yaml · global | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.292 | 1.622 | 0.767 | 0.128 | 0.104 | 1 | 0 |
+| fan-out.yaml · global | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.538 | 0 | 1.29 | 1.622 | 0.767 | 0.128 | 0.104 | 1 | 0 |

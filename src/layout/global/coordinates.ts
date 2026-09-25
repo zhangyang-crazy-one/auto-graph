@@ -3,7 +3,14 @@ import {
 	type VpscConstraint,
 } from "../../constraints/vpsc.js";
 import type { Diagnostic } from "../../ir/diagnostics.js";
-import type { Box, DiagramDirection, Insets, Size } from "../../ir/geometry.js";
+import type { NodeShape } from "../../ir/elements.js";
+import type {
+	Box,
+	DiagramDirection,
+	Insets,
+	Point,
+	Size,
+} from "../../ir/geometry.js";
 import {
 	buildContainerHierarchy,
 	type ContainerHierarchy,
@@ -13,6 +20,7 @@ import {
 } from "./hierarchy.js";
 import { assignLayers, type Layering } from "./layering.js";
 import { orderLayers } from "./ordering.js";
+import { routeLayeredEdges, sameLayerDetours } from "./routing.js";
 import { seedOrderFromBoxes } from "./seed.js";
 
 /**
@@ -47,6 +55,8 @@ import { seedOrderFromBoxes } from "./seed.js";
 export interface GlobalLayoutNode {
 	id: string;
 	size: Size;
+	/** Outline, so ports stay on the drawn side (default rectangle). */
+	shape?: NodeShape;
 }
 
 export interface GlobalLayoutEdge {
@@ -120,6 +130,11 @@ export interface GlobalLayoutResult {
 	diagnostics: Diagnostic[];
 	crossings: number;
 	layerCount: number;
+	/**
+	 * Orthogonal route of every edge the layering could route through its
+	 * vertices (see `routeLayeredEdges`), source to target.
+	 */
+	routes: Map<string, Point[]>;
 }
 
 interface AxisInsets {
@@ -237,7 +252,17 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		});
 	}
 
+	const detourTracks = new Map<number, number>();
+	for (const detour of sameLayerDetours(
+		layering,
+		ordering.layers,
+		edges,
+	).values()) {
+		const channel = detour.side === "after" ? detour.layer : detour.layer - 1;
+		detourTracks.set(channel, (detourTracks.get(channel) ?? 0) + 1);
+	}
 	const layerStarts = solveMainAxis({
+		detourTracks,
 		layering,
 		layers: ordering.layers,
 		hierarchy,
@@ -375,6 +400,27 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		}
 	}
 	const shift = normalizeBoxes(boxes);
+	const routes = routeLayeredEdges({
+		direction,
+		layering,
+		layers: ordering.layers,
+		cross: cross.positions,
+		starts: layerStarts.starts,
+		thickness: layerStarts.thickness,
+		...(fold === undefined ? {} : { bands: fold.bands }),
+		crossExtent: crossExtentOf(nodeIds, cross.positions, cross.bounds, (id) => {
+			const size = sizeOf.get(id);
+			return size === undefined ? 0 : crossSize(size);
+		}),
+		boxes,
+		shift,
+		shapes: new Map(
+			input.nodes.map((node) => [node.id, node.shape ?? "rectangle"]),
+		),
+		edges,
+		edgeSpacing,
+		layerSpacing,
+	});
 	for (const [id, box] of groupBoxes) {
 		groupBoxes.set(id, {
 			x: round(box.x - shift.x),
@@ -401,6 +447,7 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		diagnostics,
 		crossings: ordering.crossings,
 		layerCount: ordering.layers.length,
+		routes,
 	};
 }
 
@@ -1253,6 +1300,8 @@ interface MainAxisInput {
 	edgeSpacing: number;
 	containerSpacing: number;
 	swimlanePadding: ReadonlyMap<string, number>;
+	/** Same-layer detour tracks per channel (channel after layer ℓ = ℓ). */
+	detourTracks?: ReadonlyMap<number, number>;
 }
 
 function solveMainAxis(input: MainAxisInput): {
@@ -1299,6 +1348,7 @@ function solveMainAxis(input: MainAxisInput): {
 				bending += 1;
 			}
 		}
+		bending += input.detourTracks?.get(layer) ?? 0;
 		const channel = (bending + 1) * input.edgeSpacing;
 
 		// Container borders that close after `layer` or open before `layer+1`.

@@ -370,7 +370,11 @@ export function runGlobalInitialLayout(input: {
 	);
 	const result = runGlobalLayout({
 		direction: input.direction,
-		nodes: declaredNodes.map((node) => ({ id: node.id, size: node.size })),
+		nodes: declaredNodes.map((node) => ({
+			id: node.id,
+			size: node.size,
+			shape: node.shape,
+		})),
 		edges: declaredEdges.map((edge) => {
 			const labelSize = measureEdgeLabelSize(edge, input.textMeasurer);
 			return {
@@ -411,6 +415,7 @@ export function runGlobalInitialLayout(input: {
 		diagnostics: [...seed.diagnostics, ...result.diagnostics],
 		laneBoxes: result.laneBoxes,
 		groupBoxes: result.groupBoxes,
+		routes: result.routes,
 	};
 }
 

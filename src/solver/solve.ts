@@ -324,6 +324,12 @@ export function solveDiagram(
 		}
 	}
 
+	// Routes the global layout computed are used for every edge that is
+	// still valid when edges are coordinated (see coordinateEdges).
+	if ("routes" in layout && layout.routes !== undefined) {
+		options = { ...options, layeredRoutes: layout.routes };
+	}
+
 	// Expand node boxes for port capacity before constraint solving
 	// so containment, overlap repair, and swimlane contracts see the
 	// final sizes (Codex P2: avoid post-hoc expansion issues).

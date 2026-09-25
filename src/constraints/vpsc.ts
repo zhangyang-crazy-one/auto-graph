@@ -328,7 +328,7 @@ class Blocks {
 }
 
 class Solver {
-	private readonly blocks: Blocks;
+	readonly blocks: Blocks;
 	private readonly inactive: Constraint[];
 
 	constructor(
@@ -418,6 +418,59 @@ class Solver {
 			cost = this.blocks.cost();
 			guard += 1;
 		}
+	}
+}
+
+/**
+ * A VPSC problem solved repeatedly for changing desired positions (fixed
+ * weights and constraints), as gradient projection does. Each solve starts
+ * from the previous block structure — the constraints that were tight stay
+ * merged — so it only repairs what the new positions changed instead of
+ * rebuilding every block (incremental VPSC, as in IPSep-CoLa). The problem
+ * is strictly convex, so the result is the same projection.
+ */
+export class VpscProjector {
+	private readonly vars: Variable[];
+	private readonly cs: Constraint[];
+	private readonly solver: Solver;
+
+	constructor(
+		weights: readonly number[],
+		constraints: readonly VpscConstraint[],
+	) {
+		this.vars = weights.map(
+			(weight) => new Variable(0, Math.max(weight, 1e-9)),
+		);
+		this.cs = [];
+		constraints.forEach((constraint, index) => {
+			const left = this.vars[constraint.left];
+			const right = this.vars[constraint.right];
+			if (left === undefined || right === undefined || left === right) return;
+			this.cs.push(
+				new Constraint(
+					index,
+					left,
+					right,
+					constraint.gap,
+					constraint.equality === true,
+				),
+			);
+		});
+		this.solver = new Solver(this.vars, this.cs);
+	}
+
+	project(desired: ArrayLike<number>): VpscResult {
+		this.vars.forEach((variable, index) => {
+			variable.desired = desired[index] ?? 0;
+		});
+		this.solver.blocks.updateBlockPositions();
+		this.solver.solve();
+		return {
+			positions: this.vars.map((variable) => variable.position()),
+			unsatisfiable: this.cs
+				.filter((constraint) => constraint.unsatisfiable)
+				.map((constraint) => constraint.index),
+		};
 	}
 }
 
@@ -542,14 +595,11 @@ export function solveSeparationQp(
 		}
 		return sum;
 	};
-	const project = (desired: ArrayLike<number>) =>
-		solveVpsc(
-			Array.from({ length: n }, (_, i) => ({
-				desired: desired[i] ?? 0,
-				weight: diagonal[i] ?? 1,
-			})),
-			qp.constraints,
-		);
+	const projector = new VpscProjector(
+		Array.from({ length: n }, (_, i) => diagonal[i] ?? 1),
+		qp.constraints,
+	);
+	const project = (desired: ArrayLike<number>) => projector.project(desired);
 
 	// FISTA (Beck & Teboulle) with adaptive restart (O'Donoghue & Candès),
 	// in the metric scaled by D = diag(Q). Q is diagonally dominant (every

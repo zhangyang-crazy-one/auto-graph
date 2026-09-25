@@ -5,7 +5,7 @@ import type {
 	PagePolicyOption,
 	RemediationPolicy,
 } from "../ir/diagram.js";
-import type { Insets } from "../ir/geometry.js";
+import type { Insets, Point } from "../ir/geometry.js";
 import type { RouteKind } from "../routing/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
@@ -53,6 +53,11 @@ export interface SolveDiagramOptions {
 	maxRowDepth?: number;
 	portShifting?: PortShiftingOptions;
 	cjkFontFamily?: string | false;
+	/**
+	 * @internal Routes the global layout computed (edge id → points). Used
+	 * for every edge whose route is still valid when edges are coordinated.
+	 */
+	layeredRoutes?: ReadonlyMap<string, readonly Point[]>;
 	minCjkFontSize?: number | false;
 	textMeasurer?: TextMeasurer;
 	/** When true, promote deliverability-breaking diagnostics to errors. */
