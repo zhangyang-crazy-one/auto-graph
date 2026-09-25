@@ -48,6 +48,8 @@ export interface ChannelRoutingInput {
 	cross: ReadonlyMap<string, number>;
 	starts: readonly number[];
 	thickness: readonly number[];
+	/** Room to keep free for edge labels in the middle of each channel. */
+	labelRoom?: readonly number[];
 	bands?: readonly ChannelRoutingBand[];
 	/** Cross extent of the unfolded layout (for the gaps between bands). */
 	crossExtent: readonly [number, number];
@@ -331,7 +333,15 @@ export function routeLayeredEdges(
 	const trackMain = (channel: number, slot: number, total: number) => {
 		const gapStart = layerEnd(channel);
 		const gap = (input.starts[channel + 1] ?? gapStart) - gapStart;
-		return gapStart + ((slot + 1) * gap) / (total + 1);
+		const room = input.labelRoom?.[channel] ?? 0;
+		if (room <= 0 || room >= gap) {
+			return gapStart + ((slot + 1) * gap) / (total + 1);
+		}
+		// Tracks on both sides of a free band in the middle, where the labels
+		// of edges running straight through the channel go.
+		const side = (gap - room) / 2;
+		const along = ((slot + 1) * 2 * side) / (total + 1);
+		return along <= side ? gapStart + along : gapStart + room + along;
 	};
 	const slotsOf = (channel: number) => {
 		const after = detourAfter.get(channel)?.length ?? 0;

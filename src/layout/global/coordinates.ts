@@ -407,6 +407,7 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		cross: cross.positions,
 		starts: layerStarts.starts,
 		thickness: layerStarts.thickness,
+		labelRoom: layerStarts.labelRoom,
 		...(fold === undefined ? {} : { bands: fold.bands }),
 		crossExtent: crossExtentOf(nodeIds, cross.positions, cross.bounds, (id) => {
 			const size = sizeOf.get(id);
@@ -1307,6 +1308,8 @@ interface MainAxisInput {
 function solveMainAxis(input: MainAxisInput): {
 	starts: number[];
 	thickness: number[];
+	/** Room kept free for edge labels in each channel (after layer ℓ). */
+	labelRoom: number[];
 } {
 	const { layering, layers, hierarchy } = input;
 	const layerCount = layers.length;
@@ -1335,6 +1338,7 @@ function solveMainAxis(input: MainAxisInput): {
 	}
 
 	const gaps: number[] = [];
+	const trackRoom: number[] = [];
 	for (let layer = 0; layer + 1 < layerCount; layer += 1) {
 		// Orthogonal tracks for segments that change cross position.
 		let bending = 0;
@@ -1415,9 +1419,12 @@ function solveMainAxis(input: MainAxisInput): {
 		}
 
 		gaps.push(Math.max(input.layerSpacing, channel) + borders + laneBreak);
+		trackRoom.push(bending > 0 ? channel : 0);
 	}
 
-	// Edge labels need room between the two layers they sit between.
+	// Edge labels need room between the two layers they sit between, next
+	// to the tracks of that channel (routing keeps the middle free for it).
+	const labelRoom = new Array<number>(Math.max(0, layerCount - 1)).fill(0);
 	for (const edge of input.edges) {
 		if (edge.labelSize === undefined) continue;
 		const a = layering.layerOfNode.get(edge.source);
@@ -1427,7 +1434,8 @@ function solveMainAxis(input: MainAxisInput): {
 		const bottom = Math.max(a, b);
 		const middle = top + Math.floor((bottom - top - 1) / 2);
 		const need = input.mainLabelSize(edge.labelSize) + 2 * EDGE_LABEL_MARGIN;
-		gaps[middle] = Math.max(gaps[middle] ?? 0, need);
+		labelRoom[middle] = Math.max(labelRoom[middle] ?? 0, need);
+		gaps[middle] = Math.max(gaps[middle] ?? 0, need + (trackRoom[middle] ?? 0));
 	}
 
 	const starts: number[] = [];
@@ -1436,5 +1444,5 @@ function solveMainAxis(input: MainAxisInput): {
 		starts.push(cursor);
 		cursor += (thickness[layer] ?? 0) + (gaps[layer] ?? 0);
 	}
-	return { starts, thickness };
+	return { starts, thickness, labelRoom };
 }

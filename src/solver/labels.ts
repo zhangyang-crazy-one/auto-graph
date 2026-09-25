@@ -1179,7 +1179,9 @@ export function edgeLabelAnchorCandidates(
 		}
 	}
 
-	// For long edges, also try quartile positions along the polyline.
+	// Also try positions along the polyline (after the positions around the
+	// midpoint): a short edge whose midpoint sits where neighbouring routes
+	// turn still finds a free spot beside its own line.
 	const totalLen = points.reduce((sum, p, idx) => {
 		if (idx === 0) return 0;
 		const prev = points[idx - 1];
@@ -1188,7 +1190,7 @@ export function edgeLabelAnchorCandidates(
 			Math.hypot((p?.x ?? 0) - (prev?.x ?? 0), (p?.y ?? 0) - (prev?.y ?? 0))
 		);
 	}, 0);
-	if (totalLen > 200) {
+	if (totalLen > 0) {
 		for (const ratio of [0.2, 0.25, 0.35, 0.65, 0.75, 0.8]) {
 			const qp = labelPlacementAtRatio(points, ratio, totalLen, baseOffset);
 			if (qp !== undefined) {
