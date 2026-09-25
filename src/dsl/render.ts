@@ -6,11 +6,13 @@ import {
 import type { ExportResult } from "../exporters/types.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
+import { DEFAULT_CJK_FONT_FAMILY } from "../solver/cjk-typography.js";
 import type {
 	PortShiftingOptions,
 	SolveDiagramOptions,
 } from "../solver/index.js";
 import { solveDiagram } from "../solver/index.js";
+import { type FontSource, registerFonts } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import { normalizeDiagramDsl } from "./normalize.js";
 import { parseDiagramDsl } from "./parse.js";
@@ -67,6 +69,10 @@ export function renderDiagramDsl(
 	source: string,
 	options: RenderDiagramDslOptions = {},
 ): RenderDiagramDslResult {
+	const fonts = registerDiagramFonts(options.fonts ?? []);
+	if (fonts.diagnostics.length > 0) {
+		return { diagnostics: fonts.diagnostics };
+	}
 	const parsed = parseDiagramDsl(source, options);
 	if (hasErrorDiagnostics(parsed.diagnostics) || parsed.value === undefined) {
 		return { diagnostics: parsed.diagnostics };
@@ -94,6 +100,14 @@ export function renderDiagramDsl(
 	}
 
 	const solved = solveDiagram(normalized.diagram, {
+		...(fonts.cjkFamilies.length === 0
+			? {}
+			: {
+					cjkFontFamily: [
+						...fonts.cjkFamilies.map((family) => `'${family}'`),
+						DEFAULT_CJK_FONT_FAMILY,
+					].join(", "),
+				}),
 		...solveInitialLayoutOption(normalized.diagram.metadata?.initialLayout),
 		...(typeof normalized.diagram.metadata?.targetAspectRatio === "number"
 			? { targetAspectRatio: normalized.diagram.metadata.targetAspectRatio }
@@ -378,4 +392,38 @@ function toExportDiagnostic(
 
 function hasErrorDiagnostics(diagnostics: DslDiagnostic[]): boolean {
 	return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+
+/**
+ * Register the diagram's font files; CJK families go first in the CJK
+ * font stack so the output names the font the labels were measured with.
+ */
+function registerDiagramFonts(fonts: readonly (string | FontSource)[]): {
+	cjkFamilies: string[];
+	diagnostics: DslDiagnostic[];
+} {
+	try {
+		const registered = registerFonts(fonts);
+		return {
+			cjkFamilies: registered
+				.filter((font) => font.cjk)
+				// A collection's first family is its main face.
+				.flatMap((font) => font.families.slice(0, 1)),
+			diagnostics: [],
+		};
+	} catch (error) {
+		return {
+			cjkFamilies: [],
+			diagnostics: [
+				{
+					severity: "error",
+					layer: "io",
+					code: "io.font.unreadable",
+					message: error instanceof Error ? error.message : String(error),
+					path: ["fonts"],
+					hint: "Pass a readable .ttf, .otf, .ttc or .woff2 file.",
+				},
+			],
+		};
+	}
 }

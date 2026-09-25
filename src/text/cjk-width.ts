@@ -13,6 +13,9 @@
  * Latin letters inside a CJK font stack are drawn with that font's Latin
  * glyphs, which run a few percent wider than the Arial-metric fonts a
  * canvas usually falls back to, hence `LATIN_IN_CJK_SCALE`.
+ *
+ * Both are fallbacks: when the canvas has the real font (installed, or
+ * registered with `registerFonts`), its measurement is used as is.
  */
 
 /** Latin glyphs of CJK fonts versus Arial-metric fallbacks. */
@@ -44,36 +47,71 @@ export function isFullWidthCodePoint(code: number): boolean {
 	);
 }
 
+export interface CjkWidthOptions {
+	/** Backend measurement of a run of characters. */
+	measure: (run: string) => number;
+	/** Trust `measure` for full-width runs (a real CJK font is in use). */
+	trustFullWidth: boolean;
+	/** Factor applied to measured non-full-width runs. */
+	latinScale: number;
+}
+
 /**
- * Width of `text` with full-width characters counted as `fontSize` each
- * and every other run measured by `measure` (scaled for CJK stacks).
+ * Width of `text`: full-width runs measured by the backend when it has a
+ * real CJK font, else counted as `fontSize` per character; other runs
+ * measured and scaled by `latinScale`.
  */
 export function cjkAwareWidth(
 	text: string,
 	fontSize: number,
-	cjkStack: boolean,
-	measure: (run: string) => number,
+	options: CjkWidthOptions,
 ): number {
 	let width = 0;
 	let run = "";
-	let fullWidth = 0;
-	for (const char of text) {
-		const code = char.codePointAt(0) as number;
-		if (isFullWidthCodePoint(code)) {
-			fullWidth += 1;
-			if (run.length > 0) {
-				width += measure(run) * (cjkStack ? LATIN_IN_CJK_SCALE : 1);
-				run = "";
-			}
+	let runIsFull = false;
+	const flush = () => {
+		if (run.length === 0) return;
+		if (runIsFull) {
+			width += options.trustFullWidth
+				? options.measure(run)
+				: Array.from(run).length * fontSize;
 		} else {
-			run += char;
+			width += options.measure(run) * options.latinScale;
 		}
+		run = "";
+	};
+	for (const char of text) {
+		const full = isFullWidthCodePoint(char.codePointAt(0) as number);
+		if (run.length > 0 && full !== runIsFull) flush();
+		runIsFull = full;
+		run += char;
 	}
-	if (run.length > 0) {
-		width += measure(run) * (cjkStack ? LATIN_IN_CJK_SCALE : 1);
-	}
-	return width + fullWidth * fontSize;
+	flush();
+	return width;
 }
+
+/** Family names of a CSS font shorthand, unquoted, in order. */
+export function fontFamiliesOf(font: string): string[] {
+	const match = /\d+(?:\.\d+)?px(?:\s*\/\s*\S+)?\s+(.+)$/.exec(font);
+	if (match === null) return [];
+	return (match[1] as string)
+		.split(",")
+		.map((family) => family.trim().replace(/^["']|["']$/g, ""))
+		.filter((family) => family.length > 0);
+}
+
+/** CSS generic families: they resolve to whatever the machine has. */
+export const GENERIC_FAMILIES = new Set([
+	"serif",
+	"sans-serif",
+	"monospace",
+	"cursive",
+	"fantasy",
+	"system-ui",
+	"ui-sans-serif",
+	"ui-serif",
+	"ui-monospace",
+]);
 
 /** Font size in px from a CSS font shorthand ("400 14px Arial"). */
 export function fontSizeOf(font: string): number | undefined {

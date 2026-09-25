@@ -187,7 +187,7 @@ constraints:
 ### Pretext sizing + semantic roles (#84 A/D)
 
 - Node boxes grow from Pretext measurement + padding. Caller `size` is a **floor**, not a truncate cap. `label.maxWidth` only controls wrapping.
-- CJK text is measured independently of the installed fonts: ideographs, kana, Hangul and full-width punctuation are exactly 1 em (as in Microsoft YaHei, PingFang, Noto/Source Han Sans, SimSun), Latin inside a CJK font stack gets a 6% allowance, and lines follow the kinsoku rules (no line starts with `，。）」…`, none ends with `（「…`). A Node canvas without a CJK font would otherwise measure ideographs about 25% narrow. The default CJK stack is `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`.
+- Pretext measures with the canvas fonts it is given. Pass the font files the diagram is drawn with (`--font NotoSansSC.otf`, repeatable, `Family=file` to name one; `fonts` in `renderDiagramDsl`, or `registerFonts()`) and labels are measured exactly; a registered CJK family goes first in the CJK font stack. Without the real fonts (a Node canvas falls back to whatever is installed, which measured ideographs about 25% narrow here), full-width CJK characters count exactly 1 em — true of every mainstream CJK font — and Latin inside a CJK font stack gets a 6% allowance, so labels still fit. Line breaks follow the kinsoku rules (no line starts with `，。）」…`, none ends with `（「…`). The default CJK stack is `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`.
 - Under `deliverabilityMode`, `prefitLabelSize` defaults on (opt out with `prefitLabelSize: false`).
 - Ellipse / `role: start|end` boxes become circles with `diameter = max(textWidth, textHeight) + padding`.
 - Optional node `role` maps to fixed shapes (`start`/`end`→ellipse, `decision`→diamond, `process`→rounded-rectangle, `data`→cylinder, `concept`→rectangle). Explicit `shape` wins. Omit `role` on SysML blocks.
@@ -224,6 +224,7 @@ Recommended operator actions after this contract lands on local fixtures:
 ```bash
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
+agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
 cat diagram.yaml | agh --json
 ```
 

@@ -105,6 +105,18 @@ describe("agh CLI contract", () => {
 		expect(io.stderr()).toBe("");
 	});
 
+	it("runCli rejects a --font file it cannot load", async () => {
+		const io = memoryIo(VALID_DSL);
+
+		const exitCode = await runCli(
+			["--font", "/does/not/exist.ttf"],
+			io.environment,
+		);
+
+		expect(exitCode).toBe(1);
+		expect(io.stderr()).toContain("io.font.unreadable");
+	});
+
 	it("runCli reads stdin and writes Excalidraw JSON to stdout", async () => {
 		const io = memoryIo(VALID_DSL);
 

@@ -28,6 +28,7 @@ interface CliOptions {
 	format?: string;
 	json?: boolean;
 	metrics?: string;
+	font?: string[];
 }
 
 export async function runCli(
@@ -81,6 +82,9 @@ export async function runCli(
 		const result = renderDiagramDsl(source, {
 			...(options.input === undefined ? {} : { sourcePath: options.input }),
 			...(options.format === undefined ? {} : { format: options.format }),
+			...(options.font === undefined
+				? {}
+				: { fonts: options.font.map(parseFontArgument) }),
 		});
 		const diagnostics = sortDslDiagnostics(result.diagnostics);
 
@@ -133,6 +137,11 @@ function buildCommand(): Command {
 		.option(
 			"--format <format>",
 			"Output format: svg, excalidraw or geometry (solved geometry JSON)",
+		)
+		.option(
+			"--font <file>",
+			"Measure with this font file (repeatable; Family=file to name it)",
+			(value: string, previous: string[] = []) => [...previous, value],
 		)
 		.option("--json", "Write diagnostics as JSON to stderr")
 		.option(
@@ -211,4 +220,12 @@ function isDslDiagnostic(error: unknown): error is DslDiagnostic {
 		"code" in error &&
 		"message" in error
 	);
+}
+
+/** "file" or "Family=file". */
+function parseFontArgument(value: string): { path: string; family?: string } {
+	const at = value.indexOf("=");
+	return at <= 0
+		? { path: value }
+		: { family: value.slice(0, at), path: value.slice(at + 1) };
 }

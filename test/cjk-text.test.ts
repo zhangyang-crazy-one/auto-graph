@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	cjkAwareWidth,
+	fontFamiliesOf,
 	isCjkFontStack,
 	LATIN_IN_CJK_SCALE,
 } from "../src/text/cjk-width.js";
@@ -16,20 +17,51 @@ function lines(text: string, maxWidth: number): string[] {
 }
 
 describe("CJK-aware width", () => {
-	it("counts ideographs, kana, Hangul and full-width punctuation as 1 em", () => {
-		const measure = () => {
-			throw new Error("no Latin run expected");
+	it("counts full-width characters as 1 em without a real CJK font", () => {
+		const options = {
+			measure: () => {
+				throw new Error("no Latin run expected");
+			},
+			trustFullWidth: false,
+			latinScale: 1,
 		};
-		expect(cjkAwareWidth("订单服务", 14, false, measure)).toBe(56);
-		expect(cjkAwareWidth("カタカナ한국，。", 14, false, measure)).toBe(112);
+		expect(cjkAwareWidth("订单服务", 14, options)).toBe(56);
+		expect(cjkAwareWidth("カタカナ한국，。", 14, options)).toBe(112);
 	});
 
-	it("measures Latin runs with the backend, widened in CJK stacks", () => {
+	it("uses the backend for full-width runs when it has a real CJK font", () => {
+		const measure = (run: string) => Array.from(run).length * 13;
+		expect(
+			cjkAwareWidth("订单", 14, {
+				measure,
+				trustFullWidth: true,
+				latinScale: 1,
+			}),
+		).toBe(26);
+	});
+
+	it("measures Latin runs with the backend, scaled as asked", () => {
 		const measure = (run: string) => run.length * 5;
-		expect(cjkAwareWidth("订单 Order", 10, false, measure)).toBe(10 * 2 + 30);
-		expect(cjkAwareWidth("订单 Order", 10, true, measure)).toBeCloseTo(
-			20 + 30 * LATIN_IN_CJK_SCALE,
-		);
+		expect(
+			cjkAwareWidth("订单 Order", 10, {
+				measure,
+				trustFullWidth: false,
+				latinScale: 1,
+			}),
+		).toBe(20 + 30);
+		expect(
+			cjkAwareWidth("订单 Order", 10, {
+				measure,
+				trustFullWidth: false,
+				latinScale: LATIN_IN_CJK_SCALE,
+			}),
+		).toBeCloseTo(20 + 30 * LATIN_IN_CJK_SCALE);
+	});
+
+	it("reads the family list of a CSS font", () => {
+		expect(
+			fontFamiliesOf("400 14px 'Microsoft YaHei', \"PingFang SC\", sans-serif"),
+		).toEqual(["Microsoft YaHei", "PingFang SC", "sans-serif"]);
 	});
 
 	it("recognises CJK font stacks", () => {

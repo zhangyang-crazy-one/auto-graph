@@ -1,6 +1,7 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
+import type { FontSource } from "../text/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
 export type DslDiagnosticLayer =
@@ -41,6 +42,11 @@ export interface RenderDiagramDslOptions {
 	sourceFormat?: "yaml" | "json";
 	format?: string;
 	textMeasurer?: TextMeasurer;
+	/**
+	 * Font files the diagram is drawn with: registered for measurement
+	 * (Node), and CJK ones are put first in the CJK font stack.
+	 */
+	fonts?: readonly (string | FontSource)[];
 }
 
 export interface RenderDiagramDslResult {

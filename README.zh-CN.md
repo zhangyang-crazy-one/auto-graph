@@ -176,6 +176,7 @@ routing:
 ```bash
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
+agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
 cat diagram.yaml | agh --json
 ```
 
@@ -215,7 +216,7 @@ auto-graph v0.0.1 包含：
 - YAML 和 JSON DSL 解析
 - parse、validate、solve、export、I/O 分层诊断
 - 基于 Pretext 的文本测量抽象和测试 fallback
-- 中日韩文字的测量不依赖本机字体：汉字、假名、谚文与全角标点一律按 1 em（与微软雅黑、苹方、思源/Noto 黑体、宋体一致），中文字体栈中的拉丁字母预留 6% 余量，折行遵守避头尾规则（行首不出现 `，。）」…`，行尾不出现 `（「…`）。否则在没有中文字体的 Node 画布上，汉字会被少算约 25%。默认中文字体栈为 `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`。
+- Pretext 用画布上可用的字体测量。传入图实际使用的字体文件（`--font NotoSansSC.otf`，可重复，`字体名=文件` 可指定名称；或 `renderDiagramDsl` 的 `fonts` 选项、`registerFonts()`），标签就按真实字体精确测量，注册的中文字体会排在中文字体栈最前面。没有真实字体时（Node 画布会退到本机已有字体，这里汉字被少算约 25%），全角字符一律按 1 em（所有主流中文字体都如此），中文字体栈中的拉丁字母预留 6% 余量，保证不溢出。折行遵守避头尾规则（行首不出现 `，。）」…`，行尾不出现 `（「…`）。默认中文字体栈为 `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`。
 - 标签适配、形状几何、AABB 避碰工具和连接端口
 - Dagre 初始有向布局
 - exact、relative、align、distribute、containment 约束
