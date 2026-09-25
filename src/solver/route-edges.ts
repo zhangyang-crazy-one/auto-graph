@@ -595,6 +595,15 @@ export function finalizeCoordinatedEdges(
 	// nudged track running over its own port label would push the final
 	// edge label onto it.
 	const margin = options.obstacleMargin ?? 0;
+	const ancestorCache = new Map<string, Set<string>>();
+	const ancestorsOf = (nodeId: string): Set<string> => {
+		let ancestors = ancestorCache.get(nodeId);
+		if (ancestors === undefined) {
+			ancestors = ancestorGroupIds(groups, nodeId);
+			ancestorCache.set(nodeId, ancestors);
+		}
+		return ancestors;
+	};
 	const obstacles: PostPassObstacle[] = [
 		...nodeObstacles.map((entry) => ({ box: entry.box, ownerId: entry.id })),
 		// The drawn node itself, inside its expanded obstacle box: grazing the
@@ -625,8 +634,8 @@ export function finalizeCoordinatedEdges(
 				edges
 					.filter(
 						(edge) =>
-							ancestorGroupIds(groups, edge.source.nodeId).has(group.id) ||
-							ancestorGroupIds(groups, edge.target.nodeId).has(group.id),
+							ancestorsOf(edge.source.nodeId).has(group.id) ||
+							ancestorsOf(edge.target.nodeId).has(group.id),
 					)
 					.map((edge) => edge.id),
 			),

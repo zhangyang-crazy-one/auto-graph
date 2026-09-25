@@ -48,3 +48,44 @@ export function seedOrderFromBoxes(
 		[...layer].sort((a, b) => cross(a) - cross(b) || a.localeCompare(b)),
 	);
 }
+
+/**
+ * Order of every layer by first visit in a depth-first walk down the
+ * layered graph (sources in id order, then any vertex not yet reached):
+ * the kind of start Dagre's own ordering begins from, in linear time. Used
+ * instead of a full Dagre layout on large diagrams.
+ */
+export function seedOrderByDepthFirst(layering: Layering): string[][] {
+	const lower = new Map<string, string[]>();
+	const hasUpper = new Set<string>();
+	for (const segment of layering.segments) {
+		const list = lower.get(segment.from) ?? [];
+		list.push(segment.to);
+		lower.set(segment.from, list);
+		hasUpper.add(segment.to);
+	}
+	const visit = new Map<string, number>();
+	const walk = (root: string) => {
+		const stack = [root];
+		while (stack.length > 0) {
+			const id = stack.pop() as string;
+			if (visit.has(id)) continue;
+			visit.set(id, visit.size);
+			const next = lower.get(id) ?? [];
+			for (let index = next.length - 1; index >= 0; index -= 1) {
+				const target = next[index] as string;
+				if (!visit.has(target)) stack.push(target);
+			}
+		}
+	};
+	const all = layering.layers.flat();
+	for (const id of [...all].sort()) if (!hasUpper.has(id)) walk(id);
+	for (const layer of layering.layers) {
+		for (const id of [...layer].sort()) walk(id);
+	}
+	return layering.layers.map((layer) =>
+		[...layer].sort(
+			(a, b) => (visit.get(a) ?? 0) - (visit.get(b) ?? 0) || a.localeCompare(b),
+		),
+	);
+}

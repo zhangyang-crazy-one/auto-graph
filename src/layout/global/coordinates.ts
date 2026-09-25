@@ -21,7 +21,7 @@ import {
 import { assignLayers, type Layering } from "./layering.js";
 import { orderLayers } from "./ordering.js";
 import { routeLayeredEdges, sameLayerDetours } from "./routing.js";
-import { seedOrderFromBoxes } from "./seed.js";
+import { seedOrderByDepthFirst, seedOrderFromBoxes } from "./seed.js";
 
 /**
  * Global coordinate assignment (plan P3).
@@ -112,6 +112,8 @@ export interface GlobalLayoutInput {
 	swimlanes?: readonly GlobalLayoutSwimlane[];
 	/** An existing layout (e.g. Dagre) used as an extra ordering start. */
 	seedBoxes?: ReadonlyMap<string, Box>;
+	/** Without seed boxes: add a depth-first order as an extra start. */
+	depthFirstSeed?: boolean;
 	options?: GlobalLayoutOptions;
 }
 
@@ -198,16 +200,18 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		]),
 	);
 	const seeds =
-		input.seedBoxes === undefined
-			? []
-			: [
+		input.seedBoxes !== undefined
+			? [
 					seedOrderFromBoxes(
 						layering,
 						input.seedBoxes,
 						direction,
 						edgeEndpoints,
 					),
-				];
+				]
+			: input.depthFirstSeed === true
+				? [seedOrderByDepthFirst(layering)]
+				: [];
 	const ordering = orderLayers(layering, hierarchy, { seeds });
 
 	const insets = containerInsets(input, hierarchy, direction);

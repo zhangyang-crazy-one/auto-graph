@@ -38,6 +38,9 @@ export interface Ordering {
 
 type Heuristic = "barycenter" | "median";
 
+/** Sweep rounds without improvement before a refinement stops. */
+const PATIENCE = 5;
+
 export function orderLayers(
 	layering: Layering,
 	hierarchy: ContainerHierarchy,
@@ -55,6 +58,11 @@ export function orderLayers(
 		upper.set(segment.to, up);
 	}
 
+	const graph = indexGraph(
+		layering.vertices.keys(),
+		lower,
+		(id) => layering.vertices.get(id)?.containerId,
+	);
 	const starts: string[][][] = [
 		initialOrder(layering, hierarchy, upper),
 		...(options.seeds ?? []).map((seed) =>
@@ -70,6 +78,7 @@ export function orderLayers(
 				hierarchy,
 				upper,
 				lower,
+				graph,
 				iterations,
 				heuristic,
 			);
@@ -88,6 +97,7 @@ function refine(
 	hierarchy: ContainerHierarchy,
 	upper: ReadonlyMap<string, string[]>,
 	lower: ReadonlyMap<string, string[]>,
+	graph: IndexedGraph,
 	iterations: number,
 	heuristic: Heuristic,
 ): Ordering {
@@ -95,16 +105,16 @@ function refine(
 	// before it can become `best`: a layer-local start could otherwise flip
 	// two groups between layers and win on crossings with an order that no
 	// set of non-interleaving rectangles can draw.
-	let layers = canonicalize(
-		transpose(cloneLayers(start), layering, lower),
-		layering,
-		hierarchy,
-	);
+	let layers = canonicalize(transpose(start, graph), layering, hierarchy);
 	let best: Ordering = {
 		layers: cloneLayers(layers),
-		crossings: countCrossings(layers, lower),
+		crossings: countIndexed(layers, graph),
 	};
+	let lastImprovement = -1;
 	for (let iteration = 0; iteration < iterations; iteration += 1) {
+		// Sweeps converge in a few rounds; stop once `PATIENCE` rounds in a
+		// row found nothing better.
+		if (iteration - lastImprovement > PATIENCE) break;
 		for (const direction of ["down", "up"] as const) {
 			layers = sweep(
 				layers,
@@ -114,14 +124,11 @@ function refine(
 				direction,
 				heuristic,
 			);
-			layers = canonicalize(
-				transpose(layers, layering, lower),
-				layering,
-				hierarchy,
-			);
-			const crossings = countCrossings(layers, lower);
+			layers = canonicalize(transpose(layers, graph), layering, hierarchy);
+			const crossings = countIndexed(layers, graph);
 			if (crossings < best.crossings) {
 				best = { layers: cloneLayers(layers), crossings };
+				lastImprovement = iteration;
 			}
 		}
 		if (best.crossings === 0) break;
@@ -247,25 +254,27 @@ function barycenters(
 		fixed.map((id, index) => [id, (index + 0.5) / Math.max(1, fixed.length)]),
 	);
 	const result = new Map<string, number>();
+	const values: number[] = [];
 	for (const id of vertices) {
-		const values = (neighbours.get(id) ?? [])
-			.map((other) => position.get(other))
-			.filter((value): value is number => value !== undefined);
+		values.length = 0;
+		for (const other of neighbours.get(id) ?? []) {
+			const value = position.get(other);
+			if (value !== undefined) values.push(value);
+		}
 		if (values.length === 0) continue;
 		if (heuristic === "median") {
-			const sorted = [...values].sort((a, b) => a - b);
-			const middle = Math.floor(sorted.length / 2);
+			values.sort((a, b) => a - b);
+			const middle = Math.floor(values.length / 2);
 			result.set(
 				id,
-				sorted.length % 2 === 1
-					? (sorted[middle] as number)
-					: ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2,
+				values.length % 2 === 1
+					? (values[middle] as number)
+					: ((values[middle - 1] as number) + (values[middle] as number)) / 2,
 			);
 		} else {
-			result.set(
-				id,
-				values.reduce((sum, value) => sum + value, 0) / values.length,
-			);
+			let sum = 0;
+			for (const value of values) sum += value;
+			result.set(id, sum / values.length);
 		}
 	}
 	return result;
@@ -300,6 +309,35 @@ function globalContainerOrder(
 	return order;
 }
 
+const RANKS = new WeakMap<Layering, Map<string, number>>();
+
+/**
+ * `localeCompare` order of every vertex and container id as integers, so
+ * the hot sorts compare numbers (ids that compare equal share a rank).
+ */
+function idRanks(
+	layering: Layering,
+	hierarchy: ContainerHierarchy,
+): ReadonlyMap<string, number> {
+	const cached = RANKS.get(layering);
+	if (cached !== undefined) return cached;
+	const ids = [
+		...new Set([...layering.vertices.keys(), ...hierarchy.containers.keys()]),
+	].sort((a, b) => a.localeCompare(b));
+	const rank = new Map<string, number>();
+	ids.forEach((id, index) => {
+		const previous = ids[index - 1];
+		rank.set(
+			id,
+			previous !== undefined && previous.localeCompare(id) === 0
+				? (rank.get(previous) as number)
+				: index,
+		);
+	});
+	RANKS.set(layering, rank);
+	return rank;
+}
+
 /**
  * Sort one layer into nested container blocks. Siblings at each level are
  * child containers (keyed by fixed order, else global order, else the mean
@@ -313,6 +351,7 @@ function arrangeBlocks(
 	hierarchy: ContainerHierarchy,
 	containerOrder: ReadonlyMap<string, number>,
 ): string[] {
+	const rank = idRanks(layering, hierarchy);
 	const inLayer = new Set(vertices);
 	const direct = new Map<string, string[]>();
 	for (const id of vertices) {
@@ -375,11 +414,79 @@ function arrangeBlocks(
 			});
 		}
 		entries.sort(
-			(a, b) => a.fixed - b.fixed || a.key - b.key || a.id.localeCompare(b.id),
+			(a, b) =>
+				a.fixed - b.fixed ||
+				a.key - b.key ||
+				(rank.get(a.id) as number) - (rank.get(b.id) as number),
 		);
 		return entries.flatMap((entry) => entry.items());
 	};
 	return flatten(hierarchy.rootId);
+}
+
+/** Integer view of the layered graph for the hot loops. */
+interface IndexedGraph {
+	ids: readonly string[];
+	index: ReadonlyMap<string, number>;
+	upper: readonly (readonly number[])[];
+	lower: readonly (readonly number[])[];
+	/** Container per vertex: equal values mean the same container. */
+	container: readonly (string | undefined)[];
+	/** Scratch: position of each vertex inside its layer. */
+	position: Int32Array;
+	/** Scratch: layer of each vertex, -1 when not placed. */
+	layerOf: Int32Array;
+	/** Scratch: Fenwick tree for crossing counts. */
+	tree: Int32Array;
+}
+
+function indexGraph(
+	vertices: Iterable<string>,
+	lower: ReadonlyMap<string, readonly string[]>,
+	containerOf: (id: string) => string | undefined,
+): IndexedGraph {
+	const ids: string[] = [];
+	const index = new Map<string, number>();
+	const add = (id: string): number => {
+		let at = index.get(id);
+		if (at === undefined) {
+			at = ids.length;
+			ids.push(id);
+			index.set(id, at);
+		}
+		return at;
+	};
+	for (const id of vertices) add(id);
+	const edges: [number, number][] = [];
+	for (const [from, targets] of lower) {
+		const source = add(from);
+		for (const to of targets) edges.push([source, add(to)]);
+	}
+	const upperLists: number[][] = ids.map(() => []);
+	const lowerLists: number[][] = ids.map(() => []);
+	for (const [source, target] of edges) {
+		(lowerLists[source] as number[]).push(target);
+		(upperLists[target] as number[]).push(source);
+	}
+	return {
+		ids,
+		index,
+		upper: upperLists,
+		lower: lowerLists,
+		container: ids.map(containerOf),
+		position: new Int32Array(ids.length),
+		layerOf: new Int32Array(ids.length),
+		tree: new Int32Array(ids.length + 1),
+	};
+}
+
+function toIndices(
+	layers: readonly (readonly string[])[],
+	graph: IndexedGraph,
+): number[][] {
+	return layers.map((layer) =>
+		layer.map((id) => graph.index.get(id) as number),
+	);
 }
 
 /**
@@ -387,69 +494,57 @@ function arrangeBlocks(
  * crossings with both neighbouring layers.
  */
 function transpose(
-	layers: string[][],
-	layering: Layering,
-	lower: ReadonlyMap<string, string[]>,
+	layers: readonly (readonly string[])[],
+	graph: IndexedGraph,
 ): string[][] {
-	const next = cloneLayers(layers);
-	const upper = new Map<string, string[]>();
-	for (const [from, targets] of lower) {
-		for (const to of targets) {
-			const list = upper.get(to) ?? [];
-			list.push(from);
-			upper.set(to, list);
-		}
-	}
-	const position = new Map<string, number>();
+	const { upper, lower, container, position } = graph;
+	const next = toIndices(layers, graph);
 	for (const layer of next) {
-		layer.forEach((id, index) => {
-			position.set(id, index);
-		});
-	}
-	// Crossings between the edges of `a` and of `b` (a left of b) with one
-	// neighbouring layer: pairs whose other ends are in inverted order.
-	const pairCrossings = (
-		a: readonly string[] | undefined,
-		b: readonly string[] | undefined,
-	): number => {
-		if (a === undefined || b === undefined) return 0;
-		let count = 0;
-		for (const x of a) {
-			const px = position.get(x) ?? 0;
-			for (const y of b) if (px > (position.get(y) ?? 0)) count += 1;
+		for (let at = 0; at < layer.length; at += 1) {
+			position[layer[at] as number] = at;
 		}
-		return count;
+	}
+	// Swapping adjacent a, b only changes crossings between their own edges:
+	// each pair of other ends (x of a, y of b) crosses in exactly one of the
+	// two orders, so the sign of their positions decides which.
+	const preference = (a: readonly number[], b: readonly number[]): number => {
+		let score = 0;
+		for (const x of a) {
+			const px = position[x] as number;
+			for (const y of b) {
+				const py = position[y] as number;
+				if (px > py) score += 1;
+				else if (px < py) score -= 1;
+			}
+		}
+		return score;
 	};
-	// Swapping adjacent a, b only changes crossings between their own edges,
-	// so compare c(a,b) with c(b,a) instead of recounting both layer gaps.
-	const cost = (left: string, right: string) =>
-		pairCrossings(upper.get(left), upper.get(right)) +
-		pairCrossings(lower.get(left), lower.get(right));
 	for (let round = 0; round < 4; round += 1) {
 		let improved = false;
-		for (let index = 0; index < next.length; index += 1) {
-			const layer = next[index] ?? [];
+		for (const layer of next) {
 			for (let at = 0; at + 1 < layer.length; at += 1) {
-				const a = layer[at] as string;
-				const b = layer[at + 1] as string;
+				const a = layer[at] as number;
+				const b = layer[at + 1] as number;
+				if (container[a] !== container[b]) continue;
+				// crossings(a, b) - crossings(b, a) with both neighbouring layers.
 				if (
-					layering.vertices.get(a)?.containerId !==
-					layering.vertices.get(b)?.containerId
+					preference(upper[a] as number[], upper[b] as number[]) +
+						preference(lower[a] as number[], lower[b] as number[]) >
+					0
 				) {
-					continue;
-				}
-				if (cost(b, a) < cost(a, b)) {
 					layer[at] = b;
 					layer[at + 1] = a;
-					position.set(b, at);
-					position.set(a, at + 1);
+					position[b] = at;
+					position[a] = at + 1;
 					improved = true;
 				}
 			}
 		}
 		if (!improved) break;
 	}
-	return next;
+	return next.map((layer) =>
+		layer.map((vertex) => graph.ids[vertex] as string),
+	);
 }
 
 /** Total crossings of unit segments between consecutive layers. */
@@ -457,52 +552,61 @@ export function countCrossings(
 	layers: readonly string[][],
 	lower: ReadonlyMap<string, string[]>,
 ): number {
-	let total = 0;
-	for (let index = 0; index + 1 < layers.length; index += 1) {
-		total += crossingsBetween(
-			layers[index] ?? [],
-			layers[index + 1] ?? [],
-			lower,
-		);
-	}
-	return total;
+	return countIndexed(
+		layers,
+		indexGraph(layers.flat(), lower, () => undefined),
+	);
 }
 
-function crossingsBetween(
-	top: readonly string[],
-	bottom: readonly string[],
-	lower: ReadonlyMap<string, string[]>,
+function countIndexed(
+	layers: readonly (readonly string[])[],
+	graph: IndexedGraph,
 ): number {
-	const bottomPosition = new Map(bottom.map((id, index) => [id, index]));
-	const pairs: Array<[number, number]> = [];
-	top.forEach((id, topIndex) => {
-		for (const target of lower.get(id) ?? []) {
-			const bottomIndex = bottomPosition.get(target);
-			if (bottomIndex !== undefined) pairs.push([topIndex, bottomIndex]);
+	const { lower, position, layerOf, tree } = graph;
+	const indexed = toIndices(layers, graph);
+	layerOf.fill(-1);
+	indexed.forEach((layer, layerIndex) => {
+		for (let at = 0; at < layer.length; at += 1) {
+			const vertex = layer[at] as number;
+			position[vertex] = at;
+			layerOf[vertex] = layerIndex;
 		}
 	});
-	if (pairs.length < 2) return 0;
-	// Barth–Mutzel–Jünger: sort by (top, bottom) and count, for each pair,
-	// the earlier pairs with a strictly larger bottom index (inversions),
-	// with a Fenwick tree — O(E log V) instead of comparing all pairs.
-	// Equal tops sort by bottom, so they never count; equal bottoms fail
-	// the strict comparison. Same result as the pairwise definition.
-	pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-	const size = bottom.length;
-	const tree = new Array<number>(size + 1).fill(0);
-	let crossings = 0;
-	let inserted = 0;
-	for (const [, bottomIndex] of pairs) {
-		// Earlier pairs with bottom <= bottomIndex.
-		let atMost = 0;
-		for (let i = bottomIndex + 1; i > 0; i -= i & -i) atMost += tree[i] ?? 0;
-		crossings += inserted - atMost;
-		for (let i = bottomIndex + 1; i <= size; i += i & -i) {
-			tree[i] = (tree[i] ?? 0) + 1;
+	let total = 0;
+	const bottoms: number[] = [];
+	for (let layerIndex = 0; layerIndex + 1 < indexed.length; layerIndex += 1) {
+		// Barth–Mutzel–Jünger: take the segments sorted by (top, bottom) and
+		// count, for each, the earlier ones with a strictly larger bottom
+		// index (inversions), with a Fenwick tree — O(E log V) instead of
+		// comparing all pairs. Equal tops sort by bottom, so they never
+		// count; equal bottoms fail the strict comparison. Same result as
+		// the pairwise definition.
+		const size = (indexed[layerIndex + 1] as number[]).length;
+		tree.fill(0, 0, size + 1);
+		let inserted = 0;
+		for (const vertex of indexed[layerIndex] as number[]) {
+			bottoms.length = 0;
+			for (const target of lower[vertex] as number[]) {
+				if (layerOf[target] === layerIndex + 1) {
+					bottoms.push(position[target] as number);
+				}
+			}
+			if (bottoms.length > 1) bottoms.sort((a, b) => a - b);
+			for (const bottom of bottoms) {
+				// Earlier segments with bottom <= this one.
+				let atMost = 0;
+				for (let i = bottom + 1; i > 0; i -= i & -i) {
+					atMost += tree[i] as number;
+				}
+				total += inserted - atMost;
+				for (let i = bottom + 1; i <= size; i += i & -i) {
+					tree[i] = (tree[i] as number) + 1;
+				}
+				inserted += 1;
+			}
 		}
-		inserted += 1;
 	}
-	return crossings;
+	return total;
 }
 
 function cloneLayers(layers: readonly string[][]): string[][] {

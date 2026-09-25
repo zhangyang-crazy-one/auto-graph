@@ -319,6 +319,9 @@ export function resolveAutoLayoutMode(
 	return steps >= LONG_FLOW_STEPS ? "global" : "dagre";
 }
 
+/** Largest diagram whose ordering search is seeded with a Dagre layout. */
+const DAGRE_SEED_MAX_NODES = 150;
+
 /**
  * Global layout (plan P3): hierarchy-aware layering and ordering, then a
  * VPSC quadratic program for coordinates. Dagre runs first only to seed the
@@ -336,15 +339,21 @@ export function runGlobalInitialLayout(input: {
 	targetAspectRatio?: number;
 	fold?: boolean;
 }): InitialLayoutResult {
-	const seed = runDagreInitialLayout({
-		direction: input.direction,
-		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
-		edges: input.edges.map((edge) => ({
-			id: edge.id,
-			sourceId: edge.source.nodeId,
-			targetId: edge.target.nodeId,
-		})),
-	});
+	// Dagre only seeds the ordering search. On large diagrams a full Dagre
+	// layout costs more than the whole search; a depth-first order (the kind
+	// of start Dagre's ordering begins from) is linear.
+	const dagreSeed = input.nodes.length <= DAGRE_SEED_MAX_NODES;
+	const seed = !dagreSeed
+		? { boxes: undefined, diagnostics: [] }
+		: runDagreInitialLayout({
+				direction: input.direction,
+				nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
+				edges: input.edges.map((edge) => ({
+					id: edge.id,
+					sourceId: edge.source.nodeId,
+					targetId: edge.target.nodeId,
+				})),
+			});
 	// Cycle breaking follows the author's reading order: edges as declared,
 	// nodes by first appearance in those edges.
 	const edgeIndex = new Map(
@@ -402,7 +411,9 @@ export function runGlobalInitialLayout(input: {
 			headerHeight: swimlane.headerHeight ?? 28,
 			padding: swimlane.padding ?? 16,
 		})),
-		seedBoxes: seed.boxes,
+		...(seed.boxes === undefined
+			? { depthFirstSeed: true }
+			: { seedBoxes: seed.boxes }),
 		options: {
 			...(input.targetAspectRatio === undefined
 				? {}

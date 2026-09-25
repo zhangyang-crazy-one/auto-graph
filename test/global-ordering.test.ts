@@ -7,6 +7,7 @@ import {
 	type HierarchyInput,
 	type Layering,
 	orderLayers,
+	seedOrderByDepthFirst,
 } from "../src/layout/index.js";
 
 type Edge = [string, string];
@@ -409,5 +410,44 @@ describe("countCrossings", () => {
 				expected,
 			);
 		}
+	});
+});
+
+describe("depth-first seed", () => {
+	it("orders every layer by first visit from the sources", () => {
+		const { layering } = solve(
+			["a", "b", "c", "d", "e"],
+			[
+				["a", "d"],
+				["b", "c"],
+				["a", "e"],
+			],
+		);
+		const seed = seedOrderByDepthFirst(layering);
+		expect(seed.map((layer) => [...layer].sort())).toEqual(
+			layering.layers.map((layer) => [...layer].sort()),
+		);
+		// a is visited first, so its children d and e precede b's child c.
+		const second = seed[1] as string[];
+		expect(second.indexOf("d")).toBeLessThan(second.indexOf("c"));
+		expect(second.indexOf("e")).toBeLessThan(second.indexOf("c"));
+	});
+
+	it("is a valid ordering start", () => {
+		const { hierarchy, layering } = solve(
+			["a", "b", "c", "d"],
+			[
+				["a", "d"],
+				["b", "c"],
+				["a", "c"],
+				["b", "d"],
+			],
+		);
+		const seeded = orderLayers(layering, hierarchy, {
+			seeds: [seedOrderByDepthFirst(layering)],
+		});
+		expect(seeded.crossings).toBeLessThanOrEqual(
+			orderLayers(layering, hierarchy).crossings,
+		);
 	});
 });
