@@ -424,6 +424,15 @@ export function routeLayeredEdges(
 			layerCenter(lowerLayer) - mainSize(lowerBox) / 2 - lastBand.mainOffset,
 			portOf(edge.id, lower, "before") + lastBand.crossOffset,
 		]);
+		// A jog of at most 0.5 px is not drawn (see the channel loop): the
+		// line carries on at the cross position it had, so it stays straight.
+		for (let index = 1; index < flow.length; index += 1) {
+			const before = flow[index - 1] as [number, number];
+			const point = flow[index] as [number, number];
+			if (point[0] !== before[0] && Math.abs(point[1] - before[1]) <= 0.5) {
+				point[1] = before[1];
+			}
+		}
 		let points = simplify(flow.map(([m, c]) => toScreen(m, c)));
 		// Snap the ends onto the final (rounded) node boxes.
 		points = snapEnd(points, upperBox, horizontalFlow, false);
@@ -605,8 +614,18 @@ function assignTracks(
 
 function simplify(points: readonly Point[]): Point[] {
 	const result: Point[] = [];
-	for (const point of points) {
+	for (const raw of points) {
 		const last = result[result.length - 1];
+		// Coordinates within 1e-6 are the same line: copy them exactly, or
+		// the final rounding can split them (63.9949… vs 63.9950…) into a
+		// diagonal.
+		const point =
+			last === undefined
+				? raw
+				: {
+						x: Math.abs(last.x - raw.x) < 1e-6 ? last.x : raw.x,
+						y: Math.abs(last.y - raw.y) < 1e-6 ? last.y : raw.y,
+					};
 		if (
 			last !== undefined &&
 			Math.abs(last.x - point.x) < 1e-6 &&

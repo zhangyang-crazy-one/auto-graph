@@ -5,10 +5,10 @@ Hard metrics (first six columns) must stay at or below these values; see `src/qu
 
 | benchmark | node overlap | group overlap | foreign in group | label overflow | edge through node | shared endpoint | crossings | bends/edge | overlap len | detour | aspect | whitespace | gap CV | largest empty | lane fill | sparse lanes |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 1.6 | 0 | 1.141 | 2.324 | 0.899 | 0.39 | 0.143 | 0.371 | 2 |
+| cn-swimlane.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 1.6 | 0 | 1.141 | 2.324 | 0.899 | 0.39 | 0.161 | 0.371 | 2 |
 | cn-vertical-lanes.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1.136 | 1.149 | 0.876 | 0.734 | 0.136 | 0.441 | 2 |
-| cn-architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 2.769 | 0 | 1.198 | 2.104 | 0.901 | 0.657 | 0.158 | 1 | 0 |
-| cn-long-flow.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.889 | 0 | 1.46 | 2.035 | 0.806 | 0.221 | 0.118 | 1 | 0 |
+| cn-architecture.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 2.692 | 0 | 1.196 | 2.104 | 0.901 | 0.657 | 0.158 | 1 | 0 |
+| cn-long-flow.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.333 | 0 | 1.456 | 2.02 | 0.808 | 0.221 | 0.118 | 1 | 0 |
 | microservice.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 7 | 2.8 | 0 | 1.285 | 1.754 | 0.916 | 0.228 | 0.367 | 1 | 0 |
 | contract-swimlane.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1.694 | 0.722 | 0 | 0.214 | 0.502 | 0 |
 | sysml-structure.auto-graph.yaml | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 1.187 | 2.412 | 0.854 | 0.556 | 0.193 | 0.346 | 0 |

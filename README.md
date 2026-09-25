@@ -122,14 +122,15 @@ layout:
 
 - **Layering**: cycles are broken in declaration order (a "retry" edge written last is the one reversed), and sibling groups linked one way become tiers (e.g. services → data read left to right). In swimlanes, a hand-off between lanes does not advance the flow: it is drawn straight across the lanes, so a process that zig-zags between lanes stays compact instead of growing one step per hand-off.
 - **Ordering**: groups and lanes stay contiguous with one consistent order across layers, so every container is a single rectangle; long edges travel inside the containers they start and end in.
-- **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
+- **Layering** without groups minimises total edge length (network simplex), so fewer edges span several layers.
+- **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Long edges are aligned into straight runs (Brandes–Köpf-style: non-crossing inner segments held equal, then a pass that lines up what room allows), so they do not step at every layer; in swimlanes only while that keeps the lanes compact. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
 - **Spacing between layers** is sized from what must fit there: one track per bending edge, edge labels, and container borders.
 - **Folding**: a flow much longer than `layout.targetAspectRatio` (default 1.6) — at least 6 layers and more than about a page along the flow — is cut into bands stacked in reading order, like wrapped text. Cuts avoid edges where possible and never split a group; swimlane diagrams are not folded (their lanes span every layer). `layout.fold: false` turns it off.
 - **Label backdrops**: edge labels, group titles and port labels are drawn on a white box fitted to their text, so lines passing underneath do not run through the glyphs.
 
 Explicit `constraints` still apply after the layout. `test/fixtures/benchmark/layout-baseline.md` compares both modes on the benchmark set.
 
-`test/fixtures/benchmark/elk-comparison.md` compares the global layout with ELK layered on identical input (same fitted node sizes, hierarchy, paddings and edge-label sizes; `DGE_ELK=1 npx vitest run test/benchmark/elk-comparison.test.ts`). Both keep every hard metric at 0 on the set. DGE draws far fewer crossings once groups or lanes are involved (about half at 300 nodes) and is faster there; ELK needs fewer bends and much less area on large plain graphs.
+`test/fixtures/benchmark/elk-comparison.md` compares the global layout with ELK layered on identical input (same fitted node sizes, hierarchy, paddings and edge-label sizes; `DGE_ELK=1 npx vitest run test/benchmark/elk-comparison.test.ts`). Both keep every hard metric at 0 on the set. DGE draws about half the crossings and fewer bends overall, and is faster once groups or lanes are involved; on large plain graphs ELK still bends a little less (1.8 vs 2.3 per edge at 300 nodes) in a little less area.
 
 ### Incremental stability
 

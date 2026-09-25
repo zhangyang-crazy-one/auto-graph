@@ -1,5 +1,6 @@
 import type { ContainerHierarchy } from "./hierarchy.js";
 import { lowestCommonContainer } from "./hierarchy.js";
+import { networkSimplexLayers } from "./network-simplex.js";
 
 /**
  * Layer assignment for the global solver (plan P2).
@@ -11,7 +12,8 @@ import { lowestCommonContainer } from "./hierarchy.js";
  *    greedy sequence is kept as `greedyFeedbackArcOrder` for callers that
  *    want the smallest feedback set instead of the declared reading order.
  * 2. Longest-path layering on the resulting DAG, then sources are pulled
- *    towards their successors so they do not create long edges.
+ *    towards their successors so they do not create long edges. Without
+ *    groups, network simplex then minimises the total edge length.
  *    In swimlanes whose lanes run across the flow, a hand-off between two
  *    lanes does not advance the layer: it is drawn straight across the
  *    lanes, so a flow that zig-zags between lanes stays compact.
@@ -91,7 +93,17 @@ export function assignLayers(
 		? laneBlockLayers(nodes, dagEdges, hierarchy)
 		: hasCrossAxisLanes(hierarchy)
 			? crossLaneLayers(nodes, dagEdges, hierarchy, reversedEdgeIds)
-			: longestPathLayers(nodes, dagEdges);
+			: hasGroups(hierarchy)
+				? longestPathLayers(nodes, dagEdges)
+				: // Without groups nothing else moves layers afterwards, so the
+					// total edge length can be minimised outright. With groups the
+					// tier and compaction passes below reshape the layers, and
+					// they work better from the longest-path start.
+					networkSimplexLayers(
+						nodes,
+						dagEdges,
+						longestPathLayers(nodes, dagEdges),
+					);
 	if (!hasMainAxisLanes(hierarchy)) {
 		const tiers = enforceContainerPrecedence(
 			layerOfNode,
@@ -175,6 +187,13 @@ export function assignLayers(
 		layers[vertex.layer]?.push(vertex.id);
 	}
 	return { vertices, layers, segments, reversedEdgeIds, layerOfNode };
+}
+
+function hasGroups(hierarchy: ContainerHierarchy): boolean {
+	for (const container of hierarchy.containers.values()) {
+		if (container.kind === "group") return true;
+	}
+	return false;
 }
 
 /**
