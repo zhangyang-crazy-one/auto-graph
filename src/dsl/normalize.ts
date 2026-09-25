@@ -109,6 +109,7 @@ export function normalizeDiagramDsl(
 				? {}
 				: { foldLayout: dsl.layout.fold }),
 			...(portShifting === undefined ? {} : { portShifting }),
+			...(dsl.page === undefined ? {} : { page: dsl.page as JsonObject }),
 			...routingOptions,
 		},
 	};

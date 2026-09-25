@@ -43,19 +43,32 @@ export function exportSvg(
 	const title = options.title ?? diagram.title;
 	const annotations = diagram.textAnnotations ?? [];
 	const crossings = diagram.edgeCrossings ?? [];
-	const viewBox =
+	const content =
 		crossings.length === 0
 			? diagram.bounds
 			: expandBox(diagram.bounds, EDGE_CROSSING_GLYPH_RADIUS);
+	const page = options.page;
+	// On a page the view box is the page in diagram units, centred on the
+	// content, so the drawing appears at `scale` in the middle of the page.
+	const viewBox =
+		page === undefined
+			? content
+			: {
+					x: content.x + content.width / 2 - page.width / page.scale / 2,
+					y: content.y + content.height / 2 - page.height / page.scale / 2,
+					width: page.width / page.scale,
+					height: page.height / page.scale,
+				};
+	const background = page === undefined ? diagram.bounds : viewBox;
 	return `${[
-		`<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${formatBoxViewBox(viewBox)}">`,
+		`<svg xmlns="http://www.w3.org/2000/svg" role="img"${page === undefined ? "" : ` width="${formatNumber(page.width)}" height="${formatNumber(page.height)}"`} viewBox="${formatBoxViewBox(viewBox)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
 		...(options.viewportPadding === undefined
 			? []
 			: [
 					`  <metadata data-dge-viewport="${escapeAttribute(viewportMetadata(diagram.bounds, options.viewportPadding))}"></metadata>`,
 				]),
-		`  <rect class="background" x="${formatNumber(diagram.bounds.x)}" y="${formatNumber(diagram.bounds.y)}" width="${formatNumber(diagram.bounds.width)}" height="${formatNumber(diagram.bounds.height)}" fill="#ffffff"/>`,
+		`  <rect class="background" x="${formatNumber(background.x)}" y="${formatNumber(background.y)}" width="${formatNumber(background.width)}" height="${formatNumber(background.height)}" fill="#ffffff"/>`,
 		...(diagram.frame === undefined
 			? []
 			: [indent(renderFrame(diagram.frame, annotations))]),

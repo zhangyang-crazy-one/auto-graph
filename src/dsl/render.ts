@@ -3,7 +3,7 @@ import {
 	exportGeometry,
 	exportSvg,
 } from "../exporters/index.js";
-import type { ExportResult } from "../exporters/types.js";
+import type { ExportOptions, ExportResult } from "../exporters/types.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
 import { DEFAULT_CJK_FONT_FAMILY } from "../solver/cjk-typography.js";
@@ -11,7 +11,12 @@ import type {
 	PortShiftingOptions,
 	SolveDiagramOptions,
 } from "../solver/index.js";
-import { solveDiagram } from "../solver/index.js";
+import {
+	type PageInput,
+	resolvePage,
+	solveDiagram,
+	solveForPage,
+} from "../solver/index.js";
 import { type FontSource, registerFonts } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import { normalizeDiagramDsl } from "./normalize.js";
@@ -54,10 +59,11 @@ export function resolveOutputFormat(
 export function exportDiagram(
 	format: DslOutputFormat,
 	diagram: CoordinatedDiagram,
+	options: ExportOptions = {},
 ): ExportResult {
 	const content =
 		format === "svg"
-			? exportSvg(diagram)
+			? exportSvg(diagram, options)
 			: format === "geometry"
 				? `${JSON.stringify(exportGeometry(diagram), null, 2)}\n`
 				: exportExcalidraw(diagram);
@@ -99,7 +105,27 @@ export function renderDiagramDsl(
 		return { diagnostics };
 	}
 
-	const solved = solveDiagram(normalized.diagram, {
+	const pageInput = options.page ?? normalized.diagram.metadata?.page;
+	const resolvedPage =
+		pageInput === undefined
+			? undefined
+			: resolvePage(pageInput as string | PageInput);
+	if (resolvedPage !== undefined && "error" in resolvedPage) {
+		return {
+			diagnostics: sortDslDiagnostics([
+				...diagnostics,
+				{
+					severity: "error",
+					layer: "validate",
+					code: "validate.page.invalid",
+					message: resolvedPage.error,
+					path: ["page"],
+					hint: 'Use a size such as "A4", "A3-landscape", "slide" or "1200x800".',
+				},
+			]),
+		};
+	}
+	const solveOptions: SolveDiagramOptions = {
 		...(fonts.cjkFamilies.length === 0
 			? {}
 			: {
@@ -134,7 +160,14 @@ export function renderDiagramDsl(
 		...(options.stabilityWeight === undefined
 			? {}
 			: { stabilityWeight: options.stabilityWeight }),
-	});
+	};
+	const fitted =
+		resolvedPage === undefined
+			? undefined
+			: solveForPage(normalized.diagram, solveOptions, resolvedPage.page);
+	const solved =
+		fitted?.solved ?? solveDiagram(normalized.diagram, solveOptions);
+	const page = fitted?.fit;
 	const solveDiagnostics = solved.diagnostics.map(toSolveDiagnostic);
 	if (hasErrorDiagnostics(solveDiagnostics)) {
 		return {
@@ -144,10 +177,19 @@ export function renderDiagramDsl(
 	}
 
 	try {
-		const exported = exportDiagram(format.format, solved);
+		const exported = exportDiagram(
+			format.format,
+			solved,
+			page === undefined
+				? {}
+				: {
+						page: { width: page.width, height: page.height, scale: page.scale },
+					},
+		);
 		return {
 			format: exported.format,
 			content: exported.content,
+			...(page === undefined ? {} : { page }),
 			diagram: solved,
 			constraints: normalized.diagram.constraints,
 			diagnostics: sortDslDiagnostics([

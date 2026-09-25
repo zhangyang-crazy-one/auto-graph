@@ -495,6 +495,21 @@ export const diagramDslSchema = z
 				format: outputFormatSchema.optional(),
 			})
 			.optional(),
+		page: z
+			.union([
+				z.string(),
+				z
+					.object({
+						size: z.string().optional(),
+						width: z.number().positive().optional(),
+						height: z.number().positive().optional(),
+						orientation: z.enum(["auto", "portrait", "landscape"]).optional(),
+						margin: nonNegativeNumberSchema.optional(),
+						direction: z.enum(["keep", "auto"]).optional(),
+					})
+					.strict(),
+			])
+			.optional(),
 	})
 	.superRefine((diagram, context) => {
 		checkDuplicateEvidenceBlockIds("matrices", diagram.matrices, context);

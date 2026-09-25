@@ -293,6 +293,36 @@ Recommended operator actions after this contract lands on local fixtures:
 - Fold [#71](https://github.com/zhangyang-crazy-one/auto-graph/issues/71), [#73](https://github.com/zhangyang-crazy-one/auto-graph/issues/73), and [#69](https://github.com/zhangyang-crazy-one/auto-graph/issues/69) into [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75).
 - Keep [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75) open until the local dense contract (clean or structured unsat with plans) is met — not until live DoDAF Stage 5 criticals hit zero.
 
+## Pages and Agent Reports
+
+**Fit a page.** `page:` in the document (or `--page`) lays the diagram out for a real page instead of an abstract canvas:
+
+```yaml
+page: A4                     # A3, A5, letter, legal, slide (16:9), slide-4:3, "1200x800", "A4-landscape"
+# page: { size: A4, orientation: auto, margin: 24, direction: auto }
+```
+
+- The page's usable shape steers folding, so a long flow wraps into bands that fill the page. Presets try portrait and landscape (`orientation: auto`, the default); `direction: auto` also tries the other flow direction (LR ↔ TB, swimlanes turn with it). The layout that can be drawn largest wins.
+- A small diagram is not blown up: it keeps its natural size, centred. The SVG gets the page's width and height.
+- The fit reports the scale and the size labels end up at on the page: below 8 px it is unreadable, below 11 px small.
+
+**Agent report.** `--report report.json` (or `buildAgentReport(...)`) writes what an agent needs to decide its next step — also when rendering fails:
+
+```json
+{
+  "verdict": "fail",
+  "summary": "Needs fixes: 200 nodes, 281 edges, 1443 crossings; 1 error(s), 0 warning(s); A4 landscape at 13% (labels 1.8px).",
+  "issues": [{ "severity": "error", "code": "page.unreadable", "where": "page", "message": "…", "fix": "…" }],
+  "metrics": { "nodes": 200, "edges": 281, "groups": 39, "lanes": 0, "crossings": 1443, "bendsPerEdge": 2.577, "width": 7653, "height": 5792, "aspectRatio": 1.321, "defects": {} },
+  "page": { "size": "A4", "orientation": "landscape", "direction": "LR", "scale": 0.129, "fontPx": 1.8, "readable": false, "comfortable": false },
+  "suggestions": ["Split into about 38 page(s), e.g. one per group (g0_0, g0_1, …), each with the edges it needs.", "…"]
+}
+```
+
+- `verdict`: `fail` for errors, layout defects (overlaps, labels that do not fit, edges through nodes) or an unreadable page; `warn` for warnings; `ok` otherwise. The exit code only says whether a drawing was produced.
+- `issues` carry the source path (`where`, e.g. `flow.3`) and the fix; informational chatter (font choices, applied defaults) is left out. The CLI prints such `info` diagnostics only with `--verbose`.
+- `suggestions` cover splitting a page that is too dense, trying the other direction, many crossings, over-long labels and unconnected nodes.
+
 ## CLI
 
 ```bash
@@ -301,6 +331,7 @@ agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
 agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
 agh --list-views
+agh --input diagram.yaml --page A4 --output diagram.svg --report diagram.report.json
 cat diagram.yaml | agh --json
 ```
 

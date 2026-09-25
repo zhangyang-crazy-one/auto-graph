@@ -10,7 +10,14 @@ const registry = new Map<string, ViewDefinition>();
  * into the expanded DSL (layout and routing settings merged over the
  * view's defaults).
  */
-const PASS_THROUGH = ["id", "title", "output", "layout", "routing"] as const;
+const PASS_THROUGH = [
+	"id",
+	"title",
+	"output",
+	"layout",
+	"routing",
+	"page",
+] as const;
 
 /** Add a view. Re-registering an id throws unless `replace` is set. */
 export function registerView<Input>(

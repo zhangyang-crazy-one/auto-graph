@@ -181,6 +181,48 @@ describe("agh CLI contract", () => {
 		expect(plain.stderr()).toContain("view.missing");
 	});
 
+	it("runCli writes an agent report, also when rendering fails", async () => {
+		await using workspace = await tempWorkspace();
+		const reportPath = join(workspace.path, "report.json");
+		const good = memoryIo("view: tree\nroot: { 公司: [财务, 技术] }\n");
+		expect(
+			await runCli(["--page", "A4", "--report", reportPath], good.environment),
+		).toBe(0);
+		const report = JSON.parse(await readFile(reportPath, "utf8"));
+		expect(report.verdict).toBe("ok");
+		expect(report.page.size).toBe("A4");
+
+		const bad = memoryIo(
+			"view: flowchart\nsteps: { review: 审核 }\nflow: [reveiw -> 结束]\n",
+		);
+		expect(await runCli(["--report", reportPath], bad.environment)).toBe(1);
+		const failed = JSON.parse(await readFile(reportPath, "utf8"));
+		expect(failed.verdict).toBe("fail");
+		expect(failed.issues[0].where).toBe("flow.0");
+	});
+
+	it("runCli prints informational diagnostics only with --verbose", async () => {
+		const source =
+			"nodes: { a: { label: 订单 }, b: { label: 支付 } }\nedges: [a -> b]\n";
+		const quiet = memoryIo(source);
+		expect(await runCli([], quiet.environment)).toBe(0);
+		expect(quiet.stderr()).toBe("");
+		const verbose = memoryIo(source);
+		expect(await runCli(["--verbose"], verbose.environment)).toBe(0);
+		expect(verbose.stderr()).toContain("info");
+	});
+
+	it("runCli refuses a report path that is also the output", async () => {
+		const io = memoryIo(VALID_DSL);
+		expect(
+			await runCli(
+				["--output", "same.svg", "--report", "same.svg"],
+				io.environment,
+			),
+		).toBe(2);
+		expect(io.stderr()).toContain("io.output-conflict");
+	});
+
 	it("runCli rejects a --font file it cannot load", async () => {
 		const io = memoryIo(VALID_DSL);
 

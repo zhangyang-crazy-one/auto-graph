@@ -12,6 +12,7 @@ import {
 	containmentRelations,
 	measureLayoutQuality,
 } from "../quality/index.js";
+import { buildAgentReport } from "../report/index.js";
 import { getView, listViews, viewJsonSchema } from "../views/index.js";
 import {
 	readInputFile,
@@ -37,6 +38,9 @@ interface CliOptions {
 	previous?: string;
 	stability?: number;
 	listViews?: boolean;
+	report?: string;
+	page?: string;
+	verbose?: boolean;
 	viewExample?: string;
 	viewSchema?: string;
 	expand?: boolean;
@@ -107,26 +111,38 @@ export async function runCli(
 		return 0;
 	}
 
-	if (
-		options.output !== undefined &&
-		options.metrics !== undefined &&
-		resolve(options.output) === resolve(options.metrics)
-	) {
-		// Writing metrics over the diagram would silently lose the output.
-		await writeDiagnostics(
-			stderr,
-			[
-				{
-					severity: "error",
-					layer: "io",
-					code: "io.output-metrics-conflict",
-					message: `--output and --metrics both write ${options.output}.`,
-					hint: "Choose a different file for --metrics.",
-				},
-			],
-			options.json === true,
-		);
-		return 2;
+	// Writing metrics or a report over the diagram would silently lose it.
+	const named: [string, string | undefined][] = [
+		["--output", options.output],
+		["--metrics", options.metrics],
+		["--report", options.report],
+	];
+	const targets = named.filter(
+		(entry): entry is [string, string] => entry[1] !== undefined,
+	);
+	for (let i = 0; i < targets.length; i += 1) {
+		for (let j = i + 1; j < targets.length; j += 1) {
+			const [first, firstPath] = targets[i] as [string, string];
+			const [second, secondPath] = targets[j] as [string, string];
+			if (resolve(firstPath) !== resolve(secondPath)) continue;
+			await writeDiagnostics(
+				stderr,
+				[
+					{
+						severity: "error",
+						layer: "io",
+						code:
+							first === "--output" && second === "--metrics"
+								? "io.output-metrics-conflict"
+								: "io.output-conflict",
+						message: `${first} and ${second} both write ${firstPath}.`,
+						hint: `Choose a different file for ${second}.`,
+					},
+				],
+				options.json === true,
+			);
+			return 2;
+		}
 	}
 
 	try {
@@ -173,12 +189,31 @@ export async function runCli(
 			...(options.stability === undefined
 				? {}
 				: { stabilityWeight: options.stability }),
+			...(options.page === undefined ? {} : { page: options.page }),
 			...(options.format === undefined ? {} : { format: options.format }),
 			...(options.font === undefined
 				? {}
 				: { fonts: options.font.map(parseFontArgument) }),
 		});
-		const diagnostics = sortDslDiagnostics(result.diagnostics);
+		const all = sortDslDiagnostics(result.diagnostics);
+		// Informational diagnostics (font choices, applied defaults) only
+		// with --verbose.
+		const diagnostics =
+			options.verbose === true
+				? all
+				: all.filter((diagnostic) => diagnostic.severity !== "info");
+		if (options.report !== undefined) {
+			const report = buildAgentReport({
+				diagram: result.diagram,
+				diagnostics: all,
+				constraints: result.constraints,
+				page: result.page,
+			});
+			await writeFileAtomic(
+				options.report,
+				`${JSON.stringify(report, null, 2)}\n`,
+			);
+		}
 
 		if (hasErrors(diagnostics) || result.content === undefined) {
 			await writeDiagnostics(stderr, diagnostics, options.json === true);
@@ -254,6 +289,15 @@ function buildCommand(): Command {
 			"--expand",
 			"Write the diagram DSL a view document expands to, instead of rendering",
 		)
+		.option(
+			"--page <size>",
+			"Fit the diagram to a page: A4, A3-landscape, letter, slide, 1200x800, … (overrides the document's page)",
+		)
+		.option(
+			"--report <path>",
+			"Write an agent report (verdict, issues with fixes, metrics, page fit, suggestions) as JSON",
+		)
+		.option("--verbose", "Also print informational diagnostics")
 		.option("--json", "Write diagnostics as JSON to stderr")
 		.option(
 			"--metrics <path>",

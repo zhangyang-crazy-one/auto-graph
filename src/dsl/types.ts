@@ -1,6 +1,7 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
 import type { JsonObject, PreviousLayout } from "../ir/geometry.js";
+import type { PageFit, PageInput } from "../solver/page-fit.js";
 import type { FontSource } from "../text/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
@@ -55,6 +56,11 @@ export interface RenderDiagramDslOptions {
 	previousLayout?: PreviousLayout;
 	/** See `SolveDiagramOptions.stabilityWeight`. */
 	stabilityWeight?: number;
+	/**
+	 * Fit the diagram to a page ("A4", "slide", "1200x800" or a spec);
+	 * overrides the document's `page`.
+	 */
+	page?: string | PageInput;
 }
 
 export interface RenderDiagramDslResult {
@@ -65,4 +71,6 @@ export interface RenderDiagramDslResult {
 	/** Normalized constraints of the rendered diagram (e.g. for metrics). */
 	constraints?: NormalizedDiagram["constraints"];
 	metadata?: JsonObject;
+	/** How the diagram fits its page, when it has one. */
+	page?: PageFit;
 }
