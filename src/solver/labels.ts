@@ -474,10 +474,26 @@ export function buildTextAnnotation(input: {
 	};
 }
 
+export interface ExternalLabelShelfOptions {
+	/**
+	 * Boxes callouts must keep clear of when packed onto a bounded page
+	 * (nodes, groups, tables, matrices, evidence panels).
+	 */
+	obstacles?: readonly Box[];
+	/** Receives `routing.label-shelf.capacity_exhausted` when some do not fit. */
+	diagnostics?: Diagnostic[];
+	/** Edge routes by id, so crowded keys can move along their own edge. */
+	routes?: ReadonlyMap<string, readonly Point[]>;
+}
+
+/** Callouts are kept this far inside `pageBounds`. */
+const SHELF_PAGE_INSET = 8;
+
 export function buildExternalLabelCallouts(
 	annotations: readonly SolvedTextAnnotation[],
 	bounds: Box,
 	options: SolveDiagramOptions,
+	shelf: ExternalLabelShelfOptions = {},
 ): BuiltExternalLabelCallout[] {
 	const sources = annotations
 		.filter(
@@ -491,10 +507,8 @@ export function buildExternalLabelCallouts(
 	}
 
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
-	let shelfY = bounds.y;
-	return sources.map((source, index) => {
+	const measured = sources.map((source, index) => {
 		const key = externalLabelKey(index);
-		const shelfText = `${key}: ${source.text}`;
 		const keyLayout = fitLabel(
 			key,
 			{
@@ -510,7 +524,7 @@ export function buildExternalLabelCallouts(
 			measurer,
 		);
 		const shelfLayout = fitLabel(
-			shelfText,
+			`${key}: ${source.text}`,
 			{
 				font: {
 					fontFamily: source.fontFamily,
@@ -524,42 +538,233 @@ export function buildExternalLabelCallouts(
 			measurer,
 		);
 		const sourceCenter = boxCenter(source.box);
-		const keyBox = {
-			x: sourceCenter.x - keyLayout.box.width / 2,
-			y: sourceCenter.y - keyLayout.box.height / 2,
-			width: keyLayout.box.width,
-			height: keyLayout.box.height,
-		};
-		const calloutBox = {
-			x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
-			y: shelfY,
+		return {
+			source,
+			key,
+			keyLayout,
+			shelfLayout,
+			keyBox: {
+				x: sourceCenter.x - keyLayout.box.width / 2,
+				y: sourceCenter.y - keyLayout.box.height / 2,
+				width: keyLayout.box.width,
+				height: keyLayout.box.height,
+			},
 			width: Math.max(source.box.width, shelfLayout.box.width),
 			height: Math.max(source.box.height, shelfLayout.box.height),
 		};
-		shelfY += Math.max(14, calloutBox.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
+	});
+
+	// Keys of crowded labels start on top of each other: move a clashing
+	// key to the nearest spot on its own route that clears the other keys
+	// and the other routes.
+	const placedKeys: Box[] = [];
+	for (const entry of measured) {
+		const clear = (box: Box) =>
+			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
+			![...(shelf.routes ?? new Map()).entries()].some(
+				([edgeId, points]) =>
+					edgeId !== entry.source.ownerId && polylineEntersBox(points, box),
+			);
+		if (!clear(entry.keyBox)) {
+			const route = shelf.routes?.get(entry.source.ownerId) ?? [];
+			const center = boxCenter(entry.keyBox);
+			const spot = samplePolyline(route, 4)
+				.sort(
+					(left, right) =>
+						Math.hypot(left.x - center.x, left.y - center.y) -
+						Math.hypot(right.x - center.x, right.y - center.y),
+				)
+				.map((point) => ({
+					...entry.keyBox,
+					x: point.x - entry.keyBox.width / 2,
+					y: point.y - entry.keyBox.height / 2,
+				}))
+				.find(clear);
+			if (spot !== undefined) entry.keyBox = spot;
+		}
+		placedKeys.push(entry.keyBox);
+	}
+
+	const placements =
+		options.pageBounds === undefined
+			? stackShelf(measured, bounds)
+			: packShelf(measured, bounds, options.pageBounds, shelf);
+	const built: BuiltExternalLabelCallout[] = [];
+	measured.forEach((entry, index) => {
+		const calloutBox = placements[index];
+		if (calloutBox === undefined) return;
 		const callout: ExternalLabelCallout = {
-			edgeId: source.ownerId,
-			key,
-			text: source.text,
-			shelfSide: "right",
-			keyBox,
+			edgeId: entry.source.ownerId,
+			key: entry.key,
+			text: entry.source.text,
+			shelfSide: shelfSideOf(calloutBox, bounds),
+			keyBox: entry.keyBox,
 			calloutBox,
 		};
-		return {
+		built.push({
 			callout,
-			source,
+			source: entry.source,
 			keyAnnotation: buildExternalLabelKeyAnnotation(
-				source,
-				keyLayout,
+				entry.source,
+				entry.keyLayout,
 				callout,
 			),
 			calloutAnnotation: buildExternalLabelCalloutAnnotation(
-				source,
+				entry.source,
 				callout,
-				shelfLayout,
+				entry.shelfLayout,
 			),
-		};
+		});
 	});
+	return built;
+}
+
+interface ShelfEntry {
+	keyBox: Box;
+	width: number;
+	height: number;
+}
+
+/** Unbounded page: one growing column to the right of the drawing. */
+function stackShelf(entries: readonly ShelfEntry[], bounds: Box): Box[] {
+	const x = bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP;
+	let y = bounds.y;
+	return entries.map((entry) => {
+		const box = { x, y, width: entry.width, height: entry.height };
+		y += Math.max(14, entry.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
+		return box;
+	});
+}
+
+/**
+ * Bounded page (#93): pack callouts in reading order into columns inside
+ * the page, right shelf first, then further columns to the left. A callout
+ * never overlaps another callout, a key, or an obstacle (with the row gap
+ * as clearance); a row is never reused. Callouts that find no free spot
+ * are left out (`undefined`) and reported as a capacity failure.
+ */
+function packShelf(
+	entries: readonly ShelfEntry[],
+	bounds: Box,
+	page: { width: number; height: number },
+	shelf: ExternalLabelShelfOptions,
+): (Box | undefined)[] {
+	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
+	const top = SHELF_PAGE_INSET;
+	const bottom = page.height - SHELF_PAGE_INSET;
+	const left = SHELF_PAGE_INSET;
+	const right = page.width - SHELF_PAGE_INSET;
+	const columnWidth = Math.max(...entries.map((entry) => entry.width));
+	const columns: number[] = [];
+	const first = Math.min(
+		bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
+		right - columnWidth,
+	);
+	for (let x = first; x >= left - 1e-6; x -= columnWidth + 2 * gap) {
+		columns.push(x);
+	}
+	const blockers: Box[] = [
+		...(shelf.obstacles ?? []),
+		...entries.map((entry) => entry.keyBox),
+	];
+	const placed: (Box | undefined)[] = [];
+	let column = 0;
+	let cursor = top;
+	for (const entry of entries) {
+		let box: Box | undefined;
+		for (let index = column; index < columns.length && !box; index += 1) {
+			const x = columns[index] as number;
+			let y = index === column ? cursor : top;
+			while (y + entry.height <= bottom + 1e-6) {
+				const candidate = { x, y, width: entry.width, height: entry.height };
+				const clash = blockers.filter((blocker) =>
+					boxesOverlap(candidate, blocker, gap),
+				);
+				if (clash.length === 0) {
+					box = candidate;
+					column = index;
+					cursor = y + entry.height + gap;
+					break;
+				}
+				y = Math.max(
+					y + 1,
+					...clash.map((blocker) => blocker.y + blocker.height + gap),
+				);
+			}
+		}
+		if (box !== undefined) blockers.push(box);
+		placed.push(box);
+	}
+	const missing = placed.filter((box) => box === undefined).length;
+	if (missing > 0) {
+		shelf.diagnostics?.push({
+			severity: "warning",
+			code: "routing.label-shelf.capacity_exhausted",
+			message: `${missing} of ${entries.length} external label callout(s) do not fit on the page without overlapping each other or the diagram; they stay on their edges.`,
+			detail: {
+				labelCount: entries.length,
+				placed: entries.length - missing,
+				requiredHeight: Math.round(
+					entries.reduce((sum, entry) => sum + entry.height + gap, 0),
+				),
+				availableHeight: Math.round(bottom - top),
+				columnCount: columns.length,
+				conflictClass: "label-capacity",
+				remediationType: "external-label-or-split",
+			},
+		});
+	}
+	return placed;
+}
+
+/** Points every `step` px along a polyline (vertices included). */
+function samplePolyline(points: readonly Point[], step: number): Point[] {
+	const samples: Point[] = [];
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const length = Math.hypot(b.x - a.x, b.y - a.y);
+		const count = Math.max(1, Math.floor(length / step));
+		for (let at = 0; at <= count; at += 1) {
+			const t = at / count;
+			samples.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+		}
+	}
+	return samples;
+}
+
+/** A polyline passes through the inside of a box. */
+function polylineEntersBox(points: readonly Point[], box: Box): boolean {
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		if (
+			Math.max(a.x, b.x) > box.x &&
+			Math.min(a.x, b.x) < box.x + box.width &&
+			Math.max(a.y, b.y) > box.y &&
+			Math.min(a.y, b.y) < box.y + box.height
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function boxesOverlap(a: Box, b: Box, gap: number): boolean {
+	return (
+		a.x < b.x + b.width + gap &&
+		b.x < a.x + a.width + gap &&
+		a.y < b.y + b.height + gap &&
+		b.y < a.y + a.height + gap
+	);
+}
+
+function shelfSideOf(box: Box, bounds: Box): ExternalLabelCallout["shelfSide"] {
+	if (box.x >= bounds.x + bounds.width) return "right";
+	if (box.x + box.width <= bounds.x) return "left";
+	if (box.y >= bounds.y + bounds.height) return "bottom";
+	if (box.y + box.height <= bounds.y) return "top";
+	return "right";
 }
 
 export function applyExternalLabelCallouts(
@@ -651,8 +856,11 @@ export function reportTextAnnotationCollisions(
 ): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 
-	const relevantAnnotations = annotations.filter((annotation) =>
-		isExternallyPlacedText(annotation.surfaceKind),
+	// Shelf callouts sit outside their edge like port labels (#93).
+	const relevantAnnotations = annotations.filter(
+		(annotation) =>
+			isExternallyPlacedText(annotation.surfaceKind) ||
+			annotation.placementDetail?.role === "callout",
 	);
 
 	for (

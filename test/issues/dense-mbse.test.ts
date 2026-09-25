@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeDiagramDsl, parseDiagramDsl } from "../../src/dsl/index.js";
-import { exportSvg } from "../../src/exporters/index.js";
+import { exportDrawio, exportSvg } from "../../src/exporters/index.js";
 import type {
 	Box,
 	CoordinatedDiagram,
@@ -356,6 +356,116 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 			const found = evidence(solveDiagram(load(source), RSOP));
 			expect(found.edgeLabelHits, name).toBe(0);
 			expect(found.hardText, name).toBe(0);
+		}
+	});
+
+	it("#88/#92/#94: parallel routes and same-side ends never coincide", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const found = evidence(solveDiagram(load(source), RSOP));
+			expect(found.overlapLen, name).toBe(0);
+			expect(found.shared, name).toBe(0);
+			expect(found.slotCollisions, name).toBe(0);
+		}
+	});
+
+	it("#91: named ports dock at equal divisions of their side", () => {
+		const found = evidence(
+			solveDiagram(load(PAGES["SV-1 ports"] as string), RSOP),
+		);
+		expect(found.ports).toContain("hn900.CMD:0.25");
+		expect(found.ports).toContain("hn900.DAT:0.50");
+		expect(found.ports).toContain("hn900.SEN:0.75");
+	});
+
+	it("#95: accepted short-orthogonal geometry enters no foreign node, zone or hard text", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const solved = solveDiagram(load(source), RSOP);
+			const found = evidence(solved);
+			expect(found.nodePierce, name).toBe(0);
+			expect(found.hardText, name).toBe(0);
+			expect(found.groupPierce, name).toBe(0);
+			expect(
+				solved.diagnostics.map((diagnostic) => diagnostic.code),
+				name,
+			).not.toContain("routing.obstacle.unavoidable");
+		}
+	});
+
+	it("#93: shelf callouts on a small page never overlap each other or the diagram", () => {
+		for (const size of [
+			{ width: 760, height: 260 },
+			{ width: 500, height: 200 },
+		]) {
+			for (const [name, source] of Object.entries(PAGES)) {
+				const solved = solveDiagram(load(source), {
+					...RSOP,
+					pageBounds: size,
+				});
+				const callouts = (solved.textAnnotations ?? []).filter(
+					(text) => text.placementDetail?.role === "callout",
+				);
+				const obstacles = [
+					...solved.nodes.map((node) => node.box),
+					...solved.groups.map((group) => group.box),
+				];
+				callouts.forEach((callout, index) => {
+					for (const other of callouts.slice(index + 1)) {
+						expect(overlap(callout.box, other.box), name).toBe(false);
+					}
+					for (const box of obstacles) {
+						expect(overlap(callout.box, box), name).toBe(false);
+					}
+					expect(callout.box.x + callout.box.width).toBeLessThanOrEqual(
+						size.width,
+					);
+					expect(callout.box.y + callout.box.height).toBeLessThanOrEqual(
+						size.height,
+					);
+				});
+				const required = (solved.textAnnotations ?? []).filter(
+					(text) => text.placement === "external-callout-required",
+				);
+				if (required.length > 0) {
+					expect(
+						solved.diagnostics.map((diagnostic) => diagnostic.code),
+						name,
+					).toContain("routing.label-shelf.capacity_exhausted");
+				}
+			}
+		}
+	});
+
+	it("#76: obstacle-avoiding routes stay orthogonal and short (no zigzag fallback)", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const solved = solveDiagram(load(source), LEGACY);
+			const found = evidence(solved);
+			expect(found.maxBends, name).toBeLessThanOrEqual(10);
+			expect(found.detourMax, name).toBeLessThanOrEqual(5);
+			for (const edge of solved.edges) {
+				for (let index = 1; index < edge.points.length; index += 1) {
+					const a = edge.points[index - 1] as Point;
+					const b = edge.points[index] as Point;
+					expect(
+						Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5,
+						`${name} ${edge.id}`,
+					).toBe(true);
+				}
+			}
+		}
+	});
+
+	it("#89: draw.io export carries every crossing as a jump", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const solved = solveDiagram(load(source), RSOP);
+			const xml = exportDrawio(solved);
+			expect(xml, name).toContain(
+				(solved.edgeCrossings?.length ?? 0) > 0
+					? "jumpStyle=arc"
+					: "jumpStyle=none",
+			);
+			expect((xml.match(/as="dgeJump"/g) ?? []).length, name).toBe(
+				solved.edgeCrossings?.length ?? 0,
+			);
 		}
 	});
 });

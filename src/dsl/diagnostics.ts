@@ -77,7 +77,7 @@ function hintForPath(path: Array<string | number>): string {
 	}
 
 	if (pathText.endsWith(".format")) {
-		return "Use output format svg or excalidraw.";
+		return "Use output format svg, excalidraw, or drawio.";
 	}
 
 	if (pathText.includes(".position.")) {

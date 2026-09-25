@@ -172,6 +172,17 @@ function segmentLeavesAlong(from: Point, to: Point, normal: Point): boolean {
 	return Math.abs(dx) < 0.5 && dy * normal.y > 0;
 }
 
+/**
+ * Route ends (0–2) that do not leave or enter along their anchor side's
+ * normal, e.g. a final segment running along the node border.
+ */
+export function routeEndDirectionPenalty(
+	points: readonly Point[],
+	anchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+): number {
+	return routeDirectionPenalty(points, anchors);
+}
+
 function routeDirectionPenalty(
 	points: readonly Point[],
 	anchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
@@ -423,10 +434,10 @@ function routeBendCount(points: readonly Point[]): number {
 }
 
 /**
- * #84 short-orthogonal-jumps: slot×slot 0–2 bend candidates only.
- * Edge–edge crossings are allowed (declared later as jumps). Node/hard
- * pierces are rejected. Flying detours and fatal 2-point fallbacks are not
- * accepted as successful geometry.
+ * #84 / #86 RSOP Phase-2 short-orthogonal-jumps:
+ * Objective: minimize length + α·bends + β·textHits among hard-clear,
+ * detour-capped candidates. Soft text is finite-cost (micro-clear first);
+ * node/title/evidence pierces and detour excess are infinite.
  */
 function routeShortOrthogonalJumps(
 	input: RouteEdgeInput,
@@ -454,26 +465,62 @@ function routeShortOrthogonalJumps(
 ): RouteEdgeResult {
 	const endpointObstacles = endpointInteriorObstacles(input);
 	const detourBudget = input.maxDetourRatio ?? 3;
+	const pitch = input.softTextClearPitch ?? 10;
 	const pairs = routeTournamentPairs(input, defaultAnchors, maxAttachPoints);
-	const cleanTournament: Array<{
+	const feasibleTournament: Array<{
 		points: Point[];
 		source: Point;
 		target: Point;
 		quality: RouteQuality;
+		layeredCost: number;
 	}> = [];
 	let bestAny: { points: Point[]; quality: RouteQuality } | undefined;
 
 	for (const pair of pairs) {
-		const candidates = shortOrthogonalCandidates(
-			pair.source,
-			pair.target,
-			pair.sourceAnchor,
-			pair.targetAnchor,
-			input.direction,
-		);
-		for (const raw of candidates) {
+		const baseCandidates = [
+			...shortOrthogonalCandidates(
+				pair.source,
+				pair.target,
+				pair.sourceAnchor,
+				pair.targetAnchor,
+				input.direction,
+				pitch,
+			),
+			...channelSweepCandidates(
+				pair.source,
+				pair.target,
+				pair.sourceAnchor,
+				pair.targetAnchor,
+				[...hardObstacles, ...softObstacles],
+				pitch,
+			),
+		];
+		const expanded: Point[][] = [];
+		const inseparable: Point[][] = [];
+		for (const raw of baseCandidates) {
 			const points = simplifyRoute(raw);
 			if (points.length < 2) continue;
+			// #92: prefer candidates with a nudge-able interior span. Same-Y
+			// 0-bend pins cannot grow a 2-bend stub without collapsing, so keep
+			// them as fallback when no separable candidate exists (slots must
+			// already own track separation in that case).
+			if (hasSeparableInteriorSpan(points, pitch)) {
+				expanded.push(points);
+			} else {
+				inseparable.push(points);
+			}
+			for (const micro of softTextMicroClearCandidates(points, pitch)) {
+				const cleared = simplifyRoute(micro);
+				if (cleared.length < 2) continue;
+				if (hasSeparableInteriorSpan(cleared, pitch)) {
+					expanded.push(cleared);
+				} else {
+					inseparable.push(cleared);
+				}
+			}
+		}
+		const pool = expanded.length > 0 ? expanded : inseparable;
+		for (const points of pool) {
 			const quality = routeQuality(
 				points,
 				pair.source,
@@ -483,6 +530,7 @@ function routeShortOrthogonalJumps(
 				endpointObstacles,
 				input.maxBacktrackingRatio,
 				pair.anchorPenalty,
+				{ sourceAnchor: pair.sourceAnchor, targetAnchor: pair.targetAnchor },
 			);
 			if (
 				bestAny === undefined ||
@@ -494,41 +542,59 @@ function routeShortOrthogonalJumps(
 			if (detour > detourBudget) {
 				continue;
 			}
-			if (
-				quality.hardCrossings > 0 ||
-				quality.endpointCrossings > 0 ||
-				quality.softCrossings > 0
-			) {
-				if (quality.hardCrossings === 0 && quality.endpointCrossings === 0) {
-					recordRejected(points, pair.source, pair.target, endpointObstacles);
-				}
+			if (quality.hardCrossings > 0 || quality.endpointCrossings > 0) {
 				continue;
 			}
-			cleanTournament.push({
+			recordRejected(points, pair.source, pair.target, endpointObstacles);
+			feasibleTournament.push({
 				points,
 				source: pair.source,
 				target: pair.target,
 				quality,
+				layeredCost:
+					layeredSoftTextCost(quality) +
+					(hasSeparableInteriorSpan(points, pitch) ? 0 : 1_000),
 			});
 		}
-		// Evaluate every attach-slot pair before picking the shortest clean
-		// route (#84 / Codex P2). Early-exit would lock mid/mid and miss
-		// shorter 25%/75% candidates.
+		// Full slot tournament (#84 / Codex P2) — no mid/mid early-exit.
 	}
 
-	if (cleanTournament.length > 0) {
-		cleanTournament.sort((left, right) =>
-			compareRouteQuality(left.quality, right.quality),
+	if (feasibleTournament.length > 0) {
+		feasibleTournament.sort(
+			(left, right) =>
+				left.layeredCost - right.layeredCost ||
+				compareRouteQuality(left.quality, right.quality),
 		);
-		const best = cleanTournament[0];
+		const best = feasibleTournament[0];
 		if (best !== undefined) {
-			const accepted = acceptCleanRoute(best.points, best.source, best.target);
-			if (accepted !== undefined) {
-				return accepted;
-			}
-			const excessive = returnBestExcessiveCleanRoute();
-			if (excessive !== undefined) {
-				return excessive;
+			if (best.quality.softCrossings === 0) {
+				const accepted = acceptCleanRoute(
+					best.points,
+					best.source,
+					best.target,
+				);
+				if (accepted !== undefined) {
+					return accepted;
+				}
+				const excessive = returnBestExcessiveCleanRoute();
+				if (excessive !== undefined) {
+					return excessive;
+				}
+			} else {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.text-clearance.unresolved",
+					message:
+						"Short-orthogonal route still intersects soft text after micro-clear; prefer external-label remediation.",
+					detail: {
+						conflictClass: "node-label-strike",
+						remediationType: "external-label-or-split",
+						routingPolicy: "short-orthogonal-jumps",
+						softCrossings: best.quality.softCrossings,
+						maxDetourRatio: detourBudget,
+					},
+				});
+				return { points: simplifyRoute(best.points), diagnostics };
 			}
 		}
 	}
@@ -536,7 +602,7 @@ function routeShortOrthogonalJumps(
 	diagnostics.push({
 		severity: "warning",
 		code: "routing.obstacle.unavoidable",
-		message: `No short-orthogonal candidate within maxDetourRatio ${detourBudget} clears hard/soft obstacles.`,
+		message: `No short-orthogonal candidate within maxDetourRatio ${detourBudget} clears hard obstacles.`,
 		detail: {
 			conflictClass: "fixed-geometry-block",
 			remediationType: "route-rail-or-page-split",
@@ -567,6 +633,7 @@ function routeShortOrthogonalJumps(
 				defaultAnchors.sourceAnchor,
 				defaultAnchors.targetAnchor,
 				input.direction,
+				pitch,
 			)[0] ?? [
 				getEdgePort(
 					input.source,
@@ -596,12 +663,196 @@ function routeShortOrthogonalJumps(
 	} else if (
 		routeCrossesBoxes(fallbackPoints, softObstacles, softObstacleIndex)
 	) {
-		// Soft pierce already covered by unavoidable; keep residual signal.
+		diagnostics.push({
+			severity: "warning",
+			code: "routing.text-clearance.unresolved",
+			message:
+				"Short-orthogonal fallback intersects soft text; external-label remediation required.",
+			detail: {
+				conflictClass: "node-label-strike",
+				remediationType: "external-label-or-split",
+				routingPolicy: "short-orthogonal-jumps",
+			},
+		});
 	}
 
 	// Intentionally do not emit route_obstacle_fallback — short-path profile
 	// treats unresolved geometry as capacity failure, not a successful fallback.
 	return { points: fallbackPoints, diagnostics };
+}
+
+/**
+ * RSOP cost: length + α·bends + β·textHits + γ·misdirected ends (hard and
+ * detour already filtered). An end that does not leave or enter along its
+ * side's normal runs along the node border, so it costs more than a text
+ * hit and is only taken when nothing else clears.
+ */
+function layeredSoftTextCost(quality: RouteQuality): number {
+	const alpha = 24;
+	const beta = 120;
+	const gamma = 400;
+	return (
+		quality.routeLength +
+		alpha * quality.bendCount +
+		beta * quality.softCrossings +
+		quality.softCrossingLength +
+		gamma * quality.directionPenalty
+	);
+}
+
+/**
+ * Same-channel micro-detours (±pitch) that add at most +2 bends.
+ * Used to clear soft text without reintroducing flyers (#87).
+ */
+function softTextMicroClearCandidates(
+	points: readonly Point[],
+	pitch: number,
+): Point[][] {
+	if (points.length < 2 || pitch <= 0) {
+		return [];
+	}
+	const out: Point[][] = [];
+	const offsets = [pitch, -pitch, pitch * 2, -pitch * 2];
+	for (let i = 0; i < points.length - 1; i += 1) {
+		const a = points[i];
+		const b = points[i + 1];
+		if (a === undefined || b === undefined) continue;
+		const horizontal = Math.abs(a.y - b.y) < 1e-6;
+		const vertical = Math.abs(a.x - b.x) < 1e-6;
+		if (!horizontal && !vertical) continue;
+		const baseBends = routeBendCount(points);
+		for (const offset of offsets) {
+			const rebuilt = rebuildSegmentWithOffset(points, i, offset, horizontal);
+			if (rebuilt === undefined) continue;
+			const bends = routeBendCount(rebuilt);
+			if (bends > baseBends + 2 || bends > 4) continue;
+			out.push(rebuilt);
+		}
+	}
+	return out;
+}
+
+function rebuildSegmentWithOffset(
+	points: readonly Point[],
+	segmentIndex: number,
+	offset: number,
+	horizontal: boolean,
+): Point[] | undefined {
+	let a = points[segmentIndex];
+	let b = points[segmentIndex + 1];
+	if (a === undefined || b === undefined) return undefined;
+	const length = Math.abs(horizontal ? b.x - a.x : b.y - a.y);
+	const step = Math.abs(offset);
+	const direction = Math.sign(horizontal ? b.x - a.x : b.y - a.y);
+	const along = (point: Point, distance: number): Point =>
+		horizontal
+			? { x: point.x + direction * distance, y: point.y }
+			: { x: point.x, y: point.y + direction * distance };
+	// An end segment keeps its first `step` on the endpoint's normal so the
+	// jog never runs along the node border (the endpoint stays where the
+	// slot or port put it).
+	const startsAtEndpoint = segmentIndex === 0;
+	const endsAtEndpoint = segmentIndex + 1 === points.length - 1;
+	const kept = (startsAtEndpoint ? step : 0) + (endsAtEndpoint ? step : 0);
+	if (kept > 0 && length <= kept + step) return undefined;
+	const head = startsAtEndpoint ? [a] : [];
+	const tail = endsAtEndpoint ? [b] : [];
+	if (startsAtEndpoint) a = along(a, step);
+	if (endsAtEndpoint) b = along(b, -step);
+	const aShift = horizontal
+		? { x: a.x, y: a.y + offset }
+		: { x: a.x + offset, y: a.y };
+	const bShift = horizontal
+		? { x: b.x, y: b.y + offset }
+		: { x: b.x + offset, y: b.y };
+	const prefix = points.slice(0, segmentIndex);
+	const suffix = points.slice(segmentIndex + 2);
+	return [...prefix, ...head, a, aShift, bShift, b, ...tail, ...suffix];
+}
+
+/** Channel positions tried per edge by {@link channelSweepCandidates}. */
+const MAX_SWEEP_CHANNELS = 16;
+
+/**
+ * Two-bend routes whose middle segment runs in a free channel beside an
+ * obstacle, not only on the midline: when the midline is blocked (a node
+ * sits between the ends), the route can still pass in the gap next to it
+ * instead of falling back to a pierce or a run along a node border.
+ * Horizontal sides give H–V–H routes swept over x, vertical sides V–H–V
+ * routes swept over y.
+ */
+function channelSweepCandidates(
+	source: Point,
+	target: Point,
+	sourceAnchor: AnchorName,
+	targetAnchor: AnchorName,
+	obstacles: readonly Box[],
+	pitch: number,
+): Point[][] {
+	const horizontal = (anchor: AnchorName) =>
+		anchor === "left" || anchor === "right";
+	const vertical = (anchor: AnchorName) =>
+		anchor === "top" || anchor === "bottom";
+	const sweepX = horizontal(sourceAnchor) && horizontal(targetAnchor);
+	const sweepY = vertical(sourceAnchor) && vertical(targetAnchor);
+	if (!sweepX && !sweepY) return [];
+	const stub = Math.max(8, pitch);
+	const sourceEscape = offsetPoint(
+		source,
+		anchorEscapeDelta(sourceAnchor, stub),
+	);
+	const targetEscape = offsetPoint(
+		target,
+		anchorEscapeDelta(targetAnchor, stub),
+	);
+	const along = (point: Point) => (sweepX ? point.x : point.y);
+	const across = (point: Point) => (sweepX ? point.y : point.x);
+	const low = Math.min(across(source), across(target));
+	const high = Math.max(across(source), across(target));
+	const span = Math.abs(along(target) - along(source));
+	const from = Math.min(along(sourceEscape), along(targetEscape)) - span / 2;
+	const to = Math.max(along(sourceEscape), along(targetEscape)) + span / 2;
+	const middle = (along(sourceEscape) + along(targetEscape)) / 2;
+	const channels = new Set<number>([along(sourceEscape), along(targetEscape)]);
+	for (const box of obstacles) {
+		const boxLow = sweepX ? box.y : box.x;
+		const boxHigh = boxLow + (sweepX ? box.height : box.width);
+		// Only obstacles the middle segment could run into matter.
+		if (boxHigh < low || boxLow > high) continue;
+		const start = sweepX ? box.x : box.y;
+		const end = start + (sweepX ? box.width : box.height);
+		for (const channel of [start - pitch, end + pitch]) {
+			if (channel >= from && channel <= to) channels.add(channel);
+		}
+	}
+	return [...channels]
+		.sort(
+			(left, right) =>
+				Math.abs(left - middle) - Math.abs(right - middle) || left - right,
+		)
+		.slice(0, MAX_SWEEP_CHANNELS)
+		.map((channel) =>
+			compactCandidate(
+				sweepX
+					? [
+							source,
+							sourceEscape,
+							{ x: channel, y: sourceEscape.y },
+							{ x: channel, y: targetEscape.y },
+							targetEscape,
+							target,
+						]
+					: [
+							source,
+							sourceEscape,
+							{ x: sourceEscape.x, y: channel },
+							{ x: targetEscape.x, y: channel },
+							targetEscape,
+							target,
+						],
+			),
+		)
+		.filter((points) => points.length >= 2 && routeBendCount(points) <= 2);
 }
 
 /** Generate 0–2 bend orthogonal polylines between attach slots. */
@@ -611,8 +862,10 @@ function shortOrthogonalCandidates(
 	sourceAnchor: AnchorName,
 	targetAnchor: AnchorName,
 	direction: DiagramDirection,
+	escapeDistance = 16,
 ): Point[][] {
 	const candidates: Point[][] = [];
+	const stub = Math.max(8, escapeDistance);
 	const sameX = Math.abs(source.x - target.x) < 1e-6;
 	const sameY = Math.abs(source.y - target.y) < 1e-6;
 	if (sameX || sameY) {
@@ -643,9 +896,16 @@ function shortOrthogonalCandidates(
 			]),
 		);
 	}
-	// Same-side / facing escape stubs (still ≤2 bends after compact).
-	const sourceEscape = offsetPoint(source, anchorEscapeDelta(sourceAnchor, 16));
-	const targetEscape = offsetPoint(target, anchorEscapeDelta(targetAnchor, 16));
+	// Escape stubs (#92): guarantee outward leave ≥ pitch so Left-Edge has
+	// a separable interior span (2-point 0-bend edges cannot be nudged).
+	const sourceEscape = offsetPoint(
+		source,
+		anchorEscapeDelta(sourceAnchor, stub),
+	);
+	const targetEscape = offsetPoint(
+		target,
+		anchorEscapeDelta(targetAnchor, stub),
+	);
 	candidates.push(
 		compactCandidate([
 			source,
@@ -661,12 +921,45 @@ function shortOrthogonalCandidates(
 			targetEscape,
 			target,
 		]),
+		compactCandidate([
+			source,
+			sourceEscape,
+			{
+				x: (sourceEscape.x + targetEscape.x) / 2,
+				y: sourceEscape.y,
+			},
+			{
+				x: (sourceEscape.x + targetEscape.x) / 2,
+				y: targetEscape.y,
+			},
+			targetEscape,
+			target,
+		]),
 	);
 	return candidates.filter((points) => {
-		if (points.length < 2 || points.length > 5) return false;
+		if (points.length < 2 || points.length > 6) return false;
 		const bends = routeBendCount(points);
 		return bends <= 2;
 	});
+}
+
+/** True when an interior span (excluding endpoints) is long enough to nudge. */
+function hasSeparableInteriorSpan(
+	points: readonly Point[],
+	pitch: number,
+): boolean {
+	if (points.length < 4) {
+		return false;
+	}
+	for (let i = 1; i < points.length - 2; i += 1) {
+		const a = points[i];
+		const b = points[i + 1];
+		if (a === undefined || b === undefined) continue;
+		if (Math.hypot(b.x - a.x, b.y - a.y) >= pitch) {
+			return true;
+		}
+	}
+	return false;
 }
 
 export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
@@ -2099,11 +2392,13 @@ function insetBox(box: Box, margin: number): Box {
 }
 
 /**
- * Iteratively pushes route segments away from intersecting obstacles,
- * up to maxIterations times. Returns the improved route (may still
- * cross obstacles if avoidance was not possible).
+ * Last-resort repair: push the segments of `points` that cross obstacles
+ * around them with orthogonal detours, for at most `maxIterations` passes
+ * (`maxRoutingAttempts`). The route may still cross obstacles when no
+ * detour clears them. Exported for tests.
+ * @internal
  */
-function greedyRerouteAroundObstacles(
+export function greedyRerouteAroundObstacles(
 	points: readonly Point[],
 	obstacles: readonly Box[],
 	maxIterations: number,
@@ -2123,13 +2418,18 @@ function greedyRerouteAroundObstacles(
 }
 
 /**
- * Tries to push each segment of the route away from intersecting obstacles.
- * Returns a new route with waypoints inserted, or null if no push was possible.
+ * Tries to push each segment of the route away from intersecting obstacles
+ * with an orthogonal detour: the segment steps out beside the obstacle,
+ * runs past it, and steps back (a U around it). Returns a new route, or
+ * null if no push was possible. Diagonal segments and segments that start
+ * or end inside the obstacle are left alone (#76: the old single-waypoint
+ * push turned segments into diagonal zigzags).
  */
 function pushRouteAwayFromObstacles(
 	points: readonly Point[],
 	obstacles: readonly Box[],
 ): Point[] | null {
+	const margin = 12;
 	const result: Point[] = [];
 	let improved = false;
 
@@ -2141,48 +2441,130 @@ function pushRouteAwayFromObstacles(
 			continue;
 		}
 		result.push(a);
+		const horizontal = Math.abs(a.y - b.y) < 1e-6;
+		const vertical = Math.abs(a.x - b.x) < 1e-6;
+		if (!horizontal && !vertical) continue;
 
-		const intersectors = obstacles.filter((obs) =>
-			segmentIntersectsBox(a, b, obs),
+		const intersectors = obstacles.filter(
+			(obs) =>
+				segmentIntersectsBox(a, b, obs) &&
+				!pointInsideBox(a, obs) &&
+				!pointInsideBox(b, obs),
 		);
-		if (intersectors.length === 0) {
-			continue;
-		}
+		if (intersectors.length === 0) continue;
 
-		// Find the obstacle whose edge is closest to the segment midpoint.
-		const mx = (a.x + b.x) / 2;
-		const my = (a.y + b.y) / 2;
-		const isHorizontal = a.y === b.y;
-		const margin = 12;
-
-		let bestWaypoint: Point | null = null;
-		let bestDist = Infinity;
-
-		for (const obs of intersectors) {
-			// Try escaping above/below (for horizontal segments) or left/right (for vertical)
-			const candidates: Point[] = isHorizontal
-				? [
-						{ x: mx, y: obs.y - margin },
-						{ x: mx, y: obs.y + obs.height + margin },
-					]
-				: [
-						{ x: obs.x - margin, y: my },
-						{ x: obs.x + obs.width + margin, y: my },
-					];
-
-			for (const wp of candidates) {
-				const dist = Math.hypot(wp.x - mx, wp.y - my);
-				if (dist < bestDist) {
-					bestDist = dist;
-					bestWaypoint = wp;
+		// Detour around the union of the obstacles this segment crosses,
+		// on the side closer to the segment.
+		const low = Math.min(
+			...intersectors.map((obs) => (horizontal ? obs.x : obs.y)),
+		);
+		const high = Math.max(
+			...intersectors.map((obs) =>
+				horizontal ? obs.x + obs.width : obs.y + obs.height,
+			),
+		);
+		const crossLow = Math.min(
+			...intersectors.map((obs) => (horizontal ? obs.y : obs.x)),
+		);
+		const crossHigh = Math.max(
+			...intersectors.map((obs) =>
+				horizontal ? obs.y + obs.height : obs.x + obs.width,
+			),
+		);
+		const along = horizontal ? a.x : a.y;
+		const alongEnd = horizontal ? b.x : b.y;
+		const forward = alongEnd >= along;
+		// Kept inside the segment's own span: when the obstacles reach past
+		// an end, the whole segment shifts sideways there.
+		const span = (from: number, to: number) => ({
+			enter: forward
+				? Math.max(along, from - margin)
+				: Math.min(along, to + margin),
+			leave: forward
+				? Math.min(alongEnd, to + margin)
+				: Math.max(alongEnd, from - margin),
+		});
+		const cross = horizontal ? a.y : a.x;
+		const at = (alongValue: number, crossValue: number): Point =>
+			horizontal
+				? { x: alongValue, y: crossValue }
+				: { x: crossValue, y: alongValue };
+		const detourAt = (
+			side: number,
+			range: { enter: number; leave: number },
+		): Point[] => [
+			a,
+			at(range.enter, cross),
+			at(range.enter, side),
+			at(range.leave, side),
+			at(range.leave, cross),
+			b,
+		];
+		// Try both sides; when a side's detour runs into other obstacles,
+		// widen it around them and step further out. Fewest hits wins, then
+		// the nearer side.
+		let best = {
+			side: crossLow - margin,
+			range: span(low, high),
+			hits: Number.POSITIVE_INFINITY,
+			distance: Number.POSITIVE_INFINITY,
+		};
+		for (const direction of [-1, 1] as const) {
+			let from = low;
+			let to = high;
+			let candidate = direction < 0 ? crossLow - margin : crossHigh + margin;
+			for (let step = 0; step <= obstacles.length; step += 1) {
+				const range = span(from, to);
+				const blocking = obstacles.filter((obs) =>
+					routeCrossesBoxes(detourAt(candidate, range), [obs]),
+				);
+				const distance = Math.abs(candidate - cross);
+				if (
+					blocking.length < best.hits ||
+					(blocking.length === best.hits && distance < best.distance)
+				) {
+					best = { side: candidate, range, hits: blocking.length, distance };
 				}
+				if (blocking.length === 0) break;
+				from = Math.min(
+					from,
+					...blocking.map((obs) => (horizontal ? obs.x : obs.y)),
+				);
+				to = Math.max(
+					to,
+					...blocking.map((obs) =>
+						horizontal ? obs.x + obs.width : obs.y + obs.height,
+					),
+				);
+				candidate =
+					direction < 0
+						? Math.min(
+								candidate,
+								...blocking.map((obs) => (horizontal ? obs.y : obs.x)),
+							) - margin
+						: Math.max(
+								candidate,
+								...blocking.map((obs) =>
+									horizontal ? obs.y + obs.height : obs.x + obs.width,
+								),
+							) + margin;
 			}
 		}
-
-		if (bestWaypoint !== null) {
-			result.push(bestWaypoint);
-			improved = true;
-		}
+		const { side, range } = best;
+		const detour = [
+			at(range.enter, cross),
+			at(range.enter, side),
+			at(range.leave, side),
+			at(range.leave, cross),
+		].filter(
+			(point, index, all) =>
+				!(
+					(index === 0 && samePoint(point, a)) ||
+					(index === all.length - 1 && samePoint(point, b))
+				),
+		);
+		result.push(...detour);
+		improved = true;
 	}
 
 	const last = points[points.length - 1];
@@ -2191,6 +2573,10 @@ function pushRouteAwayFromObstacles(
 	}
 
 	return improved ? result : null;
+}
+
+function samePoint(a: Point, b: Point): boolean {
+	return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
 }
 
 function fallbackRoute(
@@ -2255,25 +2641,29 @@ function routeTournamentPairs(
 		const sourceIsPrimary = pair.sourceAnchor === defaultAnchors.sourceAnchor;
 		const targetIsPrimary = pair.targetAnchor === defaultAnchors.targetAnchor;
 		const sourcePoints =
-			input.sourceAnchor !== undefined ||
-			!sourceIsPrimary ||
-			!isCardinalAnchor(pair.sourceAnchor)
-				? [getEdgePort(input.source, input.target.center, pair.sourceAnchor)]
-				: fractionalSidePoints(
-						input.source.box,
-						pair.sourceAnchor,
-						maxAttachPoints,
-					);
+			input.sourcePoint !== undefined
+				? [input.sourcePoint]
+				: input.sourceAnchor !== undefined ||
+						!sourceIsPrimary ||
+						!isCardinalAnchor(pair.sourceAnchor)
+					? [getEdgePort(input.source, input.target.center, pair.sourceAnchor)]
+					: fractionalSidePoints(
+							input.source.box,
+							pair.sourceAnchor,
+							maxAttachPoints,
+						);
 		const targetPoints =
-			input.targetAnchor !== undefined ||
-			!targetIsPrimary ||
-			!isCardinalAnchor(pair.targetAnchor)
-				? [getEdgePort(input.target, input.source.center, pair.targetAnchor)]
-				: fractionalSidePoints(
-						input.target.box,
-						pair.targetAnchor,
-						maxAttachPoints,
-					);
+			input.targetPoint !== undefined
+				? [input.targetPoint]
+				: input.targetAnchor !== undefined ||
+						!targetIsPrimary ||
+						!isCardinalAnchor(pair.targetAnchor)
+					? [getEdgePort(input.target, input.source.center, pair.targetAnchor)]
+					: fractionalSidePoints(
+							input.target.box,
+							pair.targetAnchor,
+							maxAttachPoints,
+						);
 		for (let si = 0; si < sourcePoints.length; si += 1) {
 			for (let ti = 0; ti < targetPoints.length; ti += 1) {
 				const source = sourcePoints[si];
@@ -2867,13 +3257,32 @@ function hardObstacleFailureDiagnostic(input: {
 			},
 		};
 	}
+	const nodeOnly =
+		sources.length > 0 && sources.every((source) => source.kind === "node");
+	if (nodeOnly) {
+		return {
+			severity: "error",
+			code: "routing.obstacle.unavoidable",
+			message: "Short-orthogonal route crosses foreign node obstacles.",
+			detail: {
+				obstacleSource: "node",
+				hardObstacleKinds: kinds.join(","),
+				conflictClass: "fixed-geometry-block",
+				remediationType: "route-rail-or-page-split",
+			},
+		};
+	}
 	return {
 		severity: "error",
 		code: "routing.evidence.crossing_forbidden",
 		message: input.evidenceMessage,
 		detail: {
 			obstacleSource:
-				sources.length > 0 && kinds.includes("text") ? "mixed" : "evidence",
+				sources.length > 0 && kinds.includes("text")
+					? "mixed"
+					: kinds.includes("node")
+						? "node"
+						: "evidence",
 			hardObstacleKinds: kinds.length === 0 ? "evidence" : kinds.join(","),
 			conflictClass: "evidence-crossing",
 		},

@@ -139,6 +139,18 @@ export interface SolveDiagramOptions {
 	 * route kinds). `false` disables; `spacing` sets the track gap (default 12).
 	 */
 	edgeSeparation?: boolean | { spacing?: number };
+	/**
+	 * RSOP (#86/#88) orthogonal nudge pitch between parallel channel tracks.
+	 * Also used as soft-text micro-clear pitch. Default 10.
+	 */
+	idealNudgingDistance?: number;
+	/**
+	 * With `short-orthogonal-jumps`, also run the greedy Left-Edge channel
+	 * track assignment + nudge after routing (#88). Off by default: edge
+	 * separation (`edgeSeparation`) already spreads parallel segments for
+	 * every orthogonal route kind, before labels are placed.
+	 */
+	rsopChannelNudge?: boolean;
 }
 
 export interface PortShiftingOptions {

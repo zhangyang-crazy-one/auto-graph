@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { renderDiagramDsl } from "../src/dsl/index.js";
+import {
+	normalizeDiagramDsl,
+	parseDiagramDsl,
+	renderDiagramDsl,
+} from "../src/dsl/index.js";
 import { computeArrowhead } from "../src/exporters/arrow.js";
 import {
 	type Box,
@@ -10,6 +14,7 @@ import {
 	type LabelLayout,
 	type NormalizedDiagram,
 	type PageSplitRemediationDetail,
+	type Point,
 } from "../src/ir/index.js";
 import { DEFAULT_CJK_FONT_FAMILY } from "../src/solver/cjk-typography.js";
 import {
@@ -2056,37 +2061,68 @@ describe("solveDiagram", () => {
 	});
 
 	it("forwards maxRoutingAttempts to obstacle-avoiding route solving", () => {
-		const obstacles = routingAttemptObstaclePanels();
-		const diagram: NormalizedDiagram = {
-			id: "max-routing-forwarding",
-			direction: "LR",
-			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 500, y: 0 })],
-			edges: [
-				{
-					id: "source-target",
-					source: { nodeId: "source" },
-					target: { nodeId: "target" },
-				},
-			],
-			groups: [],
-			constraints: [],
-			diagnostics: [],
-			evidencePanels: obstacles,
-		};
+		// A lane page where one route only clears the other edges' labels
+		// through the greedy reroute: with 0 attempts that repair is off.
+		const parsed = parseDiagramDsl(`
+layout: { direction: TB, mode: positions }
+swimlanes:
+  flow:
+    orientation: vertical
+    layout: contract
+    lanes:
+      eg: { label: 指挥组, children: [o1, o2, o5] }
+      oa: { label: 作战单元, children: [o3, o4, o6] }
+      sp: { label: 保障单元, children: [o7, o8] }
+nodes:
+  o1: { label: 接收任务, position: { x: 60, y: 60 } }
+  o2: { label: 制定方案, position: { x: 60, y: 180 } }
+  o3: { label: 机动部署, position: { x: 300, y: 120 } }
+  o4: { label: 实施打击, position: { x: 300, y: 240 } }
+  o5: { label: 效果评估, position: { x: 60, y: 360 } }
+  o6: { label: 撤离, position: { x: 300, y: 380 } }
+  o7: { label: 补给, position: { x: 540, y: 160 } }
+  o8: { label: 维修, position: { x: 540, y: 300 } }
+edges:
+  - { source: o1, target: o2, label: 分析 }
+  - { source: o2, target: o3, label: 下达 }
+  - { source: o3, target: o4, label: 到位 }
+  - { source: o4, target: o5, label: 回报 }
+  - { source: o5, target: o2, label: 调整 }
+  - { source: o4, target: o6, label: 完成 }
+  - { source: o7, target: o3, label: 物资 }
+  - { source: o8, target: o4, label: 抢修 }
+  - { source: o2, target: o7, label: 申请 }
+  - { source: o5, target: o8, label: 需求 }
+`);
+		const diagram = normalizeDiagramDsl(parsed.value as never, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		}).diagram as NormalizedDiagram;
+		const solve = (maxRoutingAttempts: number) =>
+			solveDiagram(diagram, {
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				railRouting: "auto",
+				externalLabels: true,
+				remediationPolicy: { externalLabels: "auto" },
+				distributeContainedChildren: false,
+				deliverabilityMode: "degraded-ok",
+				maxRoutingAttempts,
+				textMeasurer: new DeterministicTextMeasurer(),
+			});
 
-		const shallow = solveDiagram(diagram, {
-			routeKind: "obstacle-avoiding",
-			maxRoutingAttempts: 0,
-		});
-		const deeper = solveDiagram(diagram, {
-			routeKind: "obstacle-avoiding",
-			maxRoutingAttempts: 4,
-		});
-
-		expect(shallow.edges[0]?.points).not.toEqual(deeper.edges[0]?.points);
-		expect(shallow.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
-		);
+		const shallow = solve(0);
+		const deeper = solve(5);
+		const route = (result: ReturnType<typeof solve>) =>
+			result.edges.find((edge) => edge.id === "o5-o8")?.points;
+		expect(route(shallow)).not.toEqual(route(deeper));
+		// Either way the repair stays orthogonal (#76).
+		for (const points of [route(shallow), route(deeper)]) {
+			for (let index = 1; index < (points?.length ?? 0); index += 1) {
+				const a = points?.[index - 1] as Point;
+				const b = points?.[index] as Point;
+				expect(a.x === b.x || a.y === b.y).toBe(true);
+			}
+		}
 	});
 
 	it("routes around edge-label estimate corridors before final label placement", () => {
@@ -4575,6 +4611,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"layout.container-fixed-bounds-overflow",
 		"route_obstacle_fallback",
 		"routing.anchor-capacity.requires-resize",
+		"routing.channel.capacity_exhausted",
 		"routing.container-fixed-bounds-overflow",
 		"routing.deliverability.unsatisfiable",
 		"routing.endpoint-interior.unavoidable",
@@ -4583,6 +4620,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.label-externalization.required",
 		"routing.label-hard-obstacle.unavoidable",
 		"routing.obstacle.unavoidable",
+		"routing.port.capacity_exhausted",
 		"routing.rail-capacity.exceeded",
 		"routing.route-label-loop.exhausted",
 		"routing.text-clearance.unresolved",
@@ -6644,25 +6682,6 @@ function createTestLabelLayout(
 		overflow: { horizontal: false, vertical: false, truncated: false },
 		diagnostics: [],
 	};
-}
-
-function routingAttemptObstaclePanels(): NonNullable<
-	NormalizedDiagram["evidencePanels"]
-> {
-	return [
-		{ x: 389, y: -90, width: 106, height: 88 },
-		{ x: 127, y: 70, width: 31, height: 100 },
-		{ x: 187, y: -134, width: 51, height: 120 },
-		{ x: 343, y: 103, width: 62, height: 123 },
-		{ x: 430, y: -12, width: 114, height: 141 },
-		{ x: 376, y: -1, width: 48, height: 113 },
-	].map((box, index) => ({
-		id: `routing-obstacle-${index}`,
-		kind: "legend" as const,
-		position: { x: box.x, y: box.y },
-		size: { width: box.width, height: box.height },
-		items: [],
-	}));
 }
 
 class WideGlyphTextMeasurer implements TextMeasurer {

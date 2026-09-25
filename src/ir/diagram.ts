@@ -76,6 +76,8 @@ export interface ExternalLabelRemediationDetail {
 	policy: RemediationPolicyMode;
 	labelCount: number;
 	callouts?: ExternalLabelCallout[];
+	/** Labels that found no free shelf spot on the page and stayed inline (#93). */
+	unplacedCount?: number;
 }
 
 export interface RouteRailRemediationDetail {

@@ -12,6 +12,7 @@ import {
 import type {
 	DeliverabilityReport,
 	ExternalLabelCallout,
+	ExternalLabelRemediationDetail,
 	NormalizedDiagram,
 	PagePolicy,
 	PageSplitPolicyMode,
@@ -227,6 +228,8 @@ export interface RemediationPassState {
 	remediationPassIterations: number;
 	/** Input-seeded diagnostics must survive regenerable routing refreshes. */
 	preservedDiagnosticKeys: ReadonlySet<string>;
+	/** Shelf packing failures of the last external-label pass (#93). */
+	shelfDiagnostics?: Diagnostic[];
 }
 
 export interface RemediationPassContext {
@@ -590,11 +593,26 @@ export function applyExternalLabelRemediation(
 	context: RemediationPassContext,
 ): RemediationPlan | undefined {
 	const edgePointBounds = edgeBounds(state.coordinatedEdges);
+	const shelfDiagnostics: Diagnostic[] = [];
 	const externalLabelCallouts = buildExternalLabelCallouts(
 		state.edgeTextAnnotations,
 		unionBoxes([state.contentBounds, ...edgePointBounds]),
 		context.options,
+		{
+			obstacles: [
+				...state.coordinatedNodes.map((node) => node.box),
+				...state.coordinatedGroups.map((group) => group.box),
+				...context.coordinatedMatrices.map((matrix) => matrix.box),
+				...context.coordinatedTables.map((table) => table.box),
+				...state.policyHardObstacles,
+			],
+			diagnostics: shelfDiagnostics,
+			routes: new Map(
+				state.coordinatedEdges.map((edge) => [edge.id, edge.points]),
+			),
+		},
 	);
+	state.shelfDiagnostics = shelfDiagnostics;
 	if (externalLabelCallouts.length === 0) {
 		const candidate = buildRemediationPlans(
 			blockingRemediationDiagnostics(state.diagnostics),
@@ -620,13 +638,31 @@ export function applyExternalLabelRemediation(
 		(callout) => callout.callout,
 	);
 	const policy = resolveRemediationPolicy(context.options.remediationPolicy);
+	const applied = buildAppliedExternalLabelRemediationPlan(
+		blockingRemediationDiagnostics(state.diagnostics),
+		policy,
+		state.appliedExternalLabelCallouts,
+	);
+	const capacity = shelfDiagnostics[0];
 	return {
 		id: "remediation-external-label",
-		...buildAppliedExternalLabelRemediationPlan(
-			blockingRemediationDiagnostics(state.diagnostics),
-			policy,
-			state.appliedExternalLabelCallouts,
-		),
+		...applied,
+		...(capacity === undefined
+			? {}
+			: {
+					// Only part of the labels fit on the page: say so (#93).
+					reason: `${applied.reason} ${capacity.message}`,
+					diagnosticCodes: [
+						...applied.diagnosticCodes,
+						"routing.label-shelf.capacity_exhausted",
+					].sort(),
+					detail: {
+						...(applied.detail as ExternalLabelRemediationDetail),
+						unplacedCount:
+							(capacity.detail?.labelCount as number) -
+							(capacity.detail?.placed as number),
+					},
+				}),
 	};
 }
 
@@ -654,6 +690,7 @@ export function railRemediationSnapshot(state: RemediationPassState): {
 			"routing.text-clearance.unresolved",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
+			"routing.channel.capacity_exhausted",
 			"routing.label-congestion.unresolved",
 			"route_obstacle_fallback",
 			"routing.endpoint-interior.unavoidable",
@@ -965,6 +1002,7 @@ export function refreshRemediationDiagnostics(
 			"routing.route-label-loop.exhausted",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
+			"routing.channel.capacity_exhausted",
 			"routing.endpoint-interior.unavoidable",
 			"route_obstacle_fallback",
 			"routing.label-hard-obstacle.unavoidable",
@@ -1315,11 +1353,13 @@ export function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
 		case "routing.obstacle.unavoidable":
 		case "routing.endpoint-interior.unavoidable":
 		case "routing.evidence.crossing_forbidden":
+		case "routing.channel.capacity_exhausted":
 		case "route_obstacle_fallback":
 			return "route-rail-or-page-split";
 		case "routing.rail-capacity.exceeded":
 			return "increase-rails-or-split";
 		case "routing.anchor-capacity.requires-resize":
+		case "routing.port.capacity_exhausted":
 			return "grow-node-anchor-capacity";
 		case "constraints.overlap.locked-conflict":
 		case "constraints.overlap.post-growth":
