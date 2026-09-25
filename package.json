@@ -34,6 +34,7 @@
 	},
 	"files": [
 		"dist",
+		"schema",
 		"README.md",
 		"README.zh-CN.md",
 		"LICENSE"
@@ -42,6 +43,7 @@
 		"build": "tsup",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
+		"bench:scale": "DGE_SCALE=1 vitest run test/scale --reporter=verbose",
 		"lint": "biome ci .",
 		"format": "biome check --write .",
 		"verify": "npm run typecheck && npm run build && npm test && npm run lint"
@@ -49,6 +51,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.4.15",
 		"@types/node": "25.9.1",
+		"elkjs": "0.12.0",
 		"tsup": "8.5.1",
 		"typescript": "6.0.3",
 		"vitest": "4.1.7"

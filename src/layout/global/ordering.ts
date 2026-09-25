@@ -28,6 +28,15 @@ export interface OrderingOptions {
 	 * wins, so the output is never worse than a contiguous seed.
 	 */
 	seeds?: readonly (readonly (readonly string[])[])[];
+	/**
+	 * Cross-axis position of vertices in a previous version of the diagram
+	 * (stability hint). Every pair of such vertices that one layer holds in
+	 * the opposite order costs `stabilityWeight` crossings, so a small edit
+	 * keeps the old order unless changing it removes more crossings.
+	 */
+	reference?: ReadonlyMap<string, number>;
+	/** Crossings one reversed reference pair is worth (default 1). */
+	stabilityWeight?: number;
 }
 
 export interface Ordering {
@@ -37,6 +46,9 @@ export interface Ordering {
 }
 
 type Heuristic = "barycenter" | "median";
+
+/** Sweep rounds without improvement before a refinement stops. */
+const PATIENCE = 5;
 
 export function orderLayers(
 	layering: Layering,
@@ -55,13 +67,37 @@ export function orderLayers(
 		upper.set(segment.to, up);
 	}
 
-	const starts: string[][][] = [
-		initialOrder(layering, hierarchy, upper),
-		...(options.seeds ?? []).map((seed) =>
-			seededOrder(seed, layering, hierarchy),
-		),
-	];
-	let best: Ordering | undefined;
+	const graph = indexGraph(
+		layering.vertices.keys(),
+		lower,
+		(id) => layering.vertices.get(id)?.containerId,
+	);
+	const seeded = (options.seeds ?? []).map((seed) =>
+		seededOrder(seed, layering, hierarchy),
+	);
+	const initial = initialOrder(layering, hierarchy, upper);
+	// With a reference, its seed comes first so it wins ties.
+	const starts: string[][][] =
+		options.reference !== undefined && options.reference.size > 0
+			? [...seeded, initial]
+			: [initial, ...seeded];
+	const reference = options.reference;
+	const weight = options.stabilityWeight ?? 1;
+	if (reference !== undefined && reference.size > 0) {
+		const values = new Float64Array(graph.ids.length).fill(Number.NaN);
+		for (const [id, value] of reference) {
+			const at = graph.index.get(id);
+			if (at !== undefined) values[at] = value;
+		}
+		graph.reference = values;
+		graph.stabilityWeight = weight;
+	}
+	const penalty =
+		reference === undefined || reference.size === 0
+			? () => 0
+			: (layers: readonly (readonly string[])[]) =>
+					weight * referenceInversions(layers, reference);
+	let best: Scored | undefined;
 	for (const start of starts) {
 		for (const heuristic of ["barycenter", "median"] as const) {
 			const result = refine(
@@ -70,16 +106,84 @@ export function orderLayers(
 				hierarchy,
 				upper,
 				lower,
+				graph,
 				iterations,
 				heuristic,
+				penalty,
 			);
-			if (best === undefined || result.crossings < best.crossings) {
+			if (best === undefined || result.score < best.score) {
 				best = result;
 			}
-			if (best.crossings === 0) return best;
+			if (best.score === 0) break;
+		}
+		if (best?.score === 0) break;
+	}
+	if (best === undefined) return { layers: [], crossings: 0 };
+	return orient(best, layering, hierarchy, reference, penalty);
+}
+
+interface Scored extends Ordering {
+	/** Crossings plus the stability penalty. */
+	score: number;
+}
+
+/**
+ * Reversing every layer keeps every crossing, so an ordering and its
+ * mirror image are equally good, and which one the search lands on can
+ * flip with any small edit. Pick deterministically: the one closer to the
+ * previous layout when there is one, else the one that lists nodes in id
+ * order (lower ids on top / left). Fixed-order containers (lanes) rule out
+ * the mirror.
+ */
+function orient(
+	best: Scored,
+	layering: Layering,
+	hierarchy: ContainerHierarchy,
+	reference: ReadonlyMap<string, number> | undefined,
+	penalty: (layers: readonly (readonly string[])[]) => number,
+): Ordering {
+	const result = { layers: best.layers, crossings: best.crossings };
+	for (const container of hierarchy.containers.values()) {
+		if (container.fixedOrder !== undefined) return result;
+	}
+	const mirrored = best.layers.map((layer) => [...layer].reverse());
+	if (reference !== undefined && reference.size > 0) {
+		return penalty(mirrored) < penalty(best.layers)
+			? { layers: mirrored, crossings: best.crossings }
+			: result;
+	}
+	// Layering inserts real vertices in id order.
+	const idOrder = new Map<string, number>();
+	for (const [id, vertex] of layering.vertices) {
+		if (vertex.nodeId !== undefined) idOrder.set(id, idOrder.size);
+	}
+	return referenceInversions(mirrored, idOrder) <
+		referenceInversions(best.layers, idOrder)
+		? { layers: mirrored, crossings: best.crossings }
+		: result;
+}
+
+/** Pairs of referenced vertices a layer holds against the reference order. */
+function referenceInversions(
+	layers: readonly (readonly string[])[],
+	reference: ReadonlyMap<string, number>,
+): number {
+	let inversions = 0;
+	const values: number[] = [];
+	for (const layer of layers) {
+		values.length = 0;
+		for (const id of layer) {
+			const value = reference.get(id);
+			if (value !== undefined) values.push(value);
+		}
+		for (let i = 0; i < values.length; i += 1) {
+			const value = values[i] as number;
+			for (let j = i + 1; j < values.length; j += 1) {
+				if (value > (values[j] as number)) inversions += 1;
+			}
 		}
 	}
-	return best ?? { layers: [], crossings: 0 };
+	return inversions;
 }
 
 function refine(
@@ -88,23 +192,27 @@ function refine(
 	hierarchy: ContainerHierarchy,
 	upper: ReadonlyMap<string, string[]>,
 	lower: ReadonlyMap<string, string[]>,
+	graph: IndexedGraph,
 	iterations: number,
 	heuristic: Heuristic,
-): Ordering {
+	penalty: (layers: readonly (readonly string[])[]) => number,
+): Scored {
 	// Every candidate is canonicalised to one global sibling-container order
 	// before it can become `best`: a layer-local start could otherwise flip
 	// two groups between layers and win on crossings with an order that no
 	// set of non-interleaving rectangles can draw.
-	let layers = canonicalize(
-		transpose(cloneLayers(start), layering, lower),
-		layering,
-		hierarchy,
-	);
-	let best: Ordering = {
+	let layers = canonicalize(transpose(start, graph), layering, hierarchy);
+	const firstCrossings = countIndexed(layers, graph);
+	let best: Scored = {
 		layers: cloneLayers(layers),
-		crossings: countCrossings(layers, lower),
+		crossings: firstCrossings,
+		score: firstCrossings + penalty(layers),
 	};
+	let lastImprovement = -1;
 	for (let iteration = 0; iteration < iterations; iteration += 1) {
+		// Sweeps converge in a few rounds; stop once `PATIENCE` rounds in a
+		// row found nothing better.
+		if (iteration - lastImprovement > PATIENCE) break;
 		for (const direction of ["down", "up"] as const) {
 			layers = sweep(
 				layers,
@@ -114,17 +222,15 @@ function refine(
 				direction,
 				heuristic,
 			);
-			layers = canonicalize(
-				transpose(layers, layering, lower),
-				layering,
-				hierarchy,
-			);
-			const crossings = countCrossings(layers, lower);
-			if (crossings < best.crossings) {
-				best = { layers: cloneLayers(layers), crossings };
+			layers = canonicalize(transpose(layers, graph), layering, hierarchy);
+			const crossings = countIndexed(layers, graph);
+			const score = crossings + penalty(layers);
+			if (score < best.score) {
+				best = { layers: cloneLayers(layers), crossings, score };
+				lastImprovement = iteration;
 			}
 		}
-		if (best.crossings === 0) break;
+		if (best.score === 0) break;
 	}
 	return best;
 }
@@ -247,25 +353,27 @@ function barycenters(
 		fixed.map((id, index) => [id, (index + 0.5) / Math.max(1, fixed.length)]),
 	);
 	const result = new Map<string, number>();
+	const values: number[] = [];
 	for (const id of vertices) {
-		const values = (neighbours.get(id) ?? [])
-			.map((other) => position.get(other))
-			.filter((value): value is number => value !== undefined);
+		values.length = 0;
+		for (const other of neighbours.get(id) ?? []) {
+			const value = position.get(other);
+			if (value !== undefined) values.push(value);
+		}
 		if (values.length === 0) continue;
 		if (heuristic === "median") {
-			const sorted = [...values].sort((a, b) => a - b);
-			const middle = Math.floor(sorted.length / 2);
+			values.sort((a, b) => a - b);
+			const middle = Math.floor(values.length / 2);
 			result.set(
 				id,
-				sorted.length % 2 === 1
-					? (sorted[middle] as number)
-					: ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2,
+				values.length % 2 === 1
+					? (values[middle] as number)
+					: ((values[middle - 1] as number) + (values[middle] as number)) / 2,
 			);
 		} else {
-			result.set(
-				id,
-				values.reduce((sum, value) => sum + value, 0) / values.length,
-			);
+			let sum = 0;
+			for (const value of values) sum += value;
+			result.set(id, sum / values.length);
 		}
 	}
 	return result;
@@ -300,6 +408,35 @@ function globalContainerOrder(
 	return order;
 }
 
+const RANKS = new WeakMap<Layering, Map<string, number>>();
+
+/**
+ * `localeCompare` order of every vertex and container id as integers, so
+ * the hot sorts compare numbers (ids that compare equal share a rank).
+ */
+function idRanks(
+	layering: Layering,
+	hierarchy: ContainerHierarchy,
+): ReadonlyMap<string, number> {
+	const cached = RANKS.get(layering);
+	if (cached !== undefined) return cached;
+	const ids = [
+		...new Set([...layering.vertices.keys(), ...hierarchy.containers.keys()]),
+	].sort((a, b) => a.localeCompare(b));
+	const rank = new Map<string, number>();
+	ids.forEach((id, index) => {
+		const previous = ids[index - 1];
+		rank.set(
+			id,
+			previous !== undefined && previous.localeCompare(id) === 0
+				? (rank.get(previous) as number)
+				: index,
+		);
+	});
+	RANKS.set(layering, rank);
+	return rank;
+}
+
 /**
  * Sort one layer into nested container blocks. Siblings at each level are
  * child containers (keyed by fixed order, else global order, else the mean
@@ -313,6 +450,7 @@ function arrangeBlocks(
 	hierarchy: ContainerHierarchy,
 	containerOrder: ReadonlyMap<string, number>,
 ): string[] {
+	const rank = idRanks(layering, hierarchy);
 	const inLayer = new Set(vertices);
 	const direct = new Map<string, string[]>();
 	for (const id of vertices) {
@@ -375,11 +513,85 @@ function arrangeBlocks(
 			});
 		}
 		entries.sort(
-			(a, b) => a.fixed - b.fixed || a.key - b.key || a.id.localeCompare(b.id),
+			(a, b) =>
+				a.fixed - b.fixed ||
+				a.key - b.key ||
+				(rank.get(a.id) as number) - (rank.get(b.id) as number),
 		);
 		return entries.flatMap((entry) => entry.items());
 	};
 	return flatten(hierarchy.rootId);
+}
+
+/** Integer view of the layered graph for the hot loops. */
+interface IndexedGraph {
+	ids: readonly string[];
+	index: ReadonlyMap<string, number>;
+	upper: readonly (readonly number[])[];
+	lower: readonly (readonly number[])[];
+	/** Container per vertex: equal values mean the same container. */
+	container: readonly (string | undefined)[];
+	/** Scratch: position of each vertex inside its layer. */
+	position: Int32Array;
+	/** Scratch: layer of each vertex, -1 when not placed. */
+	layerOf: Int32Array;
+	/** Scratch: Fenwick tree for crossing counts. */
+	tree: Int32Array;
+	/** Reference position per vertex (NaN: none), see `reference`. */
+	reference: Float64Array | undefined;
+	/** Crossings one reversed reference pair is worth. */
+	stabilityWeight: number;
+}
+
+function indexGraph(
+	vertices: Iterable<string>,
+	lower: ReadonlyMap<string, readonly string[]>,
+	containerOf: (id: string) => string | undefined,
+): IndexedGraph {
+	const ids: string[] = [];
+	const index = new Map<string, number>();
+	const add = (id: string): number => {
+		let at = index.get(id);
+		if (at === undefined) {
+			at = ids.length;
+			ids.push(id);
+			index.set(id, at);
+		}
+		return at;
+	};
+	for (const id of vertices) add(id);
+	const edges: [number, number][] = [];
+	for (const [from, targets] of lower) {
+		const source = add(from);
+		for (const to of targets) edges.push([source, add(to)]);
+	}
+	const upperLists: number[][] = ids.map(() => []);
+	const lowerLists: number[][] = ids.map(() => []);
+	for (const [source, target] of edges) {
+		(lowerLists[source] as number[]).push(target);
+		(upperLists[target] as number[]).push(source);
+	}
+	return {
+		ids,
+		index,
+		upper: upperLists,
+		lower: lowerLists,
+		container: ids.map(containerOf),
+		position: new Int32Array(ids.length),
+		layerOf: new Int32Array(ids.length),
+		tree: new Int32Array(ids.length + 1),
+		reference: undefined,
+		stabilityWeight: 0,
+	};
+}
+
+function toIndices(
+	layers: readonly (readonly string[])[],
+	graph: IndexedGraph,
+): number[][] {
+	return layers.map((layer) =>
+		layer.map((id) => graph.index.get(id) as number),
+	);
 }
 
 /**
@@ -387,61 +599,67 @@ function arrangeBlocks(
  * crossings with both neighbouring layers.
  */
 function transpose(
-	layers: string[][],
-	layering: Layering,
-	lower: ReadonlyMap<string, string[]>,
+	layers: readonly (readonly string[])[],
+	graph: IndexedGraph,
 ): string[][] {
-	const next = cloneLayers(layers);
+	const { upper, lower, container, position, reference, stabilityWeight } =
+		graph;
+	const next = toIndices(layers, graph);
+	for (const layer of next) {
+		for (let at = 0; at < layer.length; at += 1) {
+			position[layer[at] as number] = at;
+		}
+	}
+	// Swapping adjacent a, b only changes crossings between their own edges:
+	// each pair of other ends (x of a, y of b) crosses in exactly one of the
+	// two orders, so the sign of their positions decides which.
+	const preference = (a: readonly number[], b: readonly number[]): number => {
+		let score = 0;
+		for (const x of a) {
+			const px = position[x] as number;
+			for (const y of b) {
+				const py = position[y] as number;
+				if (px > py) score += 1;
+				else if (px < py) score -= 1;
+			}
+		}
+		return score;
+	};
 	for (let round = 0; round < 4; round += 1) {
 		let improved = false;
-		for (let index = 0; index < next.length; index += 1) {
-			const layer = next[index] ?? [];
-			for (let position = 0; position + 1 < layer.length; position += 1) {
-				const a = layer[position] as string;
-				const b = layer[position + 1] as string;
-				if (
-					layering.vertices.get(a)?.containerId !==
-					layering.vertices.get(b)?.containerId
-				) {
-					continue;
+		for (const layer of next) {
+			for (let at = 0; at + 1 < layer.length; at += 1) {
+				const a = layer[at] as number;
+				const b = layer[at + 1] as number;
+				if (container[a] !== container[b]) continue;
+				// Stability cost of the swap: putting two reference vertices
+				// the other way round costs the weight, restoring them earns it.
+				let cost = 0;
+				if (reference !== undefined) {
+					const ra = reference[a] as number;
+					const rb = reference[b] as number;
+					if (ra < rb) cost = stabilityWeight;
+					else if (ra > rb) cost = -stabilityWeight;
 				}
-				const before = localCrossings(next, index, lower);
-				layer[position] = b;
-				layer[position + 1] = a;
-				const after = localCrossings(next, index, lower);
-				if (after < before) {
+				// crossings(a, b) - crossings(b, a) with both neighbouring layers.
+				if (
+					preference(upper[a] as number[], upper[b] as number[]) +
+						preference(lower[a] as number[], lower[b] as number[]) >
+					cost
+				) {
+					layer[at] = b;
+					layer[at + 1] = a;
+					position[b] = at;
+					position[a] = at + 1;
 					improved = true;
-				} else {
-					layer[position] = a;
-					layer[position + 1] = b;
 				}
 			}
 		}
 		if (!improved) break;
 	}
-	return next;
-}
-
-function localCrossings(
-	layers: readonly string[][],
-	index: number,
-	lower: ReadonlyMap<string, string[]>,
-): number {
-	let total = 0;
-	if (index > 0)
-		total += crossingsBetween(
-			layers[index - 1] ?? [],
-			layers[index] ?? [],
-			lower,
-		);
-	if (index + 1 < layers.length) {
-		total += crossingsBetween(
-			layers[index] ?? [],
-			layers[index + 1] ?? [],
-			lower,
-		);
-	}
-	return total;
+	return next.map((layer) =>
+		layer.map((vertex) => graph.ids[vertex] as string),
+	);
 }
 
 /** Total crossings of unit segments between consecutive layers. */
@@ -449,39 +667,61 @@ export function countCrossings(
 	layers: readonly string[][],
 	lower: ReadonlyMap<string, string[]>,
 ): number {
-	let total = 0;
-	for (let index = 0; index + 1 < layers.length; index += 1) {
-		total += crossingsBetween(
-			layers[index] ?? [],
-			layers[index + 1] ?? [],
-			lower,
-		);
-	}
-	return total;
+	return countIndexed(
+		layers,
+		indexGraph(layers.flat(), lower, () => undefined),
+	);
 }
 
-function crossingsBetween(
-	top: readonly string[],
-	bottom: readonly string[],
-	lower: ReadonlyMap<string, string[]>,
+function countIndexed(
+	layers: readonly (readonly string[])[],
+	graph: IndexedGraph,
 ): number {
-	const bottomPosition = new Map(bottom.map((id, index) => [id, index]));
-	const pairs: Array<[number, number]> = [];
-	top.forEach((id, topIndex) => {
-		for (const target of lower.get(id) ?? []) {
-			const bottomIndex = bottomPosition.get(target);
-			if (bottomIndex !== undefined) pairs.push([topIndex, bottomIndex]);
+	const { lower, position, layerOf, tree } = graph;
+	const indexed = toIndices(layers, graph);
+	layerOf.fill(-1);
+	indexed.forEach((layer, layerIndex) => {
+		for (let at = 0; at < layer.length; at += 1) {
+			const vertex = layer[at] as number;
+			position[vertex] = at;
+			layerOf[vertex] = layerIndex;
 		}
 	});
-	let crossings = 0;
-	for (let i = 0; i < pairs.length; i += 1) {
-		const [a0, a1] = pairs[i] as [number, number];
-		for (let j = i + 1; j < pairs.length; j += 1) {
-			const [b0, b1] = pairs[j] as [number, number];
-			if ((a0 - b0) * (a1 - b1) < 0) crossings += 1;
+	let total = 0;
+	const bottoms: number[] = [];
+	for (let layerIndex = 0; layerIndex + 1 < indexed.length; layerIndex += 1) {
+		// Barth–Mutzel–Jünger: take the segments sorted by (top, bottom) and
+		// count, for each, the earlier ones with a strictly larger bottom
+		// index (inversions), with a Fenwick tree — O(E log V) instead of
+		// comparing all pairs. Equal tops sort by bottom, so they never
+		// count; equal bottoms fail the strict comparison. Same result as
+		// the pairwise definition.
+		const size = (indexed[layerIndex + 1] as number[]).length;
+		tree.fill(0, 0, size + 1);
+		let inserted = 0;
+		for (const vertex of indexed[layerIndex] as number[]) {
+			bottoms.length = 0;
+			for (const target of lower[vertex] as number[]) {
+				if (layerOf[target] === layerIndex + 1) {
+					bottoms.push(position[target] as number);
+				}
+			}
+			if (bottoms.length > 1) bottoms.sort((a, b) => a - b);
+			for (const bottom of bottoms) {
+				// Earlier segments with bottom <= this one.
+				let atMost = 0;
+				for (let i = bottom + 1; i > 0; i -= i & -i) {
+					atMost += tree[i] as number;
+				}
+				total += inserted - atMost;
+				for (let i = bottom + 1; i <= size; i += i & -i) {
+					tree[i] = (tree[i] as number) + 1;
+				}
+				inserted += 1;
+			}
 		}
 	}
-	return crossings;
+	return total;
 }
 
 function cloneLayers(layers: readonly string[][]): string[][] {

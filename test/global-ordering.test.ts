@@ -3,9 +3,11 @@ import {
 	assignLayers,
 	buildContainerHierarchy,
 	type ContainerHierarchy,
+	countCrossings,
 	type HierarchyInput,
 	type Layering,
 	orderLayers,
+	seedOrderByDepthFirst,
 } from "../src/layout/index.js";
 
 type Edge = [string, string];
@@ -236,13 +238,19 @@ describe("constrained ordering", () => {
 	});
 
 	it("never trades group-order consistency for fewer crossings", () => {
-		// Crossed membership edges: a0→b1 and b0→a1. Flipping A/B between the
-		// two layers would give zero crossings but no drawable rectangles.
+		// A and B share two layers; u0 feeds a0 and (across) b1, u1 feeds b0
+		// and (across) a1. Flipping A/B between the two layers would uncross
+		// the long edges but leave no drawable rectangles. (Edges between A
+		// and B themselves would make them tiers in separate layers.)
 		const { layering, ordering, hierarchy } = solve(
-			["a0", "a1", "b0", "b1"],
+			["u0", "u1", "a0", "a1", "b0", "b1"],
 			[
-				["a0", "b1"],
-				["b0", "a1"],
+				["u0", "a0"],
+				["u1", "b0"],
+				["a0", "a1"],
+				["b0", "b1"],
+				["u0", "b1"],
+				["u1", "a1"],
 			],
 			{
 				groups: [
@@ -251,14 +259,15 @@ describe("constrained ordering", () => {
 				],
 			},
 		);
-		const orders = new Set(
-			ordering.layers.map((layer) =>
-				containerRuns(layer, layering, hierarchy, "group")
-					.filter((run) => run !== "-")
-					.join(">"),
-			),
-		);
-		expect(orders.size).toBe(1);
+		const shared = ordering.layers
+			.map((layer) =>
+				containerRuns(layer, layering, hierarchy, "group").filter(
+					(run) => run !== "-",
+				),
+			)
+			.filter((runs) => runs.length > 1);
+		expect(shared.length).toBe(2);
+		expect(new Set(shared.map((runs) => runs.join(">"))).size).toBe(1);
 	});
 
 	it("is deterministic", () => {
@@ -357,5 +366,88 @@ describe("main-axis lane layering (Codex #96, round 6)", () => {
 		const layerOf = (id: string) => layering.layerOfNode.get(id) ?? -1;
 		expect(layerOf("a")).toBeLessThan(layerOf("x"));
 		expect(layerOf("x")).toBeLessThan(layerOf("b"));
+	});
+});
+
+describe("countCrossings", () => {
+	it("matches the pairwise definition on random layer pairs", () => {
+		let state = 17;
+		const random = () => {
+			state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+			return state / 2 ** 32;
+		};
+		for (let trial = 0; trial < 200; trial += 1) {
+			const top = Array.from(
+				{ length: 1 + Math.floor(random() * 8) },
+				(_, i) => `t${i}`,
+			);
+			const bottom = Array.from(
+				{ length: 1 + Math.floor(random() * 8) },
+				(_, i) => `b${i}`,
+			);
+			const lower = new Map<string, string[]>();
+			for (const id of top) {
+				lower.set(
+					id,
+					bottom.filter(() => random() < 0.35),
+				);
+			}
+			const pairs: [number, number][] = [];
+			top.forEach((id, i) => {
+				for (const target of lower.get(id) ?? []) {
+					pairs.push([i, bottom.indexOf(target)]);
+				}
+			});
+			let expected = 0;
+			for (let i = 0; i < pairs.length; i += 1) {
+				for (let j = i + 1; j < pairs.length; j += 1) {
+					const [a0, a1] = pairs[i] as [number, number];
+					const [b0, b1] = pairs[j] as [number, number];
+					if ((a0 - b0) * (a1 - b1) < 0) expected += 1;
+				}
+			}
+			expect(countCrossings([top, bottom], lower), `trial ${trial}`).toBe(
+				expected,
+			);
+		}
+	});
+});
+
+describe("depth-first seed", () => {
+	it("orders every layer by first visit from the sources", () => {
+		const { layering } = solve(
+			["a", "b", "c", "d", "e"],
+			[
+				["a", "d"],
+				["b", "c"],
+				["a", "e"],
+			],
+		);
+		const seed = seedOrderByDepthFirst(layering);
+		expect(seed.map((layer) => [...layer].sort())).toEqual(
+			layering.layers.map((layer) => [...layer].sort()),
+		);
+		// a is visited first, so its children d and e precede b's child c.
+		const second = seed[1] as string[];
+		expect(second.indexOf("d")).toBeLessThan(second.indexOf("c"));
+		expect(second.indexOf("e")).toBeLessThan(second.indexOf("c"));
+	});
+
+	it("is a valid ordering start", () => {
+		const { hierarchy, layering } = solve(
+			["a", "b", "c", "d"],
+			[
+				["a", "d"],
+				["b", "c"],
+				["a", "c"],
+				["b", "d"],
+			],
+		);
+		const seeded = orderLayers(layering, hierarchy, {
+			seeds: [seedOrderByDepthFirst(layering)],
+		});
+		expect(seeded.crossings).toBeLessThanOrEqual(
+			orderLayers(layering, hierarchy).crossings,
+		);
 	});
 });

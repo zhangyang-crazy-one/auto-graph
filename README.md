@@ -110,6 +110,53 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## Views
+
+Most diagrams are one of a few kinds. Name the kind with `view:` and write only the content — no shapes, containers, directions or layout settings; the view expands it into the DSL above and checks the rules of that kind. This is the easiest way for a language model to draw a correct diagram.
+
+```yaml
+view: swimlane
+title: 订单履约
+lanes:
+  customer:
+    label: 客户
+    steps: { order: 下单, pay: 付款, receive: 收货 }
+  shop:
+    label: 商家
+    steps: { check: 库存充足?, ship: 发货 }
+flow:
+  - order -> check
+  - check -> pay: 是
+  - check -> order: 否
+  - pay -> ship -> receive
+```
+
+| View | For | Content |
+| --- | --- | --- |
+| `flowchart` | a process of steps and decisions | `steps`, `flow` |
+| `swimlane` | a process across roles or systems | `lanes` (with their `steps`), `flow` |
+| `architecture` | layered system architecture | ordered `layers` of `components` (`kind`: service, client, app, gateway, database, cache, storage, queue, user, external), `links` |
+| `system-context` | one system, its users and neighbouring systems (C4 level 1) | `system`, `people`, `externals`, `relations` |
+| `state` | states of one thing and the events between them | `states`, `transitions` (`[*]` = initial / final), `initial` |
+| `tree` | org charts, breakdowns, taxonomies | `root` as a nested outline: `{ 公司: [财务, { 技术: [前端, 后端] }] }` |
+
+Every view reads the same way:
+
+- Items are `id: label` or `id: { label: …, … }`. A step whose label ends in `?` is a decision; `开始` / `start` and `结束` / `end` are terminals.
+- Relations are arrow strings: `a -> b`, chains `a -> b -> c`, fans `a, b -> c`, dashed `a -.-> b`, labels `a -> b: 是`. An end may be an id or a node's exact label. Flowcharts and state machines create steps written only in the flow.
+- Mistakes come back as diagnostics pointing into the view document, with the fix: `Unknown node "reveiw". Did you mean "review"?`, a decision with one branch, a step without a lane, an unreachable state, a layer no link reaches.
+- `title`, `layout`, `routing` and `output` pass through (e.g. `layout: { direction: LR }` overrides the view's default direction).
+
+```bash
+agh --list-views                       # the views, one line each (--json for data)
+agh --view-example architecture        # a complete example document
+agh --view-schema architecture         # JSON Schema of the view input (for structured output)
+agh --input order.yaml --output order.svg
+agh --input order.yaml --expand        # the full DSL the view produces, to hand-edit
+```
+
+Examples: `examples/views/`. Register your own kind of diagram with `registerView({ id, title, summary, schema, example, expand })`: `schema` is a zod schema of the input, `expand` returns DSL data and reports problems through its context (`context.warn(path, code, message, hint)`).
+
 ## Global Layout
 
 `layout.mode: global` replaces the Dagre seed with a whole-canvas solver for diagrams with groups and swimlanes. Swimlane diagrams and long flows (a chain of at least 6 steps) use it by default, unless they pin geometry with lane boxes, `fixedSwimlaneGeometry` or node positions; set `layout.mode: dagre` to opt out (`layout.mode: auto` is the default).
@@ -122,12 +169,39 @@ layout:
 
 - **Layering**: cycles are broken in declaration order (a "retry" edge written last is the one reversed), and sibling groups linked one way become tiers (e.g. services → data read left to right). In swimlanes, a hand-off between lanes does not advance the flow: it is drawn straight across the lanes, so a process that zig-zags between lanes stays compact instead of growing one step per hand-off.
 - **Ordering**: groups and lanes stay contiguous with one consistent order across layers, so every container is a single rectangle; long edges travel inside the containers they start and end in.
-- **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
+- **Layering** without groups minimises total edge length (network simplex), so fewer edges span several layers.
+- **Coordinates**: a separation-constrained quadratic program (VPSC projection) straightens edges and keeps containers tight, with node, container, lane and padding gaps as hard constraints. Long edges are aligned into straight runs (Brandes–Köpf-style: non-crossing inner segments held equal, then a pass that lines up what room allows), so they do not step at every layer; in swimlanes only while that keeps the lanes compact. Lanes come out as abutting, equally thick bands and are used as-is instead of re-stacking them.
 - **Spacing between layers** is sized from what must fit there: one track per bending edge, edge labels, and container borders.
 - **Folding**: a flow much longer than `layout.targetAspectRatio` (default 1.6) — at least 6 layers and more than about a page along the flow — is cut into bands stacked in reading order, like wrapped text. Cuts avoid edges where possible and never split a group; swimlane diagrams are not folded (their lanes span every layer). `layout.fold: false` turns it off.
 - **Label backdrops**: edge labels, group titles and port labels are drawn on a white box fitted to their text, so lines passing underneath do not run through the glyphs.
 
 Explicit `constraints` still apply after the layout. `test/fixtures/benchmark/layout-baseline.md` compares both modes on the benchmark set.
+
+`test/fixtures/benchmark/elk-comparison.md` compares the global layout with ELK layered on identical input (same fitted node sizes, hierarchy, paddings and edge-label sizes; `DGE_ELK=1 npx vitest run test/benchmark/elk-comparison.test.ts`). Both keep every hard metric at 0 on the set. DGE draws about half the crossings and fewer bends overall, and is faster once groups or lanes are involved; on large plain graphs ELK still bends a little less (1.8 vs 2.3 per edge at 300 nodes) in a little less area.
+
+### Incremental stability
+
+Editing a diagram should not reshuffle it. Pass the previous solved version and a small edit stays a small change in the picture:
+
+```bash
+agh --input diagram.yaml --format geometry --output diagram.geometry.json   # once
+# … edit diagram.yaml …
+agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
+```
+
+```ts
+const first = renderDiagramDsl(source);
+const next = renderDiagramDsl(edited, {
+  previousLayout: previousLayoutOf(first.diagram!), // or previousLayoutFromGeometry(json)
+});
+```
+
+- The ordering starts from the previous order (long edges from their old routes) and scores every candidate as *crossings + reversed pairs of surviving nodes*, so it only reorders where that removes more crossings than it disturbs. `--stability <weight>` / `stabilityWeight` (default 1) sets what one reversed pair is worth; raise it to keep more of the old picture.
+- Coordinates are pulled back towards the old positions (per band of a folded layout), so untouched parts stay put.
+- Without a previous layout, an ordering and its mirror image (equally good) are told apart by node order, so re-solving after an edit does not flip the whole diagram upside down.
+- A previous layout makes `auto` pick the global layout; diagrams arranged with `relative-position` constraints keep Dagre. Growing a group or adding a layer still moves what lies downstream — the layering itself changed.
+
+`DGE_STABILITY=1 npx vitest run test/stability` prints how far surviving nodes move after typical edits (add/remove a node, add an edge, relabel), cold versus with the previous layout (`measureLayoutStability`).
 
 ## Dense Routing Controls
 
@@ -187,6 +261,7 @@ constraints:
 ### Pretext sizing + semantic roles (#84 A/D)
 
 - Node boxes grow from Pretext measurement + padding. Caller `size` is a **floor**, not a truncate cap. `label.maxWidth` only controls wrapping.
+- Pretext measures with the canvas fonts it is given. Pass the font files the diagram is drawn with (`--font NotoSansSC.otf`, repeatable, `Family=file` to name one; `fonts` in `renderDiagramDsl`, or `registerFonts()`) and labels are measured exactly; a registered CJK family goes first in the CJK font stack. Without the real fonts (a Node canvas falls back to whatever is installed, which measured ideographs about 25% narrow here), full-width CJK characters count exactly 1 em — true of every mainstream CJK font — and Latin inside a CJK font stack gets a 6% allowance, so labels still fit. Line breaks follow the kinsoku rules (no line starts with `，。）」…`, none ends with `（「…`). The default CJK stack is `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`.
 - Under `deliverabilityMode`, `prefitLabelSize` defaults on (opt out with `prefitLabelSize: false`).
 - Ellipse / `role: start|end` boxes become circles with `diameter = max(textWidth, textHeight) + padding`.
 - Optional node `role` maps to fixed shapes (`start`/`end`→ellipse, `decision`→diamond, `process`→rounded-rectangle, `data`→cylinder, `concept`→rectangle). Explicit `shape` wins. Omit `role` on SysML blocks.
@@ -218,11 +293,45 @@ Recommended operator actions after this contract lands on local fixtures:
 - Fold [#71](https://github.com/zhangyang-crazy-one/auto-graph/issues/71), [#73](https://github.com/zhangyang-crazy-one/auto-graph/issues/73), and [#69](https://github.com/zhangyang-crazy-one/auto-graph/issues/69) into [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75).
 - Keep [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75) open until the local dense contract (clean or structured unsat with plans) is met — not until live DoDAF Stage 5 criticals hit zero.
 
+## Pages and Agent Reports
+
+**Fit a page.** `page:` in the document (or `--page`) lays the diagram out for a real page instead of an abstract canvas:
+
+```yaml
+page: A4                     # A3, A5, letter, legal, slide (16:9), slide-4:3, "1200x800", "A4-landscape"
+# page: { size: A4, orientation: auto, margin: 24, direction: auto }
+```
+
+- The page's usable shape steers folding, so a long flow wraps into bands that fill the page. Presets try portrait and landscape (`orientation: auto`, the default); `direction: auto` also tries the other flow direction (LR ↔ TB, swimlanes turn with it). The layout that can be drawn largest wins.
+- A small diagram is not blown up: it keeps its natural size, centred. The SVG gets the page's width and height.
+- The fit reports the scale and the size labels end up at on the page: below 8 px it is unreadable, below 11 px small.
+
+**Agent report.** `--report report.json` (or `buildAgentReport(...)`) writes what an agent needs to decide its next step — also when rendering fails:
+
+```json
+{
+  "verdict": "fail",
+  "summary": "Needs fixes: 200 nodes, 281 edges, 1443 crossings; 1 error(s), 0 warning(s); A4 landscape at 13% (labels 1.8px).",
+  "issues": [{ "severity": "error", "code": "page.unreadable", "where": "page", "message": "…", "fix": "…" }],
+  "metrics": { "nodes": 200, "edges": 281, "groups": 39, "lanes": 0, "crossings": 1443, "bendsPerEdge": 2.577, "width": 7653, "height": 5792, "aspectRatio": 1.321, "defects": {} },
+  "page": { "size": "A4", "orientation": "landscape", "direction": "LR", "scale": 0.129, "fontPx": 1.8, "readable": false, "comfortable": false },
+  "suggestions": ["Split into about 38 page(s), e.g. one per group (g0_0, g0_1, …), each with the edges it needs.", "…"]
+}
+```
+
+- `verdict`: `fail` for errors, layout defects (overlaps, labels that do not fit, edges through nodes) or an unreadable page; `warn` for warnings; `ok` otherwise. The exit code only says whether a drawing was produced.
+- `issues` carry the source path (`where`, e.g. `flow.3`) and the fix; informational chatter (font choices, applied defaults) is left out. The CLI prints such `info` diagnostics only with `--verbose`.
+- `suggestions` cover splitting a page that is too dense, trying the other direction, many crossings, over-long labels and unconnected nodes.
+
 ## CLI
 
 ```bash
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
+agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
+agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
+agh --list-views
+agh --input diagram.yaml --page A4 --output diagram.svg --report diagram.report.json
 cat diagram.yaml | agh --json
 ```
 
@@ -236,8 +345,33 @@ Supported output formats:
 
 - `svg`
 - `excalidraw`
+- `geometry` — the solved geometry contract (below)
 
 Format precedence is CLI `--format`, then DSL `output.format`, then `svg`.
+
+## Geometry Contract
+
+`--format geometry` (or `exportGeometry(diagram)` in TypeScript) returns the solved diagram as plain numbers, so an agent or app can draw it with any renderer instead of writing another SVG layout routine. The format is versioned (`"format": "dge-geometry", "version": 1`) and described by a JSON Schema in [`schema/dge-geometry.v1.schema.json`](schema/dge-geometry.v1.schema.json) (also `geometryJsonSchema()`).
+
+One coordinate system (px, origin top left, y down), every number rounded to 3 decimals, byte-stable for the same input:
+
+- `nodes`: box, outline as a primitive (`rect` + corner radius, `ellipse`, `polygon`, `cylinder`) **and** as path commands (`M`/`L`/`A`/`Z`), ports.
+- `containers`: groups, swimlanes and lanes with their boxes, lane headers, parent and children.
+- `edges`: source/target point and side, the route `points`, the stroke `path` (shortened to the arrowhead base, with jump arcs or gaps cut in where it passes under another edge), arrowhead triangles, crossings, label reference.
+- `texts`: every label with its box, font, lines (left `x`, baseline `y`, width, line box), the backdrop box to paint behind it and its rotation.
+- `zOrder`: back-to-front paint list; `metrics`: layout quality; `diagnostics`.
+
+Rendering is a loop over `zOrder`; `renderGeometrySvg(document)` is a ~100-line reference renderer that uses nothing but the document.
+
+```ts
+import { exportGeometry, renderDiagramDsl } from "@crazyhappyone/auto-graph";
+
+const { diagram } = renderDiagramDsl(source);
+const geometry = exportGeometry(diagram!);
+for (const paint of geometry.zOrder) {
+  // draw paint.kind ("container" | "edge" | "node" | "port" | "backdrop" | "text") by id
+}
+```
 
 ## Current Scope
 

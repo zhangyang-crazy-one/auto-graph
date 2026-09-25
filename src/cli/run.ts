@@ -1,13 +1,19 @@
 import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { Command, CommanderError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
+import { stringify } from "yaml";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
+import { expandViewSource } from "../dsl/parse.js";
 import { renderDiagramDsl } from "../dsl/render.js";
 import type { DslDiagnostic } from "../dsl/types.js";
+import { previousLayoutFromGeometry } from "../exporters/geometry.js";
+import type { PreviousLayout } from "../ir/index.js";
 import {
 	containmentRelations,
 	measureLayoutQuality,
 } from "../quality/index.js";
+import { buildAgentReport } from "../report/index.js";
+import { getView, listViews, viewJsonSchema } from "../views/index.js";
 import {
 	readInputFile,
 	readStdin,
@@ -28,6 +34,16 @@ interface CliOptions {
 	format?: string;
 	json?: boolean;
 	metrics?: string;
+	font?: string[];
+	previous?: string;
+	stability?: number;
+	listViews?: boolean;
+	report?: string;
+	page?: string;
+	verbose?: boolean;
+	viewExample?: string;
+	viewSchema?: string;
+	expand?: boolean;
 }
 
 export async function runCli(
@@ -51,26 +67,82 @@ export async function runCli(
 
 	const options = command.opts<CliOptions>();
 
-	if (
-		options.output !== undefined &&
-		options.metrics !== undefined &&
-		resolve(options.output) === resolve(options.metrics)
-	) {
-		// Writing metrics over the diagram would silently lose the output.
-		await writeDiagnostics(
-			stderr,
-			[
-				{
-					severity: "error",
-					layer: "io",
-					code: "io.output-metrics-conflict",
-					message: `--output and --metrics both write ${options.output}.`,
-					hint: "Choose a different file for --metrics.",
-				},
-			],
-			options.json === true,
+	// View catalogue: answered without reading a diagram.
+	if (options.listViews === true) {
+		const views = listViews();
+		await writeStdout(
+			stdout,
+			options.json === true
+				? `${JSON.stringify(views, null, 2)}\n`
+				: `${views.map((view) => `${view.id.padEnd(16)} ${view.title} — ${view.summary}`).join("\n")}\n`,
 		);
-		return 2;
+		return 0;
+	}
+	for (const [id, kind] of [
+		[options.viewExample, "example"],
+		[options.viewSchema, "schema"],
+	] as const) {
+		if (id === undefined) continue;
+		const view = getView(id);
+		if (view === undefined) {
+			await writeDiagnostics(
+				stderr,
+				[
+					{
+						severity: "error",
+						layer: "view",
+						code: "view.unknown",
+						message: `Unknown view "${id}".`,
+						hint: `Views: ${listViews()
+							.map((summary) => summary.id)
+							.join(", ")}.`,
+					},
+				],
+				options.json === true,
+			);
+			return 2;
+		}
+		await writeStdout(
+			stdout,
+			kind === "example"
+				? view.example
+				: `${JSON.stringify(viewJsonSchema(id), null, 2)}\n`,
+		);
+		return 0;
+	}
+
+	// Writing metrics or a report over the diagram would silently lose it.
+	const named: [string, string | undefined][] = [
+		["--output", options.output],
+		["--metrics", options.metrics],
+		["--report", options.report],
+	];
+	const targets = named.filter(
+		(entry): entry is [string, string] => entry[1] !== undefined,
+	);
+	for (let i = 0; i < targets.length; i += 1) {
+		for (let j = i + 1; j < targets.length; j += 1) {
+			const [first, firstPath] = targets[i] as [string, string];
+			const [second, secondPath] = targets[j] as [string, string];
+			if (resolve(firstPath) !== resolve(secondPath)) continue;
+			await writeDiagnostics(
+				stderr,
+				[
+					{
+						severity: "error",
+						layer: "io",
+						code:
+							first === "--output" && second === "--metrics"
+								? "io.output-metrics-conflict"
+								: "io.output-conflict",
+						message: `${first} and ${second} both write ${firstPath}.`,
+						hint: `Choose a different file for ${second}.`,
+					},
+				],
+				options.json === true,
+			);
+			return 2;
+		}
 	}
 
 	try {
@@ -78,11 +150,70 @@ export async function runCli(
 			options.input === undefined
 				? await readStdin(stdin)
 				: await readInputFile(options.input);
+		if (options.expand === true) {
+			const expanded = expandViewSource(source, {
+				...(options.input === undefined ? {} : { sourcePath: options.input }),
+			});
+			if (expanded.diagnostics.length > 0) {
+				await writeDiagnostics(
+					stderr,
+					expanded.diagnostics,
+					options.json === true,
+				);
+			}
+			if (expanded.value === undefined) return 1;
+			const content = stringify(expanded.value);
+			if (options.output === undefined) await writeStdout(stdout, content);
+			else await writeFileAtomic(options.output, content);
+			return 0;
+		}
+		let previousLayout: PreviousLayout | undefined;
+		if (options.previous !== undefined) {
+			const read = readPreviousLayout(
+				await readInputFile(options.previous),
+				options.previous,
+			);
+			if ("diagnostic" in read) {
+				await writeDiagnostics(
+					stderr,
+					[read.diagnostic],
+					options.json === true,
+				);
+				return 1;
+			}
+			previousLayout = read.layout;
+		}
 		const result = renderDiagramDsl(source, {
 			...(options.input === undefined ? {} : { sourcePath: options.input }),
+			...(previousLayout === undefined ? {} : { previousLayout }),
+			...(options.stability === undefined
+				? {}
+				: { stabilityWeight: options.stability }),
+			...(options.page === undefined ? {} : { page: options.page }),
 			...(options.format === undefined ? {} : { format: options.format }),
+			...(options.font === undefined
+				? {}
+				: { fonts: options.font.map(parseFontArgument) }),
 		});
-		const diagnostics = sortDslDiagnostics(result.diagnostics);
+		const all = sortDslDiagnostics(result.diagnostics);
+		// Informational diagnostics (font choices, applied defaults) only
+		// with --verbose.
+		const diagnostics =
+			options.verbose === true
+				? all
+				: all.filter((diagnostic) => diagnostic.severity !== "info");
+		if (options.report !== undefined) {
+			const report = buildAgentReport({
+				diagram: result.diagram,
+				diagnostics: all,
+				constraints: result.constraints,
+				page: result.page,
+			});
+			await writeFileAtomic(
+				options.report,
+				`${JSON.stringify(report, null, 2)}\n`,
+			);
+		}
 
 		if (hasErrors(diagnostics) || result.content === undefined) {
 			await writeDiagnostics(stderr, diagnostics, options.json === true);
@@ -130,12 +261,88 @@ function buildCommand(): Command {
 		})
 		.option("--input <path>", "Read diagram DSL from a file")
 		.option("--output <path>", "Write generated output to a file")
-		.option("--format <format>", "Output format: svg or excalidraw")
+		.option(
+			"--format <format>",
+			"Output format: svg, excalidraw or geometry (solved geometry JSON)",
+		)
+		.option(
+			"--font <file>",
+			"Measure with this font file (repeatable; Family=file to name it)",
+			(value: string, previous: string[] = []) => [...previous, value],
+		)
+		.option(
+			"--previous <path>",
+			"Keep the layout stable: a geometry JSON of the previous version (--format geometry)",
+		)
+		.option(
+			"--stability <weight>",
+			"With --previous: crossings one kept node order is worth (default 1)",
+			parseStability,
+		)
+		.option(
+			"--list-views",
+			"List the diagram views (flowchart, swimlane, architecture, …)",
+		)
+		.option("--view-example <view>", "Print an example document for a view")
+		.option("--view-schema <view>", "Print the JSON Schema of a view's input")
+		.option(
+			"--expand",
+			"Write the diagram DSL a view document expands to, instead of rendering",
+		)
+		.option(
+			"--page <size>",
+			"Fit the diagram to a page: A4, A3-landscape, letter, slide, 1200x800, … (overrides the document's page)",
+		)
+		.option(
+			"--report <path>",
+			"Write an agent report (verdict, issues with fixes, metrics, page fit, suggestions) as JSON",
+		)
+		.option("--verbose", "Also print informational diagnostics")
 		.option("--json", "Write diagnostics as JSON to stderr")
 		.option(
 			"--metrics <path>",
 			"Write whole-canvas layout quality metrics as JSON to a file",
 		);
+}
+
+function parseStability(value: string): number {
+	const weight = Number(value);
+	if (!Number.isFinite(weight) || weight < 0) {
+		throw new InvalidArgumentError("expected a number >= 0.");
+	}
+	return weight;
+}
+
+function readPreviousLayout(
+	content: string,
+	path: string,
+): { layout: PreviousLayout } | { diagnostic: DslDiagnostic } {
+	let value: unknown;
+	try {
+		value = JSON.parse(content);
+	} catch {
+		return {
+			diagnostic: {
+				severity: "error",
+				layer: "io",
+				code: "io.previous-invalid",
+				message: `${path} is not JSON.`,
+				hint: "Pass a file written with --format geometry.",
+			},
+		};
+	}
+	const read = previousLayoutFromGeometry(value);
+	return "error" in read
+		? {
+				diagnostic: {
+					severity: "error",
+					layer: "io",
+					code: "io.previous-invalid",
+					message: `${path}: ${read.error}`,
+					hint: "Pass a file written with --format geometry.",
+				},
+			}
+		: read;
 }
 
 async function writeDiagnostics(
@@ -208,4 +415,12 @@ function isDslDiagnostic(error: unknown): error is DslDiagnostic {
 		"code" in error &&
 		"message" in error
 	);
+}
+
+/** "file" or "Family=file". */
+function parseFontArgument(value: string): { path: string; family?: string } {
+	const at = value.indexOf("=");
+	return at <= 0
+		? { path: value }
+		: { family: value.slice(0, at), path: value.slice(at + 1) };
 }

@@ -328,7 +328,7 @@ class Blocks {
 }
 
 class Solver {
-	private readonly blocks: Blocks;
+	readonly blocks: Blocks;
 	private readonly inactive: Constraint[];
 
 	constructor(
@@ -421,6 +421,59 @@ class Solver {
 	}
 }
 
+/**
+ * A VPSC problem solved repeatedly for changing desired positions (fixed
+ * weights and constraints), as gradient projection does. Each solve starts
+ * from the previous block structure — the constraints that were tight stay
+ * merged — so it only repairs what the new positions changed instead of
+ * rebuilding every block (incremental VPSC, as in IPSep-CoLa). The problem
+ * is strictly convex, so the result is the same projection.
+ */
+export class VpscProjector {
+	private readonly vars: Variable[];
+	private readonly cs: Constraint[];
+	private readonly solver: Solver;
+
+	constructor(
+		weights: readonly number[],
+		constraints: readonly VpscConstraint[],
+	) {
+		this.vars = weights.map(
+			(weight) => new Variable(0, Math.max(weight, 1e-9)),
+		);
+		this.cs = [];
+		constraints.forEach((constraint, index) => {
+			const left = this.vars[constraint.left];
+			const right = this.vars[constraint.right];
+			if (left === undefined || right === undefined || left === right) return;
+			this.cs.push(
+				new Constraint(
+					index,
+					left,
+					right,
+					constraint.gap,
+					constraint.equality === true,
+				),
+			);
+		});
+		this.solver = new Solver(this.vars, this.cs);
+	}
+
+	project(desired: ArrayLike<number>): VpscResult {
+		this.vars.forEach((variable, index) => {
+			variable.desired = desired[index] ?? 0;
+		});
+		this.solver.blocks.updateBlockPositions();
+		this.solver.solve();
+		return {
+			positions: this.vars.map((variable) => variable.position()),
+			unsatisfiable: this.cs
+				.filter((constraint) => constraint.unsatisfiable)
+				.map((constraint) => constraint.index),
+		};
+	}
+}
+
 export function solveVpsc(
 	variables: readonly VpscVariable[],
 	constraints: readonly VpscConstraint[],
@@ -484,6 +537,8 @@ export interface SeparationQpResult {
  * constraints, by scaled gradient projection. Every variable must carry at
  * least one term with positive weight (an anchor is enough).
  */
+const RELATIVE_COST_TOLERANCE = 1e-6;
+
 export function solveSeparationQp(
 	qp: SeparationQp,
 	options: SeparationQpOptions = {},
@@ -540,50 +595,64 @@ export function solveSeparationQp(
 		}
 		return sum;
 	};
-	const project = (desired: ArrayLike<number>) =>
-		solveVpsc(
-			Array.from({ length: n }, (_, i) => ({
-				desired: desired[i] ?? 0,
-				weight: diagonal[i] ?? 1,
-			})),
-			qp.constraints,
-		);
+	const projector = new VpscProjector(
+		Array.from({ length: n }, (_, i) => diagonal[i] ?? 1),
+		qp.constraints,
+	);
+	const project = (desired: ArrayLike<number>) => projector.project(desired);
 
+	// FISTA (Beck & Teboulle) with adaptive restart (O'Donoghue & Candès),
+	// in the metric scaled by D = diag(Q). Q is diagonally dominant (every
+	// off-diagonal entry −2w is matched by +2w on both diagonals), so the
+	// eigenvalues of D⁻¹Q lie in (0, 2] and the fixed step 1/2 is safe.
+	// Same cost per iteration as plain gradient projection, O(1/k²) instead
+	// of O(1/k) convergence.
 	let projected = project(qp.initial as number[]);
 	let x = projected.positions;
+	let y = x;
+	let momentum = 1;
 	let iterations = 0;
+	const history: number[] = [];
 	for (; iterations < maxIterations; iterations += 1) {
-		const g = gradient(x);
-		const scaled = new Float64Array(n);
-		let numerator = 0;
-		for (let i = 0; i < n; i += 1) {
-			const value = (g[i] ?? 0) / (diagonal[i] ?? 1);
-			scaled[i] = value;
-			numerator += (g[i] ?? 0) * value;
-		}
-		const denominator = curvature(scaled);
-		if (!(numerator > 1e-12) || !(denominator > 0)) break;
-		const alpha = numerator / denominator;
+		const g = gradient(y);
 		const target = new Float64Array(n);
 		for (let i = 0; i < n; i += 1) {
-			target[i] = (x[i] ?? 0) - alpha * (scaled[i] ?? 0);
+			target[i] = (y[i] ?? 0) - (0.5 * (g[i] ?? 0)) / (diagonal[i] ?? 1);
 		}
 		projected = project(target);
-		const direction = projected.positions.map(
-			(value, i) => value - (x[i] ?? 0),
-		);
-		let descent = 0;
-		for (let i = 0; i < n; i += 1) descent += (g[i] ?? 0) * (direction[i] ?? 0);
-		const dQd = curvature(direction);
-		if (!(descent < 0)) break;
-		const beta = dQd > 0 ? Math.min(1, -descent / dQd) : 1;
+		const next = projected.positions;
 		let moved = 0;
-		x = x.map((value, i) => {
-			const step = beta * (direction[i] ?? 0);
+		let restart = 0;
+		for (let i = 0; i < n; i += 1) {
+			const step = (next[i] ?? 0) - (x[i] ?? 0);
 			moved = Math.max(moved, Math.abs(step));
-			return value + step;
-		});
+			restart += ((y[i] ?? 0) - (next[i] ?? 0)) * step;
+		}
+		if (restart > 0) {
+			// Momentum points uphill: drop it and continue from `next`.
+			momentum = 1;
+			y = next;
+		} else {
+			const following = (1 + Math.sqrt(1 + 4 * momentum * momentum)) / 2;
+			const factor = (momentum - 1) / following;
+			y = next.map((value, i) => value + factor * (value - (x[i] ?? 0)));
+			momentum = following;
+		}
+		x = next;
 		if (moved < tolerance) {
+			iterations += 1;
+			break;
+		}
+		// Weakly anchored components keep drifting by tiny amounts long after
+		// the objective has settled; stop once ten iterations improved the
+		// cost by less than a millionth.
+		const current = cost(x);
+		history.push(current);
+		const earlier = history[history.length - 11];
+		if (
+			earlier !== undefined &&
+			earlier - current <= RELATIVE_COST_TOLERANCE * Math.max(1, earlier)
+		) {
 			iterations += 1;
 			break;
 		}

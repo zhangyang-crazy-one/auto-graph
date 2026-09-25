@@ -1037,6 +1037,14 @@ export function edgeLabelAnchor(
 		layout,
 		baseOffset,
 	);
+	// Extents of the other routes, computed once: a route can only touch a
+	// candidate box that its bounding box touches.
+	const otherRoutes = edges
+		.filter((other) => other.id !== edge.id)
+		.map((other) => ({
+			points: other.points,
+			extent: pointsExtent(other.points),
+		}));
 	for (const candidate of candidates) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
@@ -1045,9 +1053,13 @@ export function edgeLabelAnchor(
 			height: layout.box.height,
 		};
 		const crossesOwnRoute = routeIntersectsTextBox(edge.points, labelBox);
-		const otherRouteCrossings = edges.filter(
+		const otherRouteCrossings = otherRoutes.filter(
 			(other) =>
-				other.id !== edge.id && routeIntersectsTextBox(other.points, labelBox),
+				other.extent.minX <= labelBox.x + labelBox.width &&
+				other.extent.maxX >= labelBox.x &&
+				other.extent.minY <= labelBox.y + labelBox.height &&
+				other.extent.maxY >= labelBox.y &&
+				routeIntersectsTextBox(other.points, labelBox),
 		).length;
 		const nodeOverlaps = obstacleBoxes.filter((box) =>
 			intersectsAabb(labelBox, box),
@@ -1118,6 +1130,25 @@ export function edgeLabelAnchor(
 	};
 }
 
+function pointsExtent(points: readonly Point[]): {
+	minX: number;
+	maxX: number;
+	minY: number;
+	maxY: number;
+} {
+	let minX = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	for (const point of points) {
+		minX = Math.min(minX, point.x);
+		maxX = Math.max(maxX, point.x);
+		minY = Math.min(minY, point.y);
+		maxY = Math.max(maxY, point.y);
+	}
+	return { minX, maxX, minY, maxY };
+}
+
 export function edgeLabelAnchorCandidates(
 	points: readonly Point[],
 	placement: Point,
@@ -1179,7 +1210,9 @@ export function edgeLabelAnchorCandidates(
 		}
 	}
 
-	// For long edges, also try quartile positions along the polyline.
+	// Also try positions along the polyline (after the positions around the
+	// midpoint): a short edge whose midpoint sits where neighbouring routes
+	// turn still finds a free spot beside its own line.
 	const totalLen = points.reduce((sum, p, idx) => {
 		if (idx === 0) return 0;
 		const prev = points[idx - 1];
@@ -1188,7 +1221,7 @@ export function edgeLabelAnchorCandidates(
 			Math.hypot((p?.x ?? 0) - (prev?.x ?? 0), (p?.y ?? 0) - (prev?.y ?? 0))
 		);
 	}, 0);
-	if (totalLen > 200) {
+	if (totalLen > 0) {
 		for (const ratio of [0.2, 0.25, 0.35, 0.65, 0.75, 0.8]) {
 			const qp = labelPlacementAtRatio(points, ratio, totalLen, baseOffset);
 			if (qp !== undefined) {

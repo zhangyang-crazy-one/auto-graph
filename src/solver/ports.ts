@@ -578,10 +578,18 @@ const FLOW_SIDE_MIN_GAP = 16;
  * left/right (a comb of Z-shaped routes), and top/bottom are used only when
  * the nodes are stacked with no horizontal gap. TB/BT mirror this.
  */
+/**
+ * A backward edge takes the cross-flow sides only when it runs back along
+ * the flow much further than it moves across (a folded band's return
+ * edge), not for short loops back to a neighbouring step.
+ */
+const BACKWARD_ALONG_RATIO = 1;
+
 export function flowAwareAnchorSide(
 	ownBox: Box,
 	otherBox: Box,
 	direction: NormalizedDiagram["direction"],
+	role?: EndpointRole,
 ): AnchorSide {
 	const gapX = Math.max(
 		otherBox.x - (ownBox.x + ownBox.width),
@@ -597,6 +605,24 @@ export function flowAwareAnchorSide(
 		otherCenter.x >= ownCenter.x ? "right" : "left";
 	const vertical: AnchorSide = otherCenter.y >= ownCenter.y ? "bottom" : "top";
 	const horizontalFlow = direction === "LR" || direction === "RL";
+	// An edge running against the flow into another row (a folded band, a
+	// loop back to an earlier step) leaves and enters across the flow:
+	// leaving the source's flow side would send it around the whole row.
+	if (role !== undefined) {
+		const flowSign = direction === "RL" || direction === "BT" ? -1 : 1;
+		const delta = horizontalFlow
+			? otherCenter.x - ownCenter.x
+			: otherCenter.y - ownCenter.y;
+		const edgeDelta = role === "source" ? delta : -delta;
+		const crossGap = horizontalFlow ? gapY : gapX;
+		if (
+			edgeDelta * flowSign < 0 &&
+			crossGap >= FLOW_SIDE_MIN_GAP &&
+			Math.abs(edgeDelta) > BACKWARD_ALONG_RATIO * crossGap
+		) {
+			return horizontalFlow ? vertical : horizontal;
+		}
+	}
 	if (horizontalFlow) {
 		if (gapX >= FLOW_SIDE_MIN_GAP) return horizontal;
 		if (gapY > 0) return vertical;
@@ -656,9 +682,10 @@ export function distributedAnchorPointsByEndpoint(
 		anchor: NormalizedEdge["source"]["anchor"] | undefined,
 		ownBox: Box,
 		otherBox: Box,
+		role: EndpointRole,
 	): AnchorSide | undefined =>
 		implicitCompact && anchor === undefined
-			? flowAwareAnchorSide(ownBox, otherBox, direction)
+			? flowAwareAnchorSide(ownBox, otherBox, direction, role)
 			: distributableAnchorSide(anchor, ownBox, otherBox, direction);
 
 	for (const edge of edges) {
@@ -668,7 +695,12 @@ export function distributedAnchorPointsByEndpoint(
 			continue;
 		}
 		if (edge.source.portId === undefined) {
-			const sourceSide = sideFor(edge.source.anchor, sourceBox, targetBox);
+			const sourceSide = sideFor(
+				edge.source.anchor,
+				sourceBox,
+				targetBox,
+				"source",
+			);
 			if (sourceSide !== undefined) {
 				const key = `${edge.source.nodeId}:${sourceSide}`;
 				const endpoints = endpointsByNodeSide.get(key) ?? [];
@@ -683,7 +715,12 @@ export function distributedAnchorPointsByEndpoint(
 			}
 		}
 		if (edge.target.portId === undefined) {
-			const targetSide = sideFor(edge.target.anchor, targetBox, sourceBox);
+			const targetSide = sideFor(
+				edge.target.anchor,
+				targetBox,
+				sourceBox,
+				"target",
+			);
 			if (targetSide !== undefined) {
 				const key = `${edge.target.nodeId}:${targetSide}`;
 				const endpoints = endpointsByNodeSide.get(key) ?? [];

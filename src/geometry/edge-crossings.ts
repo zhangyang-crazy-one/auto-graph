@@ -16,12 +16,31 @@ export function detectOrthogonalEdgeCrossings(
 ): EdgeCrossing[] {
 	const crossings: EdgeCrossing[] = [];
 	const seen = new Set<string>();
-	for (let i = 0; i < edges.length; i += 1) {
-		const left = edges[i];
-		if (left === undefined || left.points.length < 2) continue;
-		for (let j = i + 1; j < edges.length; j += 1) {
-			const right = edges[j];
-			if (right === undefined || right.points.length < 2) continue;
+	// Sweep over x: only edges whose bounding boxes overlap can cross.
+	const extents = edges
+		.filter((edge) => edge.points.length >= 2)
+		.map((edge) => {
+			let minX = Number.POSITIVE_INFINITY;
+			let maxX = Number.NEGATIVE_INFINITY;
+			let minY = Number.POSITIVE_INFINITY;
+			let maxY = Number.NEGATIVE_INFINITY;
+			for (const point of edge.points) {
+				minX = Math.min(minX, point.x);
+				maxX = Math.max(maxX, point.x);
+				minY = Math.min(minY, point.y);
+				maxY = Math.max(maxY, point.y);
+			}
+			return { edge, minX, maxX, minY, maxY };
+		})
+		.sort((a, b) => a.minX - b.minX);
+	for (let i = 0; i < extents.length; i += 1) {
+		const first = extents[i] as (typeof extents)[number];
+		const left = first.edge;
+		for (let j = i + 1; j < extents.length; j += 1) {
+			const second = extents[j] as (typeof extents)[number];
+			if (second.minX > first.maxX) break;
+			if (second.minY > first.maxY || second.maxY < first.minY) continue;
+			const right = second.edge;
 			const [underId, overId] =
 				left.id < right.id ? [left.id, right.id] : [right.id, left.id];
 			const underEdge = left.id === underId ? left : right;

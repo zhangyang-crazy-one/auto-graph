@@ -22,7 +22,13 @@ import type {
 	NormalizedNode,
 	Swimlane,
 } from "../ir/elements.js";
-import type { Box, Insets, Point, Size } from "../ir/geometry.js";
+import type {
+	Box,
+	Insets,
+	Point,
+	PreviousLayout,
+	Size,
+} from "../ir/geometry.js";
 import type { LabelLayout } from "../ir/label-layout.js";
 import {
 	fitLabel,
@@ -301,6 +307,15 @@ export function resolveAutoLayoutMode(
 		nodes.some((node) => node.position !== undefined);
 	if (pinned) return "dagre";
 	if (swimlanes.length > 0) return "global";
+	// Dagre knows nothing about containers, so groups get their rectangles
+	// from the global layout, unless the author arranges nodes relative to
+	// each other: those offsets are written against the Dagre placement.
+	const arranged = diagram.constraints.some(
+		(constraint) => constraint.kind === "relative-position",
+	);
+	if (diagram.groups.length > 0 && !arranged) return "global";
+	// Only the global layout can take the previous layout into account.
+	if (options.previousLayout !== undefined && !arranged) return "global";
 	const steps = longestFlowLength(
 		nodes.map((node) => node.id),
 		edges.map((edge) => ({
@@ -311,6 +326,9 @@ export function resolveAutoLayoutMode(
 	);
 	return steps >= LONG_FLOW_STEPS ? "global" : "dagre";
 }
+
+/** Largest diagram whose ordering search is seeded with a Dagre layout. */
+const DAGRE_SEED_MAX_NODES = 150;
 
 /**
  * Global layout (plan P3): hierarchy-aware layering and ordering, then a
@@ -328,16 +346,26 @@ export function runGlobalInitialLayout(input: {
 	declaredEdgeIds?: readonly string[];
 	targetAspectRatio?: number;
 	fold?: boolean;
+	/** Previous solved version of the diagram (stability hint). */
+	previous?: PreviousLayout;
+	stabilityWeight?: number;
 }): InitialLayoutResult {
-	const seed = runDagreInitialLayout({
-		direction: input.direction,
-		nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
-		edges: input.edges.map((edge) => ({
-			id: edge.id,
-			sourceId: edge.source.nodeId,
-			targetId: edge.target.nodeId,
-		})),
-	});
+	// Dagre only seeds the ordering search. On large diagrams a full Dagre
+	// layout costs more than the whole search; a depth-first order (the kind
+	// of start Dagre's ordering begins from) is linear. A previous layout
+	// adds its own start in front of these.
+	const dagreSeed = input.nodes.length <= DAGRE_SEED_MAX_NODES;
+	const seed = !dagreSeed
+		? { boxes: undefined, diagnostics: [] }
+		: runDagreInitialLayout({
+				direction: input.direction,
+				nodes: input.nodes.map((node) => ({ id: node.id, size: node.size })),
+				edges: input.edges.map((edge) => ({
+					id: edge.id,
+					sourceId: edge.source.nodeId,
+					targetId: edge.target.nodeId,
+				})),
+			});
 	// Cycle breaking follows the author's reading order: edges as declared,
 	// nodes by first appearance in those edges.
 	const edgeIndex = new Map(
@@ -363,7 +391,11 @@ export function runGlobalInitialLayout(input: {
 	);
 	const result = runGlobalLayout({
 		direction: input.direction,
-		nodes: declaredNodes.map((node) => ({ id: node.id, size: node.size })),
+		nodes: declaredNodes.map((node) => ({
+			id: node.id,
+			size: node.size,
+			shape: node.shape,
+		})),
 		edges: declaredEdges.map((edge) => {
 			const labelSize = measureEdgeLabelSize(edge, input.textMeasurer);
 			return {
@@ -391,7 +423,13 @@ export function runGlobalInitialLayout(input: {
 			headerHeight: swimlane.headerHeight ?? 28,
 			padding: swimlane.padding ?? 16,
 		})),
-		seedBoxes: seed.boxes,
+		...(input.previous === undefined ? {} : { previous: input.previous }),
+		...(input.stabilityWeight === undefined
+			? {}
+			: { stabilityWeight: input.stabilityWeight }),
+		...(seed.boxes === undefined
+			? { depthFirstSeed: true }
+			: { seedBoxes: seed.boxes }),
 		options: {
 			...(input.targetAspectRatio === undefined
 				? {}
@@ -404,6 +442,7 @@ export function runGlobalInitialLayout(input: {
 		diagnostics: [...seed.diagnostics, ...result.diagnostics],
 		laneBoxes: result.laneBoxes,
 		groupBoxes: result.groupBoxes,
+		routes: result.routes,
 	};
 }
 

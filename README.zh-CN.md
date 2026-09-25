@@ -176,6 +176,7 @@ routing:
 ```bash
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
+agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
 cat diagram.yaml | agh --json
 ```
 
@@ -183,8 +184,23 @@ cat diagram.yaml | agh --json
 
 - `svg`
 - `excalidraw`
+- `geometry` —— 解算后的几何契约（见下）
 
 格式优先级为 CLI `--format`、DSL 中的 `output.format`，最后默认 `svg`。
+
+## 几何契约
+
+`--format geometry`（TypeScript 中为 `exportGeometry(diagram)`）把解算结果输出为纯数字，智能体或应用可以用任意渲染器直接绘制，不必再各自手写一套 SVG 布局。格式带版本号（`"format": "dge-geometry", "version": 1`），JSON Schema 见 [`schema/dge-geometry.v1.schema.json`](schema/dge-geometry.v1.schema.json)（也可调用 `geometryJsonSchema()`）。
+
+统一坐标系（px，原点左上，y 向下），所有数值保留 3 位小数，同一输入逐字节稳定：
+
+- `nodes`：外框、外形（`rect` + 圆角、`ellipse`、`polygon`、`cylinder` 原语，**以及** `M`/`L`/`A`/`Z` 路径命令）、端口。
+- `containers`：分组、泳道与泳道行（框、表头、父子关系）。
+- `edges`：起止点与所在边、路由点 `points`、描边路径 `path`（截到箭头底边，并在从其他连线下方穿过处切入跳线弧或缺口）、箭头三角形、交叉点、标签引用。
+- `texts`：每个文字块的框、字体、逐行位置（左侧 `x`、基线 `y`、宽度、行框）、需要先画的白底框以及旋转角度。
+- `zOrder`：从后到前的绘制顺序；`metrics`：布局质量指标；`diagnostics`：诊断信息。
+
+渲染就是遍历 `zOrder`；`renderGeometrySvg(document)` 是只依赖该文档、约 100 行的参考渲染器。
 
 `--metrics <path>` 会额外输出整张画布的布局质量指标 JSON（节点/分组重叠、文字溢出外形、交叉、共享端点、空白率、泳道填充率等），智能体无需"看图"即可用数值自检：
 
@@ -200,6 +216,7 @@ auto-graph v0.0.1 包含：
 - YAML 和 JSON DSL 解析
 - parse、validate、solve、export、I/O 分层诊断
 - 基于 Pretext 的文本测量抽象和测试 fallback
+- Pretext 用画布上可用的字体测量。传入图实际使用的字体文件（`--font NotoSansSC.otf`，可重复，`字体名=文件` 可指定名称；或 `renderDiagramDsl` 的 `fonts` 选项、`registerFonts()`），标签就按真实字体精确测量，注册的中文字体会排在中文字体栈最前面。没有真实字体时（Node 画布会退到本机已有字体，这里汉字被少算约 25%），全角字符一律按 1 em（所有主流中文字体都如此），中文字体栈中的拉丁字母预留 6% 余量，保证不溢出。折行遵守避头尾规则（行首不出现 `，。）」…`，行尾不出现 `（「…`）。默认中文字体栈为 `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`。
 - 标签适配、形状几何、AABB 避碰工具和连接端口
 - Dagre 初始有向布局
 - exact、relative、align、distribute、containment 约束

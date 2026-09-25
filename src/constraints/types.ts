@@ -17,6 +17,13 @@ export interface LayoutLock {
 export interface ConstraintSolverInput {
 	direction: DiagramDirection;
 	overlapSpacing?: number;
+	/**
+	 * Gap below which two groups (or a group and a foreign node) count as
+	 * overlapping in the group-separation pass (default `overlapSpacing`).
+	 * The global layout already keeps groups apart, so it passes 0: only
+	 * true overlaps are moved and its container spacing is kept.
+	 */
+	groupSeparationGap?: number;
 	minSiblingGap?: number;
 	distributeContainedChildren?: boolean | "spread";
 	/** When "spread" or true, distribute children inside non-contract

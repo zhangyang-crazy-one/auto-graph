@@ -12,6 +12,7 @@ import type {
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { NormalizedNode } from "../ir/elements.js";
 import type { Box, Insets, Point } from "../ir/geometry.js";
+import { separateGroups } from "./group-separation.js";
 import type {
 	ConstraintSolverInput,
 	ConstraintSolverResult,
@@ -76,6 +77,19 @@ export function applyLayoutConstraints(
 	applyRelative(input.constraints, boxes, locks, diagnostics);
 	applyAlign(input.constraints, boxes, locks, diagnostics);
 	applyDistribute(input.constraints, boxes, locks, diagnostics);
+	// Constraints move single nodes; pull group rectangles apart first, so
+	// node-level overlap repair does not shove pinned nodes out of line.
+	separateGroups({
+		groups: input.groups,
+		constraints: input.constraints,
+		boxes,
+		locks,
+		spacing: input.overlapSpacing ?? 40,
+		...(input.groupSeparationGap === undefined
+			? {}
+			: { detectionGap: input.groupSeparationGap }),
+		diagnostics,
+	});
 	repairOverlaps(
 		input,
 		boxes,
@@ -122,6 +136,18 @@ export function applyLayoutConstraints(
 		locks,
 	);
 	reportIntraContainerOverflow(input, boxes, diagnostics);
+	// Distribution and containment passes may have moved members again.
+	separateGroups({
+		groups: input.groups,
+		constraints: input.constraints,
+		boxes,
+		locks,
+		spacing: input.overlapSpacing ?? 40,
+		...(input.groupSeparationGap === undefined
+			? {}
+			: { detectionGap: input.groupSeparationGap }),
+		diagnostics,
+	});
 
 	return { boxes, locks, diagnostics };
 }

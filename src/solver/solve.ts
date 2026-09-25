@@ -250,6 +250,12 @@ export function solveDiagram(
 					...(options.foldLayout === undefined
 						? {}
 						: { fold: options.foldLayout }),
+					...(options.previousLayout === undefined
+						? {}
+						: { previous: options.previousLayout }),
+					...(options.stabilityWeight === undefined
+						? {}
+						: { stabilityWeight: options.stabilityWeight }),
 				})
 			: runInitialLayout({
 					mode: initialLayoutMode,
@@ -324,6 +330,12 @@ export function solveDiagram(
 		}
 	}
 
+	// Routes the global layout computed are used for every edge that is
+	// still valid when edges are coordinated (see coordinateEdges).
+	if ("routes" in layout && layout.routes !== undefined) {
+		options = { ...options, layeredRoutes: layout.routes };
+	}
+
 	// Expand node boxes for port capacity before constraint solving
 	// so containment, overlap repair, and swimlane contracts see the
 	// final sizes (Codex P2: avoid post-hoc expansion issues).
@@ -332,6 +344,7 @@ export function solveDiagram(
 	const constrained = applyLayoutConstraints({
 		direction: diagram.direction,
 		overlapSpacing: options?.overlapSpacing ?? 40,
+		...(initialLayoutMode === "global" ? { groupSeparationGap: 0 } : {}),
 		...(options.minSiblingGap === undefined
 			? {}
 			: { minSiblingGap: options.minSiblingGap }),

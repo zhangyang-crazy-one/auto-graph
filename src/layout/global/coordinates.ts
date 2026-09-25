@@ -3,7 +3,15 @@ import {
 	type VpscConstraint,
 } from "../../constraints/vpsc.js";
 import type { Diagnostic } from "../../ir/diagnostics.js";
-import type { Box, DiagramDirection, Insets, Size } from "../../ir/geometry.js";
+import type { NodeShape } from "../../ir/elements.js";
+import type {
+	Box,
+	DiagramDirection,
+	Insets,
+	Point,
+	PreviousLayout,
+	Size,
+} from "../../ir/geometry.js";
 import {
 	buildContainerHierarchy,
 	type ContainerHierarchy,
@@ -13,7 +21,9 @@ import {
 } from "./hierarchy.js";
 import { assignLayers, type Layering } from "./layering.js";
 import { orderLayers } from "./ordering.js";
-import { seedOrderFromBoxes } from "./seed.js";
+import { type PreviousHint, previousHint } from "./previous.js";
+import { routeLayeredEdges, sameLayerDetours } from "./routing.js";
+import { seedOrderByDepthFirst, seedOrderFromBoxes } from "./seed.js";
 
 /**
  * Global coordinate assignment (plan P3).
@@ -47,6 +57,8 @@ import { seedOrderFromBoxes } from "./seed.js";
 export interface GlobalLayoutNode {
 	id: string;
 	size: Size;
+	/** Outline, so ports stay on the drawn side (default rectangle). */
+	shape?: NodeShape;
 }
 
 export interface GlobalLayoutEdge {
@@ -102,6 +114,21 @@ export interface GlobalLayoutInput {
 	swimlanes?: readonly GlobalLayoutSwimlane[];
 	/** An existing layout (e.g. Dagre) used as an extra ordering start. */
 	seedBoxes?: ReadonlyMap<string, Box>;
+	/** Without seed boxes: add a depth-first order as an extra start. */
+	depthFirstSeed?: boolean;
+	/**
+	 * A previous version of this diagram (stability hint). The ordering
+	 * starts from the previous order and pays for every pair of surviving
+	 * vertices it puts the other way round, so a small edit changes the
+	 * picture locally instead of reshuffling it.
+	 */
+	previous?: PreviousLayout;
+	/**
+	 * With `previous`: crossings one reordered pair of surviving nodes is
+	 * worth (default 1). Higher keeps more of the previous picture at the
+	 * cost of crossings.
+	 */
+	stabilityWeight?: number;
 	options?: GlobalLayoutOptions;
 }
 
@@ -120,6 +147,11 @@ export interface GlobalLayoutResult {
 	diagnostics: Diagnostic[];
 	crossings: number;
 	layerCount: number;
+	/**
+	 * Orthogonal route of every edge the layering could route through its
+	 * vertices (see `routeLayeredEdges`), source to target.
+	 */
+	routes: Map<string, Point[]>;
 }
 
 interface AxisInsets {
@@ -141,6 +173,12 @@ const SEGMENT_WEIGHT_MIXED = 2;
 const SEGMENT_WEIGHT_DUMMY = 8;
 const CONTAINER_TIGHTNESS = 0.05;
 const ORDER_ANCHOR = 0.001;
+/**
+ * Pull of a surviving node towards its previous cross position, against
+ * edge terms of weight 1–8: enough to keep untouched parts in place, too
+ * weak to hold a node away from edges that now pull elsewhere.
+ */
+const PREVIOUS_ANCHOR = 2;
 const EDGE_LABEL_MARGIN = 8;
 const MIN_EMPTY_LANE = 24;
 
@@ -182,18 +220,34 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 			{ source: edge.source, target: edge.target },
 		]),
 	);
-	const seeds =
-		input.seedBoxes === undefined
-			? []
-			: [
+	const previous =
+		input.previous === undefined
+			? undefined
+			: previousHint(input.previous, layering, edgeEndpoints, direction);
+	// The previous order goes first (it wins ties); the usual starts stay,
+	// so a warm solve never scores worse than a cold one.
+	const seeds = [
+		...(previous === undefined ? [] : [previous.seed]),
+		...(input.seedBoxes !== undefined
+			? [
 					seedOrderFromBoxes(
 						layering,
 						input.seedBoxes,
 						direction,
 						edgeEndpoints,
 					),
-				];
-	const ordering = orderLayers(layering, hierarchy, { seeds });
+				]
+			: input.depthFirstSeed === true
+				? [seedOrderByDepthFirst(layering)]
+				: []),
+	];
+	const ordering = orderLayers(layering, hierarchy, {
+		seeds,
+		...(previous === undefined ? {} : { reference: previous.reference }),
+		...(input.stabilityWeight === undefined
+			? {}
+			: { stabilityWeight: input.stabilityWeight }),
+	});
 
 	const insets = containerInsets(input, hierarchy, direction);
 	const minCross = containerMinCross(input, hierarchy, insets, horizontalFlow);
@@ -203,7 +257,20 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		return size === undefined ? 0 : crossSize(size);
 	};
 
-	const cross = solveCrossAxis({
+	// A labelled edge between two nodes of one layer is drawn across the gap
+	// between them: that gap must hold the label.
+	const labelGaps = new Map<string, number>();
+	for (const edge of edges) {
+		if (edge.labelSize === undefined) continue;
+		const a = layering.layerOfNode.get(edge.source);
+		if (a === undefined || a !== layering.layerOfNode.get(edge.target)) {
+			continue;
+		}
+		const key = [edge.source, edge.target].sort().join("\u0000");
+		const need = crossSize(edge.labelSize) + 2 * EDGE_LABEL_MARGIN;
+		labelGaps.set(key, Math.max(labelGaps.get(key) ?? 0, need));
+	}
+	const crossInput = {
 		layering,
 		layers: ordering.layers,
 		hierarchy,
@@ -213,7 +280,20 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		nodeSpacing,
 		edgeSpacing,
 		containerSpacing,
-	});
+		labelGap: (u: string, v: string) =>
+			labelGaps.get([u, v].sort().join("\u0000")) ?? 0,
+	};
+	let cross = solveCrossAxis(crossInput);
+	if (previous !== undefined) {
+		// Second pass: pull surviving nodes back to where they were. The
+		// layout's frame is free (and a folded previous layout has one per
+		// band), so targets are the old positions shifted by the median
+		// offset of each old band.
+		const targets = previousTargets(previous, layering, cross.positions);
+		if (targets.size > 0) {
+			cross = solveCrossAxis({ ...crossInput, targets });
+		}
+	}
 	if (cross.unsatisfiable > 0) {
 		diagnostics.push({
 			severity: "warning",
@@ -223,7 +303,17 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		});
 	}
 
+	const detourTracks = new Map<number, number>();
+	for (const detour of sameLayerDetours(
+		layering,
+		ordering.layers,
+		edges,
+	).values()) {
+		const channel = detour.side === "after" ? detour.layer : detour.layer - 1;
+		detourTracks.set(channel, (detourTracks.get(channel) ?? 0) + 1);
+	}
 	const layerStarts = solveMainAxis({
+		detourTracks,
 		layering,
 		layers: ordering.layers,
 		hierarchy,
@@ -361,6 +451,28 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		}
 	}
 	const shift = normalizeBoxes(boxes);
+	const routes = routeLayeredEdges({
+		direction,
+		layering,
+		layers: ordering.layers,
+		cross: cross.positions,
+		starts: layerStarts.starts,
+		thickness: layerStarts.thickness,
+		labelRoom: layerStarts.labelRoom,
+		...(fold === undefined ? {} : { bands: fold.bands }),
+		crossExtent: crossExtentOf(nodeIds, cross.positions, cross.bounds, (id) => {
+			const size = sizeOf.get(id);
+			return size === undefined ? 0 : crossSize(size);
+		}),
+		boxes,
+		shift,
+		shapes: new Map(
+			input.nodes.map((node) => [node.id, node.shape ?? "rectangle"]),
+		),
+		edges,
+		edgeSpacing,
+		layerSpacing,
+	});
 	for (const [id, box] of groupBoxes) {
 		groupBoxes.set(id, {
 			x: round(box.x - shift.x),
@@ -387,6 +499,7 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		diagnostics,
 		crossings: ordering.crossings,
 		layerCount: ordering.layers.length,
+		routes,
 	};
 }
 
@@ -436,6 +549,232 @@ function crossExtentOf(
 		hi = Math.max(hi, right);
 	}
 	return Number.isFinite(lo) ? [lo, hi] : [0, 0];
+}
+
+/**
+ * Consecutive dummy vertices of long edges that the coordinates keep on
+ * one line (vertical alignment, as in Brandes–Köpf). A pair joins when it
+ * stays in one container and crosses no pair already joined between the
+ * same two layers; longest edges go first. Alignments that never cross
+ * cannot contradict the in-layer order, so they are always satisfiable
+ * alongside the separation constraints.
+ */
+function alignLongEdges(
+	layering: Layering,
+	layers: readonly (readonly string[])[],
+): [string, string][] {
+	const position = new Map<string, number>();
+	for (const layer of layers) {
+		layer.forEach((id, at) => {
+			position.set(id, at);
+		});
+	}
+	const isDummy = (id: string) =>
+		layering.vertices.get(id)?.nodeId === undefined &&
+		layering.vertices.get(id)?.edgeId !== undefined;
+	const byEdge = new Map<string, [string, string][]>();
+	for (const segment of layering.segments) {
+		if (!isDummy(segment.from) || !isDummy(segment.to)) continue;
+		const list = byEdge.get(segment.edgeId) ?? [];
+		list.push([segment.from, segment.to]);
+		byEdge.set(segment.edgeId, list);
+	}
+	const chains = [...byEdge].sort(
+		(a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
+	);
+	/** Joined pairs per upper layer, as (upper position, lower position). */
+	const joined = new Map<number, [number, number][]>();
+	const result: [string, string][] = [];
+	for (const [, pairs] of chains) {
+		for (const [upper, lower] of pairs) {
+			const top = layering.vertices.get(upper);
+			const bottom = layering.vertices.get(lower);
+			if (top === undefined || bottom === undefined) continue;
+			if (top.containerId !== bottom.containerId) continue;
+			const a = position.get(upper);
+			const b = position.get(lower);
+			if (a === undefined || b === undefined) continue;
+			const existing = joined.get(top.layer) ?? [];
+			if (existing.some(([c, d]) => a < c !== b < d)) continue;
+			existing.push([a, b]);
+			joined.set(top.layer, existing);
+			result.push([upper, lower]);
+		}
+	}
+	return result;
+}
+
+/** Cross-axis growth of a swimlane diagram that straight edges may cost. */
+const ALIGNED_LANE_GROWTH = 1.1;
+
+/** Share of a node's cross size its straight edge ends may use. */
+const STRAIGHT_END_SHARE = 0.6;
+
+/**
+ * Put the dummy vertices of every long edge on one line where the layout
+ * leaves room, so the edge runs straight instead of stepping at each
+ * layer (what Brandes–Köpf alignment achieves in other layered engines).
+ * The quadratic program only pulls chains straight with a finite weight,
+ * so a chain whose neighbours pull slightly different ways jogs by a few
+ * pixels in every channel it crosses.
+ *
+ * For each chain (longest first), every dummy's feasible interval comes
+ * from the same separation constraints the program solved, against the
+ * current positions of everything else. A greedy walk cuts the chain into
+ * the fewest runs whose intervals intersect, and each run goes to the
+ * point of its intersection nearest the run's median — preferring a point
+ * within the end node's cross extent, where its port can meet the line
+ * head-on. Dummies only move inside their intervals, so no constraint is
+ * violated and no order changes.
+ */
+function straightenLongEdges(
+	x: number[],
+	constraints: readonly VpscConstraint[],
+	layering: Layering,
+	index: ReadonlyMap<string, number>,
+	vertexCross: (vertexId: string) => number,
+): number[] {
+	const lowerOf = new Map<number, VpscConstraint[]>();
+	const upperOf = new Map<number, VpscConstraint[]>();
+	for (const constraint of constraints) {
+		const lower = lowerOf.get(constraint.right) ?? [];
+		lower.push(constraint);
+		lowerOf.set(constraint.right, lower);
+		const upper = upperOf.get(constraint.left) ?? [];
+		upper.push(constraint);
+		upperOf.set(constraint.left, upper);
+	}
+	const interval = (v: number): [number, number] => {
+		let lo = Number.NEGATIVE_INFINITY;
+		let hi = Number.POSITIVE_INFINITY;
+		for (const c of lowerOf.get(v) ?? []) {
+			lo = Math.max(lo, (x[c.left] as number) + c.gap);
+			if (c.equality === true) hi = Math.min(hi, (x[c.left] as number) + c.gap);
+		}
+		for (const c of upperOf.get(v) ?? []) {
+			hi = Math.min(hi, (x[c.right] as number) - c.gap);
+			if (c.equality === true)
+				lo = Math.max(lo, (x[c.right] as number) - c.gap);
+		}
+		return [lo, hi];
+	};
+	const endRange = (vertex: string): [number, number] | undefined => {
+		const v = index.get(vertex);
+		if (v === undefined) return undefined;
+		const half = (vertexCross(vertex) * STRAIGHT_END_SHARE) / 2;
+		return [(x[v] as number) - half, (x[v] as number) + half];
+	};
+	const intersect = (
+		a: [number, number],
+		b: [number, number] | undefined,
+	): [number, number] | undefined => {
+		if (b === undefined) return undefined;
+		const lo = Math.max(a[0], b[0]);
+		const hi = Math.min(a[1], b[1]);
+		return lo <= hi + 1e-9 ? [lo, Math.max(lo, hi)] : undefined;
+	};
+
+	const byEdge = new Map<string, { from: string; to: string }[]>();
+	for (const segment of layering.segments) {
+		const list = byEdge.get(segment.edgeId) ?? [];
+		list.push(segment);
+		byEdge.set(segment.edgeId, list);
+	}
+	const chains: { upper: string; lower: string; dummies: number[] }[] = [];
+	for (const segments of byEdge.values()) {
+		if (segments.length < 2) continue;
+		const layerOf = (id: string) => layering.vertices.get(id)?.layer ?? 0;
+		const ordered = [...segments].sort(
+			(a, b) => layerOf(a.from) - layerOf(b.from),
+		);
+		const dummies = ordered
+			.slice(1)
+			.map((segment) => index.get(segment.from))
+			.filter((v): v is number => v !== undefined);
+		if (dummies.length === 0) continue;
+		chains.push({
+			upper: (ordered[0] as { from: string }).from,
+			lower: (ordered.at(-1) as { to: string }).to,
+			dummies,
+		});
+	}
+	chains.sort(
+		(a, b) =>
+			b.dummies.length - a.dummies.length ||
+			a.upper.localeCompare(b.upper) ||
+			a.lower.localeCompare(b.lower),
+	);
+
+	for (const chain of chains) {
+		const { dummies } = chain;
+		let start = 0;
+		while (start < dummies.length) {
+			let run = interval(dummies[start] as number);
+			let end = start;
+			while (end + 1 < dummies.length) {
+				const next = intersect(run, interval(dummies[end + 1] as number));
+				if (next === undefined) break;
+				run = next;
+				end += 1;
+			}
+			if (run[0] > run[1] + 1e-9) {
+				start = end + 1;
+				continue;
+			}
+			let preferred = run;
+			if (start === 0) {
+				preferred = intersect(preferred, endRange(chain.upper)) ?? preferred;
+			}
+			if (end === dummies.length - 1) {
+				preferred = intersect(preferred, endRange(chain.lower)) ?? preferred;
+			}
+			const current = dummies
+				.slice(start, end + 1)
+				.map((v) => x[v] as number)
+				.sort((a, b) => a - b);
+			const middle = current[Math.floor(current.length / 2)] as number;
+			const target = Math.min(preferred[1], Math.max(preferred[0], middle));
+			for (let k = start; k <= end; k += 1) x[dummies[k] as number] = target;
+			start = end + 1;
+		}
+	}
+	return x;
+}
+
+function previousTargets(
+	previous: PreviousHint,
+	layering: Layering,
+	positions: ReadonlyMap<string, number>,
+): Map<string, number> {
+	const offsets = new Map<number, number[]>();
+	for (const [id, value] of previous.reference) {
+		const vertex = layering.vertices.get(id);
+		const now = positions.get(vertex?.nodeId ?? id);
+		if (vertex === undefined || now === undefined) continue;
+		const band = previous.bandOfLayer[vertex.layer] ?? 0;
+		const list = offsets.get(band) ?? [];
+		list.push(now - value);
+		offsets.set(band, list);
+	}
+	const shift = new Map<number, number>();
+	for (const [band, list] of offsets) {
+		const sorted = [...list].sort((a, b) => a - b);
+		const middle = Math.floor(sorted.length / 2);
+		shift.set(
+			band,
+			sorted.length % 2 === 1
+				? (sorted[middle] as number)
+				: ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2,
+		);
+	}
+	const targets = new Map<string, number>();
+	for (const [id, value] of previous.reference) {
+		const vertex = layering.vertices.get(id);
+		if (vertex === undefined) continue;
+		const band = previous.bandOfLayer[vertex.layer] ?? 0;
+		targets.set(id, value + (shift.get(band) ?? 0));
+	}
+	return targets;
 }
 
 /**
@@ -937,6 +1276,10 @@ interface CrossAxisInput {
 	nodeSpacing: number;
 	edgeSpacing: number;
 	containerSpacing: number;
+	/** Room a label on an edge between two nodes of one layer needs. */
+	labelGap?: (u: string, v: string) => number;
+	/** Cross position each vertex is pulled towards (stability hint). */
+	targets?: ReadonlyMap<string, number>;
 }
 
 function solveCrossAxis(input: CrossAxisInput): {
@@ -1038,6 +1381,16 @@ function solveCrossAxis(input: CrossAxisInput): {
 			const leftHalf = aIsVertex ? input.vertexCross(u) / 2 : 0;
 			const rightHalf = bIsVertex ? input.vertexCross(v) / 2 : 0;
 			addConstraint(leftIndex, rightIndex, leftHalf + gap + rightHalf);
+			// Neighbours joined by a labelled edge, even across lane or group
+			// borders: keep the label's room between the two nodes themselves.
+			const labelGap = input.labelGap?.(u, v) ?? 0;
+			if (labelGap > 0) {
+				addConstraint(
+					index.get(u) as number,
+					index.get(v) as number,
+					input.vertexCross(u) / 2 + labelGap + input.vertexCross(v) / 2,
+				);
+			}
 		}
 	}
 
@@ -1085,6 +1438,14 @@ function solveCrossAxis(input: CrossAxisInput): {
 			});
 		}
 	}
+
+	const alignment = alignLongEdges(layering, layers).flatMap(([a, b]) => {
+		const left = index.get(a);
+		const right = index.get(b);
+		return left === undefined || right === undefined
+			? []
+			: [{ left, right, gap: 0, equality: true }];
+	});
 
 	// Objective.
 	const pairs: { a: number; b: number; weight: number }[] = [];
@@ -1159,49 +1520,83 @@ function solveCrossAxis(input: CrossAxisInput): {
 		target,
 		weight: ORDER_ANCHOR,
 	}));
-
-	const constraints = [...separation.values(), ...equalities];
-	let solved = solveSeparationQp({
-		size,
-		pairs,
-		anchors,
-		constraints,
-		initial,
-	});
-
-	// Equal lane thickness per swimlane (second pass, warm start).
-	const uniform: VpscConstraint[] = [];
-	for (const lanes of lanesBySwimlane) {
-		if (lanes.length < 2) continue;
-		const thickness = Math.max(
-			...lanes.map(
-				(lane) =>
-					(solved.positions[rightVar.get(lane) as number] as number) -
-					(solved.positions[leftVar.get(lane) as number] as number),
-			),
-		);
-		for (const lane of lanes) {
-			uniform.push({
-				left: leftVar.get(lane) as number,
-				right: rightVar.get(lane) as number,
-				gap: thickness,
-			});
-		}
+	for (const [id, target] of input.targets ?? []) {
+		const v = index.get(id);
+		if (v !== undefined) anchors.push({ v, target, weight: PREVIOUS_ANCHOR });
 	}
-	if (uniform.length > 0) {
-		solved = solveSeparationQp({
+
+	/** Program plus the equal-lane-thickness pass (warm start). */
+	const solveWith = (base: readonly VpscConstraint[]) => {
+		let result = solveSeparationQp({
 			size,
 			pairs,
 			anchors,
-			constraints: [...constraints, ...uniform],
-			initial: solved.positions,
+			constraints: [...base],
+			initial,
 		});
+		const uniform: VpscConstraint[] = [];
+		for (const lanes of lanesBySwimlane) {
+			if (lanes.length < 2) continue;
+			const thickness = Math.max(
+				...lanes.map(
+					(lane) =>
+						(result.positions[rightVar.get(lane) as number] as number) -
+						(result.positions[leftVar.get(lane) as number] as number),
+				),
+			);
+			for (const lane of lanes) {
+				uniform.push({
+					left: leftVar.get(lane) as number,
+					right: rightVar.get(lane) as number,
+					gap: thickness,
+				});
+			}
+		}
+		const unsatisfiable = result.unsatisfiable.length;
+		const all = [...base, ...uniform];
+		if (uniform.length > 0) {
+			result = solveSeparationQp({
+				size,
+				pairs,
+				anchors,
+				constraints: all,
+				initial: result.positions,
+			});
+		}
+		const extent =
+			Math.max(...result.positions) - Math.min(...result.positions);
+		return { solved: result, constraints: all, unsatisfiable, extent };
+	};
+	const free = [...separation.values(), ...equalities];
+	let chosen = solveWith(alignment.length > 0 ? [...free, ...alignment] : free);
+	if (alignment.length > 0) {
+		// Alignment is only a preference: never trade separation for it. With
+		// lanes, a lane thickened by straight edges thickens every lane of
+		// its swimlane, so keep the alignment only if it costs little room.
+		const needsCheck = chosen.unsatisfiable > 0 || lanesBySwimlane.length > 0;
+		if (needsCheck) {
+			const plain = solveWith(free);
+			if (
+				chosen.unsatisfiable > 0 ||
+				chosen.extent > plain.extent * ALIGNED_LANE_GROWTH
+			) {
+				chosen = plain;
+			}
+		}
 	}
+	const solved = chosen.solved;
 
+	const straightened = straightenLongEdges(
+		[...solved.positions],
+		chosen.constraints,
+		layering,
+		index,
+		input.vertexCross,
+	);
 	const positions = new Map<string, number>();
 	for (const id of vertexIds) {
 		const vertex = layering.vertices.get(id);
-		const value = solved.positions[index.get(id) as number] as number;
+		const value = straightened[index.get(id) as number] as number;
 		positions.set(vertex?.nodeId ?? id, value);
 	}
 	const bounds = new Map<string, readonly [number, number]>();
@@ -1227,11 +1622,15 @@ interface MainAxisInput {
 	edgeSpacing: number;
 	containerSpacing: number;
 	swimlanePadding: ReadonlyMap<string, number>;
+	/** Same-layer detour tracks per channel (channel after layer ℓ = ℓ). */
+	detourTracks?: ReadonlyMap<number, number>;
 }
 
 function solveMainAxis(input: MainAxisInput): {
 	starts: number[];
 	thickness: number[];
+	/** Room kept free for edge labels in each channel (after layer ℓ). */
+	labelRoom: number[];
 } {
 	const { layering, layers, hierarchy } = input;
 	const layerCount = layers.length;
@@ -1260,6 +1659,7 @@ function solveMainAxis(input: MainAxisInput): {
 	}
 
 	const gaps: number[] = [];
+	const trackRoom: number[] = [];
 	for (let layer = 0; layer + 1 < layerCount; layer += 1) {
 		// Orthogonal tracks for segments that change cross position.
 		let bending = 0;
@@ -1273,6 +1673,7 @@ function solveMainAxis(input: MainAxisInput): {
 				bending += 1;
 			}
 		}
+		bending += input.detourTracks?.get(layer) ?? 0;
 		const channel = (bending + 1) * input.edgeSpacing;
 
 		// Container borders that close after `layer` or open before `layer+1`.
@@ -1339,9 +1740,12 @@ function solveMainAxis(input: MainAxisInput): {
 		}
 
 		gaps.push(Math.max(input.layerSpacing, channel) + borders + laneBreak);
+		trackRoom.push(bending > 0 ? channel : 0);
 	}
 
-	// Edge labels need room between the two layers they sit between.
+	// Edge labels need room between the two layers they sit between, next
+	// to the tracks of that channel (routing keeps the middle free for it).
+	const labelRoom = new Array<number>(Math.max(0, layerCount - 1)).fill(0);
 	for (const edge of input.edges) {
 		if (edge.labelSize === undefined) continue;
 		const a = layering.layerOfNode.get(edge.source);
@@ -1351,7 +1755,8 @@ function solveMainAxis(input: MainAxisInput): {
 		const bottom = Math.max(a, b);
 		const middle = top + Math.floor((bottom - top - 1) / 2);
 		const need = input.mainLabelSize(edge.labelSize) + 2 * EDGE_LABEL_MARGIN;
-		gaps[middle] = Math.max(gaps[middle] ?? 0, need);
+		labelRoom[middle] = Math.max(labelRoom[middle] ?? 0, need);
+		gaps[middle] = Math.max(gaps[middle] ?? 0, need + (trackRoom[middle] ?? 0));
 	}
 
 	const starts: number[] = [];
@@ -1360,5 +1765,5 @@ function solveMainAxis(input: MainAxisInput): {
 		starts.push(cursor);
 		cursor += (thickness[layer] ?? 0) + (gaps[layer] ?? 0);
 	}
-	return { starts, thickness };
+	return { starts, thickness, labelRoom };
 }

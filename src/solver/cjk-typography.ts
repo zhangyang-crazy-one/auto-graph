@@ -19,7 +19,12 @@ export interface CjkTypography {
 	fontSize?: number;
 }
 
-const DEFAULT_CJK_FONT_FAMILY = "YaHei,SimSun,sans-serif";
+/**
+ * Real family names, in platform order: Windows, macOS, then the open fonts
+ * most Linux systems and containers ship. ("YaHei" alone matches nothing.)
+ */
+export const DEFAULT_CJK_FONT_FAMILY =
+	"'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif";
 const DEFAULT_MIN_CJK_FONT_SIZE = 14;
 
 /** Minimal options for CJK typography resolution. */
@@ -75,12 +80,17 @@ export function enhanceEdgeCjkTypography(
 	options: CjkTypographyOptions,
 	diagnostics: Diagnostic[],
 ): NormalizedEdge {
-	return enhanceStyledLabelOwner(
+	const enhanced = enhanceStyledLabelOwner(
 		edge,
 		["edges", edge.id],
 		options,
 		diagnostics,
 	);
+	// An edge's `style` is its stroke style ("solid" / "dashed"), not a
+	// visual style: the label font travels in the label metadata, and
+	// merging fonts into `style` turned "dashed" into an object.
+	const { style: _style, ...rest } = enhanced;
+	return edge.style === undefined ? rest : { ...rest, style: edge.style };
 }
 
 export function enhanceGroupCjkTypography(

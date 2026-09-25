@@ -12,7 +12,7 @@ const routeKindSchema = z.enum([
 ]);
 const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
 const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
-const outputFormatSchema = z.enum(["svg", "excalidraw"]);
+const outputFormatSchema = z.enum(["svg", "excalidraw", "geometry"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
 const primaryReadingDirectionSchema = z.enum([
@@ -494,6 +494,21 @@ export const diagramDslSchema = z
 			.object({
 				format: outputFormatSchema.optional(),
 			})
+			.optional(),
+		page: z
+			.union([
+				z.string(),
+				z
+					.object({
+						size: z.string().optional(),
+						width: z.number().positive().optional(),
+						height: z.number().positive().optional(),
+						orientation: z.enum(["auto", "portrait", "landscape"]).optional(),
+						margin: nonNegativeNumberSchema.optional(),
+						direction: z.enum(["keep", "auto"]).optional(),
+					})
+					.strict(),
+			])
 			.optional(),
 	})
 	.superRefine((diagram, context) => {

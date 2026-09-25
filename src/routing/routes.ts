@@ -1,5 +1,5 @@
 import { attachSlotsForBoxTournamentFirst } from "../geometry/attach-slots.js";
-import { intersectsAabb, validateBox } from "../geometry/boxes.js";
+import { expandBox, intersectsAabb, validateBox } from "../geometry/boxes.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import {
 	type BoxSpatialIndex,
@@ -15,6 +15,7 @@ import type {
 } from "../ir/geometry.js";
 import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
 import { resolveMaxCorners, resolveMaxNodes } from "./budget.js";
+import { findSparseGridPath } from "./sparse-grid-router.js";
 import type {
 	RouteEdgeInput,
 	RouteEdgeResult,
@@ -204,27 +205,146 @@ function routeDirectionPenalty(
 	return penalty;
 }
 
+/** Obstacle lists already validated (candidate scoring reuses them). */
+const validatedObstacleLists = new WeakSet<readonly Box[]>();
+
+function validateObstacleList(obstacles: readonly Box[]): void {
+	if (validatedObstacleLists.has(obstacles)) return;
+	for (const obstacle of obstacles) validateBox(obstacle);
+	validatedObstacleLists.add(obstacles);
+}
+
+/**
+ * Uniform grid over one obstacle list, cached per list: candidate scoring
+ * evaluates many routes against the same few hundred boxes. A query
+ * returns a superset of the boxes a segment can touch (inclusive cells),
+ * so exact tests afterwards give the same result as a full scan.
+ */
+interface ObstacleGrid {
+	cellSize: number;
+	cells: Map<number, number[]>;
+	stamp: Uint32Array;
+	generation: number;
+}
+
+const obstacleGrids = new WeakMap<readonly Box[], ObstacleGrid>();
+const GRID_CELL = 96;
+const GRID_SPAN = 1 << 20;
+
+function gridKey(column: number, row: number): number {
+	return (column + GRID_SPAN / 2) * GRID_SPAN + (row + GRID_SPAN / 2);
+}
+
+function obstacleGrid(obstacles: readonly Box[]): ObstacleGrid {
+	const cached = obstacleGrids.get(obstacles);
+	if (cached !== undefined) return cached;
+	const cells = new Map<number, number[]>();
+	obstacles.forEach((box, index) => {
+		const c0 = Math.floor(box.x / GRID_CELL);
+		const c1 = Math.floor((box.x + box.width) / GRID_CELL);
+		const r0 = Math.floor(box.y / GRID_CELL);
+		const r1 = Math.floor((box.y + box.height) / GRID_CELL);
+		for (let column = c0; column <= c1; column += 1) {
+			for (let row = r0; row <= r1; row += 1) {
+				const key = gridKey(column, row);
+				const list = cells.get(key);
+				if (list === undefined) cells.set(key, [index]);
+				else list.push(index);
+			}
+		}
+	});
+	const grid: ObstacleGrid = {
+		cellSize: GRID_CELL,
+		cells,
+		stamp: new Uint32Array(obstacles.length),
+		generation: 0,
+	};
+	obstacleGrids.set(obstacles, grid);
+	return grid;
+}
+
+/** Indices of obstacles whose cells the box [minX,maxX]×[minY,maxY] touches. */
+function gridCandidates(
+	grid: ObstacleGrid,
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+	visit: (index: number) => void,
+): void {
+	grid.generation += 1;
+	if (grid.generation === 0xffffffff) {
+		grid.stamp.fill(0);
+		grid.generation = 1;
+	}
+	const c0 = Math.floor(minX / grid.cellSize);
+	const c1 = Math.floor(maxX / grid.cellSize);
+	const r0 = Math.floor(minY / grid.cellSize);
+	const r1 = Math.floor(maxY / grid.cellSize);
+	for (let column = c0; column <= c1; column += 1) {
+		for (let row = r0; row <= r1; row += 1) {
+			const list = grid.cells.get(gridKey(column, row));
+			if (list === undefined) continue;
+			for (const index of list) {
+				if (grid.stamp[index] === grid.generation) continue;
+				grid.stamp[index] = grid.generation;
+				visit(index);
+			}
+		}
+	}
+}
+
 function routeObstacleCrossingStats(
 	points: readonly Point[],
 	obstacles: readonly Box[],
 ): { count: number; length: number } {
 	let count = 0;
 	let length = 0;
-	for (const obstacle of obstacles) {
-		validateBox(obstacle);
-		let obstacleLength = 0;
-		for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
-			const a = points[pointIndex];
-			const b = points[pointIndex + 1];
-			if (a === undefined || b === undefined) {
-				continue;
+	if (points.length < 2 || obstacles.length === 0) return { count, length };
+	validateObstacleList(obstacles);
+	if (obstacles.length <= 16) {
+		for (const obstacle of obstacles) {
+			let obstacleLength = 0;
+			for (let index = 0; index + 1 < points.length; index += 1) {
+				const a = points[index];
+				const b = points[index + 1];
+				if (a === undefined || b === undefined) continue;
+				obstacleLength += segmentObstacleOverlapLength(a, b, obstacle);
 			}
-			obstacleLength += segmentObstacleOverlapLength(a, b, obstacle);
+			if (obstacleLength > 0) {
+				count += 1;
+				length += obstacleLength;
+			}
 		}
-		if (obstacleLength > 0) {
-			count += 1;
-			length += obstacleLength;
-		}
+		return { count, length };
+	}
+	// Per-obstacle overlap, summed over the segments whose cells it shares.
+	const grid = obstacleGrid(obstacles);
+	const overlap = new Map<number, number>();
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const a = points[index];
+		const b = points[index + 1];
+		if (a === undefined || b === undefined) continue;
+		gridCandidates(
+			grid,
+			Math.min(a.x, b.x),
+			Math.min(a.y, b.y),
+			Math.max(a.x, b.x),
+			Math.max(a.y, b.y),
+			(obstacleIndex) => {
+				const obstacle = obstacles[obstacleIndex];
+				if (obstacle === undefined) return;
+				const value = segmentObstacleOverlapLength(a, b, obstacle);
+				if (value > 0) {
+					overlap.set(obstacleIndex, (overlap.get(obstacleIndex) ?? 0) + value);
+				}
+			},
+		);
+	}
+	// Sum in obstacle order so floating-point totals match a full scan.
+	for (const index of [...overlap.keys()].sort((x, y) => x - y)) {
+		count += 1;
+		length += overlap.get(index) ?? 0;
 	}
 	return { count, length };
 }
@@ -616,11 +736,17 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	let bestExcessiveCleanRoute:
 		| { points: Point[]; diagnostic: Diagnostic; routeLength: number }
 		| undefined;
+	// Soft obstacles are only the nodes near the edge; a candidate that
+	// wanders further must still not pass through any node.
+	const blocking = input.blockingObstacles ?? [];
 	const acceptCleanRoute = (
 		points: Point[],
 		source: Point,
 		target: Point,
 	): RouteEdgeResult | undefined => {
+		if (blocking.length > 0 && routeIntersectsObstacles(points, blocking)) {
+			return undefined;
+		}
 		const diagnostic = backtrackingDiagnostic(
 			points,
 			source,
@@ -1122,6 +1248,60 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 	const bestExcessiveClean = returnBestExcessiveCleanRoute();
 	if (bestExcessiveClean !== undefined) {
 		return bestExcessiveClean;
+	}
+
+	// No bounded candidate is clean. When even the best of them would pass
+	// through a node, search the sparse Hanan grid with every node as a wall
+	// (the obstacle-avoiding kind already ran its own A* above).
+	if (input.kind !== "obstacle-avoiding" && blocking.length > 0) {
+		const fallback = rankedCandidateRoutes.find(
+			(candidate) =>
+				!routeIntersectsObstacles(
+					candidate.points,
+					hardObstacles,
+					hardObstacleIndex,
+				) &&
+				!routeIntersectsEndpointInteriors(
+					candidate.points,
+					candidate.endpointObstacles,
+				),
+		);
+		if (
+			fallback === undefined ||
+			routeIntersectsObstacles(fallback.points, blocking)
+		) {
+			const sparse = sparseGridFallback(
+				input,
+				blocking,
+				rankedCandidateRoutes,
+				softObstacles,
+				hardObstacles,
+				softObstacleIndex,
+				hardObstacleIndex,
+				diagnostics,
+			);
+			if (sparse?.clean === true) {
+				const accepted = acceptCleanRoute(
+					sparse.points,
+					sparse.source,
+					sparse.target,
+				);
+				if (accepted !== undefined) return accepted;
+				const excessive = returnBestExcessiveCleanRoute();
+				if (excessive !== undefined) return excessive;
+			} else if (sparse !== undefined) {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.obstacle.unavoidable",
+					message:
+						"No bounded orthogonal route candidate avoided all soft obstacles.",
+					detail: {
+						conflictClass: "fixed-geometry-block",
+					},
+				});
+				return { points: sparse.points, diagnostics };
+			}
+		}
 	}
 
 	const hardClearCandidate = rankedCandidateRoutes.find(
@@ -1800,6 +1980,97 @@ function pathLength(points: readonly Point[]): number {
 	return len;
 }
 
+/** Distinct endpoint pairs tried by the sparse-grid fallback. */
+const SPARSE_FALLBACK_PAIRS = 3;
+/** Search windows around the two endpoints (px), then the whole diagram. */
+const SPARSE_WINDOW_MARGINS = [1000, undefined] as const;
+
+function unionBox(a: Box, b: Box): Box {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	return {
+		x,
+		y,
+		width: Math.max(a.x + a.width, b.x + b.width) - x,
+		height: Math.max(a.y + a.height, b.y + b.height) - y,
+	};
+}
+
+/**
+ * Fallback for the bounded candidate families: route each of the best few
+ * endpoint pairs through the sparse Hanan grid (nodes and hard obstacles
+ * are walls, soft obstacles cost a penalty) and return the first path that
+ * passes through no wall, finalized, with whether it also clears every
+ * soft obstacle; `undefined` when none does.
+ */
+function sparseGridFallback(
+	input: RouteEdgeInput,
+	blocking: readonly Box[],
+	ranked: readonly {
+		points: Point[];
+		source: Point;
+		target: Point;
+		endpointObstacles: readonly Box[];
+	}[],
+	softObstacles: readonly Box[],
+	hardObstacles: readonly Box[],
+	softObstacleIndex: BoxSpatialIndex,
+	hardObstacleIndex: BoxSpatialIndex,
+	diagnostics: Diagnostic[],
+):
+	| { points: Point[]; source: Point; target: Point; clean: boolean }
+	| undefined {
+	const walls = [...blocking, ...hardObstacles];
+	const passesWall = (points: readonly Point[], endpoints: readonly Box[]) =>
+		routeIntersectsObstacles(points, blocking) ||
+		routeIntersectsObstacles(points, hardObstacles, hardObstacleIndex) ||
+		routeIntersectsEndpointInteriors(points, endpoints);
+	const tried = new Set<string>();
+	for (const candidate of ranked) {
+		const key = `${candidate.source.x},${candidate.source.y}>${candidate.target.x},${candidate.target.y}`;
+		if (tried.has(key)) continue;
+		tried.add(key);
+		if (tried.size > SPARSE_FALLBACK_PAIRS) break;
+		// Local first: most detours stay near the two endpoints.
+		let path: Point[] | null = null;
+		for (const margin of SPARSE_WINDOW_MARGINS) {
+			const window =
+				margin === undefined
+					? undefined
+					: expandBox(unionBox(input.source.box, input.target.box), margin);
+			path = findSparseGridPath(candidate.source, candidate.target, walls, {
+				softObstacles,
+				sourceBox: input.source.box,
+				targetBox: input.target.box,
+				...(window === undefined ? {} : { window }),
+			});
+			if (path !== null) break;
+		}
+		if (path === null || path.length < 2) continue;
+		if (passesWall(path, candidate.endpointObstacles)) continue;
+		const finalized = finalizeRoutePoints(
+			path,
+			softObstacles,
+			hardObstacles,
+			diagnostics,
+			softObstacleIndex,
+			hardObstacleIndex,
+		);
+		if (passesWall(finalized, candidate.endpointObstacles)) continue;
+		return {
+			points: finalized,
+			source: candidate.source,
+			target: candidate.target,
+			clean: !routeIntersectsObstacles(
+				finalized,
+				softObstacles,
+				softObstacleIndex,
+			),
+		};
+	}
+	return undefined;
+}
+
 function endpointInteriorObstacles(input: RouteEdgeInput): Box[] {
 	const boxes: Box[] = [];
 	if (hasDistinctAnchors(input.source) && input.sourceAnchor !== "center") {
@@ -2351,6 +2622,7 @@ function expandedObstacleCandidates(
 				obstacle.x + obstacle.width + margin,
 			]),
 			(source.x + target.x) / 2,
+			MAX_OBSTACLE_LANES,
 		);
 
 		for (const laneX of lanes) {
@@ -2368,6 +2640,7 @@ function expandedObstacleCandidates(
 				obstacle.y + obstacle.height + margin,
 			]),
 			(source.y + target.y) / 2,
+			MAX_OBSTACLE_LANES,
 		);
 
 		for (const laneY of lanes) {
@@ -2435,16 +2708,27 @@ function exitDelta(source: Point, target: Point, axis: "x" | "y"): number {
 	return (delta >= 0 ? 1 : -1) * 24;
 }
 
+/**
+ * Obstacle-edge lanes closest to the route's midpoint. Only the nearest
+ * `MAX_OBSTACLE_LANES` are kept: every lane is a scored candidate, and on
+ * large diagrams lanes far away are long detours that the outer dogleg
+ * candidates already cover, so scanning all of them made per-edge routing
+ * grow with the whole diagram.
+ */
+const MAX_OBSTACLE_LANES = 32;
+
 function sortedUniqueLanes(
 	lanes: readonly number[],
 	midpoint: number,
+	limit = Number.POSITIVE_INFINITY,
 ): number[] {
 	return [...new Set(lanes)]
 		.filter((lane) => Number.isFinite(lane))
 		.sort((left, right) => {
 			const distance = Math.abs(left - midpoint) - Math.abs(right - midpoint);
 			return distance === 0 ? left - right : distance;
-		});
+		})
+		.slice(0, limit);
 }
 
 function routeIntersectsObstacles(
@@ -2452,6 +2736,36 @@ function routeIntersectsObstacles(
 	obstacles: readonly Box[],
 	spatialIndex?: BoxSpatialIndex,
 ): boolean {
+	validateObstacleList(obstacles);
+	if (spatialIndex === undefined && obstacles.length > 16) {
+		const grid = obstacleGrid(obstacles);
+		for (let pointIndex = 0; pointIndex + 1 < points.length; pointIndex += 1) {
+			const a = points[pointIndex];
+			const b = points[pointIndex + 1];
+			if (a === undefined || b === undefined) continue;
+			const segment = segmentBox(a, b);
+			let hit = false;
+			gridCandidates(
+				grid,
+				segment.x,
+				segment.y,
+				segment.x + segment.width,
+				segment.y + segment.height,
+				(index) => {
+					const obstacle = obstacles[index];
+					if (
+						!hit &&
+						obstacle !== undefined &&
+						intersectsAabb(segment, obstacle)
+					) {
+						hit = true;
+					}
+				},
+			);
+			if (hit) return true;
+		}
+		return false;
+	}
 	for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
 		const a = points[pointIndex];
 		const b = points[pointIndex + 1];
@@ -2466,7 +2780,6 @@ function routeIntersectsObstacles(
 			b,
 			spatialIndex,
 		)) {
-			validateBox(obstacle);
 			if (intersectsAabb(segment, obstacle)) {
 				return true;
 			}

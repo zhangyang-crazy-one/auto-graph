@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { parseDocument } from "yaml";
+import { expandView, isViewDocument } from "../views/index.js";
 import { createParseDiagnostic, sortDslDiagnostics } from "./diagnostics.js";
 import { parseEdgeShorthand } from "./edges.js";
 import { validateDiagramDsl } from "./schema.js";
@@ -34,7 +35,20 @@ export function parseDiagramDsl(
 		return { diagnostics: sortDslDiagnostics(parsed.diagnostics) };
 	}
 
-	const expanded = expandEdgeShorthand(parsed.value);
+	// A `view:` document is expanded into the DSL first (see src/views).
+	const view = isViewDocument(parsed.value)
+		? expandView(parsed.value)
+		: { value: parsed.value, diagnostics: [] };
+	if (view.value === undefined || hasErrorDiagnostics(view.diagnostics)) {
+		return {
+			diagnostics: sortDslDiagnostics([
+				...parsed.diagnostics,
+				...view.diagnostics,
+			]),
+		};
+	}
+
+	const expanded = expandEdgeShorthand(view.value);
 	if (hasErrorDiagnostics(expanded.diagnostics)) {
 		return { diagnostics: sortDslDiagnostics(expanded.diagnostics) };
 	}
@@ -45,7 +59,44 @@ export function parseDiagramDsl(
 		value: validated.value,
 		diagnostics: sortDslDiagnostics([
 			...parsed.diagnostics,
+			...view.diagnostics,
 			...validated.diagnostics,
+		]),
+	};
+}
+
+/**
+ * Parse a `view:` document and expand it into the diagram DSL it stands
+ * for, without validating or solving it — to show or hand-edit what a view
+ * produces.
+ */
+export function expandViewSource(
+	source: string,
+	options: ParseDiagramDslOptions = {},
+): { value?: Record<string, unknown>; diagnostics: DslDiagnostic[] } {
+	const parsed = parseSource(source, options);
+	if (parsed.value === undefined || hasErrorDiagnostics(parsed.diagnostics)) {
+		return { diagnostics: sortDslDiagnostics(parsed.diagnostics) };
+	}
+	if (!isViewDocument(parsed.value)) {
+		return {
+			diagnostics: [
+				{
+					severity: "error",
+					layer: "view",
+					code: "view.missing",
+					message: "The document has no `view` key.",
+					hint: "Only view documents expand; list them with --list-views.",
+				},
+			],
+		};
+	}
+	const view = expandView(parsed.value);
+	return {
+		...(view.value === undefined ? {} : { value: view.value }),
+		diagnostics: sortDslDiagnostics([
+			...parsed.diagnostics,
+			...view.diagnostics,
 		]),
 	};
 }

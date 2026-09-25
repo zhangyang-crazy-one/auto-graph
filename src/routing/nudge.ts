@@ -54,9 +54,17 @@ export interface EdgeSeparationOptions {
 	 * route, keeping a `minStub` piece at the port (default false).
 	 */
 	splitEnds?: boolean;
+	/**
+	 * Weight of a hit on each obstacle (default 1). Nodes get a large
+	 * weight so no move trades a label or group graze for a node hit.
+	 */
+	obstacleWeights?: readonly number[];
 }
 
 type Orientation = "v" | "h";
+
+/** Hit weights of the per-route obstacle lists built by `separateParallelSegments`. */
+const OBSTACLE_WEIGHTS = new WeakMap<readonly Box[], readonly number[]>();
 
 interface MovableSegment {
 	routeIndex: number;
@@ -83,11 +91,26 @@ export function separateParallelSegments(
 	const minStub = Math.max(1, options.minStub ?? 10);
 	const maxPasses = Math.max(1, options.maxPasses ?? 2);
 	const points = routes.map((route) => compact(route.points));
-	const routeObstacles = routes.map((route) =>
-		route.ignoreObstacles === undefined || route.ignoreObstacles.size === 0
-			? obstacles
-			: obstacles.filter((_, index) => !route.ignoreObstacles?.has(index)),
-	);
+	const weights = options.obstacleWeights;
+	const routeObstacles = routes.map((route) => {
+		if (
+			route.ignoreObstacles === undefined ||
+			route.ignoreObstacles.size === 0
+		) {
+			if (weights !== undefined) OBSTACLE_WEIGHTS.set(obstacles, weights);
+			return obstacles;
+		}
+		const kept = obstacles.filter(
+			(_, index) => !route.ignoreObstacles?.has(index),
+		);
+		if (weights !== undefined) {
+			OBSTACLE_WEIGHTS.set(
+				kept,
+				weights.filter((_, index) => !route.ignoreObstacles?.has(index)),
+			);
+		}
+		return kept;
+	});
 	const movable = routes.map(
 		(route, index) => route.fixed !== true && isOrthogonal(points[index] ?? []),
 	);
@@ -145,6 +168,14 @@ export function separateParallelSegments(
 			}
 		}
 		if (!moved) break;
+	}
+
+	if (passes > 0) {
+		reduceCrossings(points, movable, routeObstacles, {
+			spacing,
+			clearance,
+			minStub,
+		});
 	}
 
 	escapeObstacles(
@@ -310,6 +341,227 @@ function splitCollinearEnds(
 	}
 }
 
+/**
+ * Crossing reduction by local search over interior segments (trunks).
+ * Bundles only reorder collinear segments; trunks at different
+ * coordinates of one channel can also be in a crossing-heavy order. Each
+ * trunk may move to another coordinate inside its free channel (next to
+ * another trunk, or a channel end), and two trunks may swap coordinates
+ * when each fits the other's channel. A move is kept only when it strictly
+ * lowers the crossings of the routes involved, keeps `spacing` from
+ * parallel trunks it overlaps, and adds no obstacle hit. Deterministic:
+ * trunks in route/segment order, candidates nearest first.
+ */
+const MAX_CROSSING_PASSES = 3;
+
+function reduceCrossings(
+	points: Point[][],
+	movable: readonly boolean[],
+	routeObstacles: readonly (readonly Box[])[],
+	config: { spacing: number; clearance: number; minStub: number },
+): void {
+	const channelConfig = {
+		clearance: config.clearance / 2,
+		minStub: config.minStub,
+	};
+	// Committed segments by grid cell: a conflict count only visits the
+	// segments near the ones it tests (route bounding boxes are too coarse,
+	// long routes span most of a large diagram).
+	const grid = new SegmentGrid(points);
+	const conflictsOf = (routeIndex: number, route: readonly Point[]) =>
+		grid.conflicts(routeIndex, route, 0, route.length - 2);
+	// Conflict counts of the committed routes, valid until the next commit
+	// (a commit changes the counts of every route it touches).
+	let conflictCache = new Map<number, number>();
+	const currentConflicts = (routeIndex: number) => {
+		const cached = conflictCache.get(routeIndex);
+		if (cached !== undefined) return cached;
+		const count = conflictsOf(routeIndex, points[routeIndex] ?? []);
+		conflictCache.set(routeIndex, count);
+		return count;
+	};
+	/** Conflicts of segments `first..last` of `route` with every other route. */
+	const localConflicts = (
+		routeIndex: number,
+		route: readonly Point[],
+		first: number,
+		last: number,
+	) => grid.conflicts(routeIndex, route, first, last);
+	const commit = (routeIndex: number, route: Point[]) => {
+		grid.remove(routeIndex);
+		points[routeIndex] = route;
+		grid.insert(routeIndex);
+		conflictCache = new Map();
+		channelCache = new Map();
+	};
+	// Channels of the committed routes' segments, valid until the next commit.
+	let channelCache = new Map<string, [number, number]>();
+	const channelOf = (
+		segment: MovableSegment,
+		obstacles: readonly Box[],
+	): [number, number] => {
+		const key = `${segment.routeIndex}:${segment.index}`;
+		const cached = channelCache.get(key);
+		if (cached !== undefined) return cached;
+		const channel = segmentChannel(segment, points, obstacles, channelConfig);
+		channelCache.set(key, channel);
+		return channel;
+	};
+	const moved = (segment: MovableSegment, coord: number): Point[] => {
+		const route = (points[segment.routeIndex] ?? []).map((point) => ({
+			...point,
+		}));
+		const start = route[segment.index];
+		const end = route[segment.index + 1];
+		if (start !== undefined && end !== undefined) {
+			if (segment.orientation === "v") {
+				start.x = coord;
+				end.x = coord;
+			} else {
+				start.y = coord;
+				end.y = coord;
+			}
+		}
+		return route;
+	};
+	const crowded = (
+		segment: MovableSegment,
+		coord: number,
+		others: readonly MovableSegment[],
+	) =>
+		others.some(
+			(other) =>
+				!(
+					other.routeIndex === segment.routeIndex &&
+					other.index === segment.index
+				) &&
+				Math.min(other.max, segment.max) - Math.max(other.min, segment.min) >
+					EPSILON &&
+				Math.abs(other.coord - coord) < config.spacing - EPSILON,
+		);
+
+	for (let pass = 0; pass < MAX_CROSSING_PASSES; pass += 1) {
+		let improved = false;
+		for (const orientation of ["v", "h"] as const) {
+			// Single-trunk moves.
+			for (const initial of collectMovableSegments(
+				points,
+				movable,
+				orientation,
+			)) {
+				const segment = refreshSegment(points, initial);
+				if (segment === undefined) continue;
+				const route = points[segment.routeIndex] ?? [];
+				const before = currentConflicts(segment.routeIndex);
+				if (before === 0) continue;
+				const obstacles = routeObstacles[segment.routeIndex] ?? [];
+				const [low, high] = segmentChannel(
+					segment,
+					points,
+					obstacles,
+					channelConfig,
+				);
+				const others = collectMovableSegments(points, movable, orientation);
+				const candidates = [
+					...new Set(
+						[
+							low,
+							high,
+							...others.flatMap((other) => [
+								other.coord - config.spacing,
+								other.coord + config.spacing,
+							]),
+						].filter(
+							(coord) =>
+								Number.isFinite(coord) &&
+								coord >= low - 1e-9 &&
+								coord <= high + 1e-9 &&
+								Math.abs(coord - segment.coord) > EPSILON,
+						),
+					),
+				].sort(
+					(a, b) =>
+						Math.abs(a - segment.coord) - Math.abs(b - segment.coord) || a - b,
+				);
+				// A move changes only the trunk and its two neighbours, and both
+				// scores sum over segments: compare just those segments.
+				const first = Math.max(0, segment.index - 1);
+				const last = Math.min(route.length - 2, segment.index + 1);
+				const hitsBefore = countObstacleHits(route, obstacles, first, last);
+				const localBefore = localConflicts(
+					segment.routeIndex,
+					route,
+					first,
+					last,
+				);
+				for (const coord of candidates) {
+					if (crowded(segment, coord, others)) continue;
+					const trial = moved(segment, coord);
+					if (countObstacleHits(trial, obstacles, first, last) > hitsBefore) {
+						continue;
+					}
+					if (
+						localConflicts(segment.routeIndex, trial, first, last) >=
+						localBefore
+					) {
+						continue;
+					}
+					commit(segment.routeIndex, trial);
+					improved = true;
+					break;
+				}
+			}
+			// Pairwise swaps.
+			const trunks = collectMovableSegments(points, movable, orientation);
+			for (let i = 0; i < trunks.length; i += 1) {
+				for (let j = i + 1; j < trunks.length; j += 1) {
+					const a = refreshSegment(points, trunks[i] as MovableSegment);
+					const b = refreshSegment(points, trunks[j] as MovableSegment);
+					if (a === undefined || b === undefined) continue;
+					if (a.routeIndex === b.routeIndex) continue;
+					if (Math.abs(a.coord - b.coord) <= EPSILON) continue;
+					const obstaclesA = routeObstacles[a.routeIndex] ?? [];
+					const obstaclesB = routeObstacles[b.routeIndex] ?? [];
+					const [lowA, highA] = channelOf(a, obstaclesA);
+					if (b.coord < lowA || b.coord > highA) continue;
+					const [lowB, highB] = channelOf(b, obstaclesB);
+					if (a.coord < lowB || a.coord > highB) continue;
+					const routeA = points[a.routeIndex] ?? [];
+					const routeB = points[b.routeIndex] ?? [];
+					const before =
+						currentConflicts(a.routeIndex) +
+						currentConflicts(b.routeIndex) -
+						countConflicts(routeA, routeB);
+					if (before === 0) continue;
+					const trialA = moved(a, b.coord);
+					const trialB = moved(b, a.coord);
+					if (
+						countObstacleHits(trialA, obstaclesA) >
+							countObstacleHits(routeA, obstaclesA) ||
+						countObstacleHits(trialB, obstaclesB) >
+							countObstacleHits(routeB, obstaclesB)
+					) {
+						continue;
+					}
+					commit(a.routeIndex, trialA);
+					commit(b.routeIndex, trialB);
+					const after =
+						conflictsOf(a.routeIndex, trialA) +
+						conflictsOf(b.routeIndex, trialB) -
+						countConflicts(trialA, trialB);
+					if (after < before) {
+						improved = true;
+					} else {
+						commit(a.routeIndex, routeA);
+						commit(b.routeIndex, routeB);
+					}
+				}
+			}
+		}
+		if (!improved) break;
+	}
+}
+
 /** Coordinate range that keeps both neighbouring segments' directions. */
 function neighbourBounds(
 	segment: MovableSegment,
@@ -419,15 +671,83 @@ function applyBundle(
 		]),
 	);
 
+	// Only the members' trunks and their neighbouring segments move, and
+	// only inside the channel: count conflicts for those segments, against
+	// routes that reach the region they can move in. What the other
+	// segments contribute is the same for every order, and the search only
+	// compares orders.
+	const slotLow = Math.min(...slots);
+	const slotHigh = Math.max(...slots);
+	const changedSegments = new Map<number, number[]>();
+	const nearbyRoutes = new Map<number, number[]>();
+	const memberRoutes = new Set(memberRouteIndexes);
+	for (const routeIndex of memberRouteIndexes) {
+		const route = points[routeIndex] ?? [];
+		const changed = new Set<number>();
+		let minX = Number.POSITIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
+		let maxX = Number.NEGATIVE_INFINITY;
+		let maxY = Number.NEGATIVE_INFINITY;
+		for (const member of members) {
+			if (member.routeIndex !== routeIndex) continue;
+			for (
+				let index = member.index - 1;
+				index <= member.index + 1;
+				index += 1
+			) {
+				if (index < 0 || index + 1 >= route.length) continue;
+				changed.add(index);
+				for (const point of [route[index], route[index + 1]]) {
+					if (point === undefined) continue;
+					minX = Math.min(minX, point.x);
+					maxX = Math.max(maxX, point.x);
+					minY = Math.min(minY, point.y);
+					maxY = Math.max(maxY, point.y);
+				}
+			}
+			if (member.orientation === "v") {
+				minX = Math.min(minX, slotLow);
+				maxX = Math.max(maxX, slotHigh);
+			} else {
+				minY = Math.min(minY, slotLow);
+				maxY = Math.max(maxY, slotHigh);
+			}
+		}
+		changedSegments.set(
+			routeIndex,
+			[...changed].sort((a, b) => a - b),
+		);
+		const nearby: number[] = [];
+		for (let other = 0; other < points.length; other += 1) {
+			if (memberRoutes.has(other)) continue;
+			const box = routeBox(points[other] ?? []);
+			if (
+				box.maxX < minX - 1 ||
+				box.minX > maxX + 1 ||
+				box.maxY < minY - 1 ||
+				box.minY > maxY + 1
+			) {
+				continue;
+			}
+			nearby.push(other);
+		}
+		nearbyRoutes.set(routeIndex, nearby);
+	}
 	const evaluate = (order: readonly number[]): number => {
 		const trial = applyOrder(points, members, order, slots);
 		let crossings = 0;
 		for (const routeIndex of memberRouteIndexes) {
 			const route = trial.get(routeIndex) ?? points[routeIndex] ?? [];
-			for (let other = 0; other < points.length; other += 1) {
-				if (other === routeIndex) continue;
-				// Count each member pair once.
-				if (trial.has(other) && other < routeIndex) continue;
+			const changed = changedSegments.get(routeIndex) ?? [];
+			for (const other of nearbyRoutes.get(routeIndex) ?? []) {
+				const otherRoute = points[other] ?? [];
+				for (const index of changed) {
+					crossings += countConflicts(route, otherRoute, index, index);
+				}
+			}
+			// Member pairs both move: count them in full, once.
+			for (const other of memberRouteIndexes) {
+				if (other <= routeIndex) continue;
 				const otherRoute = trial.get(other) ?? points[other] ?? [];
 				crossings += countConflicts(route, otherRoute);
 			}
@@ -473,6 +793,25 @@ function applyBundle(
 		points[routeIndex] = route;
 	}
 	return changed;
+}
+
+function routeBox(route: readonly Point[]): {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+} {
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	for (const point of route) {
+		if (point.x < minX) minX = point.x;
+		if (point.x > maxX) maxX = point.x;
+		if (point.y < minY) minY = point.y;
+		if (point.y > maxY) maxY = point.y;
+	}
+	return { minX, minY, maxX, maxY };
 }
 
 function applyOrder(
@@ -754,9 +1093,111 @@ function clusterSegments(
 }
 
 /** Proper crossings plus collinear overlaps between two orthogonal polylines. */
-function countConflicts(a: readonly Point[], b: readonly Point[]): number {
+/** Grid cell size of `SegmentGrid` (px). */
+const SEGMENT_CELL = 128;
+
+/**
+ * Uniform grid over the segments of a set of routes (boxes padded by 1 px,
+ * the reach of `segmentsOverlap`, so no conflicting pair is missed).
+ * `remove` / `insert` keep it in step when a route is replaced.
+ */
+class SegmentGrid {
+	private readonly cells = new Map<string, number[]>();
+	private readonly routeKeys: string[][] = [];
+
+	constructor(private readonly points: readonly (readonly Point[])[]) {
+		for (let route = 0; route < points.length; route += 1) this.insert(route);
+	}
+
+	insert(routeIndex: number): void {
+		const route = this.points[routeIndex] ?? [];
+		const keys: string[] = [];
+		for (let index = 0; index + 1 < route.length; index += 1) {
+			const a = route[index] as Point;
+			const b = route[index + 1] as Point;
+			this.visitCells(a, b, (key) => {
+				const list = this.cells.get(key);
+				if (list === undefined) this.cells.set(key, [routeIndex, index]);
+				else list.push(routeIndex, index);
+				keys.push(key);
+			});
+		}
+		this.routeKeys[routeIndex] = keys;
+	}
+
+	remove(routeIndex: number): void {
+		for (const key of new Set(this.routeKeys[routeIndex] ?? [])) {
+			const list = this.cells.get(key);
+			if (list === undefined) continue;
+			const kept: number[] = [];
+			for (let k = 0; k < list.length; k += 2) {
+				if (list[k] !== routeIndex)
+					kept.push(list[k] as number, list[k + 1] as number);
+			}
+			this.cells.set(key, kept);
+		}
+		this.routeKeys[routeIndex] = [];
+	}
+
+	/** Crossings and overlaps of segments `first..last` of `route` with every other route. */
+	conflicts(
+		routeIndex: number,
+		route: readonly Point[],
+		first: number,
+		last: number,
+	): number {
+		let total = 0;
+		const seen = new Set<number>();
+		for (let i = first; i <= last && i + 1 < route.length; i += 1) {
+			const a0 = route[i] as Point;
+			const a1 = route[i + 1] as Point;
+			seen.clear();
+			this.visitCells(a0, a1, (key) => {
+				const list = this.cells.get(key);
+				if (list === undefined) return;
+				for (let k = 0; k < list.length; k += 2) {
+					const other = list[k] as number;
+					if (other === routeIndex) continue;
+					const j = list[k + 1] as number;
+					const pair = other * 65536 + j;
+					if (seen.has(pair)) continue;
+					seen.add(pair);
+					const b = this.points[other];
+					const b0 = b?.[j];
+					const b1 = b?.[j + 1];
+					if (b0 === undefined || b1 === undefined) continue;
+					if (
+						segmentsCross(a0, a1, b0, b1) ||
+						segmentsOverlap(a0, a1, b0, b1)
+					) {
+						total += 1;
+					}
+				}
+			});
+		}
+		return total;
+	}
+
+	private visitCells(a: Point, b: Point, visit: (key: string) => void): void {
+		const x0 = Math.floor((Math.min(a.x, b.x) - 1) / SEGMENT_CELL);
+		const x1 = Math.floor((Math.max(a.x, b.x) + 1) / SEGMENT_CELL);
+		const y0 = Math.floor((Math.min(a.y, b.y) - 1) / SEGMENT_CELL);
+		const y1 = Math.floor((Math.max(a.y, b.y) + 1) / SEGMENT_CELL);
+		for (let cx = x0; cx <= x1; cx += 1) {
+			for (let cy = y0; cy <= y1; cy += 1) visit(`${cx},${cy}`);
+		}
+	}
+}
+
+/** Crossings and overlaps between segments `first..last` of `a` and `b`. */
+function countConflicts(
+	a: readonly Point[],
+	b: readonly Point[],
+	first = 0,
+	last = a.length - 2,
+): number {
 	let conflicts = 0;
-	for (let i = 0; i + 1 < a.length; i += 1) {
+	for (let i = first; i <= last && i + 1 < a.length; i += 1) {
 		const a0 = a[i];
 		const a1 = a[i + 1];
 		if (a0 === undefined || a1 === undefined) continue;
@@ -829,20 +1270,89 @@ function rangeOverlap(a0: number, a1: number, b0: number, b1: number): number {
 	);
 }
 
+/** Obstacle interiors entered by segments `first..last` of the route. */
 function countObstacleHits(
 	route: readonly Point[],
 	obstacles: readonly Box[],
+	first = 0,
+	last = route.length - 2,
 ): number {
+	const weights = OBSTACLE_WEIGHTS.get(obstacles);
 	let hits = 0;
-	for (let index = 0; index + 1 < route.length; index += 1) {
+	if (obstacles.length <= OBSTACLE_GRID_MIN) {
+		for (
+			let index = first;
+			index <= last && index + 1 < route.length;
+			index += 1
+		) {
+			const start = route[index];
+			const end = route[index + 1];
+			if (start === undefined || end === undefined) continue;
+			for (let k = 0; k < obstacles.length; k += 1) {
+				if (segmentEntersBoxInterior(start, end, obstacles[k] as Box)) {
+					hits += weights?.[k] ?? 1;
+				}
+			}
+		}
+		return hits;
+	}
+	const grid = obstacleGrid(obstacles);
+	const seen = new Set<number>();
+	for (
+		let index = first;
+		index <= last && index + 1 < route.length;
+		index += 1
+	) {
 		const start = route[index];
 		const end = route[index + 1];
 		if (start === undefined || end === undefined) continue;
-		for (const box of obstacles) {
-			if (segmentEntersBoxInterior(start, end, box)) hits += 1;
+		seen.clear();
+		const x0 = Math.floor(Math.min(start.x, end.x) / OBSTACLE_CELL);
+		const x1 = Math.floor(Math.max(start.x, end.x) / OBSTACLE_CELL);
+		const y0 = Math.floor(Math.min(start.y, end.y) / OBSTACLE_CELL);
+		const y1 = Math.floor(Math.max(start.y, end.y) / OBSTACLE_CELL);
+		for (let cx = x0; cx <= x1; cx += 1) {
+			for (let cy = y0; cy <= y1; cy += 1) {
+				for (const k of grid.get(`${cx},${cy}`) ?? []) {
+					if (seen.has(k)) continue;
+					seen.add(k);
+					if (segmentEntersBoxInterior(start, end, obstacles[k] as Box)) {
+						hits += weights?.[k] ?? 1;
+					}
+				}
+			}
 		}
 	}
 	return hits;
+}
+
+/** Obstacle lists at most this long are scanned; longer ones are indexed. */
+const OBSTACLE_GRID_MIN = 24;
+/** Cell size of the obstacle grid (px). */
+const OBSTACLE_CELL = 128;
+const OBSTACLE_GRIDS = new WeakMap<readonly Box[], Map<string, number[]>>();
+
+/** Obstacle indexes by grid cell, built once per obstacle list. */
+function obstacleGrid(obstacles: readonly Box[]): Map<string, number[]> {
+	const cached = OBSTACLE_GRIDS.get(obstacles);
+	if (cached !== undefined) return cached;
+	const grid = new Map<string, number[]>();
+	obstacles.forEach((box, k) => {
+		const x0 = Math.floor(box.x / OBSTACLE_CELL);
+		const x1 = Math.floor((box.x + box.width) / OBSTACLE_CELL);
+		const y0 = Math.floor(box.y / OBSTACLE_CELL);
+		const y1 = Math.floor((box.y + box.height) / OBSTACLE_CELL);
+		for (let cx = x0; cx <= x1; cx += 1) {
+			for (let cy = y0; cy <= y1; cy += 1) {
+				const key = `${cx},${cy}`;
+				const list = grid.get(key);
+				if (list === undefined) grid.set(key, [k]);
+				else list.push(k);
+			}
+		}
+	});
+	OBSTACLE_GRIDS.set(obstacles, grid);
+	return grid;
 }
 
 function segmentEntersBoxInterior(start: Point, end: Point, box: Box): boolean {
