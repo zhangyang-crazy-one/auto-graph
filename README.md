@@ -129,6 +129,8 @@ layout:
 
 Explicit `constraints` still apply after the layout. `test/fixtures/benchmark/layout-baseline.md` compares both modes on the benchmark set.
 
+`test/fixtures/benchmark/elk-comparison.md` compares the global layout with ELK layered on identical input (same fitted node sizes, hierarchy, paddings and edge-label sizes; `DGE_ELK=1 npx vitest run test/benchmark/elk-comparison.test.ts`). Both keep every hard metric at 0 on the set. DGE draws far fewer crossings once groups or lanes are involved (about half at 300 nodes) and is faster there; ELK needs fewer bends and much less area on large plain graphs.
+
 ### Incremental stability
 
 Editing a diagram should not reshuffle it. Pass the previous solved version and a small edit stays a small change in the picture:
