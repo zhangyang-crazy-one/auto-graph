@@ -128,6 +128,12 @@ export function renderDiagramDsl(
 		...(options.textMeasurer === undefined
 			? {}
 			: { textMeasurer: options.textMeasurer }),
+		...(options.previousLayout === undefined
+			? {}
+			: { previousLayout: options.previousLayout }),
+		...(options.stabilityWeight === undefined
+			? {}
+			: { stabilityWeight: options.stabilityWeight }),
 	});
 	const solveDiagnostics = solved.diagnostics.map(toSolveDiagnostic);
 	if (hasErrorDiagnostics(solveDiagnostics)) {

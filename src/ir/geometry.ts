@@ -20,6 +20,16 @@ export interface Size {
 
 export interface Box extends Point, Size {}
 
+/**
+ * A previous solved version of a diagram, used as a stability hint: node
+ * boxes by node id and, optionally, edge routes by edge id (DSL edge ids
+ * are `source-target`, so they survive unrelated edits).
+ */
+export interface PreviousLayout {
+	nodes: ReadonlyMap<string, Box>;
+	edges?: ReadonlyMap<string, readonly Point[]>;
+}
+
 export interface Insets {
 	top: number;
 	right: number;

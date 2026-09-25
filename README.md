@@ -129,6 +129,30 @@ layout:
 
 Explicit `constraints` still apply after the layout. `test/fixtures/benchmark/layout-baseline.md` compares both modes on the benchmark set.
 
+### Incremental stability
+
+Editing a diagram should not reshuffle it. Pass the previous solved version and a small edit stays a small change in the picture:
+
+```bash
+agh --input diagram.yaml --format geometry --output diagram.geometry.json   # once
+# … edit diagram.yaml …
+agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
+```
+
+```ts
+const first = renderDiagramDsl(source);
+const next = renderDiagramDsl(edited, {
+  previousLayout: previousLayoutOf(first.diagram!), // or previousLayoutFromGeometry(json)
+});
+```
+
+- The ordering starts from the previous order (long edges from their old routes) and scores every candidate as *crossings + reversed pairs of surviving nodes*, so it only reorders where that removes more crossings than it disturbs. `--stability <weight>` / `stabilityWeight` (default 1) sets what one reversed pair is worth; raise it to keep more of the old picture.
+- Coordinates are pulled back towards the old positions (per band of a folded layout), so untouched parts stay put.
+- Without a previous layout, an ordering and its mirror image (equally good) are told apart by node order, so re-solving after an edit does not flip the whole diagram upside down.
+- A previous layout makes `auto` pick the global layout; diagrams arranged with `relative-position` constraints keep Dagre. Growing a group or adding a layer still moves what lies downstream — the layering itself changed.
+
+`DGE_STABILITY=1 npx vitest run test/stability` prints how far surviving nodes move after typical edits (add/remove a node, add an edge, relabel), cold versus with the previous layout (`measureLayoutStability`).
+
 ## Dense Routing Controls
 
 Dense, position-preserving diagrams can opt into obstacle-aware routing controls through YAML `routing` metadata. These controls are deterministic and headless; impossible layouts return structured diagnostics instead of relying on visual inspection.
@@ -225,6 +249,7 @@ Recommended operator actions after this contract lands on local fixtures:
 agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
 agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
+agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
 cat diagram.yaml | agh --json
 ```
 

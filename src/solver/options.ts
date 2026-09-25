@@ -5,13 +5,14 @@ import type {
 	PagePolicyOption,
 	RemediationPolicy,
 } from "../ir/diagram.js";
-import type { Insets, Point } from "../ir/geometry.js";
+import type { Insets, Point, PreviousLayout } from "../ir/geometry.js";
 import type { RouteKind } from "../routing/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
 /**
- * `auto` picks `global` for swimlane diagrams and long flows (unless
- * geometry is pinned) and `dagre` otherwise.
+ * `auto` picks `global` for swimlane diagrams, groups, long flows and
+ * solves given a `previousLayout` (unless geometry is pinned) and `dagre`
+ * otherwise.
  */
 export type InitialLayoutMode = "dagre" | "positions" | "global" | "auto";
 
@@ -25,6 +26,21 @@ export interface SolveDiagramOptions {
 	 * `targetAspectRatio` (default 1.6) into bands (default true).
 	 */
 	foldLayout?: boolean;
+	/**
+	 * The previous solved version of this diagram (node boxes and edge
+	 * routes), e.g. `previousLayoutOf(diagram)` or read back from the
+	 * geometry export with `previousLayoutFromGeometry`. The global layout
+	 * keeps the relative order of surviving nodes and edges unless changing
+	 * it removes more crossings than it reorders, so a small edit stays a
+	 * small change in the picture. `auto` layout picks `global` when set.
+	 */
+	previousLayout?: PreviousLayout;
+	/**
+	 * With `previousLayout`: how many edge crossings keeping one pair of
+	 * surviving nodes in their previous order is worth (default 1). Raise it
+	 * to keep more of the previous picture; 0 only seeds from it.
+	 */
+	stabilityWeight?: number;
 	routeKind?: RouteKind;
 	obstacleMargin?: number | Insets;
 	/** When true, compute quality score after solving (Issue #54, 方案 E). */

@@ -22,7 +22,13 @@ import type {
 	NormalizedNode,
 	Swimlane,
 } from "../ir/elements.js";
-import type { Box, Insets, Point, Size } from "../ir/geometry.js";
+import type {
+	Box,
+	Insets,
+	Point,
+	PreviousLayout,
+	Size,
+} from "../ir/geometry.js";
 import type { LabelLayout } from "../ir/label-layout.js";
 import {
 	fitLabel,
@@ -308,6 +314,8 @@ export function resolveAutoLayoutMode(
 		(constraint) => constraint.kind === "relative-position",
 	);
 	if (diagram.groups.length > 0 && !arranged) return "global";
+	// Only the global layout can take the previous layout into account.
+	if (options.previousLayout !== undefined && !arranged) return "global";
 	const steps = longestFlowLength(
 		nodes.map((node) => node.id),
 		edges.map((edge) => ({
@@ -338,10 +346,14 @@ export function runGlobalInitialLayout(input: {
 	declaredEdgeIds?: readonly string[];
 	targetAspectRatio?: number;
 	fold?: boolean;
+	/** Previous solved version of the diagram (stability hint). */
+	previous?: PreviousLayout;
+	stabilityWeight?: number;
 }): InitialLayoutResult {
 	// Dagre only seeds the ordering search. On large diagrams a full Dagre
 	// layout costs more than the whole search; a depth-first order (the kind
-	// of start Dagre's ordering begins from) is linear.
+	// of start Dagre's ordering begins from) is linear. A previous layout
+	// adds its own start in front of these.
 	const dagreSeed = input.nodes.length <= DAGRE_SEED_MAX_NODES;
 	const seed = !dagreSeed
 		? { boxes: undefined, diagnostics: [] }
@@ -411,6 +423,10 @@ export function runGlobalInitialLayout(input: {
 			headerHeight: swimlane.headerHeight ?? 28,
 			padding: swimlane.padding ?? 16,
 		})),
+		...(input.previous === undefined ? {} : { previous: input.previous }),
+		...(input.stabilityWeight === undefined
+			? {}
+			: { stabilityWeight: input.stabilityWeight }),
 		...(seed.boxes === undefined
 			? { depthFirstSeed: true }
 			: { seedBoxes: seed.boxes }),

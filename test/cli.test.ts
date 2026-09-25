@@ -105,6 +105,42 @@ describe("agh CLI contract", () => {
 		expect(io.stderr()).toBe("");
 	});
 
+	it("runCli keeps a layout stable with --previous", async () => {
+		await using workspace = await tempWorkspace();
+		const previousPath = join(workspace.path, "previous.json");
+		const first = memoryIo(VALID_DSL);
+		expect(await runCli(["--format", "geometry"], first.environment)).toBe(0);
+		await writeFile(previousPath, first.stdout(), "utf8");
+
+		const next = memoryIo(VALID_DSL);
+		const exitCode = await runCli(
+			["--format", "geometry", "--previous", previousPath, "--stability", "2"],
+			next.environment,
+		);
+
+		expect(exitCode).toBe(0);
+		expect(next.stderr()).toBe("");
+		expect(JSON.parse(next.stdout()).format).toBe("dge-geometry");
+	});
+
+	it("runCli rejects a --previous file that is not a geometry document", async () => {
+		await using workspace = await tempWorkspace();
+		const previousPath = join(workspace.path, "previous.json");
+		await writeFile(previousPath, '{"format":"other"}', "utf8");
+		const io = memoryIo(VALID_DSL);
+
+		const exitCode = await runCli(["--previous", previousPath], io.environment);
+
+		expect(exitCode).toBe(1);
+		expect(io.stderr()).toContain("io.previous-invalid");
+	});
+
+	it("runCli rejects a negative --stability", async () => {
+		const io = memoryIo(VALID_DSL);
+
+		expect(await runCli(["--stability", "-1"], io.environment)).toBe(2);
+	});
+
 	it("runCli rejects a --font file it cannot load", async () => {
 		const io = memoryIo(VALID_DSL);
 

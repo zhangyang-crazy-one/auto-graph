@@ -250,6 +250,12 @@ export function solveDiagram(
 					...(options.foldLayout === undefined
 						? {}
 						: { fold: options.foldLayout }),
+					...(options.previousLayout === undefined
+						? {}
+						: { previous: options.previousLayout }),
+					...(options.stabilityWeight === undefined
+						? {}
+						: { stabilityWeight: options.stabilityWeight }),
 				})
 			: runInitialLayout({
 					mode: initialLayoutMode,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
-import type { Box, Point } from "../ir/geometry.js";
+import type { Box, Point, PreviousLayout } from "../ir/geometry.js";
 import type {
 	CoordinatedDiagram,
 	CoordinatedEdge,
@@ -8,6 +8,7 @@ import type {
 	EdgeCrossing,
 	SolvedTextAnnotation,
 } from "../ir/index.js";
+import { previousLayoutOf } from "../layout/global/previous.js";
 import { measureLayoutQuality } from "../quality/layout-metrics.js";
 import { computeArrowhead } from "./arrow.js";
 import { labelBackdropBox } from "./label-backdrop.js";
@@ -221,6 +222,27 @@ export type GeometryPathCommand = z.infer<typeof pathCommand>;
 /** JSON Schema (draft 2020-12) of the geometry contract. */
 export function geometryJsonSchema(): Record<string, unknown> {
 	return z.toJSONSchema(geometryDocumentSchema) as Record<string, unknown>;
+}
+
+/**
+ * Read a geometry document (e.g. a previous `--format geometry` output)
+ * back as the previous layout of the next solve.
+ */
+export function previousLayoutFromGeometry(
+	value: unknown,
+): { layout: PreviousLayout } | { error: string } {
+	const parsed = geometryDocumentSchema.safeParse(value);
+	if (!parsed.success) {
+		const issue = parsed.error.issues[0];
+		return {
+			error: `Not a ${GEOMETRY_FORMAT} v${GEOMETRY_VERSION} document${
+				issue === undefined
+					? ""
+					: ` (${issue.path.join(".") || "root"}: ${issue.message})`
+			}.`,
+		};
+	}
+	return { layout: previousLayoutOf(parsed.data) };
 }
 
 /** Radius of the jump arc drawn where an edge passes under another. */

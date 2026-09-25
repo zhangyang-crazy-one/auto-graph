@@ -1,6 +1,6 @@
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
-import type { JsonObject } from "../ir/geometry.js";
+import type { JsonObject, PreviousLayout } from "../ir/geometry.js";
 import type { FontSource } from "../text/index.js";
 import type { TextMeasurer } from "../text/types.js";
 
@@ -47,6 +47,13 @@ export interface RenderDiagramDslOptions {
 	 * (Node), and CJK ones are put first in the CJK font stack.
 	 */
 	fonts?: readonly (string | FontSource)[];
+	/**
+	 * The previous solved version of this diagram (see `previousLayoutOf`,
+	 * `previousLayoutFromGeometry`): keeps the layout stable across edits.
+	 */
+	previousLayout?: PreviousLayout;
+	/** See `SolveDiagramOptions.stabilityWeight`. */
+	stabilityWeight?: number;
 }
 
 export interface RenderDiagramDslResult {

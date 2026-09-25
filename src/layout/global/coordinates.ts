@@ -9,6 +9,7 @@ import type {
 	DiagramDirection,
 	Insets,
 	Point,
+	PreviousLayout,
 	Size,
 } from "../../ir/geometry.js";
 import {
@@ -20,6 +21,7 @@ import {
 } from "./hierarchy.js";
 import { assignLayers, type Layering } from "./layering.js";
 import { orderLayers } from "./ordering.js";
+import { type PreviousHint, previousHint } from "./previous.js";
 import { routeLayeredEdges, sameLayerDetours } from "./routing.js";
 import { seedOrderByDepthFirst, seedOrderFromBoxes } from "./seed.js";
 
@@ -114,6 +116,19 @@ export interface GlobalLayoutInput {
 	seedBoxes?: ReadonlyMap<string, Box>;
 	/** Without seed boxes: add a depth-first order as an extra start. */
 	depthFirstSeed?: boolean;
+	/**
+	 * A previous version of this diagram (stability hint). The ordering
+	 * starts from the previous order and pays for every pair of surviving
+	 * vertices it puts the other way round, so a small edit changes the
+	 * picture locally instead of reshuffling it.
+	 */
+	previous?: PreviousLayout;
+	/**
+	 * With `previous`: crossings one reordered pair of surviving nodes is
+	 * worth (default 1). Higher keeps more of the previous picture at the
+	 * cost of crossings.
+	 */
+	stabilityWeight?: number;
 	options?: GlobalLayoutOptions;
 }
 
@@ -158,6 +173,12 @@ const SEGMENT_WEIGHT_MIXED = 2;
 const SEGMENT_WEIGHT_DUMMY = 8;
 const CONTAINER_TIGHTNESS = 0.05;
 const ORDER_ANCHOR = 0.001;
+/**
+ * Pull of a surviving node towards its previous cross position, against
+ * edge terms of weight 1–8: enough to keep untouched parts in place, too
+ * weak to hold a node away from edges that now pull elsewhere.
+ */
+const PREVIOUS_ANCHOR = 2;
 const EDGE_LABEL_MARGIN = 8;
 const MIN_EMPTY_LANE = 24;
 
@@ -199,8 +220,15 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 			{ source: edge.source, target: edge.target },
 		]),
 	);
-	const seeds =
-		input.seedBoxes !== undefined
+	const previous =
+		input.previous === undefined
+			? undefined
+			: previousHint(input.previous, layering, edgeEndpoints, direction);
+	// The previous order goes first (it wins ties); the usual starts stay,
+	// so a warm solve never scores worse than a cold one.
+	const seeds = [
+		...(previous === undefined ? [] : [previous.seed]),
+		...(input.seedBoxes !== undefined
 			? [
 					seedOrderFromBoxes(
 						layering,
@@ -211,8 +239,15 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 				]
 			: input.depthFirstSeed === true
 				? [seedOrderByDepthFirst(layering)]
-				: [];
-	const ordering = orderLayers(layering, hierarchy, { seeds });
+				: []),
+	];
+	const ordering = orderLayers(layering, hierarchy, {
+		seeds,
+		...(previous === undefined ? {} : { reference: previous.reference }),
+		...(input.stabilityWeight === undefined
+			? {}
+			: { stabilityWeight: input.stabilityWeight }),
+	});
 
 	const insets = containerInsets(input, hierarchy, direction);
 	const minCross = containerMinCross(input, hierarchy, insets, horizontalFlow);
@@ -235,7 +270,7 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		const need = crossSize(edge.labelSize) + 2 * EDGE_LABEL_MARGIN;
 		labelGaps.set(key, Math.max(labelGaps.get(key) ?? 0, need));
 	}
-	const cross = solveCrossAxis({
+	const crossInput = {
 		layering,
 		layers: ordering.layers,
 		hierarchy,
@@ -245,8 +280,20 @@ export function runGlobalLayout(input: GlobalLayoutInput): GlobalLayoutResult {
 		nodeSpacing,
 		edgeSpacing,
 		containerSpacing,
-		labelGap: (u, v) => labelGaps.get([u, v].sort().join("\u0000")) ?? 0,
-	});
+		labelGap: (u: string, v: string) =>
+			labelGaps.get([u, v].sort().join("\u0000")) ?? 0,
+	};
+	let cross = solveCrossAxis(crossInput);
+	if (previous !== undefined) {
+		// Second pass: pull surviving nodes back to where they were. The
+		// layout's frame is free (and a folded previous layout has one per
+		// band), so targets are the old positions shifted by the median
+		// offset of each old band.
+		const targets = previousTargets(previous, layering, cross.positions);
+		if (targets.size > 0) {
+			cross = solveCrossAxis({ ...crossInput, targets });
+		}
+	}
 	if (cross.unsatisfiable > 0) {
 		diagnostics.push({
 			severity: "warning",
@@ -502,6 +549,42 @@ function crossExtentOf(
 		hi = Math.max(hi, right);
 	}
 	return Number.isFinite(lo) ? [lo, hi] : [0, 0];
+}
+
+function previousTargets(
+	previous: PreviousHint,
+	layering: Layering,
+	positions: ReadonlyMap<string, number>,
+): Map<string, number> {
+	const offsets = new Map<number, number[]>();
+	for (const [id, value] of previous.reference) {
+		const vertex = layering.vertices.get(id);
+		const now = positions.get(vertex?.nodeId ?? id);
+		if (vertex === undefined || now === undefined) continue;
+		const band = previous.bandOfLayer[vertex.layer] ?? 0;
+		const list = offsets.get(band) ?? [];
+		list.push(now - value);
+		offsets.set(band, list);
+	}
+	const shift = new Map<number, number>();
+	for (const [band, list] of offsets) {
+		const sorted = [...list].sort((a, b) => a - b);
+		const middle = Math.floor(sorted.length / 2);
+		shift.set(
+			band,
+			sorted.length % 2 === 1
+				? (sorted[middle] as number)
+				: ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2,
+		);
+	}
+	const targets = new Map<string, number>();
+	for (const [id, value] of previous.reference) {
+		const vertex = layering.vertices.get(id);
+		if (vertex === undefined) continue;
+		const band = previous.bandOfLayer[vertex.layer] ?? 0;
+		targets.set(id, value + (shift.get(band) ?? 0));
+	}
+	return targets;
 }
 
 /**
@@ -1005,6 +1088,8 @@ interface CrossAxisInput {
 	containerSpacing: number;
 	/** Room a label on an edge between two nodes of one layer needs. */
 	labelGap?: (u: string, v: string) => number;
+	/** Cross position each vertex is pulled towards (stability hint). */
+	targets?: ReadonlyMap<string, number>;
 }
 
 function solveCrossAxis(input: CrossAxisInput): {
@@ -1237,6 +1322,10 @@ function solveCrossAxis(input: CrossAxisInput): {
 		target,
 		weight: ORDER_ANCHOR,
 	}));
+	for (const [id, target] of input.targets ?? []) {
+		const v = index.get(id);
+		if (v !== undefined) anchors.push({ v, target, weight: PREVIOUS_ANCHOR });
+	}
 
 	const constraints = [...separation.values(), ...equalities];
 	let solved = solveSeparationQp({

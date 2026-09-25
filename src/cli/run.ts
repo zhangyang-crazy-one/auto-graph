@@ -1,9 +1,11 @@
 import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { Command, CommanderError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
 import { renderDiagramDsl } from "../dsl/render.js";
 import type { DslDiagnostic } from "../dsl/types.js";
+import { previousLayoutFromGeometry } from "../exporters/geometry.js";
+import type { PreviousLayout } from "../ir/index.js";
 import {
 	containmentRelations,
 	measureLayoutQuality,
@@ -29,6 +31,8 @@ interface CliOptions {
 	json?: boolean;
 	metrics?: string;
 	font?: string[];
+	previous?: string;
+	stability?: number;
 }
 
 export async function runCli(
@@ -79,8 +83,28 @@ export async function runCli(
 			options.input === undefined
 				? await readStdin(stdin)
 				: await readInputFile(options.input);
+		let previousLayout: PreviousLayout | undefined;
+		if (options.previous !== undefined) {
+			const read = readPreviousLayout(
+				await readInputFile(options.previous),
+				options.previous,
+			);
+			if ("diagnostic" in read) {
+				await writeDiagnostics(
+					stderr,
+					[read.diagnostic],
+					options.json === true,
+				);
+				return 1;
+			}
+			previousLayout = read.layout;
+		}
 		const result = renderDiagramDsl(source, {
 			...(options.input === undefined ? {} : { sourcePath: options.input }),
+			...(previousLayout === undefined ? {} : { previousLayout }),
+			...(options.stability === undefined
+				? {}
+				: { stabilityWeight: options.stability }),
 			...(options.format === undefined ? {} : { format: options.format }),
 			...(options.font === undefined
 				? {}
@@ -143,11 +167,60 @@ function buildCommand(): Command {
 			"Measure with this font file (repeatable; Family=file to name it)",
 			(value: string, previous: string[] = []) => [...previous, value],
 		)
+		.option(
+			"--previous <path>",
+			"Keep the layout stable: a geometry JSON of the previous version (--format geometry)",
+		)
+		.option(
+			"--stability <weight>",
+			"With --previous: crossings one kept node order is worth (default 1)",
+			parseStability,
+		)
 		.option("--json", "Write diagnostics as JSON to stderr")
 		.option(
 			"--metrics <path>",
 			"Write whole-canvas layout quality metrics as JSON to a file",
 		);
+}
+
+function parseStability(value: string): number {
+	const weight = Number(value);
+	if (!Number.isFinite(weight) || weight < 0) {
+		throw new InvalidArgumentError("expected a number >= 0.");
+	}
+	return weight;
+}
+
+function readPreviousLayout(
+	content: string,
+	path: string,
+): { layout: PreviousLayout } | { diagnostic: DslDiagnostic } {
+	let value: unknown;
+	try {
+		value = JSON.parse(content);
+	} catch {
+		return {
+			diagnostic: {
+				severity: "error",
+				layer: "io",
+				code: "io.previous-invalid",
+				message: `${path} is not JSON.`,
+				hint: "Pass a file written with --format geometry.",
+			},
+		};
+	}
+	const read = previousLayoutFromGeometry(value);
+	return "error" in read
+		? {
+				diagnostic: {
+					severity: "error",
+					layer: "io",
+					code: "io.previous-invalid",
+					message: `${path}: ${read.error}`,
+					hint: "Pass a file written with --format geometry.",
+				},
+			}
+		: read;
 }
 
 async function writeDiagnostics(
