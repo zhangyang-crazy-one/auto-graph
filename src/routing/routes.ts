@@ -2503,6 +2503,35 @@ function pushRouteAwayFromObstacles(
 		// Try both sides; when a side's detour runs into other obstacles,
 		// widen it around them and step further out. Fewest hits wins, then
 		// the nearer side.
+		// Detours stay inside the segment's span, so only obstacles overlapping
+		// that span along the segment can block one.
+		const spanLow = Math.min(along, alongEnd);
+		const spanHigh = Math.max(along, alongEnd);
+		const nearby = obstacles.filter((obs) => {
+			const obsLow = horizontal ? obs.x : obs.y;
+			const obsHigh = obsLow + (horizontal ? obs.width : obs.height);
+			return obsHigh > spanLow && obsLow < spanHigh;
+		});
+		const blockersOf = (points: readonly Point[]): Box[] => {
+			let minX = Number.POSITIVE_INFINITY;
+			let maxX = Number.NEGATIVE_INFINITY;
+			let minY = Number.POSITIVE_INFINITY;
+			let maxY = Number.NEGATIVE_INFINITY;
+			for (const point of points) {
+				minX = Math.min(minX, point.x);
+				maxX = Math.max(maxX, point.x);
+				minY = Math.min(minY, point.y);
+				maxY = Math.max(maxY, point.y);
+			}
+			return nearby.filter(
+				(obs) =>
+					obs.x < maxX &&
+					obs.x + obs.width > minX &&
+					obs.y < maxY &&
+					obs.y + obs.height > minY &&
+					routeCrossesBoxes(points, [obs]),
+			);
+		};
 		let best = {
 			side: crossLow - margin,
 			range: span(low, high),
@@ -2513,11 +2542,9 @@ function pushRouteAwayFromObstacles(
 			let from = low;
 			let to = high;
 			let candidate = direction < 0 ? crossLow - margin : crossHigh + margin;
-			for (let step = 0; step <= obstacles.length; step += 1) {
+			for (let step = 0; step < MAX_DETOUR_STEPS; step += 1) {
 				const range = span(from, to);
-				const blocking = obstacles.filter((obs) =>
-					routeCrossesBoxes(detourAt(candidate, range), [obs]),
-				);
+				const blocking = blockersOf(detourAt(candidate, range));
 				const distance = Math.abs(candidate - cross);
 				if (
 					blocking.length < best.hits ||
@@ -2574,6 +2601,9 @@ function pushRouteAwayFromObstacles(
 
 	return improved ? result : null;
 }
+
+/** Outward steps a greedy detour takes past obstacles it runs into. */
+const MAX_DETOUR_STEPS = 8;
 
 function samePoint(a: Point, b: Point): boolean {
 	return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;

@@ -454,6 +454,15 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 		}
 	});
 
+	it("#76: obstacle-avoiding ends do not share points and every crossing is drawn", () => {
+		for (const name of ["AV-1 zones", "OV-5b lanes"]) {
+			const found = evidence(solveDiagram(load(PAGES[name] as string), LEGACY));
+			expect(found.shared, name).toBe(0);
+			expect(found.slotCollisions, name).toBe(0);
+			expect(found.svgHops, name).toBe(found.edgeCrossings);
+		}
+	});
+
 	it("#89: draw.io export carries every crossing as a jump", () => {
 		for (const [name, source] of Object.entries(PAGES)) {
 			const solved = solveDiagram(load(source), RSOP);

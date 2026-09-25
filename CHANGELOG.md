@@ -11,6 +11,9 @@
 - **Hard gate (#95)**: a short-orthogonal route that still enters a foreign node, zone or hard text falls back (non-strict) to a clean obstacle-avoiding route within `maxDetourRatio`; strict pages keep the unsat report.
 - **Label shelves (#93)**: capacity-aware packing inside `pageBounds` (columns, obstacle clearance, no row reuse); leftovers stay inline with `routing.label-shelf.capacity_exhausted`; callout shelves take part in text-collision diagnostics; crowded keys move along their own edge.
 - **No zigzag fallback (#76)**: the greedy obstacle push inserted a single waypoint and produced diagonal zigzags (81 bends on OV-5b); it now makes orthogonal detours around the union of the obstacles it meets.
+- **Obstacle-avoiding ends (#76)**: coincident endpoints are spread for `obstacle-avoiding` pages too, and anonymous ends move off named-port points (ported ends stay put but occupy their point); edge separation keeps clear of end segments there as well.
+- **Every crossing drawable**: when a crossing sits too close to a bend of the jumping edge for the hop glyph, the other edge jumps instead.
+- **Greedy detour speed**: the detour search only tests obstacles within the segment's span and takes at most 8 outward steps (dense acceptance pages back to main's timings).
 
 ### Port equal-division docking (#91) + same-side slots / stubs (#92)
 

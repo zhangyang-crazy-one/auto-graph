@@ -58,11 +58,15 @@ export function detectOrthogonalEdgeCrossings(
 					const key = `${underId}|${overId}|${point.x.toFixed(3)}|${point.y.toFixed(3)}`;
 					if (seen.has(key)) continue;
 					seen.add(key);
+					// The under edge draws the hop: when the crossing sits too
+					// close to a bend of its segment for the glyph, but not of
+					// the other one, the other edge jumps instead.
+					const swap = !fitsGlyph(point, a0, a1) && fitsGlyph(point, b0, b1);
 					crossings.push({
 						x: point.x,
 						y: point.y,
-						underEdgeId: underId,
-						overEdgeId: overId,
+						underEdgeId: swap ? overId : underId,
+						overEdgeId: swap ? underId : overId,
 						style,
 					});
 				}
@@ -77,6 +81,14 @@ export function detectOrthogonalEdgeCrossings(
 		return a.x - b.x || a.y - b.y;
 	});
 	return crossings;
+}
+
+/** A hop glyph centred at `point` fits inside segment `a`–`b`. */
+function fitsGlyph(point: Point, a: Point, b: Point): boolean {
+	return (
+		Math.hypot(point.x - a.x, point.y - a.y) >= EDGE_CROSSING_GLYPH_RADIUS &&
+		Math.hypot(point.x - b.x, point.y - b.y) >= EDGE_CROSSING_GLYPH_RADIUS
+	);
 }
 
 function properSegmentIntersection(

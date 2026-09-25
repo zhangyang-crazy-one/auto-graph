@@ -837,10 +837,11 @@ export function finalizeCoordinatedEdges(
 			),
 		})),
 	];
-	// Border detachment, endpoint spreading and outline snapping belong to
-	// implicit distribution. Obstacle-avoiding / explicit anchorCapacity
-	// pages keep the router's geometry: the strict dense label gate is tuned
-	// against it and extra stubs there create unresolved label crossings.
+	// Border detachment and outline snapping belong to implicit
+	// distribution. Obstacle-avoiding / explicit anchorCapacity pages keep
+	// the router's geometry: the strict dense label gate is tuned against it
+	// and extra stubs there create unresolved label crossings. Endpoint
+	// spreading also runs for obstacle-avoiding pages (#76).
 	// Detach first so every endpoint has its final side before coincident
 	// endpoints on that side are spread apart.
 	// Routes taken from the global layout are final: the post-passes route
@@ -856,14 +857,17 @@ export function finalizeCoordinatedEdges(
 		: free;
 	const detachedById = new Map(detached.map((edge) => [edge.id, edge]));
 	// Layered ends stay put; the others move off them.
-	const spread = implicit
-		? spreadCollidingEndpoints(
-				edges.map((edge) => detachedById.get(edge.id) ?? edge),
-				nodes,
-				obstacles,
-				layered,
-			)
-		: detached;
+	// Coincident ends are spread for obstacle-avoiding pages too (#76):
+	// their tournament picks side slots per edge, so ends can share a point.
+	const spread =
+		implicit || (options.routeKind ?? "orthogonal") === "obstacle-avoiding"
+			? spreadCollidingEndpoints(
+					edges.map((edge) => detachedById.get(edge.id) ?? edge),
+					nodes,
+					obstacles,
+					layered,
+				)
+			: detached;
 	const byId = new Map(spread.map((edge) => [edge.id, edge]));
 	const separated = separateCoordinatedEdges(
 		edges.map((edge) => byId.get(edge.id) ?? edge),
@@ -1221,6 +1225,8 @@ function spreadCollidingEndpoints(
 		side: EndpointSide;
 		/** Coordinate of the route's next turn along the side axis. */
 		heading: number;
+		/** Drawn at a named port: occupies its point but never moves. */
+		pinned: boolean;
 	}
 	const groups = new Map<string, EndpointRef[]>();
 	edges.forEach((edge, edgeIndex) => {
@@ -1246,7 +1252,8 @@ function spreadCollidingEndpoints(
 			const endpoint = role === "source" ? edge.source : edge.target;
 			// An explicit port is drawn at its anchor: several edges may share
 			// it on purpose, and moving them would detach them from the port.
-			if (endpoint.portId !== undefined) continue;
+			// It still occupies its point, so anonymous ends move off it.
+			const pinned = endpoint.portId !== undefined;
 			const nodeId = endpoint.nodeId;
 			const along = horizontal ? end.y : end.x;
 			const key = `${nodeId}|${side}|${Math.round(along)}`;
@@ -1257,13 +1264,15 @@ function spreadCollidingEndpoints(
 				nodeId,
 				side,
 				heading: horizontal ? next.y : next.x,
+				pinned,
 			});
 			groups.set(key, group);
 		}
 	});
 
 	for (const group of groups.values()) {
-		if (group.length < 2) continue;
+		// Only ported ends: they share their port on purpose.
+		if (group.length < 2 || group.every((ref) => ref.pinned)) continue;
 		const first = group[0];
 		if (first === undefined) continue;
 		const geometry = nodes.get(first.nodeId);
@@ -1304,6 +1313,7 @@ function spreadCollidingEndpoints(
 			Math.max(rangeStart, rangeEnd - 2 * halfSpan),
 		);
 		const tryMove = (ref: EndpointRef, t: number): boolean => {
+			if (ref.pinned) return false;
 			if (fixedEdgeIds.has(edges[ref.edgeIndex]?.id ?? "")) return false;
 			const route = routes[ref.edgeIndex] ?? [];
 			const at = ref.role === "source" ? 0 : route.length - 1;
@@ -1363,6 +1373,7 @@ function spreadCollidingEndpoints(
 		const slotStep =
 			stepT > 0 ? stepT : COLLIDING_ENDPOINT_SPACING / sideLength;
 		for (const ref of sorted) {
+			if (ref.pinned) continue;
 			const taken = new Set(
 				sorted.filter((other) => other !== ref).map((other) => key(other)),
 			);
@@ -1531,8 +1542,10 @@ function separateCoordinatedEdges(
 			// End splitting belongs to implicit distribution, like border
 			// detachment: explicit rail/gutter pages keep their port segments.
 			splitEnds: implicitAnchorDistribution(options),
-			// Short-orthogonal end segments are most of the route.
-			lockEnds: routeKind === "short-orthogonal-jumps",
+			// Short-orthogonal and obstacle-avoiding end segments are long.
+			lockEnds:
+				routeKind === "short-orthogonal-jumps" ||
+				routeKind === "obstacle-avoiding",
 			// A node hit outweighs any number of label or group grazes.
 			obstacleWeights: obstacles.map((obstacle) => obstacle.weight ?? 1),
 			...(spacing === undefined ? {} : { spacing }),
