@@ -1,0 +1,17 @@
+view: swimlane
+title: 订单履约
+lanes:
+  customer:
+    label: 客户
+    steps: { order: 下单, pay: 付款, receive: 收货 }
+  shop:
+    label: 商家
+    steps: { check: 库存充足?, ship: 发货 }
+  bank:
+    label: 银行
+    steps: { charge: 扣款, refund: 退款 }
+flow:
+  - order -> check
+  - check -> pay: 是
+  - check -> refund: 否
+  - pay -> charge -> ship -> receive

@@ -1,0 +1,26 @@
+view: architecture
+title: 电商系统架构
+layers:
+  - label: 接入层
+    components:
+      web: { label: Web 商城, kind: client }
+      app: { label: 移动 App, kind: app }
+  - label: 网关
+    components:
+      gateway: { label: API 网关, kind: gateway }
+  - label: 业务服务
+    components:
+      order: 订单服务
+      user: 用户服务
+      pay: 支付服务
+  - label: 数据与中间件
+    components:
+      mysql: { label: MySQL, kind: database }
+      redis: { label: Redis, kind: cache }
+      kafka: { label: Kafka, kind: queue }
+links:
+  - web, app -> gateway: HTTPS
+  - gateway -> order, user, pay
+  - order, user -> mysql
+  - user -> redis
+  - order -.-> kafka: 订单事件

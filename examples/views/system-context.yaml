@@ -1,0 +1,15 @@
+view: system-context
+title: 网上银行 系统上下文
+system: { id: bank, label: 网上银行系统, description: 账户查询与转账 }
+people:
+  customer: { label: 个人客户, description: 持有银行账户 }
+  staff: 客服人员
+externals:
+  core: { label: 核心银行系统, description: 账户与交易记账 }
+  sms: 短信网关
+relations:
+  - customer -> bank: 查询余额、转账
+  - staff -> bank: 处理客户问题
+  - bank -> core: 读写账户
+  - bank -> sms: 发送验证码
+  - sms -> customer: 短信

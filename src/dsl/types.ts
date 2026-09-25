@@ -6,6 +6,7 @@ import type { TextMeasurer } from "../text/types.js";
 
 export type DslDiagnosticLayer =
 	| "parse"
+	| "view"
 	| "validate"
 	| "solve"
 	| "export"

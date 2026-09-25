@@ -8,6 +8,7 @@ const SEVERITY_RANK = new Map([
 
 const LAYER_RANK = new Map<DslDiagnosticLayer, number>([
 	["parse", 0],
+	["view", 0.5],
 	["validate", 1],
 	["solve", 2],
 	["export", 3],

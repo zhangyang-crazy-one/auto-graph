@@ -110,6 +110,53 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## Views
+
+Most diagrams are one of a few kinds. Name the kind with `view:` and write only the content — no shapes, containers, directions or layout settings; the view expands it into the DSL above and checks the rules of that kind. This is the easiest way for a language model to draw a correct diagram.
+
+```yaml
+view: swimlane
+title: 订单履约
+lanes:
+  customer:
+    label: 客户
+    steps: { order: 下单, pay: 付款, receive: 收货 }
+  shop:
+    label: 商家
+    steps: { check: 库存充足?, ship: 发货 }
+flow:
+  - order -> check
+  - check -> pay: 是
+  - check -> order: 否
+  - pay -> ship -> receive
+```
+
+| View | For | Content |
+| --- | --- | --- |
+| `flowchart` | a process of steps and decisions | `steps`, `flow` |
+| `swimlane` | a process across roles or systems | `lanes` (with their `steps`), `flow` |
+| `architecture` | layered system architecture | ordered `layers` of `components` (`kind`: service, client, app, gateway, database, cache, storage, queue, user, external), `links` |
+| `system-context` | one system, its users and neighbouring systems (C4 level 1) | `system`, `people`, `externals`, `relations` |
+| `state` | states of one thing and the events between them | `states`, `transitions` (`[*]` = initial / final), `initial` |
+| `tree` | org charts, breakdowns, taxonomies | `root` as a nested outline: `{ 公司: [财务, { 技术: [前端, 后端] }] }` |
+
+Every view reads the same way:
+
+- Items are `id: label` or `id: { label: …, … }`. A step whose label ends in `?` is a decision; `开始` / `start` and `结束` / `end` are terminals.
+- Relations are arrow strings: `a -> b`, chains `a -> b -> c`, fans `a, b -> c`, dashed `a -.-> b`, labels `a -> b: 是`. An end may be an id or a node's exact label. Flowcharts and state machines create steps written only in the flow.
+- Mistakes come back as diagnostics pointing into the view document, with the fix: `Unknown node "reveiw". Did you mean "review"?`, a decision with one branch, a step without a lane, an unreachable state, a layer no link reaches.
+- `title`, `layout`, `routing` and `output` pass through (e.g. `layout: { direction: LR }` overrides the view's default direction).
+
+```bash
+agh --list-views                       # the views, one line each (--json for data)
+agh --view-example architecture        # a complete example document
+agh --view-schema architecture         # JSON Schema of the view input (for structured output)
+agh --input order.yaml --output order.svg
+agh --input order.yaml --expand        # the full DSL the view produces, to hand-edit
+```
+
+Examples: `examples/views/`. Register your own kind of diagram with `registerView({ id, title, summary, schema, example, expand })`: `schema` is a zod schema of the input, `expand` returns DSL data and reports problems through its context (`context.warn(path, code, message, hint)`).
+
 ## Global Layout
 
 `layout.mode: global` replaces the Dagre seed with a whole-canvas solver for diagrams with groups and swimlanes. Swimlane diagrams and long flows (a chain of at least 6 steps) use it by default, unless they pin geometry with lane boxes, `fixedSwimlaneGeometry` or node positions; set `layout.mode: dagre` to opt out (`layout.mode: auto` is the default).
@@ -253,6 +300,7 @@ agh --input diagram.yaml --format svg --output diagram.svg
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
 agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
+agh --list-views
 cat diagram.yaml | agh --json
 ```
 

@@ -1,0 +1,15 @@
+view: flowchart
+title: 报销审批
+steps:
+  start: 开始
+  submit: 提交报销单
+  check: 金额超过 5000?
+  manager: 部门经理审批
+  finance: 财务审核
+  pay: { label: 打款, type: io }
+  end: 结束
+flow:
+  - start -> submit -> check
+  - check -> manager: 是
+  - check -> finance: 否
+  - manager -> finance -> pay -> end

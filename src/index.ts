@@ -10,3 +10,4 @@ export * from "./routing/index.js";
 export * from "./serialization/index.js";
 export * from "./solver/index.js";
 export * from "./text/index.js";
+export * from "./views/index.js";

@@ -1,0 +1,14 @@
+view: state
+title: 订单状态
+states:
+  created: 待支付
+  paid: 已支付
+  shipped: 已发货
+  done: { label: 已完成, type: final }
+  cancelled: { label: 已取消, type: final }
+transitions:
+  - "[*] -> created"
+  - created -> paid: 支付成功
+  - created -> cancelled: 超时 / 取消
+  - paid -> shipped: 发货
+  - shipped -> done: 确认收货

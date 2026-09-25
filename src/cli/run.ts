@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
+import { stringify } from "yaml";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
+import { expandViewSource } from "../dsl/parse.js";
 import { renderDiagramDsl } from "../dsl/render.js";
 import type { DslDiagnostic } from "../dsl/types.js";
 import { previousLayoutFromGeometry } from "../exporters/geometry.js";
@@ -10,6 +12,7 @@ import {
 	containmentRelations,
 	measureLayoutQuality,
 } from "../quality/index.js";
+import { getView, listViews, viewJsonSchema } from "../views/index.js";
 import {
 	readInputFile,
 	readStdin,
@@ -33,6 +36,10 @@ interface CliOptions {
 	font?: string[];
 	previous?: string;
 	stability?: number;
+	listViews?: boolean;
+	viewExample?: string;
+	viewSchema?: string;
+	expand?: boolean;
 }
 
 export async function runCli(
@@ -55,6 +62,50 @@ export async function runCli(
 	}
 
 	const options = command.opts<CliOptions>();
+
+	// View catalogue: answered without reading a diagram.
+	if (options.listViews === true) {
+		const views = listViews();
+		await writeStdout(
+			stdout,
+			options.json === true
+				? `${JSON.stringify(views, null, 2)}\n`
+				: `${views.map((view) => `${view.id.padEnd(16)} ${view.title} — ${view.summary}`).join("\n")}\n`,
+		);
+		return 0;
+	}
+	for (const [id, kind] of [
+		[options.viewExample, "example"],
+		[options.viewSchema, "schema"],
+	] as const) {
+		if (id === undefined) continue;
+		const view = getView(id);
+		if (view === undefined) {
+			await writeDiagnostics(
+				stderr,
+				[
+					{
+						severity: "error",
+						layer: "view",
+						code: "view.unknown",
+						message: `Unknown view "${id}".`,
+						hint: `Views: ${listViews()
+							.map((summary) => summary.id)
+							.join(", ")}.`,
+					},
+				],
+				options.json === true,
+			);
+			return 2;
+		}
+		await writeStdout(
+			stdout,
+			kind === "example"
+				? view.example
+				: `${JSON.stringify(viewJsonSchema(id), null, 2)}\n`,
+		);
+		return 0;
+	}
 
 	if (
 		options.output !== undefined &&
@@ -83,6 +134,23 @@ export async function runCli(
 			options.input === undefined
 				? await readStdin(stdin)
 				: await readInputFile(options.input);
+		if (options.expand === true) {
+			const expanded = expandViewSource(source, {
+				...(options.input === undefined ? {} : { sourcePath: options.input }),
+			});
+			if (expanded.diagnostics.length > 0) {
+				await writeDiagnostics(
+					stderr,
+					expanded.diagnostics,
+					options.json === true,
+				);
+			}
+			if (expanded.value === undefined) return 1;
+			const content = stringify(expanded.value);
+			if (options.output === undefined) await writeStdout(stdout, content);
+			else await writeFileAtomic(options.output, content);
+			return 0;
+		}
 		let previousLayout: PreviousLayout | undefined;
 		if (options.previous !== undefined) {
 			const read = readPreviousLayout(
@@ -175,6 +243,16 @@ function buildCommand(): Command {
 			"--stability <weight>",
 			"With --previous: crossings one kept node order is worth (default 1)",
 			parseStability,
+		)
+		.option(
+			"--list-views",
+			"List the diagram views (flowchart, swimlane, architecture, …)",
+		)
+		.option("--view-example <view>", "Print an example document for a view")
+		.option("--view-schema <view>", "Print the JSON Schema of a view's input")
+		.option(
+			"--expand",
+			"Write the diagram DSL a view document expands to, instead of rendering",
 		)
 		.option("--json", "Write diagnostics as JSON to stderr")
 		.option(

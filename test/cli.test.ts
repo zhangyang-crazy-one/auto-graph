@@ -141,6 +141,46 @@ describe("agh CLI contract", () => {
 		expect(await runCli(["--stability", "-1"], io.environment)).toBe(2);
 	});
 
+	it("runCli lists views and prints their examples and schemas", async () => {
+		const list = memoryIo();
+		expect(await runCli(["--list-views", "--json"], list.environment)).toBe(0);
+		expect(
+			JSON.parse(list.stdout()).map((view: { id: string }) => view.id),
+		).toContain("swimlane");
+
+		const example = memoryIo();
+		expect(
+			await runCli(["--view-example", "flowchart"], example.environment),
+		).toBe(0);
+		expect(example.stdout()).toMatch(/^view: flowchart/);
+
+		const schema = memoryIo();
+		expect(await runCli(["--view-schema", "tree"], schema.environment)).toBe(0);
+		expect(JSON.parse(schema.stdout()).properties.view.const).toBe("tree");
+
+		const unknown = memoryIo();
+		expect(await runCli(["--view-schema", "nope"], unknown.environment)).toBe(
+			2,
+		);
+		expect(unknown.stderr()).toContain("view.unknown");
+	});
+
+	it("runCli renders a view document and expands it with --expand", async () => {
+		const source = "view: tree\nroot: { 公司: [财务, 技术] }\n";
+		const rendered = memoryIo(source);
+		expect(await runCli(["--format", "svg"], rendered.environment)).toBe(0);
+		expect(rendered.stdout()).toContain("<svg");
+
+		const expanded = memoryIo(source);
+		expect(await runCli(["--expand"], expanded.environment)).toBe(0);
+		expect(expanded.stdout()).toContain("nodes:");
+		expect(expanded.stdout()).not.toContain("view:");
+
+		const plain = memoryIo(VALID_DSL);
+		expect(await runCli(["--expand"], plain.environment)).toBe(1);
+		expect(plain.stderr()).toContain("view.missing");
+	});
+
 	it("runCli rejects a --font file it cannot load", async () => {
 		const io = memoryIo(VALID_DSL);
 
