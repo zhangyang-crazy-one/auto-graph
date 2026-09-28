@@ -571,6 +571,36 @@ it("emits text-specific diagnostics for hard text obstacles", () => {
 	);
 });
 
+it("classifies node plus hard text crossings without claiming evidence", () => {
+	const result = routeEdge({
+		kind: "straight",
+		direction: "LR",
+		source: shape(0, 0),
+		target: shape(280, 180),
+		hardObstacles: [
+			{ x: 0, y: 0, width: 360, height: 220 },
+			{ x: 0, y: 0, width: 360, height: 220 },
+		],
+		hardObstacleMetadata: [
+			{ kind: "node", ownerId: "blocker" },
+			{ kind: "text", ownerId: "edge-a", surfaceKind: "edge-label" },
+		],
+	});
+
+	expect(result.diagnostics).toContainEqual(
+		expect.objectContaining({
+			code: "routing.obstacle.unavoidable",
+			detail: expect.objectContaining({
+				obstacleSource: "mixed",
+				conflictClass: "fixed-geometry-block",
+			}),
+		}),
+	);
+	expect(result.diagnostics).not.toContainEqual(
+		expect.objectContaining({ code: "routing.evidence.crossing_forbidden" }),
+	);
+});
+
 it("dodges obstacles in obstacle-avoiding orthogonal mode", () => {
 	const obstacle = { x: 130, y: 5, width: 80, height: 30 };
 	const result = routeEdge({

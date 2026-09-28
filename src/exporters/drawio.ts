@@ -43,17 +43,34 @@ export function exportDrawio(
 	const annotations = diagram.textAnnotations ?? [];
 	const cells: string[] = [`<mxCell id="0"/>`, `<mxCell id="1" parent="0"/>`];
 	let nextId = 2;
-	const vertex = (value: string, style: string, box: Box): void => {
+	// `value` is draw.io HTML (every style sets html=1): plain text goes
+	// through escapeHtml first, generated markup is passed as is.
+	const vertex = (
+		value: string,
+		style: string,
+		box: Box,
+		parent?: { id: string; box: Box },
+	): void => {
 		const cellId = String(nextId++);
+		// A child's geometry is relative to its parent's origin.
+		const placed =
+			parent === undefined
+				? shift(box)
+				: {
+						x: box.x - parent.box.x,
+						y: box.y - parent.box.y,
+						width: box.width,
+						height: box.height,
+					};
 		cells.push(
-			`<mxCell id="${cellId}" value="${escapeXml(value)}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(shift(box))}</mxCell>`,
+			`<mxCell id="${cellId}" value="${escapeXml(value)}" style="${escapeXml(style)}" vertex="1" parent="${escapeXml(parent?.id ?? "1")}">${geometry(placed)}</mxCell>`,
 		);
 	};
 
 	if (diagram.frame !== undefined) {
 		const frame = diagram.frame;
 		vertex(
-			frame.titleTab,
+			escapeHtml(frame.titleTab),
 			`shape=umlFrame;whiteSpace=wrap;html=1;width=${formatNumber(frame.titleBox.width)};height=${formatNumber(frame.titleBox.height)};`,
 			frame.box,
 		);
@@ -70,7 +87,7 @@ export function exportDrawio(
 			left.id.localeCompare(right.id),
 	)) {
 		vertex(
-			group.label?.text ?? "",
+			escapeHtml(group.label?.text ?? ""),
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
 		);
@@ -91,19 +108,29 @@ export function exportDrawio(
 		vertex(panelHtml(panel), EVIDENCE_STYLE, panel.box);
 	}
 
+	// Ports and their labels are children of their node, so they move with
+	// it (and with the edges pinned to it) when the node is dragged.
 	const nodeCellIds = new Map<string, string>();
+	const portParents = new Map<string, { id: string; box: Box }>();
 	for (const node of diagram.nodes) {
 		const cellId = String(nextId++);
 		nodeCellIds.set(node.id, cellId);
 		cells.push(renderNodeCell(cellId, node, shift(node.box)));
+		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
-			vertex("", portStyle(port.style), port.box);
+			portParents.set(`${node.id}.${port.id}`, parent);
+			vertex("", portStyle(port.style), port.box, parent);
 		}
 	}
 	for (const portLabel of annotations.filter(
 		(annotation) => annotation.surfaceKind === "port-label",
 	)) {
-		vertex(portLabel.text, PORT_LABEL_STYLE, portLabel.box);
+		vertex(
+			escapeHtml(portLabel.text),
+			PORT_LABEL_STYLE,
+			portLabel.box,
+			portParents.get(portLabel.ownerId),
+		);
 	}
 
 	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
@@ -138,7 +165,7 @@ export function exportDrawio(
 							crossing.overEdgeId === edge.id,
 					)
 					.map((crossing) => ({ ...crossing, ...move(crossing) })),
-				label: labelByEdge.get(edge.id)?.text ?? edge.label?.text ?? "",
+				label: edgeLabelHtml(labelByEdge.get(edge.id), edge.label?.text),
 				labelBox: (() => {
 					const box = labelByEdge.get(edge.id)?.box;
 					return box === undefined ? undefined : shift(box);
@@ -208,7 +235,7 @@ function renderNodeCell(
 	].join("");
 	const label = escapeXml(
 		node.compartments === undefined
-			? (node.label?.text ?? node.id)
+			? escapeHtml(node.label?.text ?? node.id)
 			: compartmentHtml(node),
 	);
 	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
@@ -247,7 +274,7 @@ function swimlaneCells(
 		const startSize =
 			header === undefined ? 0 : leftHeader ? header.width : header.height;
 		cells.push({
-			value: lane.label?.text ?? lane.id,
+			value: escapeHtml(lane.label?.text ?? lane.id),
 			style: `swimlane;whiteSpace=wrap;html=1;startSize=${formatNumber(startSize)};${leftHeader ? "horizontal=0;" : ""}`,
 			box: lane.box,
 		});
@@ -369,6 +396,20 @@ function renderEdgeCell(input: {
 	}
 	const terminals = `${input.sourceId === undefined ? "" : ` source="${escapeXml(input.sourceId)}"`}${input.targetId === undefined ? "" : ` target="${escapeXml(input.targetId)}"`}`;
 	return `<mxCell id="${escapeXml(input.cellId)}" value="${escapeXml(input.label)}" style="${escapeXml(styleParts.join(";"))}" edge="1" parent="1"${terminals}><mxGeometry relative="1" as="geometry">${geometryChildren.join("")}</mxGeometry></mxCell>`;
+}
+
+/**
+ * An edge label as draw.io HTML: the solved line breaks kept, so a label
+ * the solver wrapped does not come back as one wide line.
+ */
+function edgeLabelHtml(
+	annotation: SolvedTextAnnotation | undefined,
+	fallback: string | undefined,
+): string {
+	if (annotation === undefined) return escapeHtml(fallback ?? "");
+	return annotation.lines.length > 1
+		? annotation.lines.map((line) => escapeHtml(line.text)).join("<br>")
+		: escapeHtml(annotation.text);
 }
 
 function pointAtHalfLength(points: readonly Point[]): Point | undefined {

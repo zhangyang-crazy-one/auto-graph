@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeDiagramDsl, parseDiagramDsl } from "../src/dsl/index.js";
 import { exportDrawio, exportSvg } from "../src/exporters/index.js";
 import {
 	computeShapeGeometry,
@@ -11,6 +12,7 @@ import {
 	routeEdge,
 } from "../src/routing/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 describe("RSOP Phase-2 soft-text micro-clear (#87)", () => {
 	it("prefers a hard-clear soft-cost path without flyer detours", () => {
@@ -155,6 +157,43 @@ describe("RSOP Phase-3/4 channel tracks + nudge (#88)", () => {
 		expect(
 			new Set(midXs.map((x) => Math.round(x))).size,
 		).toBeGreaterThanOrEqual(2);
+	});
+
+	it("takes rsopChannelNudge and idealNudgingDistance from the DSL", () => {
+		const parsed = parseDiagramDsl(`
+routing: { kind: short-orthogonal-jumps, rsopChannelNudge: true, idealNudgingDistance: 14 }
+nodes: { a: { label: A }, b: { label: B } }
+edges: [a -> b]
+`);
+		const normalized = normalizeDiagramDsl(parsed.value as never, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		expect(normalized.diagnostics).toEqual([]);
+		expect(normalized.diagram?.metadata).toMatchObject({
+			rsopChannelNudge: true,
+			idealNudgingDistance: 14,
+		});
+	});
+
+	it("groups near-coincident channels across a rounding boundary", () => {
+		const edges = [1.9, 2.1].map((x, index) => ({
+			id: `e${index}`,
+			source: { nodeId: `s${index}` },
+			target: { nodeId: `t${index}` },
+			points: [
+				{ x: -100, y: index * 10 },
+				{ x, y: index * 10 },
+				{ x, y: 100 + index * 10 },
+				{ x: 100, y: 100 + index * 10 },
+			],
+		}));
+		const vertical = assignChannelTracks(edges, {
+			idealNudgingDistance: 10,
+		}).assignments.filter((assignment) => assignment.axis === "v");
+		expect(vertical).toHaveLength(2);
+		expect(new Set(vertical.map((assignment) => assignment.track)).size).toBe(
+			2,
+		);
 	});
 
 	it("emits capacity_exhausted when track budget is tiny", () => {

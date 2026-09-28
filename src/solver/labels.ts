@@ -631,6 +631,8 @@ interface ShelfEntry {
 	keyBox: Box;
 	width: number;
 	height: number;
+	/** The inline label this callout replaces (it stays if unplaced). */
+	source?: { box: Box };
 }
 
 /** Unbounded page: one growing column to the right of the drawing. */
@@ -671,58 +673,90 @@ function packShelf(
 	for (let x = first; x >= left - 1e-6; x -= columnWidth + 2 * gap) {
 		columns.push(x);
 	}
-	const blockers: Box[] = [
-		...(shelf.obstacles ?? []),
-		...entries.map((entry) => entry.keyBox),
-	];
-	const placed: (Box | undefined)[] = [];
-	let column = 0;
-	let cursor = top;
-	for (const entry of entries) {
-		let box: Box | undefined;
-		for (let index = column; index < columns.length && !box; index += 1) {
-			const x = columns[index] as number;
-			let y = index === column ? cursor : top;
-			while (y + entry.height <= bottom + 1e-6) {
-				const candidate = { x, y, width: entry.width, height: entry.height };
-				const clash = blockers.filter((blocker) =>
-					boxesOverlap(candidate, blocker, gap),
-				);
-				if (clash.length === 0) {
-					box = candidate;
-					column = index;
-					cursor = y + entry.height + gap;
-					break;
-				}
-				y = Math.max(
-					y + 1,
-					...clash.map((blocker) => blocker.y + blocker.height + gap),
-				);
+	// Labels that find no spot stay inline at full size, so a repack keeps
+	// every callout off them; repeat until no further label drops out.
+	let inline = new Set<number>();
+	let placed = packColumns(inline);
+	for (let pass = 0; pass < entries.length; pass += 1) {
+		const dropped = new Set(
+			placed.flatMap((box, index) => (box === undefined ? [index] : [])),
+		);
+		if ([...dropped].every((index) => inline.has(index))) break;
+		inline = new Set([...inline, ...dropped]);
+		placed = packColumns(inline);
+	}
+	return reportShelfCapacity(placed);
+
+	function packColumns(
+		inlineEntries: ReadonlySet<number>,
+	): (Box | undefined)[] {
+		const blockers: Box[] = [
+			...(shelf.obstacles ?? []),
+			...entries.map((entry, index) =>
+				inlineEntries.has(index) && entry.source !== undefined
+					? entry.source.box
+					: entry.keyBox,
+			),
+		];
+		const placed: (Box | undefined)[] = [];
+		let column = 0;
+		let cursor = top;
+		for (const [entryIndex, entry] of entries.entries()) {
+			if (inlineEntries.has(entryIndex)) {
+				placed.push(undefined);
+				continue;
 			}
+			let box: Box | undefined;
+			for (let index = column; index < columns.length && !box; index += 1) {
+				const x = columns[index] as number;
+				let y = index === column ? cursor : top;
+				while (y + entry.height <= bottom + 1e-6) {
+					const candidate = { x, y, width: entry.width, height: entry.height };
+					const clash = blockers.filter((blocker) =>
+						boxesOverlap(candidate, blocker, gap),
+					);
+					if (clash.length === 0) {
+						box = candidate;
+						column = index;
+						cursor = y + entry.height + gap;
+						break;
+					}
+					y = Math.max(
+						y + 1,
+						...clash.map((blocker) => blocker.y + blocker.height + gap),
+					);
+				}
+			}
+			if (box !== undefined) blockers.push(box);
+			placed.push(box);
 		}
-		if (box !== undefined) blockers.push(box);
-		placed.push(box);
+		return placed;
 	}
-	const missing = placed.filter((box) => box === undefined).length;
-	if (missing > 0) {
-		shelf.diagnostics?.push({
-			severity: "warning",
-			code: "routing.label-shelf.capacity_exhausted",
-			message: `${missing} of ${entries.length} external label callout(s) do not fit on the page without overlapping each other or the diagram; they stay on their edges.`,
-			detail: {
-				labelCount: entries.length,
-				placed: entries.length - missing,
-				requiredHeight: Math.round(
-					entries.reduce((sum, entry) => sum + entry.height + gap, 0),
-				),
-				availableHeight: Math.round(bottom - top),
-				columnCount: columns.length,
-				conflictClass: "label-capacity",
-				remediationType: "external-label-or-split",
-			},
-		});
+
+	function reportShelfCapacity(
+		placed: (Box | undefined)[],
+	): (Box | undefined)[] {
+		const missing = placed.filter((box) => box === undefined).length;
+		if (missing > 0) {
+			shelf.diagnostics?.push({
+				severity: "warning",
+				code: "routing.label-shelf.capacity_exhausted",
+				message: `${missing} of ${entries.length} external label callout(s) do not fit on the page without overlapping each other or the diagram; they stay on their edges.`,
+				detail: {
+					labelCount: entries.length,
+					placed: entries.length - missing,
+					requiredHeight: Math.round(
+						entries.reduce((sum, entry) => sum + entry.height + gap, 0),
+					),
+					availableHeight: Math.round(bottom - top),
+					columnCount: columns.length,
+					conflictClass: "label-capacity",
+					remediationType: "external-label-or-split",
+				},
+			});
+		}
+		return placed;
 	}
-	return placed;
 }
 
 /** Points every `step` px along a polyline (vertices included). */

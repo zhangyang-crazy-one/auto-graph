@@ -3373,6 +3373,30 @@ function hardObstacleFailureDiagnostic(input: {
 			},
 		};
 	}
+	// Foreign nodes and hard text, but no evidence block: a fixed-geometry
+	// block, not an evidence crossing.
+	const nodeAndText =
+		sources.length > 0 &&
+		sources.every((source) => source.kind === "node" || source.kind === "text");
+	if (nodeAndText) {
+		return {
+			severity: "error",
+			code: "routing.obstacle.unavoidable",
+			message:
+				"Short-orthogonal route crosses foreign node and hard text obstacles.",
+			detail: {
+				obstacleSource: "mixed",
+				hardObstacleKinds: kinds.join(","),
+				conflictClass: "fixed-geometry-block",
+				remediationType: "route-rail-or-page-split",
+				ownerIds: stableUniqueStrings(
+					sources
+						.map((source) => source.ownerId)
+						.filter((ownerId): ownerId is string => ownerId !== undefined),
+				).join(","),
+			},
+		};
+	}
 	return {
 		severity: "error",
 		code: "routing.evidence.crossing_forbidden",

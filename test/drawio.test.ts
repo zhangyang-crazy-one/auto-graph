@@ -249,4 +249,77 @@ describe("draw.io export", () => {
 		expect(xml).toContain('x="0" y="100" width="60" height="20"');
 		expect(xml).toContain('x="60" y="120" width="240" height="20"');
 	});
+
+	it("escapes literal label markup for draw.io's HTML labels", () => {
+		const literal = diagram();
+		const node = literal.nodes[0];
+		if (node === undefined) throw new Error("fixture");
+		node.label = { text: "List<T> & a < b" };
+		const xml = exportDrawio(literal);
+		// XML-escaped once for the attribute, HTML-escaped once for html=1.
+		expect(xml).toContain(
+			'value="List&amp;lt;T&amp;gt; &amp;amp; a &amp;lt; b"',
+		);
+	});
+
+	it("parents ports and port labels under their node", () => {
+		const ported = diagram({
+			textAnnotations: [
+				{
+					text: "P",
+					ownerId: "a.p",
+					surfaceKind: "port-label",
+					box: { x: 610, y: 100, width: 10, height: 10 },
+					anchor: { x: 600, y: 120 },
+					paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+					lines: [],
+					fontFamily: "Arial",
+					fontSize: 10,
+				},
+			],
+		});
+		const node = ported.nodes[0];
+		if (node === undefined) throw new Error("fixture");
+		node.ports = [
+			{
+				id: "p",
+				side: "right",
+				kind: "flow",
+				box: { x: 595, y: 115, width: 10, height: 10 },
+				anchor: { x: 600, y: 120 },
+			},
+		];
+		const xml = exportDrawio(ported);
+		const nodeId = /<mxCell id="(\d+)" value="A"/.exec(xml)?.[1];
+		expect(nodeId).toBeDefined();
+		// Port at node-relative (95,15); its label at (110,0).
+		expect(xml).toContain(
+			`parent="${nodeId}"><mxGeometry x="95" y="15" width="10" height="10"`,
+		);
+		expect(xml).toContain(
+			`parent="${nodeId}"><mxGeometry x="110" y="0" width="10" height="10"`,
+		);
+	});
+
+	it("keeps solved edge-label line breaks", () => {
+		const wrapped = diagram({
+			textAnnotations: [
+				{
+					text: "first second",
+					ownerId: "a-b",
+					surfaceKind: "edge-label",
+					box: { x: 680, y: 90, width: 40, height: 28 },
+					anchor: { x: 700, y: 110 },
+					paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+					lines: [
+						{ text: "first", width: 30 },
+						{ text: "second", width: 40 },
+					],
+					fontFamily: "Arial",
+					fontSize: 12,
+				} as never,
+			],
+		});
+		expect(exportDrawio(wrapped)).toContain('value="first&lt;br&gt;second"');
+	});
 });

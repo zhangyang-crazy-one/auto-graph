@@ -48,6 +48,52 @@ describe("port equal-division docking (#91)", () => {
 		}
 	});
 
+	it("keeps a ported end on its port when an explicit anchor disagrees", () => {
+		for (const routeKind of ["orthogonal", "short-orthogonal-jumps"] as const) {
+			const solved = solveDiagram(
+				{
+					id: "port-vs-anchor",
+					direction: "LR",
+					nodes: [
+						{
+							id: "a",
+							shape: "rectangle",
+							size: { width: 80, height: 80 },
+							padding: { top: 8, right: 8, bottom: 8, left: 8 },
+							position: { x: 0, y: 0 },
+							ports: [{ id: "out", side: "right", kind: "flow" }],
+						},
+						{
+							id: "b",
+							shape: "rectangle",
+							size: { width: 80, height: 40 },
+							padding: { top: 8, right: 8, bottom: 8, left: 8 },
+							position: { x: 240, y: 20 },
+						},
+					],
+					edges: [
+						{
+							id: "e",
+							source: { nodeId: "a", portId: "out", anchor: "top" },
+							target: { nodeId: "b" },
+						},
+					],
+					groups: [],
+					constraints: [],
+					diagnostics: [],
+				},
+				{ initialLayout: "positions", routeKind },
+			);
+			const port = solved.nodes[0]?.ports?.[0];
+			const points = solved.edges[0]?.points ?? [];
+			expect(port, routeKind).toBeDefined();
+			expect(points[0], routeKind).toEqual(port?.anchor);
+			// Leaves along the port side's normal (right), not the anchor's.
+			expect(points[1]?.y, routeKind).toBeCloseTo(points[0]?.y ?? Number.NaN);
+			expect(points[1]?.x ?? 0, routeKind).toBeGreaterThan(points[0]?.x ?? 0);
+		}
+	});
+
 	it("keeps two ported edges on distinct same-side landings", () => {
 		const solved = solveDiagram(
 			{

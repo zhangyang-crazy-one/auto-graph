@@ -165,6 +165,12 @@ function normalizeDenseRoutingOptions(
 						spacing: routing.edgeSeparation.spacing,
 					});
 	}
+	if (routing.idealNudgingDistance !== undefined) {
+		options.idealNudgingDistance = routing.idealNudgingDistance;
+	}
+	if (routing.rsopChannelNudge !== undefined) {
+		options.rsopChannelNudge = routing.rsopChannelNudge;
+	}
 	if (routing.railRouting !== undefined) {
 		options.railRouting = routing.railRouting;
 	}

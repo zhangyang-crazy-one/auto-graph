@@ -314,15 +314,18 @@ export function coordinateEdges(
 			portGeometry(target, targetPort),
 			targetDistributedAnchor,
 		);
+		// A named port's side is authoritative: the end is pinned to the
+		// port point, so another anchor would detach it or leave along the
+		// wrong normal.
 		const sourceAnchor =
+			sourcePort?.side ??
 			edge.source.anchor ??
 			sourceDistributedAnchor?.anchor ??
-			sourcePort?.side ??
 			sourceSlot?.anchor;
 		const targetAnchor =
+			targetPort?.side ??
 			edge.target.anchor ??
 			targetDistributedAnchor?.anchor ??
-			targetPort?.side ??
 			targetSlot?.anchor;
 		const sourcePreassign =
 			sourcePort !== undefined
@@ -515,8 +518,8 @@ export function coordinateEdges(
 			(sourceDistributedAnchor !== undefined ||
 				targetDistributedAnchor !== undefined)
 		) {
-			const freeSourceAnchor = edge.source.anchor ?? sourcePort?.side;
-			const freeTargetAnchor = edge.target.anchor ?? targetPort?.side;
+			const freeSourceAnchor = sourcePort?.side ?? edge.source.anchor;
+			const freeTargetAnchor = targetPort?.side ?? edge.target.anchor;
 			const {
 				sourceAnchor: _pinnedSource,
 				targetAnchor: _pinnedTarget,

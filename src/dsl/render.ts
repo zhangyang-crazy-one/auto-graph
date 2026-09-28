@@ -265,6 +265,8 @@ function solveDenseRoutingOptions(
 			| "fixedSwimlaneGeometry"
 			| "anchorCapacity"
 			| "edgeSeparation"
+			| "idealNudgingDistance"
+			| "rsopChannelNudge"
 			| "railRouting"
 			| "pagePolicy"
 			| "externalLabels"
@@ -284,6 +286,8 @@ function solveDenseRoutingOptions(
 		| "fixedSwimlaneGeometry"
 		| "anchorCapacity"
 		| "edgeSeparation"
+		| "idealNudgingDistance"
+		| "rsopChannelNudge"
 		| "railRouting"
 		| "pagePolicy"
 		| "externalLabels"
@@ -325,6 +329,12 @@ function solveDenseRoutingOptions(
 		isEdgeSeparationOptions(metadata.edgeSeparation)
 	) {
 		options.edgeSeparation = metadata.edgeSeparation;
+	}
+	if (typeof metadata.idealNudgingDistance === "number") {
+		options.idealNudgingDistance = metadata.idealNudgingDistance;
+	}
+	if (typeof metadata.rsopChannelNudge === "boolean") {
+		options.rsopChannelNudge = metadata.rsopChannelNudge;
 	}
 	if (
 		metadata.railRouting === false ||

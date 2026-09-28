@@ -136,15 +136,40 @@ export function extractChannelSegments(
 	return segments;
 }
 
+/** Parallel segments this close (px) share a channel. */
+const CHANNEL_TOLERANCE = 4;
+
 function groupOverlappingSegments(
 	segments: readonly ChannelSegment[],
 ): ChannelSegment[][] {
+	// Near-coincident channels: per axis, coordinates chained within
+	// CHANNEL_TOLERANCE of each other (by distance, so 1.9 and 2.1 group
+	// together however they round).
 	const byAxis = new Map<string, ChannelSegment[]>();
-	for (const segment of segments) {
-		const bucketKey = `${segment.axis}:${Math.round(segment.coord / 4)}`;
-		const bucket = byAxis.get(bucketKey) ?? [];
-		bucket.push(segment);
-		byAxis.set(bucketKey, bucket);
+	for (const axis of ["h", "v"] as const) {
+		const sorted = segments
+			.filter((segment) => segment.axis === axis)
+			.sort(
+				(left, right) =>
+					left.coord - right.coord ||
+					left.edgeId.localeCompare(right.edgeId) ||
+					left.segmentIndex - right.segmentIndex,
+			);
+		let cluster = 0;
+		let previous: number | undefined;
+		for (const segment of sorted) {
+			if (
+				previous !== undefined &&
+				segment.coord - previous > CHANNEL_TOLERANCE
+			) {
+				cluster += 1;
+			}
+			previous = segment.coord;
+			const key = `${axis}:${cluster}`;
+			const bucket = byAxis.get(key) ?? [];
+			bucket.push(segment);
+			byAxis.set(key, bucket);
+		}
 	}
 	// Overlap components per bucket: sweep by start and extend the current
 	// group while the next interval starts before its furthest end, so
