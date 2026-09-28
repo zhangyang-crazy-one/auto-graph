@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { attachSlotFractions } from "../src/geometry/attach-slots.js";
 import { computeShapeGeometry } from "../src/geometry/shapes.js";
 import type { NormalizedEdge } from "../src/ir/elements.js";
-import { nudgeOrthogonalRoutes, routeEdge } from "../src/routing/index.js";
+import {
+	nudgeOrthogonalRoutes,
+	revertCoincidentMoves,
+	routeEdge,
+} from "../src/routing/index.js";
 import { assignSameSideSlots } from "../src/routing/same-side-slots.js";
 import { solveDiagram } from "../src/solver/index.js";
 
@@ -21,6 +25,39 @@ function shape(
 		}),
 	];
 }
+
+describe("channel nudge rollback", () => {
+	const edge = (id: string, y: number) => ({
+		id,
+		source: { nodeId: `${id}-s` },
+		target: { nodeId: `${id}-t` },
+		points: [
+			{ x: 0, y: 0 },
+			{ x: 0, y },
+			{ x: 100, y },
+			{ x: 100, y: 200 },
+		],
+	});
+
+	it("undoes a move onto another route's line", () => {
+		const original = [edge("a", 50), edge("b", 60)];
+		// "a" moved onto the line "b" kept.
+		const moved = [edge("a", 60), original[1] as ReturnType<typeof edge>];
+		const settled = revertCoincidentMoves(original as never, moved as never);
+		expect(settled.edges[0]).toBe(original[0]);
+		expect(settled.overlapping).toBe(false);
+	});
+
+	it("reports routes left on one line after a rollback", () => {
+		const original = [edge("a", 50), edge("b", 50), edge("c", 50)];
+		// "a" was rolled back (hard obstacle), "b" took the centre track,
+		// "c" moved one pitch away: "a" and "b" still share y=50.
+		const moved = [original[0], edge("b", 50), edge("c", 60)];
+		const settled = revertCoincidentMoves(original as never, moved as never);
+		expect(settled.overlapping).toBe(true);
+		expect(settled.edges[2]?.points[1]?.y).toBe(60);
+	});
+});
 
 describe("same-side slots + escape stubs (#92)", () => {
 	it("pre-assigns 0.25/0.5/0.75 for three anonymous same-side endpoints", () => {

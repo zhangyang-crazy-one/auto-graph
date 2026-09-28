@@ -563,14 +563,20 @@ export function buildExternalLabelCallouts(
 
 	// Keys of crowded labels start on top of each other: move a clashing
 	// key to the nearest spot on its own route that clears the other keys
-	// and the other routes.
+	// and the other routes. When none does, a spot that only crosses
+	// another route is accepted and reported (a keyed marker on a line
+	// reads better than the long label left inline); a key that cannot
+	// clear the nodes, panels and other keys leaves its label inline.
 	const placedKeys: Box[] = [];
+	const keysOnRoutes: string[] = [];
 	for (const entry of measured) {
-		const clear = (box: Box) =>
+		const clearOfKeysAndObstacles = (box: Box) =>
 			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
 			!(shelf.keyObstacles ?? []).some((obstacle) =>
 				boxesOverlap(box, obstacle, 0),
-			) &&
+			);
+		const clear = (box: Box) =>
+			clearOfKeysAndObstacles(box) &&
 			![...(shelf.routes ?? new Map()).entries()].some(
 				([edgeId, points]) =>
 					edgeId !== entry.source.ownerId && polylineEntersBox(points, box),
@@ -578,37 +584,46 @@ export function buildExternalLabelCallouts(
 		if (!clear(entry.keyBox)) {
 			const route = shelf.routes?.get(entry.source.ownerId) ?? [];
 			const center = boxCenter(entry.keyBox);
-			const spot = samplePolyline(route, 4)
-				.sort(
-					(left, right) =>
-						Math.hypot(left.x - center.x, left.y - center.y) -
-						Math.hypot(right.x - center.x, right.y - center.y),
-				)
-				.map((point) => ({
-					...entry.keyBox,
-					x: point.x - entry.keyBox.width / 2,
-					y: point.y - entry.keyBox.height / 2,
-				}))
-				.find(clear);
-			if (spot !== undefined) {
-				entry.keyBox = spot;
-			} else if (
-				(shelf.keyObstacles ?? []).some((obstacle) =>
-					boxesOverlap(entry.keyBox, obstacle, 0),
-				)
-			) {
+			const spots = [
+				entry.keyBox,
+				...samplePolyline(route, 4)
+					.sort(
+						(left, right) =>
+							Math.hypot(left.x - center.x, left.y - center.y) -
+							Math.hypot(right.x - center.x, right.y - center.y),
+					)
+					.map((point) => ({
+						...entry.keyBox,
+						x: point.x - entry.keyBox.width / 2,
+						y: point.y - entry.keyBox.height / 2,
+					})),
+			];
+			const spot = spots.find(clear);
+			const fallback =
+				spot === undefined ? spots.find(clearOfKeysAndObstacles) : undefined;
+			if (spot === undefined && fallback === undefined) {
 				entry.blocked = true;
 				continue;
 			}
+			if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
+			entry.keyBox = (spot ?? fallback) as Box;
 		}
 		placedKeys.push(entry.keyBox);
+	}
+	if (keysOnRoutes.length > 0) {
+		shelf.diagnostics?.push({
+			severity: "warning",
+			code: "routing.label-shelf.key_on_route",
+			message: `${keysOnRoutes.length} external label key(s) found no spot on their edge clear of other routes; each sits on another route, clear of nodes, panels and other keys.`,
+			detail: { edgeIds: keysOnRoutes, conflictClass: "label-capacity" },
+		});
 	}
 	const blocked = measured.filter((entry) => entry.blocked);
 	if (blocked.length > 0) {
 		shelf.diagnostics?.push({
 			severity: "warning",
 			code: "routing.label-shelf.key_blocked",
-			message: `${blocked.length} external label key(s) have no spot on their edge clear of nodes, tables and panels; those labels stay on their edges.`,
+			message: `${blocked.length} external label key(s) have no spot on their edge clear of nodes, tables, panels and other keys; those labels stay on their edges.`,
 			detail: {
 				edgeIds: blocked.map((entry) => entry.source.ownerId),
 				conflictClass: "label-capacity",
@@ -622,7 +637,14 @@ export function buildExternalLabelCallouts(
 	const placements =
 		options.pageBounds === undefined
 			? stackShelf(shelved, bounds)
-			: packShelf(shelved, bounds, options.pageBounds, shelf);
+			: packShelf(shelved, bounds, options.pageBounds, {
+					...shelf,
+					// Labels whose keys were blocked stay inline at full size.
+					obstacles: [
+						...(shelf.obstacles ?? []),
+						...blocked.map((entry) => entry.source.box),
+					],
+				});
 	const built: BuiltExternalLabelCallout[] = [];
 	shelved.forEach((entry, index) => {
 		const calloutBox = placements[index];

@@ -30,6 +30,7 @@ import {
 	nudgeOrthogonalRoutes,
 	type RouteEdgeInput,
 	type RouteHardObstacleMetadata,
+	revertCoincidentMoves,
 	routeEdge,
 	routeEndDirectionPenalty,
 	separateParallelSegments,
@@ -821,46 +822,72 @@ export function coordinateEdges(
 				...nodeObstacles.map((entry) => entry.box),
 			],
 		});
-		// Keep a nudged route only if it hits no more of the edge's own
-		// obstacle set (soft, group, text, nodes, hard) than before, the same
-		// test the separator applies.
-		finalized = finalized.map((edge, index) => {
+		// The edge's own obstacle set (soft, group, text, nodes, hard).
+		const obstaclesFor = (edge: CoordinatedEdge): Box[] => [
+			...hardObstacles,
+			...softObstacles,
+			...nodeObstacles
+				.filter(
+					(entry) =>
+						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
+				)
+				.map((entry) => entry.box),
+			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+			...textObstacles
+				.filter(isLocalRouteClearanceText)
+				.filter(
+					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
+				)
+				.map((annotation) => textObstacleBox(annotation, options)),
+		];
+		const before = finalized;
+		// Keep a nudged route only if it hits no more of its obstacle set than
+		// before, the same test the separator applies.
+		const accepted = finalized.map((edge, index) => {
 			const moved = nudged.edges[index];
 			if (moved === undefined || moved.points === edge.points) return edge;
-			const obstacles = [
-				...hardObstacles,
-				...softObstacles,
-				...nodeObstacles
-					.filter(
-						(entry) =>
-							entry.id !== edge.source.nodeId &&
-							entry.id !== edge.target.nodeId,
-					)
-					.map((entry) => entry.box),
-				...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
-				...textObstacles
-					.filter(isLocalRouteClearanceText)
-					.filter(
-						(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
-					)
-					.map((annotation) => textObstacleBox(annotation, options)),
-			];
+			const obstacles = obstaclesFor(edge);
 			return routeObstacleHits(moved.points, obstacles) >
 				routeObstacleHits(edge.points, obstacles)
 				? edge
 				: moved;
 		});
-		if (nudged.tracks.capacityExhausted) {
+		// Those rollbacks are per edge: settle the channel as a group again.
+		const settled = revertCoincidentMoves(before, accepted);
+		finalized = settled.edges;
+		// A nudged route that now clears its text leaves no text-clearance
+		// diagnostic behind (it would start remediation on stale evidence).
+		const nudgedById = new Map(
+			finalized
+				.filter((edge, index) => edge.points !== before[index]?.points)
+				.map((edge) => [edge.id, edge]),
+		);
+		for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+			const diagnostic = diagnostics[index];
+			if (diagnostic?.code !== "routing.text-clearance.unresolved") continue;
+			const edgeId = diagnostic.detail?.edgeId;
+			const edge =
+				typeof edgeId === "string" ? nudgedById.get(edgeId) : undefined;
+			if (
+				edge !== undefined &&
+				routeObstacleHits(edge.points, obstaclesFor(edge)) === 0
+			) {
+				diagnostics.splice(index, 1);
+			}
+		}
+		if (nudged.tracks.capacityExhausted || settled.overlapping) {
 			diagnostics.push({
 				severity: "warning",
 				code: "routing.channel.capacity_exhausted",
-				message:
-					"Channel track capacity exhausted while spacing parallel short-orthogonal routes; bus or page-split remediation required.",
+				message: nudged.tracks.capacityExhausted
+					? "Channel track capacity exhausted while spacing parallel short-orthogonal routes; bus or page-split remediation required."
+					: "Some parallel short-orthogonal routes could not leave their shared line (a track was blocked); bus or page-split remediation required.",
 				detail: {
 					conflictClass: "fixed-geometry-block",
 					remediationType: "route-rail-or-page-split",
 					maxTracksUsed: nudged.tracks.maxTracksUsed,
 					routingPolicy: "short-orthogonal-jumps",
+					...(settled.overlapping ? { coincidentRoutes: true } : {}),
 				},
 			});
 		}

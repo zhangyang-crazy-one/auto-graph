@@ -258,6 +258,91 @@ export function applyChannelTrackAssignments(
 	});
 }
 
+/**
+ * Channel tracks are assigned as a group, but a nudged route can still be
+ * rolled back on its own (a hard obstacle, or a new obstacle hit), onto the
+ * coordinate another route was just moved to. Undo every move that leaves
+ * its route more coincident (interior segments on one line, spans
+ * overlapping) with the other routes than before, until none does, and
+ * say whether coincident interior segments remain.
+ */
+export function revertCoincidentMoves(
+	original: readonly CoordinatedEdge[],
+	moved: readonly CoordinatedEdge[],
+): { edges: CoordinatedEdge[]; overlapping: boolean } {
+	const result = moved.map((edge, index) => edge ?? original[index]);
+	const interior = (edge: CoordinatedEdge): ChannelSegment[] =>
+		channelSegmentsOf(edge).filter(
+			(segment) =>
+				segment.segmentIndex > 0 &&
+				segment.segmentIndex < edge.points.length - 2,
+		);
+	const coincidence = (edge: CoordinatedEdge, skip: number): number => {
+		let total = 0;
+		const own = interior(edge);
+		result.forEach((other, index) => {
+			if (index === skip || other === undefined) return;
+			for (const segment of own) {
+				for (const theirs of interior(other)) {
+					if (theirs.axis !== segment.axis) continue;
+					if (Math.abs(theirs.coord - segment.coord) >= 0.5) continue;
+					total += Math.max(
+						0,
+						Math.min(segment.end, theirs.end) -
+							Math.max(segment.start, theirs.start),
+					);
+				}
+			}
+		});
+		return total;
+	};
+	for (let changed = true; changed; ) {
+		changed = false;
+		result.forEach((edge, index) => {
+			const before = original[index];
+			if (edge === undefined || before === undefined) return;
+			if (edge.points === before.points) return;
+			if (coincidence(edge, index) > coincidence(before, index) + 1e-6) {
+				result[index] = before;
+				changed = true;
+			}
+		});
+	}
+	const overlapping = result.some(
+		(edge, index) => edge !== undefined && coincidence(edge, index) > 1e-6,
+	);
+	return { edges: result as CoordinatedEdge[], overlapping };
+}
+
+/** Axis-aligned segments of one route, as channel intervals. */
+function channelSegmentsOf(edge: CoordinatedEdge): ChannelSegment[] {
+	const segments: ChannelSegment[] = [];
+	for (let index = 0; index + 1 < edge.points.length; index += 1) {
+		const a = edge.points[index] as Point;
+		const b = edge.points[index + 1] as Point;
+		if (Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.x - b.x) > 1e-6) {
+			segments.push({
+				edgeId: edge.id,
+				segmentIndex: index,
+				axis: "h",
+				coord: a.y,
+				start: Math.min(a.x, b.x),
+				end: Math.max(a.x, b.x),
+			});
+		} else if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) > 1e-6) {
+			segments.push({
+				edgeId: edge.id,
+				segmentIndex: index,
+				axis: "v",
+				coord: a.x,
+				start: Math.min(a.y, b.y),
+				end: Math.max(a.y, b.y),
+			});
+		}
+	}
+	return segments;
+}
+
 function touchesBox(point: Point, box: Box): boolean {
 	return (
 		point.x >= box.x - 0.5 &&

@@ -351,6 +351,44 @@ describe("draw.io export", () => {
 		expect(xml).toContain("fontFamily=Noto Sans CJK SC;fontSize=14");
 	});
 
+	it("keeps a port label's solved lines and typography", () => {
+		const styled = diagram({
+			textAnnotations: [
+				{
+					text: "输入 端口",
+					ownerId: "a.in",
+					surfaceKind: "port-label",
+					box: { x: 460, y: 100, width: 30, height: 28 },
+					lines: [
+						{ text: "输入", width: 28 },
+						{ text: "端口", width: 28 },
+					],
+					fontFamily: "Noto Sans CJK SC",
+					fontSize: 12,
+				} as never,
+			],
+		});
+		const [a] = styled.nodes;
+		if (a === undefined) throw new Error("fixture");
+		a.ports = [
+			{
+				id: "in",
+				side: "left",
+				kind: "flow",
+				label: { text: "输入 端口" },
+				anchor: { x: 500, y: 110 },
+				box: { x: 495, y: 105, width: 10, height: 10 },
+			},
+		];
+		const xml = exportDrawio(styled);
+		expect(xml).toMatch(
+			/value="输入&lt;br&gt;端口" style="text;[^"]*fontFamily=Noto Sans CJK SC;fontSize=12;"/,
+		);
+		expect(xml).not.toMatch(
+			/value="输入&lt;br&gt;端口" style="[^"]*fontSize=10;/,
+		);
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

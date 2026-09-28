@@ -142,4 +142,110 @@ describe("label shelf packing (#93)", () => {
 		expect(plan.detail.blockedKeyEdgeIds).toEqual(["a"]);
 		expect(plan.reason).toContain("have no spot");
 	});
+
+	it("puts a key on another route only when nothing else is clear", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 30, y: 20, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				diagnostics,
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 10, y: 30 },
+							{ x: 90, y: 30 },
+						],
+					],
+					// Runs along the whole of "a": every key spot crosses it.
+					[
+						"b",
+						[
+							{ x: 0, y: 30 },
+							{ x: 100, y: 30 },
+						],
+					],
+				]),
+			},
+		);
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["a"]);
+		expect(diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-shelf.key_on_route",
+				detail: expect.objectContaining({ edgeIds: ["a"] }),
+			}),
+		);
+	});
+
+	it("keeps a label inline when every key spot is on another key", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const route = [
+			{ x: 10, y: 30 },
+			{ x: 14, y: 30 },
+		];
+		const built = buildExternalLabelCallouts(
+			[
+				required("a", "first", { x: 0, y: 20, width: 24, height: 14 }),
+				required("b", "second", { x: 0, y: 20, width: 24, height: 14 }),
+			],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				diagnostics,
+				// Both routes are a few px long at the same spot: "b"'s key has
+				// nowhere to go but on top of "a"'s.
+				routes: new Map([
+					["a", route],
+					["b", route],
+				]),
+			},
+		);
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["a"]);
+		expect(diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-shelf.key_blocked",
+				detail: expect.objectContaining({ edgeIds: ["b"] }),
+			}),
+		);
+	});
+
+	it("packs callouts clear of labels whose keys were blocked", () => {
+		const blockedLabel = { x: 120, y: 8, width: 240, height: 40 };
+		const built = buildExternalLabelCallouts(
+			[
+				required("a", "short", { x: 20, y: 40, width: 40, height: 14 }),
+				required("b", "blocked label", blockedLabel),
+			],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 400, height: 120 },
+			},
+			{
+				// "b"'s key sits in the node and its route stays inside it.
+				keyObstacles: [{ x: 110, y: 0, width: 260, height: 60 }],
+				routes: new Map([
+					[
+						"b",
+						[
+							{ x: 200, y: 30 },
+							{ x: 260, y: 30 },
+						],
+					],
+				]),
+			},
+		);
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["a"]);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		if (callout === undefined) return;
+		const overlaps =
+			callout.x < blockedLabel.x + blockedLabel.width &&
+			blockedLabel.x < callout.x + callout.width &&
+			callout.y < blockedLabel.y + blockedLabel.height &&
+			blockedLabel.y < callout.y + callout.height;
+		expect(overlaps).toBe(false);
+	});
 });

@@ -136,9 +136,15 @@ export function exportDrawio(
 	for (const portLabel of annotations.filter(
 		(annotation) => annotation.surfaceKind === "port-label",
 	)) {
+		// The label box was measured from its lines and typography.
+		const font = labelFontStyle(portLabel);
 		vertex(
-			escapeHtml(portLabel.text),
-			PORT_LABEL_STYLE,
+			calloutText(portLabel),
+			`${PORT_LABEL_STYLE}${
+				font.some((entry) => entry.startsWith("fontSize="))
+					? ""
+					: "fontSize=10;"
+			}${font.map((entry) => `${entry};`).join("")}`,
 			portLabel.box,
 			portParents.get(portLabel.ownerId),
 		);
@@ -224,7 +230,7 @@ function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 	].join("");
 }
 const PORT_LABEL_STYLE =
-	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;fontSize=10;";
+	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
 const CALLOUT_STYLE =
 	"text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fillColor=#ffffff;";
 
@@ -722,6 +728,7 @@ function labelFontStyle(
 	return entries;
 }
 
+/** A solved label's lines, joined with HTML line breaks. */
 function calloutText(annotation: SolvedTextAnnotation): string {
 	return annotation.lines.length > 0
 		? annotation.lines.map((line) => escapeHtml(line.text)).join("<br>")

@@ -23,6 +23,7 @@ import {
 	resolveNodeShape,
 } from "../ir/semantic-roles.js";
 import {
+	cylinderLabelOffset,
 	fitLabel,
 	fitLabelToShape,
 	translateLabelLayout,
@@ -284,8 +285,8 @@ function normalizeNodes(
 				size = applyEllipseCircleSize(size);
 			}
 			// The shape fitter already placed the label for its size (including
-			// the cylinder cap offset). Re-centre only when compartments or
-			// circle sizing changed the final size.
+			// the cylinder cap offset). Re-centre only when compartments,
+			// circle sizing or an authored size changed the final size.
 			const sizeUnchanged =
 				fittedSize !== undefined &&
 				Math.abs(fittedSize.width - size.width) < 1e-6 &&
@@ -295,7 +296,7 @@ function normalizeNodes(
 					? undefined
 					: sizeUnchanged
 						? fittedLabelLayout
-						: centerLabelLayoutInSize(fittedLabelLayout, size);
+						: centerLabelLayoutInSize(fittedLabelLayout, size, shape);
 
 			return {
 				id,
@@ -322,9 +323,27 @@ function normalizeNodes(
 function centerLabelLayoutInSize(
 	layout: NonNullable<NormalizedNode["labelLayout"]>,
 	size: { width: number; height: number },
+	shape: NormalizedNode["shape"],
 ): NonNullable<NormalizedNode["labelLayout"]> {
+	// A cylinder's label keeps clear of both cap arcs at the final size.
+	const offsetY =
+		shape === "cylinder"
+			? cylinderLabelOffset(
+					{
+						width: layout.contentBox.width,
+						height: layout.contentBox.height,
+					},
+					size,
+				)
+			: 0;
 	const x = Math.max(0, (size.width - layout.box.width) / 2);
-	const y = Math.max(0, (size.height - layout.box.height) / 2);
+	const y = Math.max(
+		0,
+		Math.min(
+			size.height - layout.box.height,
+			(size.height - layout.box.height) / 2 + offsetY,
+		),
+	);
 	return translateLabelLayout(layout, x - layout.box.x, y - layout.box.y);
 }
 

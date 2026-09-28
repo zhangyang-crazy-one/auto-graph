@@ -4,6 +4,7 @@ import {
 	type AssignChannelTracksResult,
 	applyChannelTrackAssignments,
 	assignChannelTracks,
+	revertCoincidentMoves,
 } from "./channel-tracks.js";
 
 export interface NudgeOrthogonalRoutesOptions {
@@ -15,6 +16,8 @@ export interface NudgeOrthogonalRoutesOptions {
 export interface NudgeOrthogonalRoutesResult {
 	edges: CoordinatedEdge[];
 	tracks: AssignChannelTracksResult;
+	/** Interior segments of different routes still share a line. */
+	overlapping: boolean;
 }
 
 /**
@@ -36,10 +39,17 @@ export function nudgeOrthogonalRoutes(
 			? {}
 			: { hardObstacles: options.hardObstacles }),
 	});
-	const nudged = applyChannelTrackAssignments(
+	const applied = applyChannelTrackAssignments(
 		edges,
 		tracks.assignments,
 		options.hardObstacles ?? [],
 	);
-	return { edges: nudged, tracks };
+	// A move rolled back for a hard obstacle may sit on another route's new
+	// track: settle the channel as a group.
+	const settled = revertCoincidentMoves(edges, applied);
+	return {
+		edges: settled.edges,
+		tracks,
+		overlapping: settled.overlapping,
+	};
 }
