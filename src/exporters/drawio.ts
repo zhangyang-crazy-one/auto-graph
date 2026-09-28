@@ -105,7 +105,9 @@ export function exportDrawio(
 		}
 	}
 	for (const panel of diagram.evidencePanels ?? []) {
-		vertex(panelHtml(panel), EVIDENCE_STYLE, panel.box);
+		for (const cell of panelCells(panel)) {
+			vertex(cell.value, cell.style, cell.box);
+		}
 	}
 
 	// Ports and their labels are children of their node, so they move with
@@ -196,8 +198,6 @@ export function exportDrawio(
 	].join("\n");
 }
 
-const EVIDENCE_STYLE =
-	"text;html=1;whiteSpace=wrap;overflow=hidden;strokeColor=#9ca3af;fillColor=#ffffff;verticalAlign=top;align=left;spacing=4;";
 /** Port cells keep the authored fill/stroke, with the SVG exporter's defaults. */
 function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 	return [
@@ -229,16 +229,30 @@ function renderNodeCell(
 		...(visual?.fontFamily === undefined
 			? []
 			: [`fontFamily=${visual.fontFamily};`]),
+		// The solver measured the label at this size.
 		...(visual?.fontSize === undefined
-			? []
+			? node.labelLayout === undefined
+				? []
+				: [`fontSize=${formatNumber(node.labelLayout.font.fontSize)};`]
 			: [`fontSize=${formatNumber(visual.fontSize)};`]),
 	].join("");
 	const label = escapeXml(
 		node.compartments === undefined
-			? escapeHtml(node.label?.text ?? node.id)
+			? nodeLabelHtml(node)
 			: compartmentHtml(node),
 	);
 	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
+}
+
+/**
+ * A node label as draw.io HTML with the solver's line breaks, so draw.io
+ * does not rewrap it with its own text engine.
+ */
+function nodeLabelHtml(node: CoordinatedNode): string {
+	const lines = node.labelLayout?.lines ?? [];
+	return lines.length > 1
+		? lines.map((line) => escapeHtml(line.text)).join("<br>")
+		: escapeHtml(node.label?.text ?? node.id);
 }
 
 /** SysML compartments as the SVG draws them: header, properties, constraints. */
@@ -618,14 +632,58 @@ function tableCells(table: CoordinatedTableBlock): EvidenceCellVertex[] {
 	return cells;
 }
 
-function panelHtml(panel: CoordinatedEvidencePanel): string {
-	const items = panel.items
-		.map(
-			(item) =>
-				`${escapeHtml(item.label.text)}${item.detail === undefined ? "" : ` — ${escapeHtml(item.detail.text)}`}`,
-		)
-		.join("<br>");
-	return `<b>${escapeHtml(panel.kind)}</b>${items.length > 0 ? `<br>${items}` : ""}`;
+/** Evidence panel fills per kind, as the SVG exporter draws them. */
+const EVIDENCE_PANEL_FILL = {
+	legend: "#ecfdf5",
+	rule: "#eff6ff",
+	note: "#fffbeb",
+	verification: "#fef2f2",
+} as const;
+
+/**
+ * An evidence panel cell by cell, as the SVG exporter draws it: the title
+ * column and one row per item, each with its solved line breaks.
+ */
+function panelCells(panel: CoordinatedEvidencePanel): EvidenceCellVertex[] {
+	const { box } = panel;
+	const titleWidth = Math.min(box.width * 0.36, 140);
+	const itemHeight = box.height / Math.max(1, panel.items.length);
+	const cells: EvidenceCellVertex[] = [
+		{
+			value: "",
+			style: evidenceCellStyle(
+				panel.style?.fill ?? EVIDENCE_PANEL_FILL[panel.kind],
+				panel.style?.stroke,
+			),
+			box,
+		},
+		{
+			value: evidenceCellText(panel.titleLayout, `${panel.kind}: ${panel.id}`),
+			style: evidenceCellStyle(EVIDENCE_HEADER_FILL),
+			box: { x: box.x, y: box.y, width: titleWidth, height: box.height },
+		},
+	];
+	panel.items.forEach((item, index) => {
+		cells.push({
+			value: evidenceCellText(
+				panel.itemLayouts?.[index],
+				item.detail === undefined
+					? item.label.text
+					: `${item.label.text}: ${item.detail.text}`,
+			),
+			style: evidenceCellStyle(
+				item.style?.fill ?? "none",
+				item.style?.stroke ?? "none",
+			),
+			box: {
+				x: box.x + titleWidth,
+				y: box.y + index * itemHeight,
+				width: box.width - titleWidth,
+				height: itemHeight,
+			},
+		});
+	});
+	return cells;
 }
 
 function calloutText(annotation: SolvedTextAnnotation): string {

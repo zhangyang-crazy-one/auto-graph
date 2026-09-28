@@ -119,6 +119,35 @@ describe("same-side slots + escape stubs (#92)", () => {
 		expect(assignments.get("ported:target")?.point.y).toBe(30);
 	});
 
+	it("gives no slot to an end with an authored corner or center anchor", () => {
+		const nodes = new Map([
+			shape("a", 0, 0, 80, 160),
+			shape("b", 200, 0),
+			shape("c", 200, 100),
+		]);
+		const { assignments, diagnostics } = assignSameSideSlots({
+			edges: [
+				{
+					id: "corner",
+					source: { nodeId: "a", anchor: "top-right" },
+					target: { nodeId: "b", anchor: "left" },
+				},
+				{
+					id: "free",
+					source: { nodeId: "a", anchor: "right" },
+					target: { nodeId: "c", anchor: "left" },
+				},
+			],
+			nodes,
+			direction: "LR",
+			maxAttachPointsPerSide: 1,
+		});
+		expect(assignments.has("corner:source")).toBe(false);
+		// The lone anonymous end keeps the whole side (no false overflow).
+		expect(diagnostics).toEqual([]);
+		expect(assignments.get("free:source")?.anchor).toBe("right");
+	});
+
 	it("separates parallel same-side tracks by at least pitch", () => {
 		const solved = solveDiagram(
 			{

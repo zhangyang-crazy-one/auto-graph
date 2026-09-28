@@ -322,4 +322,46 @@ describe("draw.io export", () => {
 		});
 		expect(exportDrawio(wrapped)).toContain('value="first&lt;br&gt;second"');
 	});
+
+	it("draws evidence panels as a title column and one row per item", () => {
+		const xml = exportDrawio(
+			diagram({
+				evidencePanels: [
+					{
+						id: "legend-1",
+						kind: "legend",
+						items: [
+							{ label: { text: "Solid" }, detail: { text: "flow" } },
+							{ label: { text: "Dashed" } },
+						],
+						box: { x: 500, y: 200, width: 200, height: 40 },
+						titleLayout: { lines: ["legend:", "legend-1"] },
+					},
+				],
+			}),
+		);
+		// Title column 72 wide (0.36 × 200), rows 20 high, page-relative.
+		expect(xml).toContain('value="legend:&lt;br&gt;legend-1"');
+		expect(xml).toContain('x="0" y="100" width="72" height="40"');
+		expect(xml).toContain('value="Solid: flow"');
+		expect(xml).toContain('x="72" y="100" width="128" height="20"');
+		expect(xml).toContain('x="72" y="120" width="128" height="20"');
+	});
+
+	it("keeps the solver's node-label line breaks and size", () => {
+		const wrapped = diagram();
+		const node = wrapped.nodes[0];
+		if (node === undefined) throw new Error("fixture");
+		node.label = { text: "Mission planning" };
+		node.labelLayout = {
+			lines: [
+				{ text: "Mission", width: 50 },
+				{ text: "planning", width: 55 },
+			],
+			font: { fontFamily: "Arial", fontSize: 13, lineHeight: 16 },
+		} as never;
+		const xml = exportDrawio(wrapped);
+		expect(xml).toContain('value="Mission&lt;br&gt;planning"');
+		expect(xml).toContain("fontSize=13;");
+	});
 });

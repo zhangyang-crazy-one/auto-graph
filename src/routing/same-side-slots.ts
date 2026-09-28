@@ -74,7 +74,12 @@ export function assignSameSideSlots(
 		const target = input.nodes.get(edge.target.nodeId);
 		if (source === undefined || target === undefined) continue;
 
-		if (edge.source.portId === undefined) {
+		// An authored anchor that is not a side (center, a corner) keeps
+		// its own point: such an end takes no slot and no fraction.
+		if (
+			edge.source.portId === undefined &&
+			!nonSideAnchor(edge.source.anchor)
+		) {
 			const side =
 				cardinalSide(edge.source.anchor) ??
 				preferredSide(source.box, target.box, input.direction, "source");
@@ -94,7 +99,10 @@ export function assignSameSideSlots(
 			}
 		}
 
-		if (edge.target.portId === undefined) {
+		if (
+			edge.target.portId === undefined &&
+			!nonSideAnchor(edge.target.anchor)
+		) {
 			const side =
 				cardinalSide(edge.target.anchor) ??
 				preferredSide(target.box, source.box, input.direction, "target");
@@ -264,6 +272,10 @@ function alongSide(
 	return side === "left" || side === "right"
 		? box.y + box.height / 2
 		: box.x + box.width / 2;
+}
+
+function nonSideAnchor(anchor: string | undefined): boolean {
+	return anchor !== undefined && cardinalSide(anchor) === undefined;
 }
 
 function cardinalSide(

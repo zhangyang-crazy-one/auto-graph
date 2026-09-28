@@ -4131,6 +4131,45 @@ edges:
 		);
 	});
 
+	it("keeps the lane gutter between lanes fitted around fixed children", () => {
+		const result = solveDiagram(
+			{
+				id: "contract-swimlane-fitted-gutter",
+				direction: "TB",
+				nodes: [node("a", { x: 0, y: 40 }), node("b", { x: 300, y: 40 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "cols",
+						layout: "contract",
+						headerHeight: 24,
+						padding: 16,
+						orientation: "vertical",
+						lanes: [
+							{ id: "left", children: ["a"] },
+							{ id: "right", children: ["b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ minLaneGutter: 12 },
+		);
+		const [left, right] = result.swimlanes?.[0]?.lanes ?? [];
+		expect(
+			(right?.box?.x ?? 0) - ((left?.box?.x ?? 0) + (left?.box?.width ?? 0)),
+		).toBeCloseTo(12);
+		for (const lane of [left, right]) {
+			const child = result.nodes.find((n) => n.id === lane?.children[0]);
+			expect(child?.box.x ?? -1).toBeGreaterThanOrEqual(lane?.box?.x ?? 0);
+			expect((child?.box.x ?? 0) + (child?.box.width ?? 0)).toBeLessThanOrEqual(
+				(lane?.box?.x ?? 0) + (lane?.box?.width ?? 0),
+			);
+		}
+	});
+
 	it("preserves fixed-position locks in ranked contract lanes (flow edges present)", () => {
 		// A flow edge between lane children creates ranks, routing through
 		// the ranked placement path. A fixed-position child must still be
