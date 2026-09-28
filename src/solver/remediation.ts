@@ -616,6 +616,10 @@ export function applyExternalLabelRemediation(
 				...context.coordinatedTables.map((table) => table.box),
 				...context.coordinatedEvidencePanels.map((panel) => panel.box),
 				...state.policyHardObstacles,
+				// Port labels often reach past their node.
+				...state.baseTextAnnotations
+					.filter((annotation) => annotation.surfaceKind === "port-label")
+					.map((annotation) => annotation.box),
 			],
 			diagnostics: shelfDiagnostics,
 			routes: new Map(

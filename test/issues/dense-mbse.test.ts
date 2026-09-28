@@ -223,6 +223,47 @@ function boxSides(b: Box): [boolean, number, number, number][] {
  * arrowheads on a stub shorter than the head, port labels struck through,
  * and sub-2px jogs.
  */
+/**
+ * Crossing records drawn under a hop in the SVG: a hop (an `A` arc) spans
+ * from the point before it to its end point, and one wide hop may bridge a
+ * cluster of close crossings.
+ */
+function crossingsUnderHops(
+	svg: string,
+	crossings: readonly { x: number; y: number }[],
+): number {
+	const covered = new Set<number>();
+	for (const [, d] of svg.matchAll(/class="edge"[^>]*? d="([^"]*)"/g)) {
+		const tokens = (d ?? "").trim().split(/\s+/);
+		let current: Point | undefined;
+		for (let i = 0; i < tokens.length; ) {
+			const op = tokens[i];
+			if (op === "M" || op === "L") {
+				current = { x: Number(tokens[i + 1]), y: Number(tokens[i + 2]) };
+				i += 3;
+			} else if (op === "A") {
+				const end = { x: Number(tokens[i + 6]), y: Number(tokens[i + 7]) };
+				const start = current;
+				if (start !== undefined) {
+					crossings.forEach((c, index) => {
+						const within =
+							c.x >= Math.min(start.x, end.x) - 0.75 &&
+							c.x <= Math.max(start.x, end.x) + 0.75 &&
+							c.y >= Math.min(start.y, end.y) - 0.75 &&
+							c.y <= Math.max(start.y, end.y) + 0.75;
+						if (within) covered.add(index);
+					});
+				}
+				current = end;
+				i += 8;
+			} else {
+				i += 1;
+			}
+		}
+	}
+	return covered.size;
+}
+
 function renderDefects(d: CoordinatedDiagram) {
 	const segs = segmentsOf(d);
 	let nearParallel = 0;
@@ -506,7 +547,7 @@ function evidence(d: CoordinatedDiagram) {
 		.sort((x, y) => x - y);
 	const q = measureLayoutQuality(d);
 	const svg = exportSvg(d);
-	const hops = (svg.match(/ A /g) ?? []).length;
+	const hops = crossingsUnderHops(svg, d.edgeCrossings ?? []);
 	return {
 		nodePierce,
 		hardText,

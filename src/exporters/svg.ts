@@ -1,6 +1,6 @@
 import {
 	EDGE_CROSSING_GLYPH_RADIUS,
-	hopFitsSegment,
+	hopGlyphs,
 } from "../geometry/edge-crossings.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
@@ -687,35 +687,25 @@ function formatPathWithJumps(
 		const end = points[i + 1];
 		if (start === undefined || end === undefined) continue;
 		moveOrLine(start);
-		const segmentJumps = jumps
-			.filter(
-				(jump) =>
-					pointOnSegment(jump, start, end) && hopFitsSegment(jump, start, end),
-			)
-			.sort(
-				(left, right) =>
-					squaredDistance(start, left) - squaredDistance(start, right),
-			);
-		for (const jump of segmentJumps) {
-			const before = pointAlongSegment(
-				start,
-				end,
-				jump,
-				-EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			const after = pointAlongSegment(
-				start,
-				end,
-				jump,
-				EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			moveOrLine(before);
-			if (jump.style === "gap") {
-				moveOnly(after);
+		const glyphs = hopGlyphs(
+			jumps
+				.filter((jump) => pointOnSegment(jump, start, end))
+				.sort(
+					(left, right) =>
+						squaredDistance(start, left) - squaredDistance(start, right),
+				),
+			start,
+			end,
+		);
+		for (const glyph of glyphs) {
+			moveOrLine(glyph.before);
+			if ((glyph.hops[0] as EdgeCrossing).style === "gap") {
+				moveOnly(glyph.after);
 			} else {
+				// A cluster of close crossings shares one wider, flat hop.
 				const sweep = hopSweep(start, end);
 				parts.push(
-					`A ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} 0 0 ${sweep} ${formatNumber(after.x)} ${formatNumber(after.y)}`,
+					`A ${formatNumber(glyph.halfLength)} ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} 0 0 ${sweep} ${formatNumber(glyph.after.x)} ${formatNumber(glyph.after.y)}`,
 				);
 			}
 		}

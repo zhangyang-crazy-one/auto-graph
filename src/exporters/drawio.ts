@@ -28,7 +28,12 @@ export function exportDrawio(
 	options: ExportOptions = {},
 ): string {
 	const title = options.title ?? diagram.title ?? diagram.id;
-	const origin = { x: diagram.bounds.x, y: diagram.bounds.y };
+	// The page is the solved bounds plus the requested viewport padding.
+	const page = expandBoxForDrawio(
+		diagram.bounds,
+		Math.max(0, options.viewportPadding ?? 0),
+	);
+	const origin = { x: page.x, y: page.y };
 	const shift = (box: Box): Box => ({
 		x: box.x - origin.x,
 		y: box.y - origin.y,
@@ -156,11 +161,49 @@ export function exportDrawio(
 	for (const node of diagram.nodes) {
 		const cellId = String(nextId++);
 		nodeCellIds.set(node.id, cellId);
-		cells.push(renderNodeCell(cellId, node, shift(node.box)));
+		// Solved compartment rows are drawn at their own boxes (typography
+		// and row pitch as solved), not reflowed into one node label.
+		const rows =
+			node.compartments === undefined
+				? []
+				: annotations
+						.filter(
+							(annotation) =>
+								annotation.surfaceKind === "compartment-row" &&
+								annotation.ownerId === node.id,
+						)
+						.sort(
+							(left, right) =>
+								(left.surfaceIndex ?? 0) - (right.surfaceIndex ?? 0),
+						);
+		cells.push(renderNodeCell(cellId, node, shift(node.box), rows.length > 0));
 		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
 			portParents.set(`${node.id}.${port.id}`, parent);
 			vertex("", portStyle(port.style), port.box, parent);
+		}
+		for (const row of rows) {
+			const index = row.surfaceIndex ?? 0;
+			// Separators above the property and constraint rows, as the SVG.
+			if (index > 1) {
+				vertex(
+					"",
+					COMPARTMENT_SEPARATOR_STYLE,
+					{
+						x: node.box.x,
+						y: node.box.y + 18 + index * 16 - 12,
+						width: node.box.width,
+						height: 1,
+					},
+					parent,
+				);
+			}
+			vertex(
+				calloutText(row),
+				`${SOLVED_TEXT_STYLE}${fontStyleEntries(row)}`,
+				row.box,
+				parent,
+			);
 		}
 	}
 	for (const portLabel of annotations.filter(
@@ -235,7 +278,6 @@ export function exportDrawio(
 		);
 	}
 
-	const page = diagram.bounds;
 	return [
 		`<?xml version="1.0" encoding="UTF-8"?>`,
 		`<mxfile host="auto-graph" type="device">`,
@@ -261,6 +303,9 @@ function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 }
 const PORT_LABEL_STYLE =
 	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
+/** A thin rule between SysML compartments. */
+const COMPARTMENT_SEPARATOR_STYLE =
+	"line;html=1;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;";
 /** A solved text surface drawn as its own cell. */
 const SOLVED_TEXT_STYLE =
 	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
@@ -278,6 +323,7 @@ function renderNodeCell(
 	cellId: string,
 	node: CoordinatedNode,
 	box: Box,
+	solvedRows = false,
 ): string {
 	const visual = node.style;
 	const style = [
@@ -298,7 +344,9 @@ function renderNodeCell(
 	const label = escapeXml(
 		node.compartments === undefined
 			? nodeLabelHtml(node)
-			: compartmentHtml(node),
+			: solvedRows
+				? ""
+				: compartmentHtml(node),
 	);
 	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
 }

@@ -85,24 +85,62 @@ export function detectOrthogonalEdgeCrossings(
 	return crossings;
 }
 
+/** One hop glyph on a segment, bridging one crossing or a close cluster. */
+export interface HopGlyph<T extends Point> {
+	/** The crossings under this glyph, in order along the segment. */
+	hops: T[];
+	/** Where the glyph leaves and rejoins the segment. */
+	before: Point;
+	after: Point;
+	/** Half the glyph's length along the segment. */
+	halfLength: number;
+}
+
 /**
- * Whether a hop glyph centred at `point` fits inside the drawn segment
- * `start`–`end` (exporters pass the path already cut before the
- * arrowhead). A crossing whose glyph fits neither edge (it sits right at a
- * bend of both) is still recorded and counted, but drawn as a plain
- * crossing rather than a hop that doubles back past the bend.
+ * Hop glyphs for one segment, from crossings already sorted along it.
+ * Crossings closer than a glyph (2 × radius) share one wider glyph, so
+ * every crossing stays under a hop and no two glyphs overlap. A glyph that
+ * does not fit inside the segment (a crossing right at a bend) is left out:
+ * those crossings are drawn plainly (they stay recorded and counted).
  */
-export function hopFitsSegment(
-	point: Point,
+export function hopGlyphs<T extends Point>(
+	sorted: readonly T[],
 	start: Point,
 	end: Point,
-): boolean {
-	return (
-		Math.hypot(point.x - start.x, point.y - start.y) >=
-			EDGE_CROSSING_GLYPH_RADIUS - 1e-6 &&
-		Math.hypot(point.x - end.x, point.y - end.y) >=
-			EDGE_CROSSING_GLYPH_RADIUS - 1e-6
-	);
+): HopGlyph<T>[] {
+	const length = Math.hypot(end.x - start.x, end.y - start.y);
+	if (length < 1e-9) return [];
+	const ux = (end.x - start.x) / length;
+	const uy = (end.y - start.y) / length;
+	const along = (point: Point) =>
+		(point.x - start.x) * ux + (point.y - start.y) * uy;
+	const clusters: T[][] = [];
+	for (const hop of sorted) {
+		const current = clusters.at(-1);
+		const last = current?.at(-1);
+		if (
+			current !== undefined &&
+			last !== undefined &&
+			along(hop) - along(last) < 2 * EDGE_CROSSING_GLYPH_RADIUS - 1e-6
+		) {
+			current.push(hop);
+		} else {
+			clusters.push([hop]);
+		}
+	}
+	const glyphs: HopGlyph<T>[] = [];
+	for (const hops of clusters) {
+		const from = along(hops[0] as T) - EDGE_CROSSING_GLYPH_RADIUS;
+		const to = along(hops.at(-1) as T) + EDGE_CROSSING_GLYPH_RADIUS;
+		if (from < -1e-6 || to > length + 1e-6) continue;
+		glyphs.push({
+			hops,
+			before: { x: start.x + ux * from, y: start.y + uy * from },
+			after: { x: start.x + ux * to, y: start.y + uy * to },
+			halfLength: (to - from) / 2,
+		});
+	}
+	return glyphs;
 }
 
 /**

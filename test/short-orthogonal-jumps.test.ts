@@ -381,6 +381,48 @@ describe("edge crossings / jumps (#84)", () => {
 		expect(under?.points).toHaveLength(3);
 	});
 
+	it("bridges two crossings closer than a glyph with one wider hop", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "close-hops",
+			direction: "LR",
+			nodes: [],
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				...[96, 104].map((x) => ({
+					id: `v${x}`,
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x, y: 20 },
+						{ x, y: 80 },
+					],
+				})),
+			],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edgeCrossings: [96, 104].map((x) => ({
+				x,
+				y: 50,
+				underEdgeId: "h",
+				overEdgeId: `v${x}`,
+				style: "jump" as const,
+			})),
+		};
+		const path = exportSvg(diagram).match(/data-id="h" d="([^"]*)"/)?.[1] ?? "";
+		// One flat hop from x=90 to x=110 covers both crossings (96 and 104).
+		expect(path).toBe("M 0 50 L 90 50 A 10 6 0 0 0 110 50 L 190 50");
+	});
+
 	it("emits edgeCrossings from solve without treating jumps as unsatisfiable alone", () => {
 		const solved = solveDiagram(
 			{

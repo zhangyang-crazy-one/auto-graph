@@ -1,6 +1,6 @@
 import {
 	EDGE_CROSSING_GLYPH_RADIUS,
-	hopFitsSegment,
+	hopGlyphs,
 } from "../geometry/edge-crossings.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
@@ -444,32 +444,25 @@ function applyJumpBumps(
 		if (i === 0) {
 			result.push({ ...start });
 		}
-		const segmentJumps = jumps
-			.filter(
-				(jump) =>
-					excalidrawPointOnSegment(jump, start, end) &&
-					hopFitsSegment(jump, start, end),
-			)
-			.sort(
-				(left, right) =>
-					excalidrawSquaredDistance(start, left) -
-					excalidrawSquaredDistance(start, right),
-			);
-		for (const jump of segmentJumps) {
-			const before = excalidrawPointAlong(
-				start,
-				end,
-				jump,
-				-EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			const after = excalidrawPointAlong(
-				start,
-				end,
-				jump,
-				EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			const apex = hopApex(start, end, jump, EDGE_CROSSING_GLYPH_RADIUS);
-			result.push(before, apex, after);
+		const glyphs = hopGlyphs(
+			jumps
+				.filter((jump) => excalidrawPointOnSegment(jump, start, end))
+				.sort(
+					(left, right) =>
+						excalidrawSquaredDistance(start, left) -
+						excalidrawSquaredDistance(start, right),
+				),
+			start,
+			end,
+		);
+		for (const glyph of glyphs) {
+			// A cluster of close crossings shares one wider hop.
+			const center = {
+				x: (glyph.before.x + glyph.after.x) / 2,
+				y: (glyph.before.y + glyph.after.y) / 2,
+			};
+			const apex = hopApex(start, end, center, EDGE_CROSSING_GLYPH_RADIUS);
+			result.push({ ...glyph.before }, apex, { ...glyph.after });
 		}
 		result.push({ ...end });
 	}

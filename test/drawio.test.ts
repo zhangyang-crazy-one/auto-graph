@@ -498,6 +498,71 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("pads the page by the requested viewport padding", () => {
+		const xml = exportDrawio(diagram(), { viewportPadding: 24 });
+		// Bounds 400×40 at (500,100) → page 448×88, node "a" at (24,24).
+		expect(xml).toContain('pageWidth="448" pageHeight="88"');
+		expect(xml).toContain('x="24" y="24" width="100" height="40"');
+	});
+
+	it("draws solved compartment rows at their own boxes", () => {
+		const styled = diagram({
+			textAnnotations: [
+				{
+					text: "«block»",
+					ownerId: "b",
+					surfaceKind: "compartment-row",
+					surfaceIndex: 0,
+					box: { x: 830, y: 111, width: 40, height: 13 },
+					lines: [{ text: "«block»", width: 40 }],
+					fontFamily: "Arial",
+					fontSize: 11,
+				},
+				{
+					text: "Engine",
+					ownerId: "b",
+					surfaceKind: "compartment-row",
+					surfaceIndex: 1,
+					box: { x: 832, y: 127, width: 36, height: 13 },
+					lines: [{ text: "Engine", width: 36 }],
+					fontFamily: "Arial",
+					fontSize: 11,
+				},
+				{
+					text: "rpm: Real",
+					ownerId: "b",
+					surfaceKind: "compartment-row",
+					surfaceIndex: 2,
+					box: { x: 826, y: 143, width: 48, height: 13 },
+					lines: [{ text: "rpm: Real", width: 48 }],
+					fontFamily: "Arial",
+					fontSize: 11,
+				},
+			],
+		} as unknown as Partial<CoordinatedDiagram>);
+		const [, b] = styled.nodes;
+		if (b === undefined) throw new Error("fixture");
+		b.compartments = {
+			stereotype: "«block»",
+			name: "Engine",
+			properties: ["rpm: Real"],
+		};
+		const xml = exportDrawio(styled);
+		const nodeId = xml.match(
+			/<mxCell id="(\d+)" value="" style="shape=hexagon/,
+		)?.[1];
+		expect(nodeId).toBeDefined();
+		// Rows are node children at node-relative positions: (826,143)-(800,100).
+		expect(xml).toMatch(
+			new RegExp(
+				`value="rpm: Real" style="text;[^"]*fontSize=11;" vertex="1" parent="${nodeId}"><mxGeometry x="26" y="43"`,
+			),
+		);
+		// One separator above the properties row.
+		expect(xml.match(/style="line;/g)).toHaveLength(1);
+		expect(xml).not.toContain("&lt;hr&gt;");
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

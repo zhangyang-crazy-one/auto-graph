@@ -1067,6 +1067,10 @@ export function solveDiagram(
 					...coordinatedTables.map((table) => table.box),
 					...coordinatedEvidencePanels.map((panel) => panel.box),
 					...policyHardObstacles,
+					// Port labels often reach past their node.
+					...baseTextAnnotations
+						.filter((annotation) => annotation.surfaceKind === "port-label")
+						.map((annotation) => annotation.box),
 				],
 				diagnostics,
 				routes: new Map(coordinatedEdges.map((edge) => [edge.id, edge.points])),
