@@ -86,6 +86,22 @@ export function reserveLaneCorridors(
 	return { hardBands, softCorridors };
 }
 
+/**
+ * Lane content corridors as soft route obstacles. Short-orthogonal routes
+ * skip them: crossing the lanes between two ends is what a swimlane edge
+ * does, and counting the crossing as a text hit makes routes ride the lane
+ * dividers (the only line outside every corridor) or loop around the
+ * whole pool. Lane headers stay hard for every route kind.
+ */
+export function laneSoftCorridors(
+	reservations: { softCorridors: Box[] },
+	options: { routeKind?: string },
+): Box[] {
+	return options.routeKind === "short-orthogonal-jumps"
+		? []
+		: reservations.softCorridors;
+}
+
 export function applySwimlaneLayoutContracts(
 	swimlanes: readonly Swimlane[],
 	constraints: readonly Constraint[],

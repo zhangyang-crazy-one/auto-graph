@@ -40,6 +40,12 @@ export interface RouteEdgeInput {
 	 * and `obstacles` as a crossing cost.
 	 */
 	blockingObstacles?: readonly Box[];
+	/**
+	 * Outlines a short-orthogonal route should not be drawn along (group
+	 * frames, node sides): a segment within a few pixels of one, parallel
+	 * to it, reads as part of the outline.
+	 */
+	outlineBoxes?: readonly Box[];
 	hardObstacles?: readonly Box[];
 	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[];
 	obstacleIndex?: BoxSpatialIndex;

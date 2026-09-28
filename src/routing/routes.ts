@@ -556,7 +556,9 @@ function routeShortOrthogonalJumps(
 				quality,
 				layeredCost:
 					layeredSoftTextCost(quality) +
-					(hasSeparableInteriorSpan(points, pitch) ? 0 : 1_000),
+					(hasSeparableInteriorSpan(points, pitch) ? 0 : 1_000) +
+					shortArrowStubCost(points) +
+					outlineRunCost(points, input.outlineBoxes),
 			});
 		}
 		// Full slot tournament (#84 / Codex P2) — no mid/mid early-exit.
@@ -689,6 +691,65 @@ function routeShortOrthogonalJumps(
 	// Intentionally do not emit route_obstacle_fallback — short-path profile
 	// treats unresolved geometry as capacity failure, not a successful fallback.
 	return { points: fallbackPoints, diagnostics };
+}
+
+/** A segment this close to a parallel outline side reads as part of it. */
+const OUTLINE_CLEARANCE = 4;
+
+/**
+ * Cost of drawing a route along an outline (group frame, node side): the
+ * length that runs parallel within {@link OUTLINE_CLEARANCE}, weighted so
+ * that stepping one pitch off the outline is always cheaper.
+ */
+function outlineRunCost(
+	points: readonly Point[],
+	outlines: readonly Box[] | undefined,
+): number {
+	if (outlines === undefined || outlines.length === 0) return 0;
+	let run = 0;
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const a = points[index] as Point;
+		const b = points[index + 1] as Point;
+		const horizontal = Math.abs(a.y - b.y) < 0.01;
+		if (!horizontal && Math.abs(a.x - b.x) >= 0.01) continue;
+		const at = horizontal ? a.y : a.x;
+		const lo = horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y);
+		const hi = horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y);
+		let worst = 0;
+		for (const box of outlines) {
+			const sides = horizontal
+				? [box.y, box.y + box.height]
+				: [box.x, box.x + box.width];
+			const from = horizontal ? box.x : box.y;
+			const to = horizontal ? box.x + box.width : box.y + box.height;
+			for (const side of sides) {
+				if (Math.abs(side - at) > OUTLINE_CLEARANCE) continue;
+				worst = Math.max(worst, Math.min(hi, to) - Math.max(lo, from));
+			}
+		}
+		if (worst > 1) run += worst;
+	}
+	return 3 * run;
+}
+
+/** Final segment length that leaves room for the arrowhead past the bend. */
+const ARROW_STUB_MIN = 16;
+
+/**
+ * Cost of a final segment too short to hold the arrowhead clear of the
+ * last bend (the head then sits on the corner). Enough to break ties
+ * between equal Z routes toward the one with a real stub, less than two
+ * bends.
+ */
+function shortArrowStubCost(points: readonly Point[]): number {
+	const last = points.at(-1);
+	const beforeLast = points.at(-2);
+	if (last === undefined || beforeLast === undefined || points.length < 3) {
+		return 0;
+	}
+	const length =
+		Math.abs(last.x - beforeLast.x) + Math.abs(last.y - beforeLast.y);
+	return length < ARROW_STUB_MIN ? 40 : 0;
 }
 
 /**

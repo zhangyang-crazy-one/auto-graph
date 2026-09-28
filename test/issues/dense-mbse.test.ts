@@ -173,6 +173,165 @@ const overlap = (a: Box, b: Box) =>
 	a.y < b.y + b.height &&
 	b.y < a.y + a.height;
 
+interface Seg {
+	edgeId: string;
+	a: Point;
+	b: Point;
+	/** Horizontal (fixed y) or vertical (fixed x). */
+	horizontal: boolean;
+	at: number;
+	lo: number;
+	hi: number;
+}
+
+function segmentsOf(d: CoordinatedDiagram): Seg[] {
+	const segs: Seg[] = [];
+	for (const e of d.edges) {
+		for (let i = 0; i + 1 < e.points.length; i += 1) {
+			const a = e.points[i] as Point;
+			const b = e.points[i + 1] as Point;
+			const horizontal = Math.abs(a.y - b.y) < 0.01;
+			if (!horizontal && Math.abs(a.x - b.x) >= 0.01) continue;
+			segs.push({
+				edgeId: e.id,
+				a,
+				b,
+				horizontal,
+				at: horizontal ? a.y : a.x,
+				lo: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
+				hi: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y),
+			});
+		}
+	}
+	return segs;
+}
+
+/** Box sides as axis-aligned lines: [horizontal, at, lo, hi]. */
+function boxSides(b: Box): [boolean, number, number, number][] {
+	return [
+		[true, b.y, b.x, b.x + b.width],
+		[true, b.y + b.height, b.x, b.x + b.width],
+		[false, b.x, b.y, b.y + b.height],
+		[false, b.x + b.width, b.y, b.y + b.height],
+	];
+}
+
+/**
+ * Defects that only show once the page is drawn (render check on #98):
+ * lines 0.5–6px apart that read as one thick line, routes drawn on a node
+ * side / group frame / lane divider, ends entering along their own side,
+ * arrowheads on a stub shorter than the head, port labels struck through,
+ * and sub-2px jogs.
+ */
+function renderDefects(d: CoordinatedDiagram) {
+	const segs = segmentsOf(d);
+	let nearParallel = 0;
+	for (let i = 0; i < segs.length; i += 1) {
+		const s = segs[i] as Seg;
+		for (const t of segs.slice(i + 1)) {
+			if (t.edgeId === s.edgeId || t.horizontal !== s.horizontal) continue;
+			const gap = Math.abs(t.at - s.at);
+			if (gap < 0.5 || gap >= 6) continue;
+			nearParallel += Math.max(0, Math.min(s.hi, t.hi) - Math.max(s.lo, t.lo));
+		}
+	}
+	const lines: [boolean, number, number, number][] = [
+		...d.nodes.flatMap((n) => boxSides(n.box)),
+		...d.groups.flatMap((g) => boxSides(g.box)),
+		...(d.swimlanes ?? []).flatMap((sw) =>
+			sw.lanes.flatMap((lane) =>
+				lane.box === undefined ? [] : boxSides(lane.box),
+			),
+		),
+	];
+	let borderRun = 0;
+	for (const s of segs) {
+		let worst = 0;
+		for (const [horizontal, at, lo, hi] of lines) {
+			if (horizontal !== s.horizontal || Math.abs(at - s.at) > 3) continue;
+			worst = Math.max(worst, Math.min(s.hi, hi) - Math.max(s.lo, lo));
+		}
+		borderRun += worst > 1 ? worst : 0;
+	}
+	let alongBorderEnds = 0;
+	let shortArrowEnds = 0;
+	for (const e of d.edges) {
+		const ends: [Point, Point, string][] = [
+			[e.points[0] as Point, e.points[1] as Point, e.source.nodeId],
+			[e.points.at(-1) as Point, e.points.at(-2) as Point, e.target.nodeId],
+		];
+		for (const [end, next, nodeId] of ends) {
+			const box = d.nodes.find((n) => n.id === nodeId)?.box;
+			if (box === undefined || next === undefined) continue;
+			const onVertical =
+				Math.abs(end.x - box.x) < 1 || Math.abs(end.x - box.x - box.width) < 1;
+			const onHorizontal =
+				Math.abs(end.y - box.y) < 1 || Math.abs(end.y - box.y - box.height) < 1;
+			const vertical = Math.abs(end.x - next.x) < 0.01;
+			if (
+				(onVertical && !onHorizontal && vertical) ||
+				(onHorizontal && !onVertical && !vertical)
+			)
+				alongBorderEnds += 1;
+		}
+		const last = e.points.at(-1) as Point;
+		const prev = e.points.at(-2) as Point;
+		if (Math.abs(last.x - prev.x) + Math.abs(last.y - prev.y) < 12)
+			shortArrowEnds += 1;
+	}
+	let portLabelHits = 0;
+	for (const e of d.edges) {
+		for (const t of d.textAnnotations ?? []) {
+			if (t.surfaceKind !== "port-label") continue;
+			if (crosses(e.points, inset(t.box, 1))) portLabelHits += 1;
+		}
+	}
+	// Inline labels and callout keys more than 30px from their own line
+	// read as some other edge's label.
+	let strayLabels = 0;
+	for (const t of d.textAnnotations ?? []) {
+		if (t.surfaceKind !== "edge-label" || t.placementDetail?.role === "callout")
+			continue;
+		const own = d.edges.find((e) => e.id === t.ownerId);
+		if (own === undefined) continue;
+		let nearest = Number.POSITIVE_INFINITY;
+		for (let i = 0; i + 1 < own.points.length; i += 1) {
+			const a = own.points[i] as Point;
+			const b = own.points[i + 1] as Point;
+			const dx = Math.max(
+				0,
+				t.box.x - Math.max(a.x, b.x),
+				Math.min(a.x, b.x) - (t.box.x + t.box.width),
+			);
+			const dy = Math.max(
+				0,
+				t.box.y - Math.max(a.y, b.y),
+				Math.min(a.y, b.y) - (t.box.y + t.box.height),
+			);
+			nearest = Math.min(nearest, Math.hypot(dx, dy));
+		}
+		if (nearest > 30) strayLabels += 1;
+	}
+	let microJogs = 0;
+	for (const e of d.edges) {
+		for (let i = 1; i + 2 < e.points.length; i += 1) {
+			const a = e.points[i] as Point;
+			const b = e.points[i + 1] as Point;
+			const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+			if (len > 0 && len < 2) microJogs += 1;
+		}
+	}
+	return {
+		nearParallel: Math.round(nearParallel),
+		borderRun: Math.round(borderRun),
+		alongBorderEnds,
+		shortArrowEnds,
+		portLabelHits,
+		microJogs,
+		strayLabels,
+	};
+}
+
 function evidence(d: CoordinatedDiagram) {
 	const texts = d.textAnnotations ?? [];
 	let nodePierce = 0;
@@ -327,6 +486,7 @@ function evidence(d: CoordinatedDiagram) {
 			),
 		].join(","),
 		ports: portFractions.join(" "),
+		...renderDefects(d),
 	};
 }
 
@@ -455,6 +615,21 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 		expect(
 			(plan?.detail as { unplacedCount?: number } | undefined)?.unplacedCount,
 		).toBeGreaterThan(0);
+	});
+
+	it("#98 render check: short-orthogonal pages draw nothing that only shows once rendered", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const defects = renderDefects(solveDiagram(load(source), RSOP));
+			expect(defects, name).toEqual({
+				nearParallel: 0,
+				borderRun: 0,
+				alongBorderEnds: 0,
+				shortArrowEnds: 0,
+				portLabelHits: 0,
+				microJogs: 0,
+				strayLabels: 0,
+			});
+		}
 	});
 
 	it("#76: obstacle-avoiding routes stay orthogonal and short (no zigzag fallback)", () => {

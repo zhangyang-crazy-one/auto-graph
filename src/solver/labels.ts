@@ -1249,12 +1249,17 @@ export function edgeLabelAnchor(
 				labelOverlapCount: number;
 		  }
 		| undefined;
-	const candidates = edgeLabelAnchorCandidates(
+	const searched = edgeLabelAnchorCandidates(
 		edge.points,
 		placement,
 		layout,
 		baseOffset,
 	);
+	// Short-orthogonal pages: slide along the line before drifting off it.
+	const candidates =
+		options.routeKind === "short-orthogonal-jumps"
+			? byDistanceFromRoute(searched, edge.points, baseOffset)
+			: searched;
 	// Extents of the other routes, computed once: a route can only touch a
 	// candidate box that its bounding box touches.
 	const otherRoutes = edges
@@ -1506,6 +1511,56 @@ export function edgeLabelAnchorCandidates(
 	}
 
 	return candidates;
+}
+
+/** Offset steps a label may drift from its line before sliding along it. */
+const LABEL_DRIFT_STEPS = 3;
+
+/**
+ * Candidates near the requested offset from their own route first, in
+ * search order: a label slides along its line before it drifts further
+ * away, where it would read as another edge's label (#98 render check).
+ */
+function byDistanceFromRoute(
+	candidates: readonly Point[],
+	points: readonly Point[],
+	baseOffset: number,
+): Point[] {
+	const distance = (candidate: Point): number => {
+		let best = Number.POSITIVE_INFINITY;
+		for (let index = 1; index < points.length; index += 1) {
+			const a = points[index - 1] as Point;
+			const b = points[index] as Point;
+			const dx = b.x - a.x;
+			const dy = b.y - a.y;
+			const lengthSquared = dx * dx + dy * dy;
+			const t =
+				lengthSquared === 0
+					? 0
+					: Math.max(
+							0,
+							Math.min(
+								1,
+								((candidate.x - a.x) * dx + (candidate.y - a.y) * dy) /
+									lengthSquared,
+							),
+						);
+			best = Math.min(
+				best,
+				Math.hypot(candidate.x - (a.x + t * dx), candidate.y - (a.y + t * dy)),
+			);
+		}
+		// Within a few steps of the requested offset the search order stands;
+		// only candidates drifting further wait behind the along-route ones.
+		return Math.abs(best - baseOffset) <=
+			LABEL_DRIFT_STEPS * EDGE_LABEL_CLEARANCE
+			? 0
+			: 1;
+	};
+	return candidates
+		.map((candidate, index) => ({ candidate, index, key: distance(candidate) }))
+		.sort((left, right) => left.key - right.key || left.index - right.index)
+		.map((entry) => entry.candidate);
 }
 
 export function edgeLabelExternalizationPolicy(

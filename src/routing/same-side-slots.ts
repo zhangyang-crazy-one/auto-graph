@@ -31,6 +31,11 @@ export interface AssignSameSideSlotsInput {
 	 * `${nodeId}:${side}`. Anonymous endpoints are placed between them.
 	 */
 	occupied?: ReadonlyMap<string, readonly number[]>;
+	/**
+	 * Named port attach points, keyed `${nodeId}.${portId}`. A lone
+	 * anonymous end facing a ported end lines up with the port.
+	 */
+	portPoints?: ReadonlyMap<string, Point>;
 }
 
 export interface AssignSameSideSlotsResult {
@@ -57,6 +62,10 @@ export function assignSameSideSlots(
 			side: "top" | "right" | "bottom" | "left";
 			/** Where the other end lies along this side's axis. */
 			toward: number;
+			/** The other end's box. */
+			other: Box;
+			/** The other end's fixed attach point (a named port), if any. */
+			otherPoint?: Point;
 		}>
 	>();
 
@@ -78,6 +87,8 @@ export function assignSameSideSlots(
 					nodeId: edge.source.nodeId,
 					side,
 					toward: alongSide(side, target.box),
+					other: target.box,
+					...portPointOf(input, edge.target),
 				});
 				buckets.set(key, list);
 			}
@@ -96,6 +107,8 @@ export function assignSameSideSlots(
 					nodeId: edge.target.nodeId,
 					side,
 					toward: alongSide(side, source.box),
+					other: source.box,
+					...portPointOf(input, edge.source),
 				});
 				buckets.set(key, list);
 			}
@@ -139,10 +152,18 @@ export function assignSameSideSlots(
 
 		// Every endpoint gets its own fraction (overflow is reported above,
 		// never stacked on one point), placed between the side's ports.
-		const fractions = freeFractions(
-			ordered.length,
-			input.occupied?.get(`${nodeId}:${side}`) ?? [],
-		);
+		const occupied = input.occupied?.get(`${nodeId}:${side}`) ?? [];
+		const fractions =
+			ordered.length === 1 && occupied.length === 0
+				? [
+						alignedFraction(
+							side,
+							geometry.box,
+							(ordered[0] as { other: Box }).other,
+							(ordered[0] as { otherPoint?: Point }).otherPoint,
+						),
+					]
+				: freeFractions(ordered.length, occupied);
 		ordered.forEach((entry, index) => {
 			const fraction = fractions[index] ?? 0.5;
 			assignments.set(`${entry.edgeId}:${entry.endpoint}`, {
@@ -196,6 +217,46 @@ export function freeFractions(
 	);
 }
 
+function portPointOf(
+	input: AssignSameSideSlotsInput,
+	end: NormalizedEdge["source"],
+): { otherPoint?: Point } {
+	if (end.portId === undefined) return {};
+	const point = input.portPoints?.get(`${end.nodeId}.${end.portId}`);
+	return point === undefined ? {} : { otherPoint: point };
+}
+
+/**
+ * A lone end sits at the middle of the span its box shares with the other
+ * end's box along this side, so two facing lone ends line up and the route
+ * runs straight instead of jogging a few pixels; facing a named port it
+ * lines up with the port. Without either (or too near a corner) it keeps
+ * the side's middle.
+ */
+function alignedFraction(
+	side: "top" | "right" | "bottom" | "left",
+	own: Box,
+	other: Box,
+	otherPoint?: Point,
+): number {
+	const horizontal = side === "top" || side === "bottom";
+	const start = horizontal ? own.x : own.y;
+	const length = horizontal ? own.width : own.height;
+	if (otherPoint !== undefined && length > 0) {
+		// Facing a named port: sit level with it when that stays on the side.
+		const fraction =
+			((horizontal ? otherPoint.x : otherPoint.y) - start) / length;
+		if (fraction >= 0.2 && fraction <= 0.8) return fraction;
+	}
+	const otherStart = horizontal ? other.x : other.y;
+	const otherLength = horizontal ? other.width : other.height;
+	const lo = Math.max(start, otherStart);
+	const hi = Math.min(start + length, otherStart + otherLength);
+	if (length <= 0 || hi - lo < 8) return 0.5;
+	const fraction = ((lo + hi) / 2 - start) / length;
+	return Math.min(0.8, Math.max(0.2, fraction));
+}
+
 function alongSide(
 	side: "top" | "right" | "bottom" | "left",
 	box: Box,
@@ -236,11 +297,22 @@ function preferredSide(
 	const dx = otherCenter.x - ownCenter.x;
 	const dy = otherCenter.y - ownCenter.y;
 	if (direction === "TB" || direction === "BT") {
-		// Flow sides follow the actual boxes: the other end fully below or
-		// above picks bottom/top (back-edges included); a same-rank pair
-		// (vertical extents overlap) picks left/right.
-		if (other.y >= own.y + own.height) return "bottom";
-		if (other.y + other.height <= own.y) return "top";
+		// Flow sides follow the actual boxes: the wider gap between them
+		// picks the axis. The other end mostly below or above picks
+		// bottom/top (back-edges included); a same-rank pair, or one far
+		// off to the side of a shallow step, picks left/right so the bend
+		// is not squeezed into the short gap.
+		const verticalGap = Math.max(
+			other.y - (own.y + own.height),
+			own.y - (other.y + other.height),
+		);
+		const horizontalGap = Math.max(
+			other.x - (own.x + own.width),
+			own.x - (other.x + other.width),
+		);
+		if (verticalGap > 0 && verticalGap >= horizontalGap) {
+			return other.y > own.y ? "bottom" : "top";
+		}
 		if (dx !== 0) return dx > 0 ? "right" : "left";
 		if (endpoint === "source") {
 			return direction === "TB" ? "bottom" : "top";

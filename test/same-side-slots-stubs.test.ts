@@ -88,6 +88,37 @@ describe("same-side slots + escape stubs (#92)", () => {
 		expect(assignments.get("flat:target")?.anchor).toBe("left");
 	});
 
+	it("lines up lone facing ends so the route runs straight", () => {
+		const nodes = new Map([
+			shape("upper", 0, 0, 88, 42),
+			shape("lower", 0, 140, 80, 42),
+			shape("port", 300, 0, 80, 120),
+		]);
+		const { assignments } = assignSameSideSlots({
+			edges: [
+				{
+					id: "down",
+					source: { nodeId: "upper" },
+					target: { nodeId: "lower" },
+				},
+				{
+					id: "ported",
+					source: { nodeId: "port", portId: "p" },
+					target: { nodeId: "upper" },
+				},
+			],
+			nodes,
+			direction: "TB",
+			maxAttachPointsPerSide: 3,
+			portPoints: new Map([["port.p", { x: 300, y: 30 }]]),
+		});
+		// Shared span x 0–80: both ends at x=40, not 44 and 40.
+		expect(assignments.get("down:source")?.point.x).toBe(40);
+		expect(assignments.get("down:target")?.point.x).toBe(40);
+		// Level with the named port it faces.
+		expect(assignments.get("ported:target")?.point.y).toBe(30);
+	});
+
 	it("separates parallel same-side tracks by at least pitch", () => {
 		const solved = solveDiagram(
 			{

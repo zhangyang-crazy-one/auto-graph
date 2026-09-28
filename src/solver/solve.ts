@@ -138,6 +138,7 @@ import {
 	applySwimlaneLayoutContracts,
 	coordinateSwimlanes,
 	hasFixedSwimlaneGeometry,
+	laneSoftCorridors,
 	reserveLaneCorridors,
 } from "./swimlane-contracts.js";
 
@@ -648,7 +649,7 @@ export function solveDiagram(
 	let policySoftObstacles = [
 		...softObstacles,
 		...(resolvedPagePolicy === "lane-behavior" ? [] : titleBarObstacles),
-		...laneReservations.softCorridors,
+		...laneSoftCorridors(laneReservations, options),
 	];
 	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
 		baseTextAnnotations,

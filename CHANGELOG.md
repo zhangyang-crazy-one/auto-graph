@@ -17,6 +17,12 @@
 - **Review fixes (round 3)**: the opt-in channel nudge keeps a move only if it hits no more of the edge's own obstacles (soft, group, text, nodes); soft hits (port labels) also trigger the slot side search, and router fallbacks rank behind accepted routes; hops account for the arrowhead cut; callout keys stay off nodes, tables, matrices and panels; draw.io keeps node fill/stroke/font, ports and port labels, SysML compartments and solved edge-label positions.
 - **Review fixes**: `portShifting.enabled: false` keeps ports at the side middle again; successful port growth no longer reports `routing.port.capacity_exhausted`; the opt-in channel nudge runs before labels; slots take the place of fan-out anchors in both anchor and point; the #95 gate checks every foreign node and its fallback keeps relocated slots and uses the Euclidean detour ratio; channel tracks group bridge-joined intervals; inseparable short candidates stay in the feasibility pool; shelves avoid evidence panels and unresolved key overlaps are reported.
 - **Greedy detour speed**: the detour search only tests obstacles within the segment's span and takes at most 8 outward steps (dense acceptance pages back to main's timings).
+- **Render check (short-orthogonal)**: rendering the dense SV-1 / AV-1 / OV-5b pages showed defects the numeric gates missed; each now has a regression metric and is 0 on all three pages.
+  - An end entering along its own border ranks right after hard hits in the slot side search (ahead of text hits); a final segment too short for the arrowhead retries the slot's side and costs extra in the tournament; separation keeps a 16px end stub.
+  - Lane content corridors are no longer soft obstacles for short routes: counting them made routes ride the lane dividers or loop around the pool. Lane headers stay hard.
+  - Lone facing ends line up (middle of the shared span, or level with a named port), so the route runs straight instead of jogging a few pixels; TB/BT slot sides follow the wider gap between the boxes.
+  - A route keeps off its own port labels; segments along a group frame or node side step clear of it (tournament cost plus a validated post-pass).
+  - Edge labels slide along their own line before drifting more than three steps away from it.
 
 ### Port equal-division docking (#91) + same-side slots / stubs (#92)
 

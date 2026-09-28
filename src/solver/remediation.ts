@@ -95,6 +95,7 @@ import {
 import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	coordinateSwimlanes,
+	laneSoftCorridors,
 	reserveLaneCorridors,
 } from "./swimlane-contracts.js";
 
@@ -950,7 +951,7 @@ export function rebuildRemediationGeometry(
 		...(context.resolvedPagePolicy === "lane-behavior"
 			? []
 			: state.titleBarObstacles),
-		...state.laneReservations.softCorridors,
+		...laneSoftCorridors(state.laneReservations, context.options),
 	];
 	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
 		state.baseTextAnnotations,

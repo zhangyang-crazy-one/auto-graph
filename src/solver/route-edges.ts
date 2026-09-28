@@ -218,6 +218,13 @@ export function coordinateEdges(
 				direction,
 				maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
 				occupied: occupiedPortFractions(coordinatedNodes, nodes),
+				portPoints: new Map(
+					coordinatedNodes.flatMap((node) =>
+						(node.ports ?? []).map(
+							(port) => [`${node.id}.${port.id}`, port.anchor] as const,
+						),
+					),
+				),
 			})
 		: undefined;
 	if (sameSideSlots !== undefined) {
@@ -325,9 +332,16 @@ export function coordinateEdges(
 			targetPort !== undefined
 				? { point: targetPort.anchor, anchor: targetPort.side }
 				: targetSlot;
+		// A short route keeps off its own port labels too: the label sits
+		// beside the port, clear of the end stub, so only a bend can strike
+		// it (#98 render check).
 		const routeTextObstacles = textObstacles
 			.filter(isLocalRouteClearanceText)
-			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
+			.filter(
+				(annotation) =>
+					!isEdgeConnectedTextAnnotation(edge, annotation) ||
+					(shortPath && annotation.surfaceKind === "port-label"),
+			)
 			.map((annotation) => textObstacleBox(annotation, options));
 		const railTextObstacles = textObstacles
 			.filter(isLocalRouteClearanceText)
@@ -434,6 +448,18 @@ export function coordinateEdges(
 				? {}
 				: { targetPoint: targetPreassign.point }),
 			obstacles: routeSoftObstacles,
+			...(shortPath
+				? {
+						// Local outlines only (the corridor's nodes and the
+						// edge's own), so the cost stays cheap on large pages.
+						outlineBoxes: [
+							...groups.map((group) => group.box),
+							...routeNodeObstacles,
+							source.box,
+							target.box,
+						],
+					}
+				: {}),
 			blockingObstacles: nodeObstacles
 				.filter(
 					(entry) =>
@@ -534,26 +560,36 @@ export function coordinateEdges(
 					targetAnchor: sideOfBox(points.at(-1), target.box),
 				});
 			// A router fallback (no candidate cleared its hard set) ranks
-			// behind every accepted route, whatever its soft hits.
-			const score = (candidate: typeof route) => [
-				candidate.diagnostics.some(
-					(diagnostic) => diagnostic.code === "routing.obstacle.unavoidable",
-				)
-					? 1
-					: 0,
-				...routeSeverity(
+			// behind every accepted route, whatever its soft hits. An end
+			// entering along its own border reads as pointing nowhere, so it
+			// ranks right after hard hits, ahead of soft text hits.
+			const score = (candidate: typeof route) => {
+				const [hard = 0, ...rest] = routeSeverity(
 					candidate,
 					routeHardObstacles,
 					routeInput.obstacles ?? [],
-				),
-				misdirected(candidate.points),
-			];
+				);
+				return [
+					candidate.diagnostics.some(
+						(diagnostic) => diagnostic.code === "routing.obstacle.unavoidable",
+					)
+						? 1
+						: 0,
+					hard,
+					misdirected(candidate.points),
+					...rest,
+					shortArrowStub(candidate.points),
+					// Otherwise the shorter route wins, not the first side tried.
+					Math.round(polylineLength(candidate.points)),
+				];
+			};
 			// Soft hits (port labels, text) also trigger the side search;
 			// candidates are still ranked hard hits first.
 			const blocked = (candidate: typeof route) =>
 				routeObstacleHits(candidate.points, routeHardObstacles) > 0 ||
 				routeObstacleHits(candidate.points, routeInput.obstacles ?? []) > 0 ||
-				misdirected(candidate.points) > 0;
+				misdirected(candidate.points) > 0 ||
+				shortArrowStub(candidate.points) > 0;
 			// Each slotted end may take any side; the other end keeps its
 			// pinned point. Both ends move together, so a pair that only
 			// works jointly (both ends off their facing sides) is found.
@@ -1007,10 +1043,178 @@ export function finalizeCoordinatedEdges(
 		nodes,
 		implicit ? undefined : layered,
 	);
-	for (const edge of snapped) {
+	// Short routes: interior segments the post-passes left on a group frame
+	// or node side step clear of it (#98 render check).
+	const cleared =
+		(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps"
+			? clearOutlineRuns(
+					snapped,
+					[
+						...groups.map((group) => group.box),
+						...[...nodes.values()].map((geometry) => geometry.box),
+					],
+					obstacles,
+					layered,
+				)
+			: snapped;
+	for (const edge of cleared) {
 		if (layered.has(edge.id)) LAYERED_ROUTES.add(edge.points);
 	}
-	return snapped;
+	return cleared;
+}
+
+/** A segment this close to a parallel outline side reads as part of it. */
+const OUTLINE_CLEARANCE = 4;
+/** Where a segment lands when it steps off an outline. */
+const OUTLINE_STEP = 8;
+/** Parallel segments of different edges closer than this read as one. */
+const NEAR_PARALLEL_GAP = 6;
+
+interface AxisSegment {
+	horizontal: boolean;
+	at: number;
+	lo: number;
+	hi: number;
+}
+
+function axisSegment(a: Point, b: Point): AxisSegment | undefined {
+	const horizontal = Math.abs(a.y - b.y) < 0.01;
+	if (!horizontal && Math.abs(a.x - b.x) >= 0.01) return undefined;
+	return {
+		horizontal,
+		at: horizontal ? a.y : a.x,
+		lo: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
+		hi: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y),
+	};
+}
+
+/** Outline sides parallel to `segment` within `clearance`, as coordinates. */
+function outlineSidesNear(
+	segment: AxisSegment,
+	outlines: readonly Box[],
+	clearance: number,
+): number[] {
+	const near: number[] = [];
+	for (const box of outlines) {
+		const from = segment.horizontal ? box.x : box.y;
+		const to = segment.horizontal ? box.x + box.width : box.y + box.height;
+		if (Math.min(segment.hi, to) - Math.max(segment.lo, from) <= 1) continue;
+		const sides = segment.horizontal
+			? [box.y, box.y + box.height]
+			: [box.x, box.x + box.width];
+		for (const side of sides) {
+			if (Math.abs(side - segment.at) <= clearance) near.push(side);
+		}
+	}
+	return near;
+}
+
+/**
+ * Step interior segments off group frames and node sides they run along
+ * (within {@link OUTLINE_CLEARANCE}): the segment moves to
+ * {@link OUTLINE_STEP} from the side, on the side's nearer free face.
+ * A move is kept only when the route gains no obstacle hit, its
+ * neighbouring segments keep their direction (and the end stubs their
+ * length), and no other edge's parallel segment ends up next to it.
+ */
+function clearOutlineRuns(
+	edges: readonly CoordinatedEdge[],
+	outlines: readonly Box[],
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	const routes = edges.map((edge) =>
+		edge.points.map((point) => ({ ...point })),
+	);
+	const otherSegments = (skip: number): AxisSegment[] =>
+		routes.flatMap((points, index) =>
+			index === skip
+				? []
+				: points.slice(1).flatMap((point, at) => {
+						const segment = axisSegment(points[at] as Point, point);
+						return segment === undefined ? [] : [segment];
+					}),
+		);
+	edges.forEach((edge, edgeIndex) => {
+		if (fixed.has(edge.id)) return;
+		const points = routes[edgeIndex] as Point[];
+		const edgeObstacles = obstaclesForEdge(edge, obstacles);
+		for (let index = 1; index + 2 < points.length; index += 1) {
+			const segment = axisSegment(
+				points[index] as Point,
+				points[index + 1] as Point,
+			);
+			if (segment === undefined) continue;
+			const sides = outlineSidesNear(segment, outlines, OUTLINE_CLEARANCE);
+			if (sides.length === 0) continue;
+			const targets = sides
+				.flatMap((side) => [side - OUTLINE_STEP, side + OUTLINE_STEP])
+				.sort(
+					(left, right) =>
+						Math.abs(left - segment.at) - Math.abs(right - segment.at),
+				);
+			const before = routeObstacleHits(points, edgeObstacles);
+			const others = otherSegments(edgeIndex);
+			for (const target of targets) {
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [index, index + 1]) {
+					const point = moved[at] as Point;
+					if (segment.horizontal) point.y = target;
+					else point.x = target;
+				}
+				const candidate = axisSegment(
+					moved[index] as Point,
+					moved[index + 1] as Point,
+				);
+				if (candidate === undefined) continue;
+				if (outlineSidesNear(candidate, outlines, OUTLINE_CLEARANCE).length) {
+					continue;
+				}
+				if (!keepsNeighbours(points, moved, index)) continue;
+				if (routeObstacleHits(moved, edgeObstacles) > before) continue;
+				const crowded = others.some(
+					(other) =>
+						other.horizontal === candidate.horizontal &&
+						Math.abs(other.at - candidate.at) < NEAR_PARALLEL_GAP &&
+						Math.min(other.hi, candidate.hi) -
+							Math.max(other.lo, candidate.lo) >
+							0,
+				);
+				if (crowded) continue;
+				routes[edgeIndex] = moved;
+				points.splice(0, points.length, ...moved);
+				break;
+			}
+		}
+	});
+	return edges.map((edge, index) => ({
+		...edge,
+		points: routes[index] ?? edge.points,
+	}));
+}
+
+/**
+ * Whether moving segment `index` kept the segments either side of it
+ * pointing the same way, with the end stubs no shorter than 16px (source)
+ * or long enough for the arrowhead (target).
+ */
+function keepsNeighbours(
+	before: readonly Point[],
+	after: readonly Point[],
+	index: number,
+): boolean {
+	for (const at of [index - 1, index + 1]) {
+		const a0 = before[at] as Point;
+		const b0 = before[at + 1] as Point;
+		const a1 = after[at] as Point;
+		const b1 = after[at + 1] as Point;
+		const d0 = b0.x - a0.x + (b0.y - a0.y);
+		const d1 = b1.x - a1.x + (b1.y - a1.y);
+		if (Math.sign(d0) !== Math.sign(d1) || d1 === 0) return false;
+		const isEnd = at === 0 || at + 1 === after.length - 1;
+		if (isEnd && Math.abs(d1) < 16) return false;
+	}
+	return true;
 }
 
 interface PostPassObstacle {
@@ -1534,6 +1738,21 @@ function spreadCollidingEndpoints(
 	});
 }
 
+/**
+ * 1 when the final segment is too short for the arrowhead (10px) to sit
+ * clear of the last bend: the slot's side is worth retrying.
+ */
+function shortArrowStub(points: readonly Point[]): number {
+	const last = points.at(-1);
+	const beforeLast = points.at(-2);
+	if (last === undefined || beforeLast === undefined || points.length < 3) {
+		return 0;
+	}
+	return Math.abs(last.x - beforeLast.x) + Math.abs(last.y - beforeLast.y) < 16
+		? 1
+		: 0;
+}
+
 /** Bends allowed on the obstacle-avoiding fallback of a short route (#95). */
 const SHORT_PATH_FALLBACK_MAX_BENDS = 6;
 
@@ -1730,6 +1949,9 @@ function separateCoordinatedEdges(
 				routeKind === "obstacle-avoiding",
 			// A node hit outweighs any number of label or group grazes.
 			obstacleWeights: obstacles.map((obstacle) => obstacle.weight ?? 1),
+			// Moving a bend must leave the end segment long enough for the
+			// arrowhead (10px) to sit clear of the corner.
+			...(routeKind === "short-orthogonal-jumps" ? { minStub: 16 } : {}),
 			...(spacing === undefined ? {} : { spacing }),
 		},
 	);
