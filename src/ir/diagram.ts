@@ -78,6 +78,8 @@ export interface ExternalLabelRemediationDetail {
 	callouts?: ExternalLabelCallout[];
 	/** Labels that found no free shelf spot on the page and stayed inline (#93). */
 	unplacedCount?: number;
+	/** Edges whose callout key has no spot clear of nodes, tables and panels. */
+	blockedKeyEdgeIds?: string[];
 }
 
 export interface RouteRailRemediationDetail {

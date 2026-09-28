@@ -136,6 +136,8 @@ describe("draw.io export", () => {
 						placementDetail: { role: "callout" },
 						box: { x: 650, y: 150, width: 90, height: 20 },
 						lines: [],
+						fontFamily: "Noto Sans CJK SC",
+						fontSize: 13,
 					},
 					{
 						text: "E1",
@@ -154,6 +156,10 @@ describe("draw.io export", () => {
 		expect(xml).toContain("horizontal=0;");
 		expect(xml).toContain("legend");
 		expect(xml).toContain("E1: long label");
+		// The callout keeps the typography its shelf box was measured with.
+		expect(xml).toMatch(
+			/value="E1: long label" style="[^"]*fontFamily=Noto Sans CJK SC;fontSize=13;/,
+		);
 		// The edge carries the callout key instead of the full label.
 		expect(xml).toMatch(/value="E1" style="edgeStyle/);
 	});
@@ -343,6 +349,23 @@ describe("draw.io export", () => {
 			}),
 		);
 		expect(xml).toContain("fontFamily=Noto Sans CJK SC;fontSize=14");
+	});
+
+	it("keeps the authored frame fill and stroke", () => {
+		const xml = exportDrawio(
+			diagram({
+				frame: {
+					kind: "bdd",
+					titleTab: "bdd Plant",
+					style: { fill: "#fafafa", stroke: "#123456" },
+					box: { x: 480, y: 60, width: 440, height: 120 },
+					titleBox: { x: 480, y: 60, width: 90, height: 20 },
+				},
+			}),
+		);
+		expect(xml).toMatch(
+			/shape=umlFrame;[^"]*fillColor=#fafafa;strokeColor=#123456;/,
+		);
 	});
 
 	it("keeps the requested page title through exportDiagram", () => {

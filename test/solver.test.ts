@@ -4077,6 +4077,48 @@ edges:
 		}
 	});
 
+	it("reports reduced padding between neighbouring fitted lanes", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-tight-lanes",
+			direction: "LR",
+			nodes: [
+				node("a", { x: 100, y: 80 }),
+				node("b", { x: 100 + 80 + 20, y: 80 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "cols",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{ id: "left", children: ["a"] },
+						{ id: "right", children: ["b"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "swimlane.lane-padding.reduced",
+				detail: expect.objectContaining({ lanePairs: ["left|right"] }),
+			}),
+		);
+		// Each child still sits inside its own lane.
+		for (const lane of result.swimlanes?.[0]?.lanes ?? []) {
+			const child = result.nodes.find((entry) => entry.id === lane.children[0]);
+			expect(child?.box.x).toBeGreaterThanOrEqual(lane.box?.x ?? Infinity);
+			expect((child?.box.x ?? 0) + (child?.box.width ?? 0)).toBeLessThanOrEqual(
+				(lane.box?.x ?? 0) + (lane.box?.width ?? 0),
+			);
+		}
+	});
+
 	it("fits horizontal contract lanes around fixed children in lane order", () => {
 		const result = solveDiagram({
 			id: "contract-swimlane-fitted-rows",

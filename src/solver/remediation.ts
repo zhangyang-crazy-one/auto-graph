@@ -634,6 +634,20 @@ export function applyExternalLabelRemediation(
 		(diagnostic) =>
 			diagnostic.code === "routing.label-shelf.capacity_exhausted",
 	);
+	const keyBlocked = shelfDiagnostics.find(
+		(diagnostic) => diagnostic.code === "routing.label-shelf.key_blocked",
+	);
+	const withShelfDiagnostics = <T extends Omit<RemediationPlan, "id">>(
+		plan: T,
+	): T => {
+		const capped =
+			shelfCapacity === undefined
+				? plan
+				: withShelfCapacity(plan, shelfCapacity);
+		return keyBlocked === undefined
+			? capped
+			: withKeyBlocked(capped, keyBlocked);
+	};
 	if (externalLabelCallouts.length === 0) {
 		const candidate = buildRemediationPlans(
 			blockingRemediationDiagnostics(state.diagnostics),
@@ -644,12 +658,10 @@ export function applyExternalLabelRemediation(
 		if (candidate === undefined) {
 			return undefined;
 		}
-		if (shelfCapacity !== undefined) {
-			// Labels needed callouts but none fit on the page (#93).
-			return withShelfCapacity(
-				{ ...candidate, status: "blocked" },
-				shelfCapacity,
-			);
+		if (shelfCapacity !== undefined || keyBlocked !== undefined) {
+			// Labels needed callouts but none fit on the page (#93), or no
+			// key found a clear spot on its edge.
+			return withShelfDiagnostics({ ...candidate, status: "blocked" });
 		}
 		return {
 			...candidate,
@@ -675,10 +687,9 @@ export function applyExternalLabelRemediation(
 		id: "remediation-external-label",
 		...applied,
 	};
-	// Only part of the labels fit on the page: say so (#93).
-	return shelfCapacity === undefined
-		? plan
-		: withShelfCapacity(plan, shelfCapacity);
+	// Only part of the labels fit on the page, or some keys were blocked:
+	// say so (#93).
+	return withShelfDiagnostics(plan);
 }
 
 /**
@@ -701,6 +712,30 @@ export function withShelfCapacity<T extends Omit<RemediationPlan, "id">>(
 			unplacedCount:
 				(capacity.detail?.labelCount as number) -
 				(capacity.detail?.placed as number),
+		},
+	};
+}
+
+/**
+ * Fold a `routing.label-shelf.key_blocked` diagnostic into the
+ * external-label plan: its reason, code and the edges that stayed inline.
+ */
+export function withKeyBlocked<T extends Omit<RemediationPlan, "id">>(
+	plan: T,
+	blocked: Diagnostic,
+): T {
+	if (plan.diagnosticCodes.includes(blocked.code)) {
+		return plan;
+	}
+	return {
+		...plan,
+		reason: `${plan.reason} ${blocked.message}`,
+		diagnosticCodes: [...plan.diagnosticCodes, blocked.code].sort(),
+		detail: {
+			...(plan.detail as ExternalLabelRemediationDetail),
+			blockedKeyEdgeIds: [
+				...((blocked.detail?.edgeIds as string[] | undefined) ?? []),
+			],
 		},
 	};
 }

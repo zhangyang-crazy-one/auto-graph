@@ -222,12 +222,14 @@ export function applySingleSwimlaneContract(
 		placedChildren.length > 0 &&
 		placedChildren.every((child) => locks.has(child))
 	) {
+		const tightPairs: [string, string][] = [];
 		const fitted = fitLanesAroundChildren(
 			swimlane,
 			nodeBoxes,
 			headerHeight,
 			padding,
 			laneGutter,
+			tightPairs,
 		);
 		if (fitted !== undefined) {
 			diagnostics.push({
@@ -237,6 +239,20 @@ export function applySingleSwimlaneContract(
 				path: ["swimlanes", swimlane.id],
 				detail: { swimlaneId: swimlane.id, laneCount: swimlane.lanes.length },
 			});
+			if (tightPairs.length > 0) {
+				diagnostics.push({
+					severity: "warning",
+					code: "swimlane.lane-padding.reduced",
+					message: `Swimlane ${swimlane.id}: fixed children of neighbouring lanes are closer than twice the lane padding (${padding}); the boundary between them sits midway with less padding. Move the children apart to restore it.`,
+					path: ["swimlanes", swimlane.id],
+					detail: {
+						swimlaneId: swimlane.id,
+						lanePairs: tightPairs.map((pair) => pair.join("|")),
+						padding,
+						gutter: laneGutter,
+					},
+				});
+			}
 			return fitted;
 		}
 	}
@@ -290,6 +306,8 @@ export function fitLanesAroundChildren(
 	headerHeight: number,
 	padding: number,
 	gutter = 0,
+	/** Receives neighbouring lane pairs too close for full padding. */
+	tightPairs: [string, string][] = [],
 ): SwimlaneContractLayout | undefined {
 	const vertical = swimlane.orientation === "vertical";
 	const spans = swimlane.lanes.map((lane) => {
@@ -325,7 +343,17 @@ export function fitLanesAroundChildren(
 		const right = populated[at + 1] as (typeof populated)[number];
 		const empties = right.index - left.index - 1;
 		if (empties === 0) {
-			if (right.span.lo - left.span.hi < 8 + gutter) return undefined;
+			const gap = right.span.lo - left.span.hi;
+			if (gap < 8 + gutter) return undefined;
+			// Fixed children cannot move apart: the boundary still sits
+			// midway (each child stays in its own lane), with less than the
+			// configured padding, and the caller reports it.
+			if (gap < 2 * padding + gutter) {
+				tightPairs.push([
+					(swimlane.lanes[left.index] as { id: string }).id,
+					(swimlane.lanes[right.index] as { id: string }).id,
+				]);
+			}
 			const middle = (left.span.hi + right.span.lo) / 2;
 			hi[left.index] = middle - gutter / 2;
 			lo[right.index] = middle + gutter / 2;

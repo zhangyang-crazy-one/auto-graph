@@ -1609,16 +1609,30 @@ function tidyRouteEnds(
 		let points = edge.points.map((point) => ({ ...point }));
 		const hits = (route: readonly Point[]) =>
 			routeObstacleHits(route, edgeObstacles);
-		const onSide = (point: Point, nodeId: string): boolean => {
+		// The border side an end sits on (clear of the corners), if any.
+		const sideAt = (
+			point: Point,
+			nodeId: string,
+		): CoordinatedPort["side"] | undefined => {
 			const box = nodes.get(nodeId)?.box;
-			if (box === undefined) return false;
+			if (box === undefined) return undefined;
 			const inset = 4;
-			const onVertical =
-				Math.abs(point.x - box.x) < 0.5 ||
-				Math.abs(point.x - box.x - box.width) < 0.5;
-			return onVertical
-				? point.y >= box.y + inset && point.y <= box.y + box.height - inset
-				: point.x >= box.x + inset && point.x <= box.x + box.width - inset;
+			const alongY =
+				point.y >= box.y + inset && point.y <= box.y + box.height - inset;
+			const alongX =
+				point.x >= box.x + inset && point.x <= box.x + box.width - inset;
+			if (alongY && Math.abs(point.x - box.x) < 0.5) return "left";
+			if (alongY && Math.abs(point.x - box.x - box.width) < 0.5) return "right";
+			if (alongX && Math.abs(point.y - box.y) < 0.5) return "top";
+			if (alongX && Math.abs(point.y - box.y - box.height) < 0.5) {
+				return "bottom";
+			}
+			return undefined;
+		};
+		// A moved end slides along the side it was on, never off it.
+		const onSide = (point: Point, nodeId: string, before: Point): boolean => {
+			const side = sideAt(point, nodeId);
+			return side !== undefined && side === sideAt(before, nodeId);
 		};
 		// Jogs: segment i tiny, segments i-1 and i+1 parallel.
 		for (let i = 1; i + 1 < points.length - 1; i += 1) {
@@ -1645,12 +1659,19 @@ function tidyRouteEnds(
 					if (horizontalJog) point.x = onto.x;
 					else point.y = onto.y;
 				}
-				if (from === 0 && !onSide(moved[0] as Point, edge.source.nodeId)) {
+				if (
+					from === 0 &&
+					!onSide(moved[0] as Point, edge.source.nodeId, points[0] as Point)
+				) {
 					continue;
 				}
 				if (
 					to === lastIndex &&
-					!onSide(moved[lastIndex] as Point, edge.target.nodeId)
+					!onSide(
+						moved[lastIndex] as Point,
+						edge.target.nodeId,
+						points[lastIndex] as Point,
+					)
 				) {
 					continue;
 				}

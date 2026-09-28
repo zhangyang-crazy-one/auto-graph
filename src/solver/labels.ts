@@ -617,6 +617,8 @@ export function buildExternalLabelCallouts(
 	}
 	const shelved = measured.filter((entry) => !entry.blocked);
 
+	if (shelved.length === 0) return [];
+
 	const placements =
 		options.pageBounds === undefined
 			? stackShelf(shelved, bounds)

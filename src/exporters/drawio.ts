@@ -71,7 +71,16 @@ export function exportDrawio(
 		const frame = diagram.frame;
 		vertex(
 			escapeHtml(frame.titleTab),
-			`shape=umlFrame;whiteSpace=wrap;html=1;width=${formatNumber(frame.titleBox.width)};height=${formatNumber(frame.titleBox.height)};`,
+			[
+				"shape=umlFrame;whiteSpace=wrap;html=1;",
+				`width=${formatNumber(frame.titleBox.width)};height=${formatNumber(frame.titleBox.height)};`,
+				...(frame.style?.fill === undefined
+					? []
+					: [`fillColor=${frame.style.fill};`]),
+				...(frame.style?.stroke === undefined
+					? []
+					: [`strokeColor=${frame.style.stroke};`]),
+			].join(""),
 			frame.box,
 		);
 	}
@@ -180,7 +189,14 @@ export function exportDrawio(
 	for (const callout of annotations.filter(
 		(annotation) => annotation.placementDetail?.role === "callout",
 	)) {
-		vertex(calloutText(callout), CALLOUT_STYLE, callout.box);
+		// The shelf box was measured with the callout's own typography.
+		vertex(
+			calloutText(callout),
+			`${CALLOUT_STYLE}${labelFontStyle(callout)
+				.map((entry) => `${entry};`)
+				.join("")}`,
+			callout.box,
+		);
 	}
 
 	const page = diagram.bounds;
@@ -336,12 +352,8 @@ function renderEdgeCell(input: {
 		`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
 	];
 	if (edge.style === "dashed") styleParts.push("dashed=1");
-	// `;` separates style entries, so it cannot appear in a value.
-	const labelFontFamily = input.labelFont?.fontFamily?.replaceAll(";", "");
-	if (labelFontFamily) styleParts.push(`fontFamily=${labelFontFamily}`);
-	const labelFontSize = input.labelFont?.fontSize;
-	if (labelFontSize !== undefined && Number.isFinite(labelFontSize)) {
-		styleParts.push(`fontSize=${formatNumber(labelFontSize)}`);
+	if (input.labelFont !== undefined) {
+		styleParts.push(...labelFontStyle(input.labelFont));
 	}
 	const first = points[0];
 	const last = points.at(-1);
@@ -694,6 +706,20 @@ function panelCells(panel: CoordinatedEvidencePanel): EvidenceCellVertex[] {
 		});
 	});
 	return cells;
+}
+
+/** Style entries for a solved label's typography (the box was measured with it). */
+function labelFontStyle(
+	font: Partial<Pick<SolvedTextAnnotation, "fontFamily" | "fontSize">>,
+): string[] {
+	const entries: string[] = [];
+	// `;` separates style entries, so it cannot appear in a value.
+	const family = font.fontFamily?.replaceAll(";", "");
+	if (family) entries.push(`fontFamily=${family}`);
+	if (font.fontSize !== undefined && Number.isFinite(font.fontSize)) {
+		entries.push(`fontSize=${formatNumber(font.fontSize)}`);
+	}
+	return entries;
 }
 
 function calloutText(annotation: SolvedTextAnnotation): string {
