@@ -2061,38 +2061,39 @@ describe("solveDiagram", () => {
 	});
 
 	it("forwards maxRoutingAttempts to obstacle-avoiding route solving", () => {
-		// A lane page where one route only clears the other edges' labels
-		// through the greedy reroute: with 0 attempts that repair is off.
+		// A port page where routes into the ported node only clear the other
+		// edges' labels through the greedy reroute: with 0 attempts that
+		// repair is off.
 		const parsed = parseDiagramDsl(`
-layout: { direction: TB, mode: positions }
-swimlanes:
-  flow:
-    orientation: vertical
-    layout: contract
-    lanes:
-      eg: { label: 指挥组, children: [o1, o2, o5] }
-      oa: { label: 作战单元, children: [o3, o4, o6] }
-      sp: { label: 保障单元, children: [o7, o8] }
+layout: { direction: LR, mode: positions }
 nodes:
-  o1: { label: 接收任务, position: { x: 60, y: 60 } }
-  o2: { label: 制定方案, position: { x: 60, y: 180 } }
-  o3: { label: 机动部署, position: { x: 300, y: 120 } }
-  o4: { label: 实施打击, position: { x: 300, y: 240 } }
-  o5: { label: 效果评估, position: { x: 60, y: 360 } }
-  o6: { label: 撤离, position: { x: 300, y: 380 } }
-  o7: { label: 补给, position: { x: 540, y: 160 } }
-  o8: { label: 维修, position: { x: 540, y: 300 } }
+  hn900:
+    label: HN900 主控单元
+    position: { x: 420, y: 140 }
+    ports:
+      CMD: { side: left, kind: flow, label: CMD }
+      SEN: { side: left, kind: flow, label: SEN }
+      DAT: { side: left, kind: flow, label: DAT }
+      OUT: { side: right, kind: flow, label: OUT }
+  b055: { label: 055A 传感器, position: { x: 60, y: 40 }, ports: { S1: { side: right, kind: flow } } }
+  b056: { label: 056B 执行器, position: { x: 60, y: 160 }, ports: { S2: { side: right, kind: flow } } }
+  b057: { label: 057C 数据链, position: { x: 60, y: 280 }, ports: { S3: { side: right, kind: flow } } }
+  s1: { label: 雷达 A, position: { x: 60, y: 400 } }
+  s2: { label: 雷达 B, position: { x: 200, y: 420 } }
+  s3: { label: 光电 C, position: { x: 200, y: 20 } }
+  s4: { label: 通信 D, position: { x: 60, y: 520 } }
+  s5: { label: 导航 E, position: { x: 200, y: 520 } }
+  sink: { label: 显控台, position: { x: 700, y: 160 } }
 edges:
-  - { source: o1, target: o2, label: 分析 }
-  - { source: o2, target: o3, label: 下达 }
-  - { source: o3, target: o4, label: 到位 }
-  - { source: o4, target: o5, label: 回报 }
-  - { source: o5, target: o2, label: 调整 }
-  - { source: o4, target: o6, label: 完成 }
-  - { source: o7, target: o3, label: 物资 }
-  - { source: o8, target: o4, label: 抢修 }
-  - { source: o2, target: o7, label: 申请 }
-  - { source: o5, target: o8, label: 需求 }
+  - { source: { node: b055, port: S1 }, target: { node: hn900, port: CMD }, label: 指令 }
+  - { source: { node: b056, port: S2 }, target: { node: hn900, port: SEN }, label: 传感 }
+  - { source: { node: b057, port: S3 }, target: { node: hn900, port: DAT }, label: 数据 }
+  - { source: s1, target: hn900, label: 回波 }
+  - { source: s2, target: hn900, label: 回波 }
+  - { source: s3, target: hn900, label: 图像 }
+  - { source: s4, target: hn900, label: 话音 }
+  - { source: s5, target: hn900, label: 定位 }
+  - { source: { node: hn900, port: OUT }, target: sink, label: 态势 }
 `);
 		const diagram = normalizeDiagramDsl(parsed.value as never, {
 			textMeasurer: new DeterministicTextMeasurer(),
@@ -2113,7 +2114,7 @@ edges:
 		const shallow = solve(0);
 		const deeper = solve(5);
 		const route = (result: ReturnType<typeof solve>) =>
-			result.edges.find((edge) => edge.id === "o5-o8")?.points;
+			result.edges.find((edge) => edge.id === "b055-hn900")?.points;
 		expect(route(shallow)).not.toEqual(route(deeper));
 		// Either way the repair stays orthogonal (#76).
 		for (const points of [route(shallow), route(deeper)]) {
@@ -4059,11 +4060,74 @@ edges:
 			x: 300,
 			y: 120,
 		});
+		// Every child is fixed, so none can move into a slot: the lane is
+		// drawn around them instead, below its header.
 		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({
-				code: "constraints.locked-target-not-moved",
-				detail: expect.objectContaining({ nodeId: "locked" }),
-			}),
+			expect.objectContaining({ code: "swimlane.lanes-fitted-to-children" }),
+		);
+		const lane = result.swimlanes?.[0]?.lanes[0];
+		for (const child of result.nodes) {
+			expect(child.box.x).toBeGreaterThanOrEqual(lane?.box?.x ?? Infinity);
+			expect(child.box.x + child.box.width).toBeLessThanOrEqual(
+				(lane?.box?.x ?? 0) + (lane?.box?.width ?? 0),
+			);
+			expect(child.box.y).toBeGreaterThanOrEqual(
+				(lane?.headerBox?.y ?? 0) + (lane?.headerBox?.height ?? 0),
+			);
+		}
+	});
+
+	it("fits horizontal contract lanes around fixed children in lane order", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-fitted-rows",
+			direction: "LR",
+			nodes: [
+				node("a", { x: 100, y: 40 }),
+				node("b", { x: 300, y: 260 }),
+				node("c", { x: 500, y: 40 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "rows",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "horizontal",
+					lanes: [
+						{ id: "top", children: ["a", "c"] },
+						{ id: "empty", children: [] },
+						{ id: "bottom", children: ["b"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		const lanes = result.swimlanes?.[0]?.lanes ?? [];
+		expect(lanes.map((lane) => lane.id)).toEqual(["top", "empty", "bottom"]);
+		for (const lane of lanes) {
+			for (const child of lane.children) {
+				const box = result.nodes.find((n) => n.id === child)?.box;
+				const content = lane.contentBox;
+				expect(box).toBeDefined();
+				expect(content).toBeDefined();
+				if (box === undefined || content === undefined) continue;
+				expect(box.y).toBeGreaterThanOrEqual(content.y);
+				expect(box.y + box.height).toBeLessThanOrEqual(
+					content.y + content.height,
+				);
+				// The header band sits left of every child.
+				expect(box.x).toBeGreaterThanOrEqual(content.x);
+			}
+		}
+		// Rows stack without gaps or overlaps, the empty one between.
+		expect(lanes[1]?.box?.y).toBeCloseTo(
+			(lanes[0]?.box?.y ?? 0) + (lanes[0]?.box?.height ?? 0),
+		);
+		expect(lanes[2]?.box?.y).toBeCloseTo(
+			(lanes[1]?.box?.y ?? 0) + (lanes[1]?.box?.height ?? 0),
 		);
 	});
 

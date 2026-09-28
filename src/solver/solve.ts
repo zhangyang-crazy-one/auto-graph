@@ -138,6 +138,7 @@ import {
 	applySwimlaneLayoutContracts,
 	coordinateSwimlanes,
 	hasFixedSwimlaneGeometry,
+	laneBorderLabelObstacles,
 	laneSoftCorridors,
 	reserveLaneCorridors,
 } from "./swimlane-contracts.js";
@@ -702,6 +703,7 @@ export function solveDiagram(
 			...coordinatedNodes.map((node) => node.box),
 			...baseTextAnnotations.map(textAnnotationContentBox),
 			...frameTextAnnotation.map((annotation) => annotation.box),
+			...laneBorderLabelObstacles(coordinatedSwimlanes),
 		],
 		options,
 	);
@@ -828,6 +830,7 @@ export function solveDiagram(
 					...coordinatedNodes.map((node) => node.box),
 					...baseTextAnnotations.map(textAnnotationContentBox),
 					...frameTextAnnotation.map((annotation) => annotation.box),
+					...laneBorderLabelObstacles(coordinatedSwimlanes),
 				],
 				options,
 			);
@@ -918,6 +921,7 @@ export function solveDiagram(
 				...coordinatedNodes.map((node) => node.box),
 				...baseTextAnnotations.map(textAnnotationContentBox),
 				...frameTextAnnotation.map((annotation) => annotation.box),
+				...laneBorderLabelObstacles(coordinatedSwimlanes),
 			],
 			options,
 		);

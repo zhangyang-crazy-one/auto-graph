@@ -312,6 +312,48 @@ function renderDefects(d: CoordinatedDiagram) {
 		}
 		if (nearest > 30) strayLabels += 1;
 	}
+	// Swimlanes: every child inside its own lane's content, no node on a
+	// lane header, no edge label straddling a lane border.
+	let laneMisplaced = 0;
+	let headerCovered = 0;
+	let labelOnLaneBorder = 0;
+	for (const sw of d.swimlanes ?? []) {
+		for (const lane of sw.lanes) {
+			const content = lane.contentBox ?? lane.box;
+			for (const child of lane.children) {
+				const box = d.nodes.find((n) => n.id === child)?.box;
+				if (box === undefined || content === undefined) continue;
+				const inside =
+					box.x >= content.x - 0.5 &&
+					box.y >= content.y - 0.5 &&
+					box.x + box.width <= content.x + content.width + 0.5 &&
+					box.y + box.height <= content.y + content.height + 0.5;
+				if (!inside) laneMisplaced += 1;
+			}
+			if (lane.headerBox !== undefined) {
+				for (const n of d.nodes)
+					if (overlap(inset(n.box, 0.5), lane.headerBox)) headerCovered += 1;
+			}
+			if (lane.box !== undefined) {
+				for (const [horizontal, at, lo, hi] of boxSides(lane.box)) {
+					for (const t of d.textAnnotations ?? []) {
+						if (t.surfaceKind !== "edge-label") continue;
+						const b = t.box;
+						const across = horizontal
+							? b.y < at &&
+								b.y + b.height > at &&
+								b.x < hi &&
+								b.x + b.width > lo
+							: b.x < at &&
+								b.x + b.width > at &&
+								b.y < hi &&
+								b.y + b.height > lo;
+						if (across) labelOnLaneBorder += 1;
+					}
+				}
+			}
+		}
+	}
 	let microJogs = 0;
 	for (const e of d.edges) {
 		for (let i = 1; i + 2 < e.points.length; i += 1) {
@@ -329,6 +371,9 @@ function renderDefects(d: CoordinatedDiagram) {
 		portLabelHits,
 		microJogs,
 		strayLabels,
+		laneMisplaced,
+		headerCovered,
+		labelOnLaneBorder,
 	};
 }
 
@@ -628,6 +673,9 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 				portLabelHits: 0,
 				microJogs: 0,
 				strayLabels: 0,
+				laneMisplaced: 0,
+				headerCovered: 0,
+				labelOnLaneBorder: 0,
 			});
 		}
 	});

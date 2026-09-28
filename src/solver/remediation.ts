@@ -95,6 +95,7 @@ import {
 import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	coordinateSwimlanes,
+	laneBorderLabelObstacles,
 	laneSoftCorridors,
 	reserveLaneCorridors,
 } from "./swimlane-contracts.js";
@@ -1015,6 +1016,7 @@ export function rerouteRemediationEdges(
 			...state.coordinatedNodes.map((node) => node.box),
 			...state.baseTextAnnotations.map(textAnnotationContentBox),
 			...state.frameTextAnnotation.map((annotation) => annotation.box),
+			...laneBorderLabelObstacles(state.coordinatedSwimlanes),
 		],
 		options,
 	);

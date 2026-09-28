@@ -1218,6 +1218,12 @@ export interface EdgeLabelAnchorResult {
 	externalized: boolean;
 }
 
+/**
+ * How far a route must stay from an edge label's text: the exporters'
+ * backdrop margin (3px / 1px) plus half a stroke.
+ */
+const LABEL_ROUTE_CLEARANCE = { x: 4, y: 2 } as const;
+
 export function edgeLabelAnchor(
 	edge: CoordinatedEdge,
 	layout: LabelLayout,
@@ -1268,6 +1274,58 @@ export function edgeLabelAnchor(
 			points: other.points,
 			extent: pointsExtent(other.points),
 		}));
+	// First choice: a spot where the drawn backdrop (text plus margin, plus
+	// half a stroke) stays off every route, own included, so it hides no
+	// piece of a line. Tight pages without one fall back to the text box.
+	// Obstacle-avoiding pages keep the text-box rule their dense label
+	// gates are tuned against.
+	// It only takes spots near the requested offset from the line: a label
+	// drifting further off reads as another edge's label.
+	const backdropFirst = options.routeKind !== "obstacle-avoiding";
+	for (const candidate of backdropFirst ? candidates : []) {
+		if (
+			Math.abs(distanceToPolyline(candidate, edge.points) - baseOffset) >
+			LABEL_DRIFT_STEPS * EDGE_LABEL_CLEARANCE
+		) {
+			continue;
+		}
+		const labelBox = {
+			x: candidate.x - layout.box.width / 2,
+			y: candidate.y - layout.box.height / 2,
+			width: layout.box.width,
+			height: layout.box.height,
+		};
+		const backdrop = {
+			x: labelBox.x - LABEL_ROUTE_CLEARANCE.x,
+			y: labelBox.y - LABEL_ROUTE_CLEARANCE.y,
+			width: labelBox.width + 2 * LABEL_ROUTE_CLEARANCE.x,
+			height: labelBox.height + 2 * LABEL_ROUTE_CLEARANCE.y,
+		};
+		if (
+			routeIntersectsTextBox(edge.points, backdrop) ||
+			otherRoutes.some(
+				(other) =>
+					other.extent.minX <= backdrop.x + backdrop.width &&
+					other.extent.maxX >= backdrop.x &&
+					other.extent.minY <= backdrop.y + backdrop.height &&
+					other.extent.maxY >= backdrop.y &&
+					routeIntersectsTextBox(other.points, backdrop),
+			) ||
+			obstacleBoxes.some((box) => intersectsAabb(labelBox, box)) ||
+			placedLabelBoxes.some((box) => intersectsAabb(labelBox, box))
+		) {
+			continue;
+		}
+		return {
+			center: candidate,
+			candidateCount: candidates.length,
+			localConflictCount: 0,
+			routeConflictCount: 0,
+			nodeOverlapCount: 0,
+			labelOverlapCount: 0,
+			externalized: edgeLabelExternalizationPolicy(options) === "force",
+		};
+	}
 	for (const candidate of candidates) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
@@ -1513,6 +1571,33 @@ export function edgeLabelAnchorCandidates(
 	return candidates;
 }
 
+/** Distance from a point to the nearest segment of a polyline. */
+function distanceToPolyline(point: Point, points: readonly Point[]): number {
+	let best = Number.POSITIVE_INFINITY;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const lengthSquared = dx * dx + dy * dy;
+		const t =
+			lengthSquared === 0
+				? 0
+				: Math.max(
+						0,
+						Math.min(
+							1,
+							((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared,
+						),
+					);
+		best = Math.min(
+			best,
+			Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)),
+		);
+	}
+	return best;
+}
+
 /** Offset steps a label may drift from its line before sliding along it. */
 const LABEL_DRIFT_STEPS = 3;
 
@@ -1527,29 +1612,7 @@ function byDistanceFromRoute(
 	baseOffset: number,
 ): Point[] {
 	const distance = (candidate: Point): number => {
-		let best = Number.POSITIVE_INFINITY;
-		for (let index = 1; index < points.length; index += 1) {
-			const a = points[index - 1] as Point;
-			const b = points[index] as Point;
-			const dx = b.x - a.x;
-			const dy = b.y - a.y;
-			const lengthSquared = dx * dx + dy * dy;
-			const t =
-				lengthSquared === 0
-					? 0
-					: Math.max(
-							0,
-							Math.min(
-								1,
-								((candidate.x - a.x) * dx + (candidate.y - a.y) * dy) /
-									lengthSquared,
-							),
-						);
-			best = Math.min(
-				best,
-				Math.hypot(candidate.x - (a.x + t * dx), candidate.y - (a.y + t * dy)),
-			);
-		}
+		const best = distanceToPolyline(candidate, points);
 		// Within a few steps of the requested offset the search order stands;
 		// only candidates drifting further wait behind the along-route ones.
 		return Math.abs(best - baseOffset) <=

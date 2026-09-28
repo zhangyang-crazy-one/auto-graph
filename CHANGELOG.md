@@ -23,6 +23,8 @@
   - Lone facing ends line up (middle of the shared span, or level with a named port), so the route runs straight instead of jogging a few pixels; TB/BT slot sides follow the wider gap between the boxes.
   - A route keeps off its own port labels; segments along a group frame or node side step clear of it (tournament cost plus a validated post-pass).
   - Edge labels slide along their own line before drifting more than three steps away from it.
+- **Swimlanes with fixed children**: when every child of a contract swimlane has a fixed position, none can move into the uniform lane slots, yet the slots were still drawn: children sat in the wrong lane or outside the pool, and the header row covered the top node (its title hidden). The lanes are now drawn around the children in declared order (boundaries midway between neighbouring lanes, empty lanes in the gaps, header band before every child), with `swimlane.lanes-fitted-to-children` instead of `constraints.locked-target-not-moved`. Lanes with free children keep the slot contract.
+- **Labels and lane lines**: lane borders are label obstacles, so an edge label's backdrop no longer cuts a divider; a label first looks for a spot where its backdrop stays off every line (its own included) near its line, then falls back to the text-box rule (obstacle-avoiding pages keep the text-box rule). Lane content corridors are no longer soft route obstacles for obstacle-avoiding routes either (lane headers stay hard). New dense-MBSE checks: children outside their lane, nodes on a lane header, labels across a lane border.
 
 ### Port equal-division docking (#91) + same-side slots / stubs (#92)
 

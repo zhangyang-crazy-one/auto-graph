@@ -97,9 +97,31 @@ export function laneSoftCorridors(
 	reservations: { softCorridors: Box[] },
 	options: { routeKind?: string },
 ): Box[] {
-	return options.routeKind === "short-orthogonal-jumps"
+	return options.routeKind === "short-orthogonal-jumps" ||
+		options.routeKind === "obstacle-avoiding"
 		? []
 		: reservations.softCorridors;
+}
+
+/**
+ * Lane borders as thin label obstacles: an edge label's backdrop placed
+ * across a divider cuts the lane line (#98 render check).
+ */
+export function laneBorderLabelObstacles(
+	swimlanes: readonly Swimlane[],
+): Box[] {
+	return swimlanes.flatMap((swimlane) =>
+		swimlane.lanes.flatMap((lane) => {
+			const box = lane.box;
+			if (box === undefined) return [];
+			return [
+				{ x: box.x - 1, y: box.y, width: 2, height: box.height },
+				{ x: box.x + box.width - 1, y: box.y, width: 2, height: box.height },
+				{ x: box.x, y: box.y - 1, width: box.width, height: 2 },
+				{ x: box.x, y: box.y + box.height - 1, width: box.width, height: 2 },
+			];
+		}),
+	);
 }
 
 export function applySwimlaneLayoutContracts(
@@ -188,6 +210,36 @@ export function applySingleSwimlaneContract(
 		return undefined;
 	}
 
+	// When every child has a fixed position (locked), none can move into
+	// uniform slots; draw the lanes around where they are instead, so each
+	// child sits in its own lane and no header covers a node. Lanes with
+	// free children keep the slot contract (free ones move, locked ones
+	// are reported).
+	const placedChildren = swimlane.lanes.flatMap((lane) =>
+		lane.children.filter((child) => nodeBoxes.has(child)),
+	);
+	if (
+		placedChildren.length > 0 &&
+		placedChildren.every((child) => locks.has(child))
+	) {
+		const fitted = fitLanesAroundChildren(
+			swimlane,
+			nodeBoxes,
+			headerHeight,
+			padding,
+		);
+		if (fitted !== undefined) {
+			diagnostics.push({
+				severity: "info",
+				code: "swimlane.lanes-fitted-to-children",
+				message: `Swimlane ${swimlane.id} has children with fixed positions; its lanes were drawn around them instead of moving them into uniform slots.`,
+				path: ["swimlanes", swimlane.id],
+				detail: { swimlaneId: swimlane.id, laneCount: swimlane.lanes.length },
+			});
+			return fitted;
+		}
+	}
+
 	if (swimlane.orientation === "vertical") {
 		return applyVerticalSwimlaneContract(
 			swimlane,
@@ -216,6 +268,106 @@ export function applySingleSwimlaneContract(
 		movedChildIds,
 		laneGutter,
 	);
+}
+
+/** Width (across the lanes) given to a lane with no children when fitting. */
+const EMPTY_FITTED_LANE = 120;
+/** Narrowest an empty lane may get when squeezed between fitted neighbours. */
+const MIN_FITTED_LANE = 48;
+
+/**
+ * Lane boxes drawn around the children where they are: lanes follow their
+ * declared order across the pool, each boundary sits midway between the
+ * neighbouring lanes' children, empty lanes take room in the gap (or at
+ * the ends), and the header band sits above (vertical) or left of
+ * (horizontal) every child. `undefined` when the children are not in
+ * declared lane order (their spans overlap), so no such boxes exist.
+ */
+export function fitLanesAroundChildren(
+	swimlane: Swimlane,
+	nodeBoxes: ReadonlyMap<string, Box>,
+	headerHeight: number,
+	padding: number,
+): SwimlaneContractLayout | undefined {
+	const vertical = swimlane.orientation === "vertical";
+	const spans = swimlane.lanes.map((lane) => {
+		const boxes = lane.children
+			.map((child) => nodeBoxes.get(child))
+			.filter((box): box is Box => box !== undefined);
+		if (boxes.length === 0) return undefined;
+		const union = unionBoxes(boxes);
+		return vertical
+			? { lo: union.x, hi: union.x + union.width }
+			: { lo: union.y, hi: union.y + union.height };
+	});
+	const populated = spans
+		.map((span, index) => ({ span, index }))
+		.filter(
+			(entry): entry is { span: { lo: number; hi: number }; index: number } =>
+				entry.span !== undefined,
+		);
+	const first = populated[0];
+	const last = populated.at(-1);
+	if (first === undefined || last === undefined) return undefined;
+	const count = swimlane.lanes.length;
+	const bounds = new Array<number>(count + 1).fill(0);
+	bounds[first.index] = first.span.lo - padding;
+	for (let index = first.index - 1; index >= 0; index -= 1) {
+		bounds[index] = (bounds[index + 1] as number) - EMPTY_FITTED_LANE;
+	}
+	for (let at = 0; at + 1 < populated.length; at += 1) {
+		const left = populated[at] as (typeof populated)[number];
+		const right = populated[at + 1] as (typeof populated)[number];
+		const empties = right.index - left.index - 1;
+		if (empties === 0) {
+			if (right.span.lo - left.span.hi < 8) return undefined;
+			bounds[right.index] = (left.span.hi + right.span.lo) / 2;
+			continue;
+		}
+		const from = left.span.hi + padding;
+		const to = right.span.lo - padding;
+		const width = Math.min(EMPTY_FITTED_LANE, (to - from) / empties);
+		if (width < MIN_FITTED_LANE) return undefined;
+		const start = from + (to - from - width * empties) / 2;
+		for (let step = 0; step <= empties; step += 1) {
+			bounds[left.index + 1 + step] = start + width * step;
+		}
+		// The last empty lane's far edge is the right lane's near edge.
+		bounds[right.index] = start + width * empties;
+	}
+	bounds[last.index + 1] = last.span.hi + padding;
+	for (let index = last.index + 2; index <= count; index += 1) {
+		bounds[index] = (bounds[index - 1] as number) + EMPTY_FITTED_LANE;
+	}
+	const all = unionBoxes(
+		swimlane.lanes.flatMap((lane) =>
+			lane.children
+				.map((child) => nodeBoxes.get(child))
+				.filter((box): box is Box => box !== undefined),
+		),
+	);
+	// Along the lanes: header band before the first child, padding after
+	// the last.
+	const start = (vertical ? all.y : all.x) - padding - headerHeight;
+	const end = vertical
+		? all.y + all.height + padding
+		: all.x + all.width + padding;
+	const laneBoxes = swimlane.lanes.map((_, index) => {
+		const lo = bounds[index] as number;
+		const hi = bounds[index + 1] as number;
+		return vertical
+			? { x: lo, y: start, width: hi - lo, height: end - start }
+			: { x: start, y: lo, width: end - start, height: hi - lo };
+	});
+	const box = unionBoxes(laneBoxes);
+	const widths = laneBoxes.map((lane) => (vertical ? lane.width : lane.height));
+	return {
+		box,
+		slotWidth: vertical ? Math.max(...widths) : box.width,
+		slotHeight: vertical ? box.height : Math.max(...widths),
+		laneStep: 0,
+		laneBoxes,
+	};
 }
 
 export function applyVerticalSwimlaneContract(
