@@ -502,7 +502,7 @@ function routeShortOrthogonalJumps(
 			if (points.length < 2) continue;
 			// #92: prefer candidates with a nudge-able interior span. Same-Y
 			// 0-bend pins cannot grow a 2-bend stub without collapsing, so keep
-			// them as fallback when no separable candidate exists (slots must
+			// them as fallback when no separable candidate clears (slots must
 			// already own track separation in that case).
 			if (hasSeparableInteriorSpan(points, pitch)) {
 				expanded.push(points);
@@ -519,7 +519,10 @@ function routeShortOrthogonalJumps(
 				}
 			}
 		}
-		const pool = expanded.length > 0 ? expanded : inseparable;
+		// Both sets go through the feasibility checks; the layered cost below
+		// ranks inseparable routes last, so they win only when no separable
+		// one clears.
+		const pool = [...expanded, ...inseparable];
 		for (const points of pool) {
 			const quality = routeQuality(
 				points,

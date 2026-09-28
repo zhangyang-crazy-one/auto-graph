@@ -319,21 +319,6 @@ export function expandNodeBoxesForPorts(
 						expansion: Math.ceil(expansion),
 					},
 				});
-				diagnostics.push({
-					severity: "warning",
-					code: "routing.port.capacity_exhausted",
-					message: `Node ${node.id} side ${side} required grow to place ${count} equal-division port(s).`,
-					path: ["nodes", node.id, "ports"],
-					detail: {
-						nodeId: node.id,
-						side,
-						portCount: count,
-						requiredSpan: Math.ceil(requiredSpan),
-						availableSpan: Math.ceil(availableSpan),
-						conflictClass: "fixed-geometry-block",
-						remediationType: "grow-node-anchor-capacity",
-					},
-				});
 			}
 		}
 
@@ -1035,8 +1020,12 @@ export function portAnchor(
 	side: CoordinatedPort["side"],
 	index: number,
 	count: number,
-	_portShifting: PortShiftingOptions | undefined,
+	portShifting: PortShiftingOptions | undefined,
 ): Point {
+	// Port shifting switched off keeps every port at the side's middle.
+	if (portShifting?.enabled === false) {
+		return sidePointAtFraction(nodeBox, side, 0.5);
+	}
 	// #91: named ports use equal-division fractions (25/50/75 contract),
 	// not mid-centered even spacing that ignores quarter slots.
 	const fractions = equalDivisionFractions(count);

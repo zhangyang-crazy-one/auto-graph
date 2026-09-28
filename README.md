@@ -251,7 +251,7 @@ Public helpers: `attachSlotFractions(3) → [0.25, 0.5, 0.75]`, `attachSlotsForB
 | 3 | `{0.25, 0.5, 0.75}` |
 | n > 3 | `(i+1)/(n+1)` |
 
-Named `portId` endpoints pin to `port.anchor`. Spacing below `minPortSpacing` grows the node or emits `routing.port.capacity_exhausted` — never silent mid-stack. `portGeometry` only pins the matching side (other cardinals stay on node geometry).
+Named `portId` endpoints pin to `port.anchor`. Spacing below `minPortSpacing` grows the node before layout (info `port_capacity_overflow`) — never silent mid-stack; `portShifting: { enabled: false }` keeps every port at its side's middle. `portGeometry` only pins the matching side (other cardinals stay on node geometry).
 
 ### Readable Short-Orthogonal Pipeline (RSOP, #86 / #92–#95)
 
@@ -375,7 +375,7 @@ Supported output formats:
 
 - `svg`
 - `excalidraw`
-- `drawio` — draw.io XML with crossings as jumps
+- `drawio` — draw.io XML: all solved elements at their solved geometry, end points pinned, crossings as per-edge jumps
 - `geometry` — the solved geometry contract (below)
 
 Format precedence is CLI `--format`, then DSL `output.format`, then `svg`.

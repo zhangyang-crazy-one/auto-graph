@@ -21,11 +21,13 @@ import type {
 	CoordinatedEdge,
 	CoordinatedGroup,
 	CoordinatedNode,
+	CoordinatedPort,
 	NormalizedEdge,
 } from "../ir/elements.js";
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import {
+	nudgeOrthogonalRoutes,
 	type RouteEdgeInput,
 	type RouteHardObstacleMetadata,
 	routeEdge,
@@ -265,12 +267,38 @@ export function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
+		// Same-side slot (#92) for an end without a named port, whose
+		// authored anchor (if any) is the slot's own side. It takes the place
+		// of distributed / fan-out anchors, in the anchor and the point alike.
+		const slotFor = (
+			role: "source" | "target",
+			port: CoordinatedPort | undefined,
+		) => {
+			const slot = sameSideSlots?.assignments.get(`${edge.id}:${role}`);
+			const authored =
+				role === "source" ? edge.source.anchor : edge.target.anchor;
+			return slot !== undefined &&
+				port === undefined &&
+				(authored === undefined || authored === slot.anchor)
+				? slot
+				: undefined;
+		};
+		const sourceSlot = slotFor("source", sourcePort);
+		const targetSlot = slotFor("target", targetPort);
 		const sourceDistributedAnchor =
-			policyFanOutAnchors.get(endpointDistributionKey(edge.id, "source")) ??
-			distributedAnchors.get(endpointDistributionKey(edge.id, "source"));
+			sourceSlot !== undefined
+				? undefined
+				: (policyFanOutAnchors.get(
+						endpointDistributionKey(edge.id, "source"),
+					) ??
+					distributedAnchors.get(endpointDistributionKey(edge.id, "source")));
 		const targetDistributedAnchor =
-			policyFanOutAnchors.get(endpointDistributionKey(edge.id, "target")) ??
-			distributedAnchors.get(endpointDistributionKey(edge.id, "target"));
+			targetSlot !== undefined
+				? undefined
+				: (policyFanOutAnchors.get(
+						endpointDistributionKey(edge.id, "target"),
+					) ??
+					distributedAnchors.get(endpointDistributionKey(edge.id, "target")));
 		const sourceGeometry = withDistributedAnchor(
 			portGeometry(source, sourcePort),
 			sourceDistributedAnchor,
@@ -283,20 +311,20 @@ export function coordinateEdges(
 			edge.source.anchor ??
 			sourceDistributedAnchor?.anchor ??
 			sourcePort?.side ??
-			sameSideSlots?.assignments.get(`${edge.id}:source`)?.anchor;
+			sourceSlot?.anchor;
 		const targetAnchor =
 			edge.target.anchor ??
 			targetDistributedAnchor?.anchor ??
 			targetPort?.side ??
-			sameSideSlots?.assignments.get(`${edge.id}:target`)?.anchor;
+			targetSlot?.anchor;
 		const sourcePreassign =
 			sourcePort !== undefined
 				? { point: sourcePort.anchor, anchor: sourcePort.side }
-				: sameSideSlots?.assignments.get(`${edge.id}:source`);
+				: sourceSlot;
 		const targetPreassign =
 			targetPort !== undefined
 				? { point: targetPort.anchor, anchor: targetPort.side }
-				: sameSideSlots?.assignments.get(`${edge.id}:target`);
+				: targetSlot;
 		const routeTextObstacles = textObstacles
 			.filter(isLocalRouteClearanceText)
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
@@ -497,6 +525,8 @@ export function coordinateEdges(
 		// can only reach its slot along the node border, try the slotted end
 		// on the node's other sides (at a free fraction there) and keep the
 		// cleanest result.
+		// The input the final route was solved with (slots may relocate).
+		let effectiveInput: RouteEdgeInput = routeInput;
 		if (sameSideSlots !== undefined && slotOccupancy !== undefined) {
 			const misdirected = (points: readonly Point[]): number =>
 				routeEndDirectionPenalty(points, {
@@ -514,59 +544,79 @@ export function coordinateEdges(
 			const blocked = (candidate: typeof route) =>
 				routeObstacleHits(candidate.points, routeHardObstacles) > 0 ||
 				misdirected(candidate.points) > 0;
-			let relocated: Partial<RouteEdgeInput> = {};
-			for (const endpoint of ["source", "target"] as const) {
-				if (!blocked(route)) break;
-				const endEdge = endpoint === "source" ? edge.source : edge.target;
-				const slot = sameSideSlots.assignments.get(`${edge.id}:${endpoint}`);
-				const port = endpoint === "source" ? sourcePort : targetPort;
+			// Each slotted end may take any side; the other end keeps its
+			// pinned point. Both ends move together, so a pair that only
+			// works jointly (both ends off their facing sides) is found.
+			type EndChoice = {
+				side: CoordinatedPort["side"];
+				fraction: number;
+				input: Partial<RouteEdgeInput>;
+			} | null;
+			const choicesFor = (endpoint: "source" | "target"): EndChoice[] => {
+				const slot = endpoint === "source" ? sourceSlot : targetSlot;
+				const nodeId =
+					endpoint === "source" ? edge.source.nodeId : edge.target.nodeId;
 				const geometry = endpoint === "source" ? source : target;
-				if (slot === undefined || port !== undefined || endEdge.anchor) {
-					continue;
-				}
-				let best = {
-					route,
-					score: score(route),
-					side: slot.anchor,
-					fraction: slot.fraction,
-				};
-				for (const side of ["right", "bottom", "left", "top"] as const) {
-					if (side === slot.anchor) continue;
-					const key = `${endEdge.nodeId}:${side}`;
-					const fraction =
-						freeFractions(1, slotOccupancy.get(key) ?? [])[0] ?? 0.5;
-					const point = sidePointAtFraction(geometry.box, side, fraction);
-					const candidate = routeEdge({
-						...routeInput,
-						...relocated,
-						...(endpoint === "source"
-							? { sourceAnchor: side, sourcePoint: point }
-							: { targetAnchor: side, targetPoint: point }),
+				if (slot === undefined) return [null];
+				const others = (["right", "bottom", "left", "top"] as const)
+					.filter((side) => side !== slot.anchor)
+					.map((side) => {
+						const fraction =
+							freeFractions(
+								1,
+								slotOccupancy.get(`${nodeId}:${side}`) ?? [],
+							)[0] ?? 0.5;
+						const point = sidePointAtFraction(geometry.box, side, fraction);
+						return {
+							side,
+							fraction,
+							input:
+								endpoint === "source"
+									? { sourceAnchor: side, sourcePoint: point }
+									: { targetAnchor: side, targetPoint: point },
+						};
 					});
-					const candidateScore = score(candidate);
-					if (compareRouteSeverity(candidateScore, best.score) < 0) {
-						best = { route: candidate, score: candidateScore, side, fraction };
+				return [null, ...others];
+			};
+			if (blocked(route)) {
+				let best: {
+					route: typeof route;
+					score: number[];
+					picks: [EndChoice, EndChoice];
+				} = { route, score: score(route), picks: [null, null] };
+				for (const sourceChoice of choicesFor("source")) {
+					for (const targetChoice of choicesFor("target")) {
+						if (sourceChoice === null && targetChoice === null) continue;
+						const candidate = routeEdge({
+							...routeInput,
+							...(sourceChoice?.input ?? {}),
+							...(targetChoice?.input ?? {}),
+						});
+						const candidateScore = score(candidate);
+						if (compareRouteSeverity(candidateScore, best.score) < 0) {
+							best = {
+								route: candidate,
+								score: candidateScore,
+								picks: [sourceChoice, targetChoice],
+							};
+						}
 					}
 				}
-				if (best.route !== route) {
-					route = best.route;
-					const point = sidePointAtFraction(
-						geometry.box,
-						best.side,
-						best.fraction,
-					);
-					relocated = {
-						...relocated,
-						...(endpoint === "source"
-							? { sourceAnchor: best.side, sourcePoint: point }
-							: { targetAnchor: best.side, targetPoint: point }),
-					};
-					const key = `${endEdge.nodeId}:${best.side}`;
+				route = best.route;
+				effectiveInput = {
+					...routeInput,
+					...(best.picks[0]?.input ?? {}),
+					...(best.picks[1]?.input ?? {}),
+				};
+				best.picks.forEach((pick, index) => {
+					if (pick === null) return;
+					const nodeId = index === 0 ? edge.source.nodeId : edge.target.nodeId;
+					const key = `${nodeId}:${pick.side}`;
 					slotOccupancy.set(key, [
 						...(slotOccupancy.get(key) ?? []),
-						best.fraction,
+						pick.fraction,
 					]);
-				}
+				});
 			}
 		}
 		// #95: a short-orthogonal route that still enters a hard obstacle
@@ -574,15 +624,20 @@ export function coordinateEdges(
 		// when the general obstacle-avoiding router finds a clean one within
 		// the detour and bend budget; otherwise the pierce stays reported
 		// (`routing.obstacle.unavoidable`).
+		// The gate checks every foreign node, not only the corridor's.
+		const gateObstacles = [
+			...routeHardObstacles,
+			...(routeInput.blockingObstacles ?? []),
+		];
 		// Strict pages keep the 0–2 bend contract (#84) and report unsat.
 		if (
 			shortPath &&
 			options.deliverabilityMode !== "strict" &&
-			routeObstacleHits(route.points, routeHardObstacles) > 0
+			routeObstacleHits(route.points, gateObstacles) > 0
 		) {
-			const detour = routeInput.maxDetourRatio ?? 3;
+			const detour = effectiveInput.maxDetourRatio ?? 3;
 			const routed = routeEdge({
-				...routeInput,
+				...effectiveInput,
 				kind: "obstacle-avoiding",
 			});
 			// Keep slot and port points: the fallback may slide an end along
@@ -591,15 +646,16 @@ export function coordinateEdges(
 				...routed,
 				points: pinRouteEnds(
 					routed.points,
-					routeInput.sourcePoint,
-					routeInput.targetPoint,
+					effectiveInput.sourcePoint,
+					effectiveInput.targetPoint,
 				),
 			};
+			// Same detour measure as the short-route tournament (Euclidean).
 			if (
-				routeObstacleHits(around.points, routeHardObstacles) === 0 &&
+				routeObstacleHits(around.points, gateObstacles) === 0 &&
 				around.points.length - 2 <= SHORT_PATH_FALLBACK_MAX_BENDS &&
 				polylineLength(around.points) <=
-					detour * manhattan(around.points[0], around.points.at(-1))
+					detour * directDistance(around.points[0], around.points.at(-1))
 			) {
 				route = {
 					points: around.points,
@@ -634,7 +690,7 @@ export function coordinateEdges(
 		});
 	}
 
-	const finalized = finalizeCoordinatedEdges(
+	let finalized = finalizeCoordinatedEdges(
 		coordinated,
 		nodes,
 		nodeObstacles,
@@ -645,6 +701,32 @@ export function coordinateEdges(
 		options,
 		groups,
 	);
+	// Opt-in Left-Edge channel nudge (#88), before labels and bounds are
+	// derived from the routes.
+	if (shortPath && options.rsopChannelNudge === true) {
+		const nudged = nudgeOrthogonalRoutes(finalized, {
+			idealNudgingDistance: options.idealNudgingDistance ?? 10,
+			hardObstacles: [
+				...hardObstacles,
+				...nodeObstacles.map((entry) => entry.box),
+			],
+		});
+		finalized = nudged.edges;
+		if (nudged.tracks.capacityExhausted) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.channel.capacity_exhausted",
+				message:
+					"Channel track capacity exhausted while spacing parallel short-orthogonal routes; bus or page-split remediation required.",
+				detail: {
+					conflictClass: "fixed-geometry-block",
+					remediationType: "route-rail-or-page-split",
+					maxTracksUsed: nudged.tracks.maxTracksUsed,
+					routingPolicy: "short-orthogonal-jumps",
+				},
+			});
+		}
+	}
 	pruneResolvedRouteDiagnostics(
 		diagnostics,
 		finalized,
@@ -1451,9 +1533,9 @@ function polylineLength(points: readonly Point[]): number {
 	return length;
 }
 
-function manhattan(a: Point | undefined, b: Point | undefined): number {
+function directDistance(a: Point | undefined, b: Point | undefined): number {
 	if (a === undefined || b === undefined) return 0;
-	return Math.max(1, Math.abs(b.x - a.x) + Math.abs(b.y - a.y));
+	return Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
 }
 
 /** The side of `box` that `point` lies on (the nearest one). */

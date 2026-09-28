@@ -323,3 +323,31 @@ describe("RSOP Phase-6 shelf pageBounds honesty", () => {
 		}
 	});
 });
+
+describe("channel track grouping", () => {
+	it("colours intervals joined only through a bridge together", () => {
+		const edge = (id: string, from: number, to: number) => ({
+			id,
+			source: { nodeId: "a" },
+			target: { nodeId: "b" },
+			points: [
+				{ x: from, y: 0 },
+				{ x: from, y: 50 },
+				{ x: to, y: 50 },
+				{ x: to, y: 100 },
+			],
+		});
+		const tracks = assignChannelTracks([
+			edge("a", 0, 100),
+			edge("c", 190, 300),
+			edge("b", 90, 200),
+		]);
+		const assigned = new Set(tracks.assignments.map((entry) => entry.edgeId));
+		expect([...assigned].sort()).toEqual(["a", "b", "c"]);
+		const byEdge = new Map(
+			tracks.assignments.map((entry) => [entry.edgeId, entry.coord]),
+		);
+		expect(byEdge.get("a")).not.toBe(byEdge.get("b"));
+		expect(byEdge.get("b")).not.toBe(byEdge.get("c"));
+	});
+});

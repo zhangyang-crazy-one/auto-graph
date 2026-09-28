@@ -146,51 +146,33 @@ function groupOverlappingSegments(
 		bucket.push(segment);
 		byAxis.set(bucketKey, bucket);
 	}
+	// Overlap components per bucket: sweep by start and extend the current
+	// group while the next interval starts before its furthest end, so
+	// intervals joined only through a bridge land in one group.
 	const groups: ChannelSegment[][] = [];
 	for (const bucket of byAxis.values()) {
-		const remaining = [...bucket].sort(
-			(left, right) => left.start - right.start || left.end - right.end,
+		const sorted = [...bucket].sort(
+			(left, right) =>
+				left.start - right.start ||
+				left.end - right.end ||
+				left.edgeId.localeCompare(right.edgeId) ||
+				left.segmentIndex - right.segmentIndex,
 		);
-		while (remaining.length > 0) {
-			const seed = remaining.shift();
-			if (seed === undefined) break;
-			const group = [seed];
-			for (let i = remaining.length - 1; i >= 0; i -= 1) {
-				const candidate = remaining[i];
-				if (candidate === undefined) continue;
-				if (
-					intervalsOverlap(
-						seed.start,
-						seed.end,
-						candidate.start,
-						candidate.end,
-					) ||
-					group.some((member) =>
-						intervalsOverlap(
-							member.start,
-							member.end,
-							candidate.start,
-							candidate.end,
-						),
-					)
-				) {
-					group.push(candidate);
-					remaining.splice(i, 1);
-				}
+		let group: ChannelSegment[] = [];
+		let groupEnd = Number.NEGATIVE_INFINITY;
+		for (const segment of sorted) {
+			if (group.length > 0 && segment.start < groupEnd - 1e-6) {
+				group.push(segment);
+				groupEnd = Math.max(groupEnd, segment.end);
+				continue;
 			}
-			groups.push(group);
+			if (group.length > 0) groups.push(group);
+			group = [segment];
+			groupEnd = segment.end;
 		}
+		if (group.length > 0) groups.push(group);
 	}
 	return groups;
-}
-
-function intervalsOverlap(
-	a0: number,
-	a1: number,
-	b0: number,
-	b1: number,
-): boolean {
-	return a0 < b1 - 1e-6 && b0 < a1 - 1e-6;
 }
 
 /** Apply track coordinates to edge polylines (interior vertices only). */

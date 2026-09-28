@@ -604,6 +604,7 @@ export function applyExternalLabelRemediation(
 				...state.coordinatedGroups.map((group) => group.box),
 				...context.coordinatedMatrices.map((matrix) => matrix.box),
 				...context.coordinatedTables.map((table) => table.box),
+				...context.coordinatedEvidencePanels.map((panel) => panel.box),
 				...state.policyHardObstacles,
 			],
 			diagnostics: shelfDiagnostics,

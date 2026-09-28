@@ -1,0 +1,159 @@
+import { describe, expect, it } from "vitest";
+import { exportDrawio } from "../src/exporters/index.js";
+import type { CoordinatedDiagram } from "../src/ir/index.js";
+
+function diagram(
+	overrides: Partial<CoordinatedDiagram> = {},
+): CoordinatedDiagram {
+	return {
+		id: "d",
+		direction: "LR",
+		nodes: [
+			{
+				id: "a",
+				shape: "parallelogram",
+				box: { x: 500, y: 100, width: 100, height: 40 },
+				label: { text: "A" },
+			},
+			{
+				id: "b",
+				shape: "hexagon",
+				box: { x: 800, y: 100, width: 100, height: 40 },
+				label: { text: "B" },
+			},
+		],
+		edges: [
+			{
+				id: "a-b",
+				source: { nodeId: "a" },
+				target: { nodeId: "b" },
+				style: "dashed",
+				arrowhead: "hollowTriangle",
+				points: [
+					{ x: 600, y: 110 },
+					{ x: 700, y: 110 },
+					{ x: 700, y: 130 },
+					{ x: 800, y: 130 },
+				],
+			},
+		],
+		groups: [],
+		constraints: [],
+		diagnostics: [],
+		bounds: { x: 500, y: 100, width: 400, height: 40 },
+		...overrides,
+	} as CoordinatedDiagram;
+}
+
+describe("draw.io export", () => {
+	it("pins solved end points as exit/entry constraints", () => {
+		const xml = exportDrawio(diagram());
+		// (600,110) on a's right side at 25% height; (800,130) on b's left at 75%.
+		expect(xml).toContain("exitX=1;exitY=0.25;");
+		expect(xml).toContain("entryX=0;entryY=0.75;");
+		expect(xml).toContain("exitPerimeter=0");
+		expect(xml).toContain("entryPerimeter=0");
+	});
+
+	it("keeps shapes, stroke style and arrowhead", () => {
+		const xml = exportDrawio(diagram());
+		expect(xml).toContain("shape=parallelogram");
+		expect(xml).toContain("shape=hexagon");
+		expect(xml).toContain("dashed=1");
+		expect(xml).toContain("endFill=0");
+	});
+
+	it("draws straight routes as solved instead of re-routing them", () => {
+		const straight = diagram();
+		const edge = straight.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.points = [
+			{ x: 600, y: 120 },
+			{ x: 800, y: 130 },
+		];
+		expect(exportDrawio(straight)).toContain("edgeStyle=none");
+		expect(exportDrawio(diagram())).toContain("edgeStyle=orthogonalEdgeStyle");
+	});
+
+	it("translates geometry to the page origin", () => {
+		const xml = exportDrawio(diagram());
+		expect(xml).toContain('x="0" y="0" width="100" height="40"');
+		expect(xml).toContain('pageWidth="400"');
+		expect(xml).toContain('<mxPoint x="200" y="10"/>');
+	});
+
+	it("maps crossing styles per edge", () => {
+		const crossing = diagram({
+			edgeCrossings: [
+				{ x: 700, y: 120, underEdgeId: "a-b", overEdgeId: "z", style: "gap" },
+			],
+		});
+		expect(exportDrawio(crossing)).toContain("jumpStyle=gap");
+		expect(exportDrawio(diagram())).toContain("jumpStyle=none");
+	});
+
+	it("exports groups, swimlanes, evidence and callouts", () => {
+		const xml = exportDrawio(
+			diagram({
+				groups: [
+					{
+						id: "g",
+						label: { text: "Zone" },
+						nodeIds: ["a"],
+						box: { x: 490, y: 90, width: 120, height: 60 },
+					},
+				],
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "horizontal",
+						lanes: [
+							{
+								id: "lane",
+								label: { text: "Lane" },
+								children: ["a"],
+								box: { x: 500, y: 100, width: 400, height: 40 },
+								headerBox: { x: 500, y: 100, width: 30, height: 40 },
+							},
+						],
+					},
+				],
+				evidencePanels: [
+					{
+						id: "p",
+						kind: "legend",
+						items: [{ label: { text: "Key" } }],
+						box: { x: 500, y: 150, width: 100, height: 40 },
+					},
+				],
+				textAnnotations: [
+					{
+						text: "E1: long label",
+						ownerId: "a-b",
+						surfaceKind: "edge-label",
+						placement: "external-callout",
+						placementDetail: { role: "callout" },
+						box: { x: 650, y: 150, width: 90, height: 20 },
+						lines: [],
+					},
+					{
+						text: "E1",
+						ownerId: "a-b",
+						surfaceKind: "edge-label",
+						placement: "external-callout",
+						placementDetail: { role: "key" },
+						box: { x: 690, y: 110, width: 14, height: 14 },
+						lines: [],
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		expect(xml).toContain('value="Zone"');
+		expect(xml).toContain("swimlane;");
+		expect(xml).toContain("horizontal=0;");
+		expect(xml).toContain("legend");
+		expect(xml).toContain("E1: long label");
+		// The edge carries the callout key instead of the full label.
+		expect(xml).toMatch(/value="E1" style="edgeStyle/);
+	});
+});

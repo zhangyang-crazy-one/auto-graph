@@ -856,11 +856,13 @@ export function reportTextAnnotationCollisions(
 ): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 
-	// Shelf callouts sit outside their edge like port labels (#93).
+	// Shelf callouts and their keys are placed like port labels (#93): a
+	// key that found no clear spot is reported here, not delivered silently.
 	const relevantAnnotations = annotations.filter(
 		(annotation) =>
 			isExternallyPlacedText(annotation.surfaceKind) ||
-			annotation.placementDetail?.role === "callout",
+			annotation.placementDetail?.role === "callout" ||
+			annotation.placementDetail?.role === "key",
 	);
 
 	for (
