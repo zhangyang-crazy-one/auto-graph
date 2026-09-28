@@ -86,6 +86,26 @@ export function detectOrthogonalEdgeCrossings(
 }
 
 /**
+ * Whether a hop glyph centred at `point` fits inside the drawn segment
+ * `start`–`end` (exporters pass the path already cut before the
+ * arrowhead). A crossing whose glyph fits neither edge (it sits right at a
+ * bend of both) is still recorded and counted, but drawn as a plain
+ * crossing rather than a hop that doubles back past the bend.
+ */
+export function hopFitsSegment(
+	point: Point,
+	start: Point,
+	end: Point,
+): boolean {
+	return (
+		Math.hypot(point.x - start.x, point.y - start.y) >=
+			EDGE_CROSSING_GLYPH_RADIUS - 1e-6 &&
+		Math.hypot(point.x - end.x, point.y - end.y) >=
+			EDGE_CROSSING_GLYPH_RADIUS - 1e-6
+	);
+}
+
+/**
  * Length exporters cut off an edge's last segment for its arrowhead
  * (`computeArrowhead`'s default); a hop cannot be drawn inside it.
  */

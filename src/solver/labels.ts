@@ -68,6 +68,7 @@ import {
 	labelSegmentOnPolyline,
 	reportRouteTextClearance,
 	routeIntersectsTextBox,
+	segmentIntersectsBox,
 	textObstacleBox,
 } from "./route-edges.js";
 
@@ -828,12 +829,15 @@ function polylineEntersBox(points: readonly Point[], box: Box): boolean {
 	for (let index = 1; index < points.length; index += 1) {
 		const a = points[index - 1] as Point;
 		const b = points[index] as Point;
-		if (
+		const overlapsBounds =
 			Math.max(a.x, b.x) > box.x &&
 			Math.min(a.x, b.x) < box.x + box.width &&
 			Math.max(a.y, b.y) > box.y &&
-			Math.min(a.y, b.y) < box.y + box.height
-		) {
+			Math.min(a.y, b.y) < box.y + box.height;
+		if (!overlapsBounds) continue;
+		// An orthogonal segment enters the box exactly when its bounds do;
+		// a diagonal one only when the segment itself crosses the box.
+		if (a.x === b.x || a.y === b.y || segmentIntersectsBox(a, b, box)) {
 			return true;
 		}
 	}

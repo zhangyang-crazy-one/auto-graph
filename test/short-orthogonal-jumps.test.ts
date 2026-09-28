@@ -337,6 +337,50 @@ describe("edge crossings / jumps (#84)", () => {
 		expect(under?.points?.length).toBeGreaterThan(2);
 	});
 
+	it("draws a crossing right at a bend without a hop that doubles back", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "jump-at-bend",
+			direction: "LR",
+			nodes: [],
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					// Bends at (100,50), 3px after the crossing at (97,50).
+					points: [
+						{ x: 20, y: 50 },
+						{ x: 100, y: 50 },
+						{ x: 100, y: 120 },
+					],
+				},
+				{
+					id: "v",
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x: 97, y: 20 },
+						{ x: 97, y: 80 },
+					],
+				},
+			],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 140 },
+			edgeCrossings: [
+				{ x: 97, y: 50, underEdgeId: "h", overEdgeId: "v", style: "jump" },
+			],
+		};
+		const svg = exportSvg(diagram);
+		expect(svg).not.toMatch(/data-id="h"[^>]*\bA /);
+		const scene = JSON.parse(exportExcalidraw(diagram)) as {
+			elements: Array<{ id: string; points?: Array<{ x: number; y: number }> }>;
+		};
+		const under = scene.elements.find((element) => element.id === "edge:h");
+		expect(under?.points).toHaveLength(3);
+	});
+
 	it("emits edgeCrossings from solve without treating jumps as unsatisfiable alone", () => {
 		const solved = solveDiagram(
 			{

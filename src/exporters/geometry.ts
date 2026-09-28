@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hopFitsSegment } from "../geometry/edge-crossings.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { Box, Point, PreviousLayout } from "../ir/geometry.js";
 import type {
@@ -719,7 +720,11 @@ function pathWithJumps(
 					off: Math.abs((jump.x - a.x) * uy - (jump.y - a.y) * ux),
 				}))
 				.filter(
-					(entry) => entry.off <= 0.75 && entry.t > 0.02 && entry.t < 0.98,
+					(entry) =>
+						entry.off <= 0.75 &&
+						entry.t > 0.02 &&
+						entry.t < 0.98 &&
+						hopFitsSegment(entry.jump, a, b),
 				)
 				.sort((left, right) => left.t - right.t);
 			for (const { jump } of onSegment) {

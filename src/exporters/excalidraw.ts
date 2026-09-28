@@ -1,4 +1,7 @@
-import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
+import {
+	EDGE_CROSSING_GLYPH_RADIUS,
+	hopFitsSegment,
+} from "../geometry/edge-crossings.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -442,7 +445,11 @@ function applyJumpBumps(
 			result.push({ ...start });
 		}
 		const segmentJumps = jumps
-			.filter((jump) => excalidrawPointOnSegment(jump, start, end))
+			.filter(
+				(jump) =>
+					excalidrawPointOnSegment(jump, start, end) &&
+					hopFitsSegment(jump, start, end),
+			)
 			.sort(
 				(left, right) =>
 					excalidrawSquaredDistance(start, left) -

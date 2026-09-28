@@ -389,6 +389,52 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("leaves an unlabeled node blank", () => {
+		const unlabeled = diagram({});
+		const [a] = unlabeled.nodes;
+		if (a === undefined) throw new Error("fixture");
+		delete a.label;
+		delete a.labelLayout;
+		const xml = exportDrawio(unlabeled);
+		expect(xml).not.toContain(`value="${a.id}"`);
+	});
+
+	it("draws a group title with its solved lines and typography", () => {
+		const xml = exportDrawio(
+			diagram({
+				groups: [
+					{
+						id: "g",
+						label: { text: "Control zone" },
+						nodeIds: ["a"],
+						box: { x: 490, y: 90, width: 120, height: 60 },
+					},
+				],
+				textAnnotations: [
+					{
+						text: "Control zone",
+						ownerId: "g",
+						surfaceKind: "group-label",
+						box: { x: 500, y: 92, width: 44, height: 28 },
+						lines: [
+							{ text: "Control", width: 40 },
+							{ text: "zone", width: 26 },
+						],
+						fontFamily: "Arial",
+						fontSize: 11,
+					} as never,
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		// The group box itself carries no text; the title is its own cell.
+		expect(xml).toMatch(/value="" style="rounded=0;[^"]*dashed=1;/);
+		expect(xml).toMatch(
+			/value="Control&lt;br&gt;zone" style="text;[^"]*fontFamily=Arial;fontSize=11;"/,
+		);
+		// Page-relative: (500,92) - bounds origin (500,100).
+		expect(xml).toContain('x="0" y="-8" width="44" height="28"');
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

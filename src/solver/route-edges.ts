@@ -857,6 +857,15 @@ export function coordinateEdges(
 		finalized = settled.edges;
 		// A nudged route that now clears its text leaves no text-clearance
 		// diagnostic behind (it would start remediation on stale evidence).
+		// Only text counts here: other obstacles it still meets have their
+		// own diagnostics.
+		const textFor = (edge: CoordinatedEdge): Box[] =>
+			textObstacles
+				.filter(isLocalRouteClearanceText)
+				.filter(
+					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
+				)
+				.map((annotation) => textObstacleBox(annotation, options));
 		const nudgedById = new Map(
 			finalized
 				.filter((edge, index) => edge.points !== before[index]?.points)
@@ -870,7 +879,7 @@ export function coordinateEdges(
 				typeof edgeId === "string" ? nudgedById.get(edgeId) : undefined;
 			if (
 				edge !== undefined &&
-				routeObstacleHits(edge.points, obstaclesFor(edge)) === 0
+				routeObstacleHits(edge.points, textFor(edge)) === 0
 			) {
 				diagnostics.splice(index, 1);
 			}

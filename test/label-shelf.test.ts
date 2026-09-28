@@ -248,4 +248,40 @@ describe("label shelf packing (#93)", () => {
 			blockedLabel.y < callout.y + callout.height;
 		expect(overlaps).toBe(false);
 	});
+
+	it("keeps a key beside a diagonal route that misses it", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 30, y: 20, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 100 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				diagnostics,
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 10, y: 27 },
+							{ x: 90, y: 27 },
+						],
+					],
+					// Its bounds cover the key, the line itself passes below it.
+					[
+						"b",
+						[
+							{ x: 0, y: 100 },
+							{ x: 100, y: 0 },
+						],
+					],
+				]),
+			},
+		);
+		const key = built[0]?.callout.keyBox;
+		expect(key).toBeDefined();
+		if (key === undefined) return;
+		expect(key.x + key.width / 2).toBeCloseTo(50, 6);
+		expect(key.y + key.height / 2).toBeCloseTo(27, 6);
+		// Not reported as sitting on "b".
+		expect(diagnostics).toEqual([]);
+	});
 });

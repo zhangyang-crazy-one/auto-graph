@@ -1,4 +1,7 @@
-import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
+import {
+	EDGE_CROSSING_GLYPH_RADIUS,
+	hopFitsSegment,
+} from "../geometry/edge-crossings.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
@@ -685,7 +688,10 @@ function formatPathWithJumps(
 		if (start === undefined || end === undefined) continue;
 		moveOrLine(start);
 		const segmentJumps = jumps
-			.filter((jump) => pointOnSegment(jump, start, end))
+			.filter(
+				(jump) =>
+					pointOnSegment(jump, start, end) && hopFitsSegment(jump, start, end),
+			)
 			.sort(
 				(left, right) =>
 					squaredDistance(start, left) - squaredDistance(start, right),

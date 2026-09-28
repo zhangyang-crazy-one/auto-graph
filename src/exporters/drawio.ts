@@ -95,11 +95,28 @@ export function exportDrawio(
 			right.box.width * right.box.height - left.box.width * left.box.height ||
 			left.id.localeCompare(right.id),
 	)) {
+		// The solved title (its lines, typography and collision-safe box)
+		// is a text cell of its own, so draw.io does not rewrap it across
+		// the whole group.
+		const title = annotations.find(
+			(annotation) =>
+				annotation.surfaceKind === "group-label" &&
+				annotation.ownerId === group.id,
+		);
 		vertex(
-			escapeHtml(group.label?.text ?? ""),
+			title === undefined ? escapeHtml(group.label?.text ?? "") : "",
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
 		);
+		if (title !== undefined) {
+			vertex(
+				calloutText(title),
+				`${GROUP_LABEL_STYLE}${labelFontStyle(title)
+					.map((entry) => `${entry};`)
+					.join("")}`,
+				title.box,
+			);
+		}
 	}
 	// Matrices and tables are laid out cell by cell on the solved geometry,
 	// as the SVG exporter draws them, so draw.io keeps the column widths.
@@ -231,6 +248,9 @@ function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 }
 const PORT_LABEL_STYLE =
 	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
+/** A group title on the group border: a backdrop keeps passing edges off it. */
+const GROUP_LABEL_STYLE =
+	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;labelBackgroundColor=#ffffff;";
 const CALLOUT_STYLE =
 	"text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fillColor=#ffffff;";
 
@@ -275,7 +295,8 @@ function nodeLabelHtml(node: CoordinatedNode): string {
 	const lines = node.labelLayout?.lines ?? [];
 	return lines.length > 1
 		? lines.map((line) => escapeHtml(line.text)).join("<br>")
-		: escapeHtml(node.label?.text ?? node.id);
+		: // A node without a label stays blank, as in the SVG.
+			escapeHtml(node.label?.text ?? "");
 }
 
 /** SysML compartments as the SVG draws them: header, properties, constraints. */
