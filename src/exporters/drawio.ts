@@ -69,8 +69,13 @@ export function exportDrawio(
 
 	if (diagram.frame !== undefined) {
 		const frame = diagram.frame;
+		const title = annotations.find(
+			(annotation) =>
+				annotation.surfaceKind === "frame-title" &&
+				annotation.ownerId === frame.kind,
+		);
 		vertex(
-			escapeHtml(frame.titleTab),
+			title === undefined ? escapeHtml(frame.titleTab) : "",
 			[
 				"shape=umlFrame;whiteSpace=wrap;html=1;",
 				`width=${formatNumber(frame.titleBox.width)};height=${formatNumber(frame.titleBox.height)};`,
@@ -83,9 +88,17 @@ export function exportDrawio(
 			].join(""),
 			frame.box,
 		);
+		// The solved title in its tab (lines, typography and box).
+		if (title !== undefined) {
+			vertex(
+				calloutText(title),
+				`${SOLVED_TEXT_STYLE}${fontStyleEntries(title)}`,
+				title.box,
+			);
+		}
 	}
 	for (const swimlane of diagram.swimlanes ?? []) {
-		for (const cell of swimlaneCells(swimlane)) {
+		for (const cell of swimlaneCells(swimlane, annotations)) {
 			vertex(cell.value, cell.style, cell.box);
 		}
 	}
@@ -248,6 +261,9 @@ function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 }
 const PORT_LABEL_STYLE =
 	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
+/** A solved text surface drawn as its own cell. */
+const SOLVED_TEXT_STYLE =
+	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
 /** A group title on the group border: a backdrop keeps passing edges off it. */
 const GROUP_LABEL_STYLE =
 	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;labelBackgroundColor=#ffffff;";
@@ -318,6 +334,7 @@ function compartmentHtml(node: CoordinatedNode): string {
 
 function swimlaneCells(
 	swimlane: Swimlane,
+	annotations: readonly SolvedTextAnnotation[],
 ): { value: string; style: string; box: Box }[] {
 	const cells: { value: string; style: string; box: Box }[] = [];
 	for (const lane of swimlane.lanes) {
@@ -331,13 +348,37 @@ function swimlaneCells(
 			header.width < lane.box.width;
 		const startSize =
 			header === undefined ? 0 : leftHeader ? header.width : header.height;
+		// The solved label (its lines, typography and box) is a text cell of
+		// its own, so draw.io does not reflow it inside the header.
+		const title = annotations.find(
+			(annotation) =>
+				annotation.surfaceKind === "swimlane-label" &&
+				annotation.ownerId === `${swimlane.id}.${lane.id}`,
+		);
 		cells.push({
-			value: escapeHtml(lane.label?.text ?? lane.id),
+			value: title === undefined ? escapeHtml(lane.label?.text ?? lane.id) : "",
 			style: `swimlane;whiteSpace=wrap;html=1;startSize=${formatNumber(startSize)};${leftHeader ? "horizontal=0;" : ""}`,
 			box: lane.box,
 		});
+		if (title !== undefined) {
+			cells.push({
+				value: calloutText(title),
+				// Horizontal pools draw the label turned, as the SVG does.
+				style: `${SOLVED_TEXT_STYLE}${swimlane.orientation === "horizontal" ? "rotation=-90;" : ""}${fontStyleEntries(title)}`,
+				box: title.box,
+			});
+		}
 	}
 	return cells;
+}
+
+/** `labelFontStyle` entries as a style string. */
+function fontStyleEntries(
+	font: Partial<Pick<SolvedTextAnnotation, "fontFamily" | "fontSize">>,
+): string {
+	return labelFontStyle(font)
+		.map((entry) => `${entry};`)
+		.join("");
 }
 
 function renderEdgeCell(input: {

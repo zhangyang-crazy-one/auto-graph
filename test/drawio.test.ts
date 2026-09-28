@@ -435,6 +435,69 @@ describe("draw.io export", () => {
 		expect(xml).toContain('x="0" y="-8" width="44" height="28"');
 	});
 
+	it("draws lane labels and the frame title from their solved annotations", () => {
+		const xml = exportDrawio(
+			diagram({
+				frame: {
+					kind: "bdd",
+					titleTab: "bdd Plant control",
+					box: { x: 480, y: 60, width: 440, height: 120 },
+					titleBox: { x: 480, y: 60, width: 90, height: 34 },
+				},
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "horizontal",
+						lanes: [
+							{
+								id: "lane",
+								label: { text: "Order desk" },
+								children: ["a"],
+								box: { x: 500, y: 100, width: 400, height: 40 },
+								headerBox: { x: 500, y: 100, width: 30, height: 40 },
+							},
+						],
+					},
+				],
+				textAnnotations: [
+					{
+						text: "bdd Plant control",
+						ownerId: "bdd",
+						surfaceKind: "frame-title",
+						box: { x: 484, y: 62, width: 70, height: 28 },
+						lines: [
+							{ text: "bdd Plant", width: 60 },
+							{ text: "control", width: 44 },
+						],
+						fontFamily: "Arial",
+						fontSize: 12,
+					},
+					{
+						text: "Order desk",
+						ownerId: "s.lane",
+						surfaceKind: "swimlane-label",
+						box: { x: 495, y: 106, width: 40, height: 28 },
+						lines: [
+							{ text: "Order", width: 32 },
+							{ text: "desk", width: 28 },
+						],
+						fontFamily: "Noto Sans CJK SC",
+						fontSize: 13,
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		// The frame and lane cells carry no text of their own.
+		expect(xml).toMatch(/value="" style="shape=umlFrame;/);
+		expect(xml).toMatch(/value="" style="swimlane;/);
+		expect(xml).toMatch(
+			/value="bdd Plant&lt;br&gt;control" style="text;[^"]*fontFamily=Arial;fontSize=12;"/,
+		);
+		expect(xml).toMatch(
+			/value="Order&lt;br&gt;desk" style="text;[^"]*rotation=-90;fontFamily=Noto Sans CJK SC;fontSize=13;"/,
+		);
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

@@ -284,4 +284,35 @@ describe("label shelf packing (#93)", () => {
 		// Not reported as sitting on "b".
 		expect(diagnostics).toEqual([]);
 	});
+
+	it("packs callouts clear of ordinary inline edge labels", () => {
+		const inline: SolvedTextAnnotation = {
+			...required("c", "inline label", {
+				x: 120,
+				y: 8,
+				width: 240,
+				height: 40,
+			}),
+		};
+		delete (inline as { placement?: string }).placement;
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 20, y: 40, width: 40, height: 14 }), inline],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 400, height: 120 },
+			},
+		);
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["a"]);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		if (callout === undefined) return;
+		const box = inline.box;
+		const overlaps =
+			callout.x < box.x + box.width &&
+			box.x < callout.x + callout.width &&
+			callout.y < box.y + box.height &&
+			box.y < callout.y + callout.height;
+		expect(overlaps).toBe(false);
+	});
 });

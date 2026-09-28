@@ -640,10 +640,19 @@ export function buildExternalLabelCallouts(
 			? stackShelf(shelved, bounds)
 			: packShelf(shelved, bounds, options.pageBounds, {
 					...shelf,
-					// Labels whose keys were blocked stay inline at full size.
+					// Labels whose keys were blocked stay inline at full size, and
+					// so does every edge label that never needed a callout.
 					obstacles: [
 						...(shelf.obstacles ?? []),
 						...blocked.map((entry) => entry.source.box),
+						...annotations
+							.filter(
+								(annotation) =>
+									annotation.surfaceKind === "edge-label" &&
+									annotation.placement !== "external-callout-required" &&
+									annotation.placement !== "external-callout",
+							)
+							.map((annotation) => annotation.box),
 					],
 				});
 	const built: BuiltExternalLabelCallout[] = [];
