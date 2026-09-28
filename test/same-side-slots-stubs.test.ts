@@ -148,6 +148,62 @@ describe("same-side slots + escape stubs (#92)", () => {
 		expect(assignments.get("free:source")?.anchor).toBe("right");
 	});
 
+	it("puts off-centre slots on an ellipse's outline", () => {
+		const node = (
+			id: string,
+			shape: "ellipse" | "rectangle",
+			y: number,
+			x: number,
+		) => ({
+			id,
+			shape,
+			size: { width: 80, height: 120 },
+			padding: { top: 8, right: 8, bottom: 8, left: 8 },
+			position: { x, y },
+		});
+		const solved = solveDiagram(
+			{
+				id: "ellipse-slots",
+				direction: "LR",
+				nodes: [
+					node("hub", "ellipse", 40, 0),
+					{
+						...node("r1", "rectangle", 0, 240),
+						size: { width: 80, height: 40 },
+					},
+					{
+						...node("r2", "rectangle", 180, 240),
+						size: { width: 80, height: 40 },
+					},
+				],
+				edges: [
+					{ id: "e1", source: { nodeId: "hub" }, target: { nodeId: "r1" } },
+					{ id: "e2", source: { nodeId: "hub" }, target: { nodeId: "r2" } },
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", routeKind: "short-orthogonal-jumps" },
+		);
+		const hub = solved.nodes.find((entry) => entry.id === "hub")?.box;
+		expect(hub).toBeDefined();
+		if (hub === undefined) return;
+		const rx = hub.width / 2;
+		const ry = hub.height / 2;
+		const starts = solved.edges.map((edge) => edge.points[0]);
+		// Two ends on one side: at least one is off the side's middle.
+		expect(
+			starts.some((point) => Math.abs((point?.y ?? 0) - (hub.y + ry)) > 1),
+		).toBe(true);
+		for (const point of starts) {
+			if (point === undefined) continue;
+			const radius =
+				((point.x - hub.x - rx) / rx) ** 2 + ((point.y - hub.y - ry) / ry) ** 2;
+			expect(radius).toBeCloseTo(1, 2);
+		}
+	});
+
 	it("separates parallel same-side tracks by at least pitch", () => {
 		const solved = solveDiagram(
 			{

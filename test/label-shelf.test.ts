@@ -56,4 +56,35 @@ describe("label shelf packing (#93)", () => {
 			stays.box.y < callout.y + callout.height;
 		expect(overlaps).toBe(false);
 	});
+
+	it("keeps a label inline when no key spot clears the obstacles", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const node = { x: 0, y: 0, width: 100, height: 60 };
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 30, y: 20, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				diagnostics,
+				keyObstacles: [node],
+				// Its whole route lies inside the node.
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 10, y: 30 },
+							{ x: 90, y: 30 },
+						],
+					],
+				]),
+			},
+		);
+		expect(built).toEqual([]);
+		expect(diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-shelf.key_blocked",
+				detail: expect.objectContaining({ edgeIds: ["a"] }),
+			}),
+		);
+	});
 });

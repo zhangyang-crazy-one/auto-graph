@@ -556,6 +556,8 @@ export function buildExternalLabelCallouts(
 			},
 			width: Math.max(source.box.width, shelfLayout.box.width),
 			height: Math.max(source.box.height, shelfLayout.box.height),
+			/** No key spot clears the page's obstacles: the label stays inline. */
+			blocked: false,
 		};
 	});
 
@@ -588,17 +590,39 @@ export function buildExternalLabelCallouts(
 					y: point.y - entry.keyBox.height / 2,
 				}))
 				.find(clear);
-			if (spot !== undefined) entry.keyBox = spot;
+			if (spot !== undefined) {
+				entry.keyBox = spot;
+			} else if (
+				(shelf.keyObstacles ?? []).some((obstacle) =>
+					boxesOverlap(entry.keyBox, obstacle, 0),
+				)
+			) {
+				entry.blocked = true;
+				continue;
+			}
 		}
 		placedKeys.push(entry.keyBox);
 	}
+	const blocked = measured.filter((entry) => entry.blocked);
+	if (blocked.length > 0) {
+		shelf.diagnostics?.push({
+			severity: "warning",
+			code: "routing.label-shelf.key_blocked",
+			message: `${blocked.length} external label key(s) have no spot on their edge clear of nodes, tables and panels; those labels stay on their edges.`,
+			detail: {
+				edgeIds: blocked.map((entry) => entry.source.ownerId),
+				conflictClass: "label-capacity",
+			},
+		});
+	}
+	const shelved = measured.filter((entry) => !entry.blocked);
 
 	const placements =
 		options.pageBounds === undefined
-			? stackShelf(measured, bounds)
-			: packShelf(measured, bounds, options.pageBounds, shelf);
+			? stackShelf(shelved, bounds)
+			: packShelf(shelved, bounds, options.pageBounds, shelf);
 	const built: BuiltExternalLabelCallout[] = [];
-	measured.forEach((entry, index) => {
+	shelved.forEach((entry, index) => {
 		const calloutBox = placements[index];
 		if (calloutBox === undefined) return;
 		const callout: ExternalLabelCallout = {

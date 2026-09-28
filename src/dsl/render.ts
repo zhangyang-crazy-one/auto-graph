@@ -67,7 +67,7 @@ export function exportDiagram(
 		format === "svg"
 			? exportSvg(diagram, options)
 			: format === "drawio"
-				? exportDrawio(diagram)
+				? exportDrawio(diagram, options)
 				: format === "geometry"
 					? `${JSON.stringify(exportGeometry(diagram), null, 2)}\n`
 					: exportExcalidraw(diagram);

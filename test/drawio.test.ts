@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { exportDiagram } from "../src/dsl/render.js";
 import { exportDrawio } from "../src/exporters/index.js";
 import type { CoordinatedDiagram } from "../src/ir/index.js";
 
@@ -321,6 +322,34 @@ describe("draw.io export", () => {
 			],
 		});
 		expect(exportDrawio(wrapped)).toContain('value="first&lt;br&gt;second"');
+	});
+
+	it("draws edge labels with the solved typography", () => {
+		const xml = exportDrawio(
+			diagram({
+				textAnnotations: [
+					{
+						text: "中文",
+						ownerId: "a-b",
+						surfaceKind: "edge-label",
+						box: { x: 680, y: 90, width: 40, height: 20 },
+						anchor: { x: 700, y: 100 },
+						paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+						lines: [{ text: "中文", width: 40 }],
+						fontFamily: "Noto Sans CJK SC",
+						fontSize: 14,
+					} as never,
+				],
+			}),
+		);
+		expect(xml).toContain("fontFamily=Noto Sans CJK SC;fontSize=14");
+	});
+
+	it("keeps the requested page title through exportDiagram", () => {
+		const xml = exportDiagram("drawio", diagram({}), {
+			title: "Page A",
+		}).content;
+		expect(xml).toContain('name="Page A"');
 	});
 
 	it("draws evidence panels as a title column and one row per item", () => {

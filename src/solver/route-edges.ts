@@ -1097,10 +1097,14 @@ export function finalizeCoordinatedEdges(
 		options,
 		layered,
 	);
+	// Implicit and same-side-slot ends sit on the bounding box; move them
+	// onto a non-rectangular outline (the end segment keeps its normal).
 	const snapped = snapEndpointsToShapeOutline(
 		separated,
 		nodes,
-		implicit ? undefined : layered,
+		implicit || (options.routeKind ?? "orthogonal") === "short-orthogonal-jumps"
+			? undefined
+			: layered,
 	);
 	// Short routes: interior segments the post-passes left on a group frame
 	// or node side step clear of it (#98 render check).

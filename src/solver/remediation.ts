@@ -630,6 +630,10 @@ export function applyExternalLabelRemediation(
 		},
 	);
 	state.shelfDiagnostics = shelfDiagnostics;
+	const shelfCapacity = shelfDiagnostics.find(
+		(diagnostic) =>
+			diagnostic.code === "routing.label-shelf.capacity_exhausted",
+	);
 	if (externalLabelCallouts.length === 0) {
 		const candidate = buildRemediationPlans(
 			blockingRemediationDiagnostics(state.diagnostics),
@@ -640,10 +644,12 @@ export function applyExternalLabelRemediation(
 		if (candidate === undefined) {
 			return undefined;
 		}
-		const exhausted = shelfDiagnostics[0];
-		if (exhausted !== undefined) {
+		if (shelfCapacity !== undefined) {
 			// Labels needed callouts but none fit on the page (#93).
-			return withShelfCapacity({ ...candidate, status: "blocked" }, exhausted);
+			return withShelfCapacity(
+				{ ...candidate, status: "blocked" },
+				shelfCapacity,
+			);
 		}
 		return {
 			...candidate,
@@ -669,9 +675,10 @@ export function applyExternalLabelRemediation(
 		id: "remediation-external-label",
 		...applied,
 	};
-	const capacity = shelfDiagnostics[0];
 	// Only part of the labels fit on the page: say so (#93).
-	return capacity === undefined ? plan : withShelfCapacity(plan, capacity);
+	return shelfCapacity === undefined
+		? plan
+		: withShelfCapacity(plan, shelfCapacity);
 }
 
 /**

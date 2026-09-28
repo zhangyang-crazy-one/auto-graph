@@ -172,6 +172,7 @@ export function exportDrawio(
 					const box = labelByEdge.get(edge.id)?.box;
 					return box === undefined ? undefined : shift(box);
 				})(),
+				labelFont: labelByEdge.get(edge.id),
 			}),
 		);
 	}
@@ -307,6 +308,8 @@ function renderEdgeCell(input: {
 	crossings: readonly EdgeCrossing[];
 	label: string;
 	labelBox: Box | undefined;
+	/** The solved label's typography (the box was measured with it). */
+	labelFont: Pick<SolvedTextAnnotation, "fontFamily" | "fontSize"> | undefined;
 }): string {
 	const { edge, points, crossings } = input;
 	const orthogonal = points.every((point, index) => {
@@ -333,6 +336,13 @@ function renderEdgeCell(input: {
 		`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
 	];
 	if (edge.style === "dashed") styleParts.push("dashed=1");
+	// `;` separates style entries, so it cannot appear in a value.
+	const labelFontFamily = input.labelFont?.fontFamily?.replaceAll(";", "");
+	if (labelFontFamily) styleParts.push(`fontFamily=${labelFontFamily}`);
+	const labelFontSize = input.labelFont?.fontSize;
+	if (labelFontSize !== undefined && Number.isFinite(labelFontSize)) {
+		styleParts.push(`fontSize=${formatNumber(labelFontSize)}`);
+	}
 	const first = points[0];
 	const last = points.at(-1);
 	// mxGraph ignores sourcePoint/targetPoint once a terminal cell is set,
