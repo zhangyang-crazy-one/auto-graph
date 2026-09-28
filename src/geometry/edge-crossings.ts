@@ -61,7 +61,9 @@ export function detectOrthogonalEdgeCrossings(
 					// The under edge draws the hop: when the crossing sits too
 					// close to a bend of its segment for the glyph, but not of
 					// the other one, the other edge jumps instead.
-					const swap = !fitsGlyph(point, a0, a1) && fitsGlyph(point, b0, b1);
+					const swap =
+						!fitsGlyph(point, a0, a1, ai === underEdge.points.length - 2) &&
+						fitsGlyph(point, b0, b1, bi === overEdge.points.length - 2);
 					crossings.push({
 						x: point.x,
 						y: point.y,
@@ -83,11 +85,26 @@ export function detectOrthogonalEdgeCrossings(
 	return crossings;
 }
 
-/** A hop glyph centred at `point` fits inside segment `a`–`b`. */
-function fitsGlyph(point: Point, a: Point, b: Point): boolean {
+/**
+ * Length exporters cut off an edge's last segment for its arrowhead
+ * (`computeArrowhead`'s default); a hop cannot be drawn inside it.
+ */
+const ARROWHEAD_LENGTH = 10;
+
+/**
+ * A hop glyph centred at `point` fits inside segment `a`–`b` (with the
+ * arrowhead cut off `b` when it is the edge's last segment).
+ */
+function fitsGlyph(
+	point: Point,
+	a: Point,
+	b: Point,
+	lastSegment: boolean,
+): boolean {
 	return (
 		Math.hypot(point.x - a.x, point.y - a.y) >= EDGE_CROSSING_GLYPH_RADIUS &&
-		Math.hypot(point.x - b.x, point.y - b.y) >= EDGE_CROSSING_GLYPH_RADIUS
+		Math.hypot(point.x - b.x, point.y - b.y) >=
+			EDGE_CROSSING_GLYPH_RADIUS + (lastSegment ? ARROWHEAD_LENGTH : 0)
 	);
 }
 

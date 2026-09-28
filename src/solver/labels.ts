@@ -484,6 +484,11 @@ export interface ExternalLabelShelfOptions {
 	diagnostics?: Diagnostic[];
 	/** Edge routes by id, so crowded keys can move along their own edge. */
 	routes?: ReadonlyMap<string, readonly Point[]>;
+	/**
+	 * Boxes a callout key must not sit on (nodes, tables, matrices, evidence
+	 * panels). Groups are left out: a key on a route inside a zone is fine.
+	 */
+	keyObstacles?: readonly Box[];
 }
 
 /** Callouts are kept this far inside `pageBounds`. */
@@ -561,6 +566,9 @@ export function buildExternalLabelCallouts(
 	for (const entry of measured) {
 		const clear = (box: Box) =>
 			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
+			!(shelf.keyObstacles ?? []).some((obstacle) =>
+				boxesOverlap(box, obstacle, 0),
+			) &&
 			![...(shelf.routes ?? new Map()).entries()].some(
 				([edgeId, points]) =>
 					edgeId !== entry.source.ownerId && polylineEntersBox(points, box),

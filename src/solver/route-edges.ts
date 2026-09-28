@@ -533,7 +533,14 @@ export function coordinateEdges(
 					sourceAnchor: sideOfBox(points[0], source.box),
 					targetAnchor: sideOfBox(points.at(-1), target.box),
 				});
+			// A router fallback (no candidate cleared its hard set) ranks
+			// behind every accepted route, whatever its soft hits.
 			const score = (candidate: typeof route) => [
+				candidate.diagnostics.some(
+					(diagnostic) => diagnostic.code === "routing.obstacle.unavoidable",
+				)
+					? 1
+					: 0,
 				...routeSeverity(
 					candidate,
 					routeHardObstacles,
@@ -541,8 +548,11 @@ export function coordinateEdges(
 				),
 				misdirected(candidate.points),
 			];
+			// Soft hits (port labels, text) also trigger the side search;
+			// candidates are still ranked hard hits first.
 			const blocked = (candidate: typeof route) =>
 				routeObstacleHits(candidate.points, routeHardObstacles) > 0 ||
+				routeObstacleHits(candidate.points, routeInput.obstacles ?? []) > 0 ||
 				misdirected(candidate.points) > 0;
 			// Each slotted end may take any side; the other end keeps its
 			// pinned point. Both ends move together, so a pair that only
@@ -711,7 +721,35 @@ export function coordinateEdges(
 				...nodeObstacles.map((entry) => entry.box),
 			],
 		});
-		finalized = nudged.edges;
+		// Keep a nudged route only if it hits no more of the edge's own
+		// obstacle set (soft, group, text, nodes, hard) than before, the same
+		// test the separator applies.
+		finalized = finalized.map((edge, index) => {
+			const moved = nudged.edges[index];
+			if (moved === undefined || moved.points === edge.points) return edge;
+			const obstacles = [
+				...hardObstacles,
+				...softObstacles,
+				...nodeObstacles
+					.filter(
+						(entry) =>
+							entry.id !== edge.source.nodeId &&
+							entry.id !== edge.target.nodeId,
+					)
+					.map((entry) => entry.box),
+				...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+				...textObstacles
+					.filter(isLocalRouteClearanceText)
+					.filter(
+						(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
+					)
+					.map((annotation) => textObstacleBox(annotation, options)),
+			];
+			return routeObstacleHits(moved.points, obstacles) >
+				routeObstacleHits(edge.points, obstacles)
+				? edge
+				: moved;
+		});
 		if (nudged.tracks.capacityExhausted) {
 			diagnostics.push({
 				severity: "warning",

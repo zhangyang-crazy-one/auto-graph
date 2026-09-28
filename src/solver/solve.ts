@@ -1065,6 +1065,12 @@ export function solveDiagram(
 				],
 				diagnostics,
 				routes: new Map(coordinatedEdges.map((edge) => [edge.id, edge.points])),
+				keyObstacles: [
+					...coordinatedNodes.map((node) => node.box),
+					...coordinatedMatrices.map((matrix) => matrix.box),
+					...coordinatedTables.map((table) => table.box),
+					...coordinatedEvidencePanels.map((panel) => panel.box),
+				],
 			},
 		);
 		if (externalLabelCallouts.length > 0) {

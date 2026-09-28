@@ -156,4 +156,55 @@ describe("draw.io export", () => {
 		// The edge carries the callout key instead of the full label.
 		expect(xml).toMatch(/value="E1" style="edgeStyle/);
 	});
+
+	it("keeps node styles, ports, compartments and solved label positions", () => {
+		const styled = diagram({
+			textAnnotations: [
+				{
+					text: "IN",
+					ownerId: "a.in",
+					surfaceKind: "port-label",
+					box: { x: 470, y: 104, width: 20, height: 12 },
+					lines: [],
+				},
+				{
+					text: "flow",
+					ownerId: "a-b",
+					surfaceKind: "edge-label",
+					box: { x: 690, y: 90, width: 20, height: 10 },
+					lines: [],
+				},
+			],
+		} as unknown as Partial<CoordinatedDiagram>);
+		const [a, b] = styled.nodes;
+		if (a === undefined || b === undefined) throw new Error("fixture");
+		a.style = { fill: "#ffeeaa", stroke: "#333333", fontSize: 13 };
+		a.ports = [
+			{
+				id: "in",
+				side: "left",
+				kind: "flow",
+				label: { text: "IN" },
+				anchor: { x: 500, y: 110 },
+				box: { x: 495, y: 105, width: 10, height: 10 },
+			},
+		];
+		b.compartments = {
+			stereotype: "«block»",
+			name: "Engine",
+			properties: ["rpm: Real"],
+		};
+		const xml = exportDrawio(styled);
+		expect(xml).toContain("fillColor=#ffeeaa");
+		expect(xml).toContain("strokeColor=#333333");
+		expect(xml).toContain("fontSize=13");
+		// The port square at (495,105) → page (-5,5) and its solved label.
+		expect(xml).toContain('x="-5" y="5" width="10" height="10"');
+		expect(xml).toContain('value="IN"');
+		expect(xml).toContain("Engine");
+		expect(xml).toContain("rpm: Real");
+		expect(xml).toContain("&lt;hr&gt;");
+		// Label centre (700,95) against the route's middle (700,120): offset (0,-25).
+		expect(xml).toContain('<mxPoint as="offset" x="0" y="-25"/>');
+	});
 });

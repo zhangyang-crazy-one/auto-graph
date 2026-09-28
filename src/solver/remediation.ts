@@ -611,6 +611,12 @@ export function applyExternalLabelRemediation(
 			routes: new Map(
 				state.coordinatedEdges.map((edge) => [edge.id, edge.points]),
 			),
+			keyObstacles: [
+				...state.coordinatedNodes.map((node) => node.box),
+				...context.coordinatedMatrices.map((matrix) => matrix.box),
+				...context.coordinatedTables.map((table) => table.box),
+				...context.coordinatedEvidencePanels.map((panel) => panel.box),
+			],
 		},
 	);
 	state.shelfDiagnostics = shelfDiagnostics;

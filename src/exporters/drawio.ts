@@ -90,20 +90,30 @@ export function exportDrawio(
 		const cellId = String(nextId++);
 		nodeCellIds.set(node.id, cellId);
 		cells.push(renderNodeCell(cellId, node, shift(node.box)));
+		for (const port of node.ports ?? []) {
+			vertex("", PORT_STYLE, port.box);
+		}
+	}
+	for (const portLabel of annotations.filter(
+		(annotation) => annotation.surfaceKind === "port-label",
+	)) {
+		vertex(portLabel.text, PORT_LABEL_STYLE, portLabel.box);
 	}
 
 	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
 	const boxOf = (node: CoordinatedNode | undefined) =>
 		node === undefined ? undefined : shift(node.box);
-	const keyByEdge = new Map(
-		annotations
-			.filter(
-				(annotation) =>
-					annotation.surfaceKind === "edge-label" &&
-					annotation.placementDetail?.role === "key",
-			)
-			.map((annotation) => [annotation.ownerId, annotation.text]),
-	);
+	// The solved label of each edge: its callout key when externalized,
+	// otherwise the inline edge label.
+	const labelByEdge = new Map<string, SolvedTextAnnotation>();
+	for (const annotation of annotations) {
+		if (annotation.surfaceKind !== "edge-label") continue;
+		const role = annotation.placementDetail?.role;
+		if (role === "callout") continue;
+		if (role === "key" || !labelByEdge.has(annotation.ownerId)) {
+			labelByEdge.set(annotation.ownerId, annotation);
+		}
+	}
 	for (const edge of diagram.edges) {
 		const cellId = String(nextId++);
 		cells.push(
@@ -122,7 +132,11 @@ export function exportDrawio(
 							crossing.overEdgeId === edge.id,
 					)
 					.map((crossing) => ({ ...crossing, ...move(crossing) })),
-				label: keyByEdge.get(edge.id) ?? edge.label?.text ?? "",
+				label: labelByEdge.get(edge.id)?.text ?? edge.label?.text ?? "",
+				labelBox: (() => {
+					const box = labelByEdge.get(edge.id)?.box;
+					return box === undefined ? undefined : shift(box);
+				})(),
 			}),
 		);
 	}
@@ -151,6 +165,9 @@ export function exportDrawio(
 
 const EVIDENCE_STYLE =
 	"text;html=1;whiteSpace=wrap;overflow=hidden;strokeColor=#9ca3af;fillColor=#ffffff;verticalAlign=top;align=left;spacing=4;";
+const PORT_STYLE = "rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;";
+const PORT_LABEL_STYLE =
+	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;fontSize=10;";
 const CALLOUT_STYLE =
 	"text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fillColor=#ffffff;";
 
@@ -163,9 +180,42 @@ function renderNodeCell(
 	node: CoordinatedNode,
 	box: Box,
 ): string {
-	const style = nodeShapeStyle(node.shape);
-	const label = escapeXml(node.label?.text ?? node.id);
-	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${style}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
+	const visual = node.style;
+	const style = [
+		nodeShapeStyle(node.shape),
+		...(node.compartments === undefined ? [] : ["verticalAlign=top;"]),
+		...(visual?.fill === undefined ? [] : [`fillColor=${visual.fill};`]),
+		...(visual?.stroke === undefined ? [] : [`strokeColor=${visual.stroke};`]),
+		...(visual?.fontFamily === undefined
+			? []
+			: [`fontFamily=${visual.fontFamily};`]),
+		...(visual?.fontSize === undefined
+			? []
+			: [`fontSize=${formatNumber(visual.fontSize)};`]),
+	].join("");
+	const label = escapeXml(
+		node.compartments === undefined
+			? (node.label?.text ?? node.id)
+			: compartmentHtml(node),
+	);
+	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
+}
+
+/** SysML compartments as the SVG draws them: header, properties, constraints. */
+function compartmentHtml(node: CoordinatedNode): string {
+	const compartments = node.compartments ?? {};
+	const header = [
+		...(compartments.stereotype === undefined
+			? []
+			: [escapeHtml(compartments.stereotype)]),
+		`<b>${escapeHtml(compartments.name ?? node.label?.text ?? node.id)}</b>`,
+	].join("<br>");
+	const sections = [
+		header,
+		(compartments.properties ?? []).map(escapeHtml).join("<br>"),
+		(compartments.constraints ?? []).map(escapeHtml).join("<br>"),
+	].filter((section) => section.length > 0);
+	return sections.join("<hr>");
 }
 
 function swimlaneCells(
@@ -202,6 +252,7 @@ function renderEdgeCell(input: {
 	targetId: string | undefined;
 	crossings: readonly EdgeCrossing[];
 	label: string;
+	labelBox: Box | undefined;
 }): string {
 	const { edge, points, crossings } = input;
 	const orthogonal = points.every((point, index) => {
@@ -286,6 +337,18 @@ function renderEdgeCell(input: {
 			`<mxPoint as="targetPoint" x="${formatNumber(last.x)}" y="${formatNumber(last.y)}"/>`,
 		);
 	}
+	// draw.io puts an edge label at the route's middle (by length) plus an
+	// offset: encode the solved label position that way.
+	const middle = pointAtHalfLength(points);
+	if (input.labelBox !== undefined && middle !== undefined) {
+		const center = {
+			x: input.labelBox.x + input.labelBox.width / 2,
+			y: input.labelBox.y + input.labelBox.height / 2,
+		};
+		geometryChildren.push(
+			`<mxPoint as="offset" x="${formatNumber(center.x - middle.x)}" y="${formatNumber(center.y - middle.y)}"/>`,
+		);
+	}
 	for (const jump of jumps) {
 		geometryChildren.push(
 			`<mxPoint as="dgeJump" x="${formatNumber(jump.x)}" y="${formatNumber(jump.y)}" />`,
@@ -293,6 +356,27 @@ function renderEdgeCell(input: {
 	}
 	const terminals = `${input.sourceId === undefined ? "" : ` source="${escapeXml(input.sourceId)}"`}${input.targetId === undefined ? "" : ` target="${escapeXml(input.targetId)}"`}`;
 	return `<mxCell id="${escapeXml(input.cellId)}" value="${escapeXml(input.label)}" style="${escapeXml(styleParts.join(";"))}" edge="1" parent="1"${terminals}><mxGeometry relative="1" as="geometry">${geometryChildren.join("")}</mxGeometry></mxCell>`;
+}
+
+function pointAtHalfLength(points: readonly Point[]): Point | undefined {
+	let total = 0;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		total += Math.hypot(b.x - a.x, b.y - a.y);
+	}
+	let remaining = total / 2;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const length = Math.hypot(b.x - a.x, b.y - a.y);
+		if (remaining <= length && length > 0) {
+			const t = remaining / length;
+			return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+		}
+		remaining -= length;
+	}
+	return points[0];
 }
 
 function relativePoint(point: Point, box: Box): Point {
