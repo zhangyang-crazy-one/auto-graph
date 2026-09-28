@@ -60,7 +60,7 @@ export function assignSameSideSlots(
 			endpoint: "source" | "target";
 			nodeId: string;
 			side: "top" | "right" | "bottom" | "left";
-			/** Where the other end lies along this side's axis. */
+			/** Order along the side ({@link nestedSlotKey}). */
 			toward: number;
 			/** The other end's box. */
 			other: Box;
@@ -91,7 +91,7 @@ export function assignSameSideSlots(
 					endpoint: "source",
 					nodeId: edge.source.nodeId,
 					side,
-					toward: alongSide(side, target.box),
+					toward: nestedSlotKey(side, source.box, centerOf(target.box)),
 					other: target.box,
 					...portPointOf(input, edge.target),
 				});
@@ -114,7 +114,7 @@ export function assignSameSideSlots(
 					endpoint: "target",
 					nodeId: edge.target.nodeId,
 					side,
-					toward: alongSide(side, source.box),
+					toward: nestedSlotKey(side, target.box, centerOf(source.box)),
 					other: source.box,
 					...portPointOf(input, edge.source),
 				});
@@ -265,13 +265,37 @@ function alignedFraction(
 	return Math.min(0.8, Math.max(0.2, fraction));
 }
 
-function alongSide(
+/**
+ * Order key for ends sharing one node side, so their routes nest instead
+ * of crossing at the node (#99 D). An end whose other node lies in front
+ * of the side (beyond it along the outward normal) is ordered by where
+ * that node sits. An end whose other node lies behind or beside it wraps
+ * around the node: ends wrapping from before the side's middle take the
+ * first slots, the farthest one closest to the middle (outermost route),
+ * and ends wrapping from after it take the last slots, mirrored.
+ */
+export function nestedSlotKey(
 	side: "top" | "right" | "bottom" | "left",
-	box: Box,
+	own: Box,
+	other: Point,
 ): number {
-	return side === "left" || side === "right"
-		? box.y + box.height / 2
-		: box.x + box.width / 2;
+	const alongY = side === "left" || side === "right";
+	const along = alongY ? other.y : other.x;
+	const inFront =
+		side === "left"
+			? other.x < own.x
+			: side === "right"
+				? other.x > own.x + own.width
+				: side === "top"
+					? other.y < own.y
+					: other.y > own.y + own.height;
+	if (inFront) return 1e7 + along;
+	const middle = alongY ? own.y + own.height / 2 : own.x + own.width / 2;
+	return along < middle ? -along : 2e7 - along;
+}
+
+function centerOf(box: Box): Point {
+	return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
 function nonSideAnchor(anchor: string | undefined): boolean {

@@ -116,6 +116,13 @@ const nodeSchema = z.object({
 	shape: nodeShapeSchema.optional(),
 	role: nodeRoleSchema.optional(),
 	position: pointSchema.optional(),
+	/** Minimum node size; the label fit can still grow the node past it. */
+	size: z
+		.object({
+			width: nonNegativeNumberSchema,
+			height: nonNegativeNumberSchema,
+		})
+		.optional(),
 	style: styleSchema.optional(),
 	ports: z.record(z.string(), portSchema).optional(),
 	compartments: compartmentsSchema.optional(),

@@ -240,6 +240,59 @@ export function coordinateEdges(
 		slotOccupancy?.set(key, [...(slotOccupancy.get(key) ?? []), slot.fraction]);
 	}
 
+	// Pre-route label estimates guess each label on a straight or L-shaped
+	// path. On default orthogonal pages, once an edge is routed its label follows the real route, so later
+	// edges avoid one box at that route's midpoint instead of the guesses
+	// (#99: guesses walled off a fan-in edge's direct path). A sibling that
+	// shares an end node with the edge is not avoided before it is routed:
+	// its guesses sit on the approach both edges share.
+	const pendingById = new Map(edges.map((edge) => [edge.id, edge]));
+	const routedById = new Map<string, CoordinatedEdge>();
+	let routedCount = 0;
+	const onRouteEstimates = new Map<string, SolvedTextAnnotation | null>();
+	const withRoutedLabelEstimates = (
+		edge: NormalizedEdge,
+		annotations: readonly SolvedTextAnnotation[],
+	): SolvedTextAnnotation[] => {
+		for (; routedCount < coordinated.length; routedCount += 1) {
+			const routed = coordinated[routedCount] as CoordinatedEdge;
+			routedById.set(routed.id, routed);
+		}
+		if (!implicitAnchorDistribution(options)) return [...annotations];
+		const ends = new Set([edge.source.nodeId, edge.target.nodeId]);
+		return annotations.flatMap((annotation) => {
+			if (annotation.surfaceKind !== "edge-label") return [annotation];
+			const routed = routedById.get(annotation.ownerId);
+			if (routed === undefined) {
+				const sibling = pendingById.get(annotation.ownerId);
+				return sibling !== undefined &&
+					sibling.id !== edge.id &&
+					(ends.has(sibling.source.nodeId) || ends.has(sibling.target.nodeId))
+					? []
+					: [annotation];
+			}
+			if ((annotation.surfaceIndex ?? 0) !== 0) return [];
+			let moved = onRouteEstimates.get(routed.id);
+			if (moved === undefined) {
+				const center = labelPlacementOnPolyline(routed.points);
+				moved =
+					center === undefined
+						? null
+						: {
+								...annotation,
+								box: {
+									...annotation.box,
+									x: center.x - annotation.box.width / 2,
+									y: center.y - annotation.box.height / 2,
+								},
+								anchor: center,
+							};
+				onRouteEstimates.set(routed.id, moved);
+			}
+			return moved === null ? [] : [moved];
+		});
+	};
+
 	for (const edge of edges) {
 		railAllocations?.delete(edge.id);
 		const source = nodes.get(edge.source.nodeId);
@@ -338,16 +391,18 @@ export function coordinateEdges(
 		// A short route keeps off its own port labels too: the label sits
 		// beside the port, clear of the end stub, so only a bend can strike
 		// it (#98 render check).
-		const routeTextObstacles = textObstacles
-			.filter(isLocalRouteClearanceText)
+		const edgeTextObstacles = withRoutedLabelEstimates(
+			edge,
+			textObstacles.filter(isLocalRouteClearanceText),
+		);
+		const routeTextObstacles = edgeTextObstacles
 			.filter(
 				(annotation) =>
 					!isEdgeConnectedTextAnnotation(edge, annotation) ||
 					(shortPath && annotation.surfaceKind === "port-label"),
 			)
 			.map((annotation) => textObstacleBox(annotation, options));
-		const railTextObstacles = textObstacles
-			.filter(isLocalRouteClearanceText)
+		const railTextObstacles = edgeTextObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => textObstacleBox(annotation, options));
 		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
@@ -979,6 +1034,7 @@ export function finalizeCoordinatedEdges(
 		...softObstacles.map((box) => ({ box })),
 		...textObstacles.filter(isLocalRouteClearanceText).map((annotation) => ({
 			box: textObstacleBox(annotation, options),
+			...(annotation.surfaceKind === "edge-label" ? { edgeLabel: true } : {}),
 			exemptEdgeIds: new Set(
 				edges
 					.filter(
@@ -1060,10 +1116,20 @@ export function finalizeCoordinatedEdges(
 					layered,
 				)
 			: snapped;
-	for (const edge of cleared) {
+	// Default orthogonal pages: straighten sub-2px jogs and give short end
+	// stubs room for the arrowhead (#99).
+	const tidied = implicit
+		? tidyRouteEnds(
+				uncrossBySliding(cleared, nodes, obstacles, layered),
+				nodes,
+				obstacles,
+				layered,
+			)
+		: cleared;
+	for (const edge of tidied) {
 		if (layered.has(edge.id)) LAYERED_ROUTES.add(edge.points);
 	}
-	return cleared;
+	return tidied;
 }
 
 /** A segment this close to a parallel outline side reads as part of it. */
@@ -1196,6 +1262,429 @@ function clearOutlineRuns(
 	}));
 }
 
+/** Pitch between a slid segment and the segment it steps past. */
+const UNCROSS_PITCH = 12;
+/** Distance from a route end where a slid segment may turn. */
+const UNCROSS_STUB = 24;
+
+function axisSegments(points: readonly Point[]): AxisSegment[] {
+	const out: AxisSegment[] = [];
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const a = points[index] as Point;
+		const b = points[index + 1] as Point;
+		const horizontal = Math.abs(a.y - b.y) < 1e-6;
+		out.push(
+			horizontal
+				? {
+						horizontal,
+						at: a.y,
+						lo: Math.min(a.x, b.x),
+						hi: Math.max(a.x, b.x),
+					}
+				: {
+						horizontal,
+						at: a.x,
+						lo: Math.min(a.y, b.y),
+						hi: Math.max(a.y, b.y),
+					},
+		);
+	}
+	return out;
+}
+
+/** Proper crossings between two routes (touching ends do not count). */
+function routeCrossings(
+	left: readonly AxisSegment[],
+	right: readonly AxisSegment[],
+): number {
+	let count = 0;
+	for (const s of left) {
+		for (const t of right) {
+			if (s.horizontal === t.horizontal) continue;
+			if (t.at > s.lo && t.at < s.hi && s.at > t.lo && s.at < t.hi) {
+				count += 1;
+			}
+		}
+	}
+	return count;
+}
+
+/** Overlap length of parallel segments closer than NEAR_PARALLEL_GAP. */
+function nearParallelOverlap(
+	left: readonly AxisSegment[],
+	right: readonly AxisSegment[],
+): number {
+	let total = 0;
+	for (const s of left) {
+		for (const t of right) {
+			if (s.horizontal !== t.horizontal) continue;
+			if (Math.abs(s.at - t.at) >= NEAR_PARALLEL_GAP) continue;
+			total += Math.max(0, Math.min(s.hi, t.hi) - Math.max(s.lo, t.lo));
+		}
+	}
+	return total;
+}
+
+/** Length a route runs within OUTLINE_CLEARANCE of a parallel box side. */
+function outlineRunLength(
+	segments: readonly AxisSegment[],
+	boxes: readonly Box[],
+): number {
+	let total = 0;
+	for (const s of segments) {
+		for (const box of boxes) {
+			const sides: [number, number, number][] = s.horizontal
+				? [
+						[box.y, box.x, box.x + box.width],
+						[box.y + box.height, box.x, box.x + box.width],
+					]
+				: [
+						[box.x, box.y, box.y + box.height],
+						[box.x + box.width, box.y, box.y + box.height],
+					];
+			for (const [at, lo, hi] of sides) {
+				if (Math.abs(at - s.at) > OUTLINE_CLEARANCE) continue;
+				total += Math.max(0, Math.min(s.hi, hi) - Math.max(s.lo, lo));
+			}
+		}
+	}
+	return total;
+}
+
+type SlidRoute = { edge: CoordinatedEdge; segments: AxisSegment[] };
+
+/**
+ * Routes reachable from `entry` by sliding one interior segment: onto the
+ * next parallel segment of its own route (merging the two), one pitch past
+ * a parallel segment of a route it may cross, or one stub from either end.
+ * Each keeps both end segments' direction and arrowhead room, stays out of
+ * its own end nodes, and adds no obstacle hits, near-parallel overlap
+ * (against `others`) or outline runs.
+ */
+function slideCandidates(
+	entry: SlidRoute,
+	others: readonly SlidRoute[],
+	partners: readonly SlidRoute[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	nodeBoxes: readonly Box[],
+	obstacles: readonly PostPassObstacle[],
+): SlidRoute[] {
+	const { edge } = entry;
+	const points = edge.points;
+	const n = points.length;
+	if (n < 4) return [];
+	// Edge labels are placed after routing, around the final routes.
+	const edgeObstacles = obstaclesForEdge(
+		edge,
+		obstacles.filter((obstacle) => obstacle.edgeLabel !== true),
+	);
+	const ownBoxes = [edge.source.nodeId, edge.target.nodeId].flatMap(
+		(nodeId) => {
+			const box = nodes.get(nodeId)?.box;
+			return box === undefined ? [] : [insetBox(box, 1)];
+		},
+	);
+	const cost = (route: readonly Point[], segments: AxisSegment[]) => [
+		routeObstacleHits(route, edgeObstacles),
+		others.reduce(
+			(sum, other) => sum + nearParallelOverlap(segments, other.segments),
+			0,
+		),
+		outlineRunLength(segments, nodeBoxes),
+	];
+	const baseCost = cost(points, entry.segments);
+	const sameDirection = (a: Point, b: Point, c: Point, d: Point) =>
+		Math.sign(b.x - a.x) === Math.sign(d.x - c.x) &&
+		Math.sign(b.y - a.y) === Math.sign(d.y - c.y);
+	const firstBefore = entry.segments[0] as AxisSegment;
+	const lastBefore = entry.segments.at(-1) as AxisSegment;
+	const start = points[0] as Point;
+	const end = points[n - 1] as Point;
+	const out: SlidRoute[] = [];
+	for (let i = 1; i + 1 < n - 1; i += 1) {
+		const segment = entry.segments[i] as AxisSegment;
+		const targets = new Set<number>();
+		for (const own of [i - 2, i + 2]) {
+			const parallel = entry.segments[own];
+			if (parallel !== undefined) targets.add(parallel.at);
+		}
+		for (const partner of partners) {
+			for (const other of partner.segments) {
+				if (other.horizontal !== segment.horizontal) continue;
+				targets.add(other.at - UNCROSS_PITCH);
+				targets.add(other.at + UNCROSS_PITCH);
+			}
+		}
+		for (const point of [start, end]) {
+			const at = segment.horizontal ? point.y : point.x;
+			targets.add(at - UNCROSS_STUB);
+			targets.add(at + UNCROSS_STUB);
+		}
+		for (const at of [...targets].sort((a, b) => a - b)) {
+			if (Math.abs(at - segment.at) < 1e-6) continue;
+			const moved = points.map((point) => ({ ...point }));
+			for (const k of [i, i + 1]) {
+				const point = moved[k] as Point;
+				if (segment.horizontal) point.y = at;
+				else point.x = at;
+			}
+			const candidate = simplifyRoute(moved);
+			const m = candidate.length;
+			if (m < 2) continue;
+			if (
+				!sameDirection(
+					start,
+					points[1] as Point,
+					candidate[0] as Point,
+					candidate[1] as Point,
+				) ||
+				!sameDirection(
+					points[n - 2] as Point,
+					end,
+					candidate[m - 2] as Point,
+					candidate[m - 1] as Point,
+				)
+			) {
+				continue;
+			}
+			const segments = axisSegments(candidate);
+			const first = segments[0] as AxisSegment;
+			const last = segments.at(-1) as AxisSegment;
+			if (
+				first.hi - first.lo <
+					Math.min(END_STUB, firstBefore.hi - firstBefore.lo) ||
+				last.hi - last.lo < Math.min(END_STUB, lastBefore.hi - lastBefore.lo)
+			) {
+				continue;
+			}
+			if (m > 2 && routeObstacleHits(candidate.slice(1, -1), ownBoxes) > 0) {
+				continue;
+			}
+			const candidateCost = cost(candidate, segments);
+			if (
+				candidateCost.some(
+					(value, at) => value > (baseCost[at] as number) + 1e-6,
+				)
+			) {
+				continue;
+			}
+			out.push({ edge: { ...edge, points: candidate }, segments });
+		}
+	}
+	return out;
+}
+
+/**
+ * Default orthogonal routes are solved one edge at a time, blind to each
+ * other, so a fan-in can cross itself (#99). Slide interior segments of a
+ * crossing edge (see {@link slideCandidates}) when that lowers its
+ * crossings; when no single slide does, try it together with a slide of
+ * an edge it crosses (two nested edges often only untangle jointly).
+ */
+function uncrossBySliding(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	const current: SlidRoute[] = edges.map((edge) => ({
+		edge,
+		segments: axisSegments(edge.points),
+	}));
+	const nodeBoxes = [...nodes.values()].map((geometry) => geometry.box);
+	const crossingsAgainst = (
+		route: SlidRoute,
+		others: readonly SlidRoute[],
+	): number =>
+		others.reduce(
+			(sum, other) => sum + routeCrossings(route.segments, other.segments),
+			0,
+		);
+	const length = (route: SlidRoute) => polylineLength(route.edge.points);
+	for (let round = 0; round < 3; round += 1) {
+		let changed = false;
+		for (const [index, entry] of current.entries()) {
+			if (fixed.has(entry.edge.id)) continue;
+			const others = current.filter((_, at) => at !== index);
+			const before = crossingsAgainst(entry, others);
+			if (before === 0) continue;
+			const partners = others.filter(
+				(other) =>
+					!fixed.has(other.edge.id) &&
+					routeCrossings(entry.segments, other.segments) > 0,
+			);
+			const candidates = slideCandidates(
+				entry,
+				others,
+				partners,
+				nodes,
+				nodeBoxes,
+				obstacles,
+			);
+			let best: { moves: [number, SlidRoute][]; score: number[] } | undefined;
+			for (const candidate of candidates) {
+				const after = crossingsAgainst(candidate, others);
+				if (after >= before) continue;
+				const score = [after, Math.round(length(candidate))];
+				if (best === undefined || compareRouteSeverity(score, best.score) < 0) {
+					best = { moves: [[index, candidate]], score };
+				}
+			}
+			if (best === undefined) {
+				for (const partner of partners) {
+					const partnerIndex = current.indexOf(partner);
+					const rest = others.filter((other) => other !== partner);
+					const pairBefore = before + crossingsAgainst(partner, rest);
+					for (const candidate of candidates) {
+						const partnerOthers = [...rest, candidate];
+						for (const moved of slideCandidates(
+							partner,
+							partnerOthers,
+							[candidate],
+							nodes,
+							nodeBoxes,
+							obstacles,
+						)) {
+							const after =
+								crossingsAgainst(candidate, rest) +
+								crossingsAgainst(moved, partnerOthers);
+							if (after >= pairBefore) continue;
+							const score = [
+								after,
+								Math.round(length(candidate) + length(moved)),
+							];
+							if (
+								best === undefined ||
+								compareRouteSeverity(score, best.score) < 0
+							) {
+								best = {
+									moves: [
+										[index, candidate],
+										[partnerIndex, moved],
+									],
+									score,
+								};
+							}
+						}
+					}
+				}
+			}
+			if (best !== undefined) {
+				for (const [at, route] of best.moves) current[at] = route;
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+	return current.map((entry) => entry.edge);
+}
+
+/** Jogs shorter than this are straightened. */
+const MICRO_JOG = 2;
+/** Final segment length that holds the arrowhead clear of the last bend. */
+const END_STUB = 16;
+
+/**
+ * Straighten sub-{@link MICRO_JOG} jogs and lengthen final segments shorter
+ * than {@link END_STUB} (#99). A jog is removed by moving one of the two
+ * parallel segments beside it onto the other; when that segment is an end
+ * segment the end slides along its node side (never a named port's end,
+ * and only within the side). A short final segment gets room by moving the
+ * segment before it outward. Every change keeps the route's obstacle hits
+ * and neighbouring segment directions.
+ */
+function tidyRouteEnds(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	return edges.map((edge) => {
+		if (fixed.has(edge.id) || edge.points.length < 3) return edge;
+		const edgeObstacles = obstaclesForEdge(edge, obstacles);
+		let points = edge.points.map((point) => ({ ...point }));
+		const hits = (route: readonly Point[]) =>
+			routeObstacleHits(route, edgeObstacles);
+		const onSide = (point: Point, nodeId: string): boolean => {
+			const box = nodes.get(nodeId)?.box;
+			if (box === undefined) return false;
+			const inset = 4;
+			const onVertical =
+				Math.abs(point.x - box.x) < 0.5 ||
+				Math.abs(point.x - box.x - box.width) < 0.5;
+			return onVertical
+				? point.y >= box.y + inset && point.y <= box.y + box.height - inset
+				: point.x >= box.x + inset && point.x <= box.x + box.width - inset;
+		};
+		// Jogs: segment i tiny, segments i-1 and i+1 parallel.
+		for (let i = 1; i + 1 < points.length - 1; i += 1) {
+			const a = points[i] as Point;
+			const b = points[i + 1] as Point;
+			const jog = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+			if (jog === 0 || jog >= MICRO_JOG) continue;
+			const horizontalJog = Math.abs(a.y - b.y) < 1e-6;
+			const lastIndex = points.length - 1;
+			// Move the segment after the jog onto the one before it, or the
+			// one before onto the one after.
+			const attempts: [number, number, Point][] = [
+				[i + 1, i + 2, a],
+				[i - 1, i, b],
+			];
+			for (const [from, to, onto] of attempts) {
+				const endMoves =
+					(from === 0 && edge.source.portId !== undefined) ||
+					(to === lastIndex && edge.target.portId !== undefined);
+				if (endMoves) continue;
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [from, to]) {
+					const point = moved[at] as Point;
+					if (horizontalJog) point.x = onto.x;
+					else point.y = onto.y;
+				}
+				if (from === 0 && !onSide(moved[0] as Point, edge.source.nodeId)) {
+					continue;
+				}
+				if (
+					to === lastIndex &&
+					!onSide(moved[lastIndex] as Point, edge.target.nodeId)
+				) {
+					continue;
+				}
+				const compacted = simplifyRoute(moved);
+				if (hits(compacted) > hits(points)) continue;
+				points = compacted;
+				i = 0;
+				break;
+			}
+		}
+		// Short final segment: move the segment before it outward.
+		if (points.length >= 4) {
+			const n = points.length;
+			const end = points[n - 1] as Point;
+			const bend = points[n - 2] as Point;
+			const length = Math.abs(end.x - bend.x) + Math.abs(end.y - bend.y);
+			if (length > 0 && length < END_STUB) {
+				const dx = Math.sign(end.x - bend.x);
+				const dy = Math.sign(end.y - bend.y);
+				const shift = END_STUB - length;
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [n - 3, n - 2]) {
+					const point = moved[at] as Point;
+					point.x -= dx * shift;
+					point.y -= dy * shift;
+				}
+				if (
+					keepsNeighbours(points, moved, n - 3) &&
+					hits(moved) <= hits(points)
+				) {
+					points = moved;
+				}
+			}
+		}
+		return { ...edge, points };
+	});
+}
+
 /**
  * Whether moving segment `index` kept the segments either side of it
  * pointing the same way, with the end stubs no shorter than 16px (source)
@@ -1231,6 +1720,8 @@ interface PostPassObstacle {
 	 * edges a text surface belongs to (their label, their endpoint labels).
 	 */
 	exemptEdgeIds?: ReadonlySet<string>;
+	/** An edge label (placed, or estimated before placement). */
+	edgeLabel?: boolean;
 }
 
 /** Whether an edge must avoid the obstacle, mirroring the router's rules. */
@@ -1385,7 +1876,12 @@ function detachBorderHuggingEnds(
 	allObstacles: readonly PostPassObstacle[],
 ): CoordinatedEdge[] {
 	return edges.map((edge) => {
-		const obstacles = obstaclesForEdge(edge, allObstacles);
+		// Edge labels are placed after routing (these are estimates): a route
+		// drawn along its node's border is worse than grazing one (#99).
+		const obstacles = obstaclesForEdge(
+			edge,
+			allObstacles.filter((obstacle) => obstacle.edgeLabel !== true),
+		);
 		let points = edge.points.map((point) => ({ ...point }));
 		let changed = false;
 		for (const role of ["source", "target"] as const) {
@@ -1620,14 +2116,39 @@ function spreadCollidingEndpoints(
 			geometry.box,
 			side,
 		);
-		const sorted = [...group].sort(
-			(a, b) =>
-				a.heading - b.heading ||
+		// Nest the routes (#99 D): ends whose route turns toward the side's
+		// start take the first slots and those turning toward its end the
+		// last; within each, the route whose bend lies farther out runs
+		// outside, so it takes the slot nearer the middle. A fan-in wrapping
+		// round the node then enters without crossing itself.
+		const nesting = (ref: EndpointRef): [number, number] => {
+			const route = routes[ref.edgeIndex] ?? [];
+			const at = ref.role === "source" ? 0 : route.length - 1;
+			const step = ref.role === "source" ? 1 : -1;
+			const end = route[at];
+			const bend = route[at + step];
+			if (end === undefined || bend === undefined) return [0, 0];
+			const along = alongY ? end.y : end.x;
+			const reach = alongY
+				? Math.abs(bend.x - end.x)
+				: Math.abs(bend.y - end.y);
+			return ref.heading < along ? [0, reach] : [1, -reach];
+		};
+		// Bends still on one channel (separation has not spread them yet):
+		// the route heading farther away runs outside.
+		const sorted = [...group].sort((a, b) => {
+			const [groupA, depthA] = nesting(a);
+			const [groupB, depthB] = nesting(b);
+			return (
+				groupA - groupB ||
+				depthA - depthB ||
+				(groupA === 0 ? b.heading - a.heading : a.heading - b.heading) ||
 				(edges[a.edgeIndex]?.id ?? "").localeCompare(
 					edges[b.edgeIndex]?.id ?? "",
 				) ||
-				a.role.localeCompare(b.role),
-		);
+				a.role.localeCompare(b.role)
+			);
+		});
 		const count = sorted.length;
 		const endpointOf = (ref: EndpointRef): Point | undefined => {
 			const route = routes[ref.edgeIndex] ?? [];

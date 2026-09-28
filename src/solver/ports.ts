@@ -27,6 +27,7 @@ import type {
 } from "../ir/label-layout.js";
 import { labelLinesRelativeToBox } from "../labels/fit.js";
 import { computeFanOutPorts } from "../routing/bus-router.js";
+import { nestedSlotKey } from "../routing/same-side-slots.js";
 import type { TextStyleOptions } from "../text/types.js";
 import type { CjkTypography } from "./cjk-typography.js";
 import {
@@ -764,11 +765,18 @@ export function distributedAnchorPointsByEndpoint(
 		// the node boundary. Explicit modes keep stable edge id / role order.
 		const alongY =
 			endpoints[0]?.side === "left" || endpoints[0]?.side === "right";
+		// Ends whose route wraps around the node (other node behind the
+		// side) nest in reverse so they do not cross at the node (#99 D).
+		const ownBox = boxes.get(endpoints[0]?.nodeId ?? "")?.box;
+		const key = (endpoint: (typeof endpoints)[number]) =>
+			ownBox === undefined
+				? alongY
+					? endpoint.other.y
+					: endpoint.other.x
+				: nestedSlotKey(endpoint.side, ownBox, endpoint.other);
 		const sorted = [...endpoints].sort((a, b) => {
 			if (implicitCompact) {
-				const byPosition = alongY
-					? a.other.y - b.other.y
-					: a.other.x - b.other.x;
+				const byPosition = key(a) - key(b);
 				if (Math.abs(byPosition) > 0.5) return byPosition;
 			}
 			const byEdge = a.edgeId.localeCompare(b.edgeId);

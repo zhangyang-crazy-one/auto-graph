@@ -270,12 +270,14 @@ function normalizeNodes(
 					DEFAULT_NODE_MIN_SIZE.width,
 					fittedSize?.width ?? 0,
 					compartmentWidth,
+					node?.size?.width ?? 0,
 				),
 				height: Math.max(
 					nodeCompartments === undefined
 						? DEFAULT_NODE_MIN_SIZE.height
 						: compartmentHeight(nodeCompartments),
 					fittedSize?.height ?? 0,
+					node?.size?.height ?? 0,
 				),
 			};
 			if (shape === "ellipse") {
