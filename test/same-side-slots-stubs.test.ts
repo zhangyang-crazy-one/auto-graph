@@ -64,6 +64,30 @@ describe("same-side slots + escape stubs (#92)", () => {
 		expect(new Set(ys).size).toBe(3);
 	});
 
+	it("picks TB slot sides from the boxes for back-edges and same-rank pairs", () => {
+		const nodes = new Map([
+			shape("top", 0, 0),
+			shape("low", 0, 200),
+			shape("peer", 200, 200),
+		]);
+		const edges: NormalizedEdge[] = [
+			// Back-edge: the source sits below its target.
+			{ id: "back", source: { nodeId: "low" }, target: { nodeId: "top" } },
+			// Same rank: side by side.
+			{ id: "flat", source: { nodeId: "low" }, target: { nodeId: "peer" } },
+		];
+		const { assignments } = assignSameSideSlots({
+			edges,
+			nodes,
+			direction: "TB",
+			maxAttachPointsPerSide: 3,
+		});
+		expect(assignments.get("back:source")?.anchor).toBe("top");
+		expect(assignments.get("back:target")?.anchor).toBe("bottom");
+		expect(assignments.get("flat:source")?.anchor).toBe("right");
+		expect(assignments.get("flat:target")?.anchor).toBe("left");
+	});
+
 	it("separates parallel same-side tracks by at least pitch", () => {
 		const solved = solveDiagram(
 			{

@@ -9,6 +9,7 @@ import {
 import type { CoordinatedDiagram } from "../src/ir/index.js";
 import { routeEdge } from "../src/routing/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { pinRouteEnds, routeEndsAt } from "../src/solver/route-edges.js";
 
 describe("attach slots (#84 §B)", () => {
 	it("locks public 25/50/75 fractions and box coordinates", () => {
@@ -490,5 +491,36 @@ describe("edge crossings / jumps (#84)", () => {
 		const svg = exportSvg(diagram);
 		expect(svg).toMatch(/data-id="h"[^>]* M /);
 		expect(svg).toMatch(/viewBox="-6 -6 /);
+	});
+});
+
+describe("#95 fallback end pinning", () => {
+	it("turns a straight two-point fallback into a Z onto both slots", () => {
+		const pinned = pinRouteEnds(
+			[
+				{ x: 0, y: 50 },
+				{ x: 100, y: 50 },
+			],
+			{ x: 0, y: 40 },
+			{ x: 100, y: 60 },
+		);
+		expect(pinned).toEqual([
+			{ x: 0, y: 40 },
+			{ x: 50, y: 40 },
+			{ x: 50, y: 60 },
+			{ x: 100, y: 60 },
+		]);
+		expect(routeEndsAt(pinned, { x: 0, y: 40 }, { x: 100, y: 60 })).toBe(true);
+	});
+
+	it("reports ends it cannot pin so the fallback is rejected", () => {
+		// The requested source lies on another side: no shift reaches it.
+		const route = [
+			{ x: 0, y: 50 },
+			{ x: 50, y: 50 },
+			{ x: 50, y: 100 },
+		];
+		const pinned = pinRouteEnds(route, { x: 20, y: 30 }, undefined);
+		expect(routeEndsAt(pinned, { x: 20, y: 30 }, undefined)).toBe(false);
 	});
 });

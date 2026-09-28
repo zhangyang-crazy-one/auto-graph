@@ -435,6 +435,28 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 		}
 	});
 
+	it("#93: a page with room for no callout still reports shelf capacity in the plan", () => {
+		const solved = solveDiagram(load(PAGES["AV-1 zones"] as string), {
+			...RSOP,
+			pageBounds: { width: 40, height: 40 },
+		});
+		expect(
+			(solved.textAnnotations ?? []).filter(
+				(text) => text.placementDetail?.role === "callout",
+			),
+		).toEqual([]);
+		const plan = (solved.deliverability?.remediationPlans ?? []).find(
+			(candidate) => candidate.type === "external-label",
+		);
+		expect(plan?.status).toBe("blocked");
+		expect(plan?.diagnosticCodes).toContain(
+			"routing.label-shelf.capacity_exhausted",
+		);
+		expect(
+			(plan?.detail as { unplacedCount?: number } | undefined)?.unplacedCount,
+		).toBeGreaterThan(0);
+	});
+
 	it("#76: obstacle-avoiding routes stay orthogonal and short (no zigzag fallback)", () => {
 		for (const [name, source] of Object.entries(PAGES)) {
 			const solved = solveDiagram(load(source), LEGACY);

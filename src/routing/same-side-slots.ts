@@ -236,6 +236,12 @@ function preferredSide(
 	const dx = otherCenter.x - ownCenter.x;
 	const dy = otherCenter.y - ownCenter.y;
 	if (direction === "TB" || direction === "BT") {
+		// Flow sides follow the actual boxes: the other end fully below or
+		// above picks bottom/top (back-edges included); a same-rank pair
+		// (vertical extents overlap) picks left/right.
+		if (other.y >= own.y + own.height) return "bottom";
+		if (other.y + other.height <= own.y) return "top";
+		if (dx !== 0) return dx > 0 ? "right" : "left";
 		if (endpoint === "source") {
 			return direction === "TB" ? "bottom" : "top";
 		}

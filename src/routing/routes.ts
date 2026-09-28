@@ -584,20 +584,27 @@ function routeShortOrthogonalJumps(
 					return excessive;
 				}
 			} else {
-				diagnostics.push({
-					severity: "warning",
-					code: "routing.text-clearance.unresolved",
-					message:
-						"Short-orthogonal route still intersects soft text after micro-clear; prefer external-label remediation.",
-					detail: {
-						conflictClass: "node-label-strike",
-						remediationType: "external-label-or-split",
-						routingPolicy: "short-orthogonal-jumps",
-						softCrossings: best.quality.softCrossings,
-						maxDetourRatio: detourBudget,
-					},
-				});
-				return { points: simplifyRoute(best.points), diagnostics };
+				// Same acceptance as a clean route (blocking nodes, backtracking
+				// budget); a rejected one falls through to `unavoidable`.
+				const accepted =
+					acceptCleanRoute(best.points, best.source, best.target) ??
+					returnBestExcessiveCleanRoute();
+				if (accepted !== undefined) {
+					diagnostics.push({
+						severity: "warning",
+						code: "routing.text-clearance.unresolved",
+						message:
+							"Short-orthogonal route still intersects soft text after micro-clear; prefer external-label remediation.",
+						detail: {
+							conflictClass: "node-label-strike",
+							remediationType: "external-label-or-split",
+							routingPolicy: "short-orthogonal-jumps",
+							softCrossings: best.quality.softCrossings,
+							maxDetourRatio: detourBudget,
+						},
+					});
+					return { points: simplifyRoute(accepted.points), diagnostics };
+				}
 			}
 		}
 	}

@@ -111,6 +111,10 @@ export function buildDeliverabilityReport(
 	);
 	const degraded = blocking.length > 0;
 	const strict = isStrictDeliverability(options);
+	const shelfCapacity = diagnostics.find(
+		(diagnostic) =>
+			diagnostic.code === "routing.label-shelf.capacity_exhausted",
+	);
 	return {
 		status: !degraded ? "clean" : strict ? "unsatisfiable" : "degraded",
 		strict,
@@ -124,6 +128,10 @@ export function buildDeliverabilityReport(
 			options,
 			appliedExternalLabelCallouts,
 			appliedRemediationPlans,
+		).map((plan) =>
+			plan.type === "external-label" && shelfCapacity !== undefined
+				? withShelfCapacity(plan, shelfCapacity)
+				: plan,
 		),
 	};
 }
@@ -630,6 +638,11 @@ export function applyExternalLabelRemediation(
 		if (candidate === undefined) {
 			return undefined;
 		}
+		const exhausted = shelfDiagnostics[0];
+		if (exhausted !== undefined) {
+			// Labels needed callouts but none fit on the page (#93).
+			return withShelfCapacity({ ...candidate, status: "blocked" }, exhausted);
+		}
 		return {
 			...candidate,
 			status: "blocked",
@@ -650,26 +663,36 @@ export function applyExternalLabelRemediation(
 		policy,
 		state.appliedExternalLabelCallouts,
 	);
-	const capacity = shelfDiagnostics[0];
-	return {
+	const plan: RemediationPlan = {
 		id: "remediation-external-label",
 		...applied,
-		...(capacity === undefined
-			? {}
-			: {
-					// Only part of the labels fit on the page: say so (#93).
-					reason: `${applied.reason} ${capacity.message}`,
-					diagnosticCodes: [
-						...applied.diagnosticCodes,
-						"routing.label-shelf.capacity_exhausted",
-					].sort(),
-					detail: {
-						...(applied.detail as ExternalLabelRemediationDetail),
-						unplacedCount:
-							(capacity.detail?.labelCount as number) -
-							(capacity.detail?.placed as number),
-					},
-				}),
+	};
+	const capacity = shelfDiagnostics[0];
+	// Only part of the labels fit on the page: say so (#93).
+	return capacity === undefined ? plan : withShelfCapacity(plan, capacity);
+}
+
+/**
+ * Fold a `routing.label-shelf.capacity_exhausted` diagnostic into the
+ * external-label plan: its reason, code and the unplaced label count (#93).
+ */
+export function withShelfCapacity<T extends Omit<RemediationPlan, "id">>(
+	plan: T,
+	capacity: Diagnostic,
+): T {
+	if (plan.diagnosticCodes.includes(capacity.code)) {
+		return plan;
+	}
+	return {
+		...plan,
+		reason: `${plan.reason} ${capacity.message}`,
+		diagnosticCodes: [...plan.diagnosticCodes, capacity.code].sort(),
+		detail: {
+			...(plan.detail as ExternalLabelRemediationDetail),
+			unplacedCount:
+				(capacity.detail?.labelCount as number) -
+				(capacity.detail?.placed as number),
+		},
 	};
 }
 

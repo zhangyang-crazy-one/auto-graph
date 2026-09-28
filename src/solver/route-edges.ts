@@ -651,7 +651,8 @@ export function coordinateEdges(
 				kind: "obstacle-avoiding",
 			});
 			// Keep slot and port points: the fallback may slide an end along
-			// its side, onto another edge's slot.
+			// its side, onto another edge's slot. A fallback whose ends cannot
+			// be pinned back is rejected below.
 			const around = {
 				...routed,
 				points: pinRouteEnds(
@@ -662,6 +663,11 @@ export function coordinateEdges(
 			};
 			// Same detour measure as the short-route tournament (Euclidean).
 			if (
+				routeEndsAt(
+					around.points,
+					effectiveInput.sourcePoint,
+					effectiveInput.targetPoint,
+				) &&
 				routeObstacleHits(around.points, gateObstacles) === 0 &&
 				around.points.length - 2 <= SHORT_PATH_FALLBACK_MAX_BENDS &&
 				polylineLength(around.points) <=
@@ -1533,14 +1539,55 @@ const SHORT_PATH_FALLBACK_MAX_BENDS = 6;
 
 /**
  * Move a route's ends back onto pinned points by shifting the first/last
- * segment across (it keeps its direction). Ends whose segment cannot be
- * shifted that way are left as they are.
+ * segment across (it keeps its direction). A straight two-point route
+ * becomes a Z through its midpoint so both ends keep their normal. Ends
+ * that cannot be pinned that way are left as they are; callers check
+ * {@link routeEndsAt} before accepting the result.
+ * @internal Exported for tests.
  */
-function pinRouteEnds(
+export function pinRouteEnds(
 	points: readonly Point[],
 	sourcePoint: Point | undefined,
 	targetPoint: Point | undefined,
 ): Point[] {
+	if (points.length === 2) {
+		const [start, end] = points as [Point, Point];
+		const to0 = sourcePoint ?? start;
+		const to1 = targetPoint ?? end;
+		if (
+			Math.abs(start.y - end.y) < 0.5 &&
+			Math.abs(to0.x - start.x) < 0.5 &&
+			Math.abs(to1.x - end.x) < 0.5
+		) {
+			if (Math.abs(to0.y - to1.y) < 0.5) {
+				return [{ ...to0 }, { x: to1.x, y: to0.y }];
+			}
+			const midX = (to0.x + to1.x) / 2;
+			return [
+				{ ...to0 },
+				{ x: midX, y: to0.y },
+				{ x: midX, y: to1.y },
+				{ ...to1 },
+			];
+		}
+		if (
+			Math.abs(start.x - end.x) < 0.5 &&
+			Math.abs(to0.y - start.y) < 0.5 &&
+			Math.abs(to1.y - end.y) < 0.5
+		) {
+			if (Math.abs(to0.x - to1.x) < 0.5) {
+				return [{ ...to0 }, { x: to0.x, y: to1.y }];
+			}
+			const midY = (to0.y + to1.y) / 2;
+			return [
+				{ ...to0 },
+				{ x: to0.x, y: midY },
+				{ x: to1.x, y: midY },
+				{ ...to1 },
+			];
+		}
+		return points.map((point) => ({ ...point }));
+	}
 	const pinned = points.map((point) => ({ ...point }));
 	const pin = (endIndex: number, nextIndex: number, to: Point) => {
 		const end = pinned[endIndex];
@@ -1559,6 +1606,21 @@ function pinRouteEnds(
 		pin(pinned.length - 1, pinned.length - 2, targetPoint);
 	}
 	return pinned;
+}
+
+/**
+ * Whether a route starts and ends on the requested points (when set).
+ * @internal Exported for tests.
+ */
+export function routeEndsAt(
+	points: readonly Point[],
+	sourcePoint: Point | undefined,
+	targetPoint: Point | undefined,
+): boolean {
+	const near = (a: Point | undefined, b: Point | undefined) =>
+		b === undefined ||
+		(a !== undefined && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5);
+	return near(points[0], sourcePoint) && near(points.at(-1), targetPoint);
 }
 
 function polylineLength(points: readonly Point[]): number {

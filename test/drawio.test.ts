@@ -207,4 +207,46 @@ describe("draw.io export", () => {
 		// Label centre (700,95) against the route's middle (700,120): offset (0,-25).
 		expect(xml).toContain('<mxPoint as="offset" x="0" y="-25"/>');
 	});
+
+	it("keeps authored port fill and stroke", () => {
+		const styled = diagram();
+		const node = styled.nodes[0];
+		if (node === undefined) throw new Error("fixture");
+		node.ports = [
+			{
+				id: "p",
+				side: "right",
+				kind: "flow",
+				style: { fill: "#ff0000", stroke: "#00ff00" },
+				box: { x: 595, y: 115, width: 10, height: 10 },
+				anchor: { x: 600, y: 120 },
+			},
+		];
+		const xml = exportDrawio(styled);
+		expect(xml).toContain("fillColor=#ff0000;strokeColor=#00ff00;");
+	});
+
+	it("draws table cells on the solved column offsets", () => {
+		const xml = exportDrawio(
+			diagram({
+				tables: [
+					{
+						id: "t",
+						columns: [
+							{ id: "k", label: { text: "Key" } },
+							{ id: "v", label: { text: "Value" } },
+						],
+						rows: [{ id: "r", cells: { k: { text: "a" }, v: { text: "b" } } }],
+						box: { x: 500, y: 200, width: 300, height: 40 },
+						columnXOffsets: [500, 560],
+					},
+				],
+			}),
+		);
+		expect(xml).not.toContain("&lt;table");
+		// Narrow first column (60) and wide second (240), both rows.
+		expect(xml).toContain('value="Key"');
+		expect(xml).toContain('x="0" y="100" width="60" height="20"');
+		expect(xml).toContain('x="60" y="120" width="240" height="20"');
+	});
 });

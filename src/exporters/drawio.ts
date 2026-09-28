@@ -75,11 +75,17 @@ export function exportDrawio(
 			group.box,
 		);
 	}
+	// Matrices and tables are laid out cell by cell on the solved geometry,
+	// as the SVG exporter draws them, so draw.io keeps the column widths.
 	for (const matrix of diagram.matrices ?? []) {
-		vertex(matrixHtml(matrix), EVIDENCE_STYLE, matrix.box);
+		for (const cell of matrixCells(matrix)) {
+			vertex(cell.value, cell.style, cell.box);
+		}
 	}
 	for (const table of diagram.tables ?? []) {
-		vertex(tableHtml(table), EVIDENCE_STYLE, table.box);
+		for (const cell of tableCells(table)) {
+			vertex(cell.value, cell.style, cell.box);
+		}
 	}
 	for (const panel of diagram.evidencePanels ?? []) {
 		vertex(panelHtml(panel), EVIDENCE_STYLE, panel.box);
@@ -91,7 +97,7 @@ export function exportDrawio(
 		nodeCellIds.set(node.id, cellId);
 		cells.push(renderNodeCell(cellId, node, shift(node.box)));
 		for (const port of node.ports ?? []) {
-			vertex("", PORT_STYLE, port.box);
+			vertex("", portStyle(port.style), port.box);
 		}
 	}
 	for (const portLabel of annotations.filter(
@@ -165,7 +171,14 @@ export function exportDrawio(
 
 const EVIDENCE_STYLE =
 	"text;html=1;whiteSpace=wrap;overflow=hidden;strokeColor=#9ca3af;fillColor=#ffffff;verticalAlign=top;align=left;spacing=4;";
-const PORT_STYLE = "rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;";
+/** Port cells keep the authored fill/stroke, with the SVG exporter's defaults. */
+function portStyle(style: { fill?: string; stroke?: string } | undefined) {
+	return [
+		"rounded=0;whiteSpace=wrap;html=1;",
+		`fillColor=${style?.fill ?? "#d9ead3"};`,
+		...(style?.stroke === undefined ? [] : [`strokeColor=${style.stroke};`]),
+	].join("");
+}
 const PORT_LABEL_STYLE =
 	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;fontSize=10;";
 const CALLOUT_STYLE =
@@ -419,36 +432,149 @@ function nodeShapeStyle(shape: NodeShape): string {
 	}
 }
 
-function matrixHtml(matrix: CoordinatedMatrixBlock): string {
-	const header = `<tr><th></th>${matrix.cols.map((col) => `<th>${escapeHtml(col)}</th>`).join("")}</tr>`;
-	const rows = matrix.rows
-		.map(
-			(row, rowIndex) =>
-				`<tr><th>${escapeHtml(row)}</th>${matrix.cols
-					.map(
-						(_, colIndex) =>
-							`<td>${escapeHtml(matrix.cells[rowIndex]?.[colIndex]?.text ?? "")}</td>`,
-					)
-					.join("")}</tr>`,
-		)
-		.join("");
-	return `<table border="1" style="border-collapse:collapse">${header}${rows}</table>`;
+interface EvidenceCellVertex {
+	value: string;
+	style: string;
+	box: Box;
 }
 
-function tableHtml(table: CoordinatedTableBlock): string {
-	const header = `<tr>${table.columns.map((column) => `<th>${escapeHtml(column.label.text)}</th>`).join("")}</tr>`;
-	const rows = table.rows
-		.map(
-			(row) =>
-				`<tr>${table.columns
-					.map(
-						(column) =>
-							`<td>${escapeHtml(row.cells[column.id]?.text ?? "")}</td>`,
-					)
-					.join("")}</tr>`,
-		)
-		.join("");
-	return `<table border="1" style="border-collapse:collapse">${header}${rows}</table>`;
+const EVIDENCE_HEADER_FILL = "#e5e7eb";
+
+function evidenceCellStyle(fill: string, stroke = "#9ca3af"): string {
+	return `rounded=0;whiteSpace=wrap;html=1;overflow=hidden;fontSize=10;spacing=2;fillColor=${fill};strokeColor=${stroke};`;
+}
+
+function evidenceCellText(
+	layout: { lines: readonly string[] } | undefined,
+	text: string,
+): string {
+	const lines = layout?.lines ?? [];
+	return lines.length > 0
+		? lines.map(escapeHtml).join("<br>")
+		: escapeHtml(text);
+}
+
+function matrixCells(matrix: CoordinatedMatrixBlock): EvidenceCellVertex[] {
+	const { box } = matrix;
+	const rowCount = matrix.rows.length;
+	const rowHeaderWidth = rowCount > 0 ? Math.min(96, box.width * 0.28) : 0;
+	const cellWidth =
+		Math.max(0, box.width - rowHeaderWidth) / Math.max(1, matrix.cols.length);
+	const rowHeight = box.height / Math.max(1, rowCount + 1);
+	const header = evidenceCellStyle(EVIDENCE_HEADER_FILL);
+	const cells: EvidenceCellVertex[] = [
+		{
+			value: "",
+			style: evidenceCellStyle(
+				matrix.style?.fill ?? "#f8fafc",
+				matrix.style?.stroke,
+			),
+			box,
+		},
+	];
+	if (rowCount > 0) {
+		cells.push({
+			value: "",
+			style: header,
+			box: { x: box.x, y: box.y, width: rowHeaderWidth, height: rowHeight },
+		});
+	}
+	matrix.cols.forEach((col, colIndex) => {
+		cells.push({
+			value: evidenceCellText(matrix.columnLabelLayouts?.[colIndex], col),
+			style: header,
+			box: {
+				x: box.x + rowHeaderWidth + colIndex * cellWidth,
+				y: box.y,
+				width: cellWidth,
+				height: rowHeight,
+			},
+		});
+	});
+	matrix.rows.forEach((row, rowIndex) => {
+		const y = box.y + (rowIndex + 1) * rowHeight;
+		cells.push({
+			value: evidenceCellText(matrix.rowLabelLayouts?.[rowIndex], row),
+			style: header,
+			box: { x: box.x, y, width: rowHeaderWidth, height: rowHeight },
+		});
+		matrix.cols.forEach((_, colIndex) => {
+			const cell = matrix.cells[rowIndex]?.[colIndex];
+			cells.push({
+				value: evidenceCellText(
+					matrix.cellLabelLayouts?.[rowIndex]?.[colIndex],
+					cell?.text ?? "",
+				),
+				style: evidenceCellStyle(
+					cell?.style?.fill ?? "#ffffff",
+					cell?.style?.stroke,
+				),
+				box: {
+					x: box.x + rowHeaderWidth + colIndex * cellWidth,
+					y,
+					width: cellWidth,
+					height: rowHeight,
+				},
+			});
+		});
+	});
+	return cells;
+}
+
+function tableCells(table: CoordinatedTableBlock): EvidenceCellVertex[] {
+	const { box } = table;
+	const columnCount = Math.max(1, table.columns.length);
+	const rowHeight = box.height / Math.max(1, table.rows.length + 1);
+	const cellBox = (columnIndex: number, rowIndex: number): Box => {
+		const x =
+			table.columnXOffsets[columnIndex] ??
+			box.x + (box.width / columnCount) * columnIndex;
+		const nextX = table.columnXOffsets[columnIndex + 1] ?? box.x + box.width;
+		return {
+			x,
+			y: box.y + rowIndex * rowHeight,
+			width: nextX - x,
+			height: rowHeight,
+		};
+	};
+	const cells: EvidenceCellVertex[] = [
+		{
+			value: "",
+			style: evidenceCellStyle(
+				table.style?.fill ?? "#f8fafc",
+				table.style?.stroke,
+			),
+			box,
+		},
+	];
+	table.columns.forEach((column, columnIndex) => {
+		cells.push({
+			value: evidenceCellText(
+				table.columnLabelLayouts?.[columnIndex],
+				column.label.text,
+			),
+			style: evidenceCellStyle(EVIDENCE_HEADER_FILL),
+			box: cellBox(columnIndex, 0),
+		});
+	});
+	table.rows.forEach((row, rowIndex) => {
+		const rowFill = rowIndex % 2 === 0 ? "#ffffff" : "#f3f4f6";
+		table.columns.forEach((column, columnIndex) => {
+			const cell = row.cells[column.id];
+			cells.push({
+				value: evidenceCellText(
+					table.cellLabelLayouts?.[rowIndex]?.[columnIndex],
+					cell?.text ?? "",
+				),
+				style: evidenceCellStyle(
+					cell?.style?.fill ?? rowFill,
+					cell?.style?.stroke,
+				),
+				box: cellBox(columnIndex, rowIndex + 1),
+			});
+		});
+	});
+	return cells;
 }
 
 function panelHtml(panel: CoordinatedEvidencePanel): string {
