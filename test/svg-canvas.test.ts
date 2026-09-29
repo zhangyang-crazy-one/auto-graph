@@ -201,4 +201,71 @@ describe("SVG canvas", () => {
 		expect(y).toBeLessThan(0);
 		expect(x).toBeLessThan(50 - 60);
 	});
+
+	it("reserves the padding on a page", () => {
+		// A 100×100 page at scale 1 cannot hold the 100px drawing with a
+		// 50px margin: the page shows it smaller instead of clipping it.
+		const [x, y, width, height] = viewBoxOf(
+			exportSvg(bare({}), {
+				page: { width: 100, height: 100, scale: 1 },
+				viewportPadding: 50,
+			}),
+		);
+		expect(x).toBeLessThanOrEqual(-53);
+		expect(y).toBeLessThanOrEqual(-53);
+		expect(width).toBeGreaterThanOrEqual(206);
+		expect(height).toBeGreaterThanOrEqual(206);
+	});
+
+	it("draws a vertical hop cluster with its radii along the segment", () => {
+		// Two jumps 8px apart share one glyph 20px long: on a vertical
+		// segment its 10px radius is the y radius, the 6px bulge the x one.
+		const svg = exportSvg(
+			bare({
+				edges: [
+					{
+						id: "e",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 50, y: 0 },
+							{ x: 50, y: 100 },
+						],
+					},
+				] as never,
+				edgeCrossings: [
+					{ x: 50, y: 40, underEdgeId: "e", overEdgeId: "o", style: "jump" },
+					{ x: 50, y: 48, underEdgeId: "e", overEdgeId: "o", style: "jump" },
+				] as never,
+			}),
+		);
+		expect(svg).toContain("A 6 10 0 0");
+	});
+
+	it("covers node and compartment text drawn without a solved box", () => {
+		const svg = exportSvg(
+			bare({
+				nodes: [
+					{
+						id: "n",
+						shape: "rectangle",
+						box: { x: 0, y: 0, width: 40, height: 40 },
+						label: { text: "a very long node label" },
+					},
+					{
+						id: "c",
+						shape: "rectangle",
+						box: { x: 60, y: 60, width: 40, height: 40 },
+						compartments: { name: "Block", properties: ["a long property"] },
+					},
+				] as never,
+			}),
+			{ viewportPadding: 0 },
+		);
+		const [x, , width] = viewBoxOf(svg);
+		// The node label (22 characters at 14px) is centred on x=20; the
+		// property row (15 characters at 11px) on x=80.
+		expect(x).toBeLessThan(20 - 60);
+		expect(x + width).toBeGreaterThan(80 + 40);
+	});
 });

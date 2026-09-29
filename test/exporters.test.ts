@@ -157,8 +157,13 @@ describe("exporters", () => {
 		const svg = exportSvg(diagram, { viewportPadding: 24 });
 
 		// The padding replaces the default 4px margin around the drawn
-		// extent (bounds plus the 3px stroke overhang).
-		expect(svg).toContain('viewBox="-347 -187 1094 356"');
+		// extent (bounds plus the 3px stroke overhang). These bounds stop
+		// above the lower node labels, which the canvas still covers.
+		const [x, y, width, height] = (svg.match(/viewBox="([^"]*)"/)?.[1] ?? "")
+			.split(" ")
+			.map(Number);
+		expect([x, y, width]).toEqual([-347, -187, 1094]);
+		expect(height).toBeGreaterThan(356);
 		expect(svg).toContain('d="M 80 60 L 180 60 L 180 120"');
 		expect(svg).toContain("data-dge-viewport=");
 		expect(svg).toContain("&quot;x&quot;:-344");

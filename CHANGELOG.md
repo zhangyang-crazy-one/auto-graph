@@ -4,8 +4,9 @@
 
 ### SVG canvas
 
-- **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, labels drawn without a solved box, hop glyphs and arrowheads, plus how far a stroke paints past its outline (up to 3px at a mitred corner). A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.
-- **`viewportPadding` pads the SVG**: it sets that margin (it used to only write `data-dge-viewport` metadata), as it already padded the draw.io page. The CLI takes it as `--padding <px>` and `renderDiagramDsl` as `padding`.
+- **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, all text drawn without a solved box (fallback labels, compartment rows, frame and lane titles, evidence text), hop glyphs and arrowheads, plus how far a stroke paints past its outline (up to 3px at a mitred corner). A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.
+- **`viewportPadding` pads the SVG**: it sets that margin (it used to only write `data-dge-viewport` metadata), as it already padded the draw.io page. The CLI takes it as `--padding <px>` and `renderDiagramDsl` as `padding`. On a page (`--page`) the drawing is shown smaller when it would not fit with its margin.
+- **Vertical hop clusters**: a merged hop on a vertical segment takes its along-segment radius as the y radius; with the radii swapped SVG scaled the arc up and it bulged far past 6px.
 
 ### Dense MBSE issues on top of RSOP (#76, #88, #91–#95)
 
