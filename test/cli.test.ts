@@ -201,6 +201,27 @@ describe("agh CLI contract", () => {
 		expect(failed.issues[0].where).toBe("flow.0");
 	});
 
+	it("runCli grows the SVG canvas by --padding", async () => {
+		const viewBox = async (args: string[]) => {
+			const io = memoryIo(VALID_DSL);
+			expect(await runCli(args, io.environment)).toBe(0);
+			return (io.stdout().match(/viewBox="([^"]*)"/)?.[1] ?? "")
+				.split(" ")
+				.map(Number);
+		};
+		const tight = await viewBox(["--padding", "0"]);
+		const wide = await viewBox(["--padding", "20"]);
+		const defaults = await viewBox([]);
+		// 20px more on every side than with no margin; the default is 4px.
+		expect(wide[0]).toBe((tight[0] ?? 0) - 20);
+		expect(wide[2]).toBe((tight[2] ?? 0) + 40);
+		expect(defaults[0]).toBe((tight[0] ?? 0) - 4);
+
+		const bad = memoryIo(VALID_DSL);
+		expect(await runCli(["--padding", "-1"], bad.environment)).toBe(2);
+		expect(bad.stderr()).toContain("expected a number >= 0");
+	});
+
 	it("runCli prints informational diagnostics only with --verbose", async () => {
 		const source =
 			"nodes: { a: { label: 订单 }, b: { label: 支付 } }\nedges: [a -> b]\n";

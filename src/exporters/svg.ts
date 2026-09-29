@@ -1,3 +1,4 @@
+import { unionBoxes } from "../geometry/boxes.js";
 import {
 	EDGE_CROSSING_END_CUTOFF,
 	EDGE_CROSSING_GLYPH_RADIUS,
@@ -24,6 +25,10 @@ import { computeArrowhead } from "./arrow.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import type { ExportOptions } from "./types.js";
 
+/** Default margin between the drawn content and the canvas edge. */
+export const SVG_CANVAS_MARGIN = 4;
+/** Half the widest stroke (1.5px edges), rounded up: it straddles its path. */
+const STROKE_OVERHANG = 1;
 const NODE_FILL = "#f8fafc";
 const GROUP_FILL = "#f9fafb";
 const STROKE = "#374151";
@@ -47,10 +52,15 @@ export function exportSvg(
 	const title = options.title ?? diagram.title;
 	const annotations = diagram.textAnnotations ?? [];
 	const crossings = diagram.edgeCrossings ?? [];
-	const content =
-		crossings.length === 0
-			? diagram.bounds
-			: expandBox(diagram.bounds, EDGE_CROSSING_GLYPH_RADIUS);
+	// The canvas holds everything drawn, not just the solved geometry, plus
+	// a margin (`viewportPadding`, else SVG_CANVAS_MARGIN).
+	const padding = options.viewportPadding;
+	const content = expandBox(
+		drawnExtent(diagram),
+		padding !== undefined && Number.isFinite(padding)
+			? Math.max(0, padding)
+			: SVG_CANVAS_MARGIN,
+	);
 	const page = options.page;
 	// On a page the view box is the page in diagram units, centred on the
 	// content, so the drawing appears at `scale` in the middle of the page.
@@ -63,7 +73,8 @@ export function exportSvg(
 					width: page.width / page.scale,
 					height: page.height / page.scale,
 				};
-	const background = page === undefined ? diagram.bounds : viewBox;
+	// The background fills the whole canvas, margin included.
+	const background = viewBox;
 	return `${[
 		`<svg xmlns="http://www.w3.org/2000/svg" role="img"${page === undefined ? "" : ` width="${formatNumber(page.width)}" height="${formatNumber(page.height)}"`} viewBox="${formatBoxViewBox(viewBox)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
@@ -109,6 +120,46 @@ export function exportSvg(
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
 		"</svg>",
 	].join("\n")}\n`;
+}
+
+/**
+ * Everything the SVG draws: the solved bounds, label backdrops (wider than
+ * their text), port boxes, crossing hop glyphs and arrowheads, grown by
+ * the half stroke that straddles each outline.
+ */
+function drawnExtent(diagram: CoordinatedDiagram): Box {
+	const arrowheads = diagram.edges.flatMap((edge) => {
+		try {
+			const { tip, left, right } = computeArrowhead(edge.points);
+			const xs = [tip.x, left.x, right.x];
+			const ys = [tip.y, left.y, right.y];
+			const x = Math.min(...xs);
+			const y = Math.min(...ys);
+			return [
+				{ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y },
+			];
+		} catch {
+			// No drawable segment: no arrowhead is drawn either.
+			return [];
+		}
+	});
+	return expandBox(
+		unionBoxes([
+			diagram.bounds,
+			...(diagram.textAnnotations ?? []).map(labelBackdropBox),
+			...diagram.nodes.flatMap((node) =>
+				(node.ports ?? []).map((port) => port.box),
+			),
+			...(diagram.edgeCrossings ?? []).map((crossing) => ({
+				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
+				y: crossing.y - EDGE_CROSSING_GLYPH_RADIUS,
+				width: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+				height: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+			})),
+			...arrowheads,
+		]),
+		STROKE_OVERHANG,
+	);
 }
 
 function viewportMetadata(bounds: Box, padding: number): string {

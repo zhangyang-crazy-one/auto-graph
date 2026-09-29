@@ -40,6 +40,7 @@ interface CliOptions {
 	listViews?: boolean;
 	report?: string;
 	page?: string;
+	padding?: number;
 	verbose?: boolean;
 	viewExample?: string;
 	viewSchema?: string;
@@ -190,6 +191,7 @@ export async function runCli(
 				? {}
 				: { stabilityWeight: options.stability }),
 			...(options.page === undefined ? {} : { page: options.page }),
+			...(options.padding === undefined ? {} : { padding: options.padding }),
 			...(options.format === undefined ? {} : { format: options.format }),
 			...(options.font === undefined
 				? {}
@@ -294,6 +296,11 @@ function buildCommand(): Command {
 			"Fit the diagram to a page: A4, A3-landscape, letter, slide, 1200x800, … (overrides the document's page)",
 		)
 		.option(
+			"--padding <px>",
+			"Margin around the drawn content: the SVG canvas and draw.io page grow by it (default 4 for SVG, 0 for draw.io)",
+			parsePadding,
+		)
+		.option(
 			"--report <path>",
 			"Write an agent report (verdict, issues with fixes, metrics, page fit, suggestions) as JSON",
 		)
@@ -311,6 +318,14 @@ function parseStability(value: string): number {
 		throw new InvalidArgumentError("expected a number >= 0.");
 	}
 	return weight;
+}
+
+function parsePadding(value: string): number {
+	const padding = Number(value);
+	if (!Number.isFinite(padding) || padding < 0) {
+		throw new InvalidArgumentError("expected a number >= 0.");
+	}
+	return padding;
 }
 
 function readPreviousLayout(

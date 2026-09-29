@@ -181,15 +181,20 @@ export function renderDiagramDsl(
 	}
 
 	try {
-		const exported = exportDiagram(
-			format.format,
-			solved,
-			page === undefined
+		const exported = exportDiagram(format.format, solved, {
+			...(page === undefined
 				? {}
 				: {
-						page: { width: page.width, height: page.height, scale: page.scale },
-					},
-		);
+						page: {
+							width: page.width,
+							height: page.height,
+							scale: page.scale,
+						},
+					}),
+			...(options.padding === undefined
+				? {}
+				: { viewportPadding: options.padding }),
+		});
 		return {
 			format: exported.format,
 			content: exported.content,

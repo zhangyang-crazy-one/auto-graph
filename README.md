@@ -335,6 +335,14 @@ page: A4                     # A3, A5, letter, legal, slide (16:9), slide-4:3, "
 - A small diagram is not blown up: it keeps its natural size, centred. The SVG gets the page's width and height.
 - The fit reports the scale and the size labels end up at on the page: below 8 px it is unreadable, below 11 px small.
 
+**Canvas margin.** Without a page, the SVG canvas (view box and white background) holds everything drawn — the solved bounds, label backdrops, ports, hop glyphs, arrowheads and the half stroke outside each outline — plus a 4 px margin. `--padding <px>` (or `padding` in `renderDiagramDsl`, `viewportPadding` in `ExportOptions`) sets that margin; it also pads the draw.io page (default 0 there). It only adds room around the drawing and never moves it. The three size settings do different things:
+
+| Setting | Changes |
+|---|---|
+| `--padding` / `viewportPadding` | The empty margin around the drawn content in the output. |
+| `--page` / `page:` | The paper: the layout is fitted to it and the SVG gets its size, with the drawing centred. |
+| `pageBounds` (solver option) | The area the solver lays out in, e.g. where external label callouts are packed. Content that does not fit is reported (`page_overflow`, `routing.label-shelf.capacity_exhausted`), not clipped. |
+
 **Agent report.** `--report report.json` (or `buildAgentReport(...)`) writes what an agent needs to decide its next step — also when rendering fails:
 
 ```json
@@ -362,6 +370,7 @@ agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
 agh --list-views
 agh --input diagram.yaml --page A4 --output diagram.svg --report diagram.report.json
+agh --input diagram.yaml --padding 16 --output diagram.svg
 cat diagram.yaml | agh --json
 ```
 
