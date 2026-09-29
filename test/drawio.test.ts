@@ -413,6 +413,61 @@ describe("draw.io export", () => {
 		expect(xml).toContain('value="bdd&lt;br&gt;Plant" style="shape=umlFrame;');
 	});
 
+	it("keeps the line breaks of a lane label without solved text", () => {
+		const xml = exportDrawio(
+			diagram({
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "vertical",
+						lanes: [
+							{
+								id: "l",
+								label: { text: "Lane\nOne" },
+								children: ["a"],
+								box: { x: 500, y: 100, width: 120, height: 40 },
+							},
+						],
+					},
+				],
+			} as never),
+		);
+		expect(xml).toContain('value="Lane&lt;br&gt;One" style="swimlane;');
+	});
+
+	it("draws compartment separators only where a section starts", () => {
+		const rows = ["Engine", "rpm: Real", "torque: Real", "rpm < 7000"];
+		const styled = diagram({
+			textAnnotations: rows.map((text, index) => ({
+				text,
+				ownerId: "b",
+				surfaceKind: "compartment-row",
+				surfaceIndex: index,
+				box: { x: 830, y: 111 + index * 16, width: 40, height: 13 },
+				lines: [{ text, width: 40 }],
+				fontFamily: "Arial",
+				fontSize: 11,
+			})),
+		} as unknown as Partial<CoordinatedDiagram>);
+		const [, b] = styled.nodes;
+		if (b === undefined) throw new Error("fixture");
+		// No stereotype: name (0), two properties (1, 2), a constraint (3).
+		b.compartments = {
+			name: "Engine",
+			properties: ["rpm: Real", "torque: Real"],
+			constraints: ["rpm < 7000"],
+		};
+		const xml = exportDrawio(styled);
+		// One separator above the first property (row 1: y = 100 + 18 + 16 - 12)
+		// and one above the constraint (row 3), none between the properties.
+		const separators = [
+			...xml.matchAll(
+				/style="line;[^"]*"[^>]*><mxGeometry x="[^"]*" y="([^"]*)"/g,
+			),
+		].map((match) => Number(match[1]));
+		expect(separators).toEqual([22, 54]);
+	});
+
 	it("keeps authored labels of dotted port ids apart", () => {
 		const base = diagram();
 		const [first, second] = base.nodes;

@@ -14,6 +14,7 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import { compartmentSeparatorRows } from "./compartments.js";
 import { fallbackTextWidth } from "./fallback-text.js";
 import { usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
@@ -443,10 +444,15 @@ export function exportDrawio(
 			portCells.set(node.id, nodePorts);
 			nodePorts.set(port.id, portCell);
 		}
+		const separators =
+			node.compartments === undefined
+				? new Set<number>()
+				: compartmentSeparatorRows(node.compartments);
 		for (const row of rows) {
 			const index = row.surfaceIndex ?? 0;
-			// Separators above the property and constraint rows, as the SVG.
-			if (index > 1) {
+			// Separators where the property and constraint sections start,
+			// as the SVG.
+			if (separators.has(index)) {
 				vertex(
 					"",
 					COMPARTMENT_SEPARATOR_STYLE,
@@ -863,7 +869,7 @@ function swimlaneCells(
 					);
 		cells.push({
 			// A lane without a label stays blank, as in the SVG.
-			value: title === undefined ? escapeHtml(lane.label?.text ?? "") : "",
+			value: title === undefined ? multilineHtml(lane.label?.text ?? "") : "",
 			style: `swimlane;whiteSpace=wrap;html=1;startSize=${formatNumber(startSize)};${leftHeader ? "horizontal=0;" : ""}`,
 			box: lane.box,
 			lane,

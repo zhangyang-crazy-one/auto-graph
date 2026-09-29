@@ -55,6 +55,8 @@ export function assignChannelTracks(
 		idealNudgingDistance?: number;
 		maxTracks?: number;
 		hardObstacles?: readonly Box[];
+		/** Unexpanded node outlines (see `applyChannelTrackAssignments`). */
+		nodeOutlines?: readonly Box[];
 	} = {},
 ): AssignChannelTracksResult {
 	const pitch = trackPitch(options.idealNudgingDistance);
@@ -135,9 +137,15 @@ export function assignChannelTracks(
 				const atEnd = (box: Box) =>
 					(first !== undefined && touchesBox(first, box)) ||
 					(last !== undefined && touchesBox(last, box));
-				return hardObstacles.some(
-					(box) =>
-						!atEnd(box) && pieces.some(([p, q]) => segmentHitsBox(p, q, box)),
+				// Its end nodes count as `applyChannelTrackAssignments` counts
+				// them: only a piece entering their (real) interior is blocked.
+				const ends =
+					options.nodeOutlines?.filter(atEnd) ?? hardObstacles.filter(atEnd);
+				return (
+					hardObstacles.some(
+						(box) =>
+							!atEnd(box) && pieces.some(([p, q]) => segmentHitsBox(p, q, box)),
+					) || pieces.some((piece) => routeEntersInterior(piece, ends))
 				);
 			}).length;
 		let shift = 0;
