@@ -312,89 +312,79 @@ function renderArrowElements(
 	const under = crossings.filter(
 		(crossing) => crossing.underEdgeId === edge.id,
 	);
-	const gaps = under.filter((crossing) => crossing.style === "gap");
-	const hops = under.filter(
-		(crossing) => crossing.style === "jump" || crossing.style === "bridge",
-	);
-	if (gaps.length === 0) {
-		return [renderArrow(edge, hops)];
-	}
-	const segments = splitPolylineAtGaps(edge.points, gaps);
-	// Every piece draws the hops on its own segments; only the last piece
-	// ends at the target, so only it carries (and keeps room for) the
-	// arrowhead.
-	return segments.map((points, index) =>
+	const pieces = piecesWithCrossings(edge.points, under);
+	// A gap cuts the arrow into pieces; only the last one ends at the
+	// target, so only it carries the arrowhead, and only the first binds
+	// to the source.
+	return pieces.map((points, index) =>
 		renderArrow(
 			{
 				...edge,
 				id: index === 0 ? edge.id : `${edge.id}:gap-${index}`,
 				points,
 			},
-			hops,
-			index === segments.length - 1,
+			index === pieces.length - 1,
 			index === 0,
 		),
 	);
 }
 
-function splitPolylineAtGaps(
+/**
+ * The edge's polyline with its crossings drawn, as the SVG draws them: a
+ * jump (or bridge) bumps over the other edge, a gap cuts the line into
+ * pieces. Crossings closer than a glyph share it, and a run of mixed
+ * styles is split halfway between neighbours, so each keeps its style.
+ */
+function piecesWithCrossings(
 	points: readonly Point[],
-	gaps: readonly EdgeCrossing[],
+	under: readonly EdgeCrossing[],
 ): Point[][] {
-	if (points.length < 2 || gaps.length === 0) {
-		return [points.map((point) => ({ ...point }))];
-	}
-	const segments: Point[][] = [];
+	if (points.length < 2) return [points.map((point) => ({ ...point }))];
+	const pieces: Point[][] = [];
 	let current: Point[] = [];
 	for (let i = 0; i < points.length - 1; i += 1) {
 		const start = points[i];
 		const end = points[i + 1];
 		if (start === undefined || end === undefined) continue;
-		if (current.length === 0) {
-			current.push({ ...start });
-		}
-		const segmentGaps = gaps
-			.filter((gap) => excalidrawPointOnSegment(gap, start, end))
-			.sort(
-				(left, right) =>
-					excalidrawSquaredDistance(start, left) -
-					excalidrawSquaredDistance(start, right),
-			);
-		let cursor = start;
-		for (const gap of segmentGaps) {
-			const before = excalidrawPointAlong(
-				start,
-				end,
-				gap,
-				-EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			const after = excalidrawPointAlong(
-				start,
-				end,
-				gap,
-				EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			current.push(before);
-			if (current.length >= 2) {
-				segments.push(current);
+		if (current.length === 0) current.push({ ...start });
+		const glyphs = hopGlyphs(
+			under
+				.filter((crossing) => excalidrawPointOnSegment(crossing, start, end))
+				.sort(
+					(left, right) =>
+						excalidrawSquaredDistance(start, left) -
+						excalidrawSquaredDistance(start, right),
+				),
+			start,
+			end,
+			// Excalidraw draws the arrowhead on the full final segment.
+			i === points.length - 2 ? ARROWHEAD_LENGTH : 0,
+			(crossing) => (crossing.style === "gap" ? "gap" : "jump"),
+		);
+		for (const glyph of glyphs) {
+			if ((glyph.hops[0] as EdgeCrossing).style === "gap") {
+				current.push({ ...glyph.before });
+				if (current.length >= 2) pieces.push(current);
+				current = [{ ...glyph.after }];
+				continue;
 			}
-			current = [after];
-			cursor = after;
+			// A cluster of close crossings shares one wider hop.
+			const center = {
+				x: (glyph.before.x + glyph.after.x) / 2,
+				y: (glyph.before.y + glyph.after.y) / 2,
+			};
+			const apex = hopApex(start, end, center, EDGE_CROSSING_GLYPH_RADIUS);
+			current.push({ ...glyph.before }, apex, { ...glyph.after });
 		}
 		current.push({ ...end });
-		void cursor;
 	}
-	if (current.length >= 2) {
-		segments.push(current);
-	}
-	return segments.length > 0
-		? segments
-		: [points.map((point) => ({ ...point }))];
+	if (current.length >= 2) pieces.push(current);
+	return pieces.length > 0 ? pieces : [points.map((point) => ({ ...point }))];
 }
 
 function renderArrow(
+	/** The piece to draw, its crossings already drawn into the points. */
 	edge: CoordinatedEdge,
-	crossings: readonly EdgeCrossing[] = [],
 	/** False for a piece cut at a gap before the target: no arrowhead. */
 	endsAtTarget = true,
 	/** False for a piece that starts at a gap, not at the source. */
@@ -407,13 +397,7 @@ function renderArrow(
 		);
 	}
 
-	const hopped = applyJumpBumps(
-		edge.points,
-		crossings.filter(
-			(crossing) => crossing.style === "jump" || crossing.style === "bridge",
-		),
-		endsAtTarget ? ARROWHEAD_LENGTH : 0,
-	);
+	const hopped = edge.points.map((point) => ({ ...point }));
 	const origin = hopped[0] ?? first;
 	const relativePoints = hopped.map((point) => ({
 		x: point.x - origin.x,
@@ -441,50 +425,6 @@ function renderArrow(
 		startArrowhead: null,
 		endArrowhead: endsAtTarget ? mapArrowhead(edge.arrowhead) : null,
 	};
-}
-
-function applyJumpBumps(
-	points: readonly Point[],
-	jumps: readonly EdgeCrossing[],
-	/** Room kept before the end for an arrowhead (none for a cut piece). */
-	arrowheadLength: number,
-): Point[] {
-	if (jumps.length === 0 || points.length < 2) {
-		return points.map((point) => ({ ...point }));
-	}
-	const result: Point[] = [];
-	for (let i = 0; i < points.length - 1; i += 1) {
-		const start = points[i];
-		const end = points[i + 1];
-		if (start === undefined || end === undefined) continue;
-		if (i === 0) {
-			result.push({ ...start });
-		}
-		const glyphs = hopGlyphs(
-			jumps
-				.filter((jump) => excalidrawPointOnSegment(jump, start, end))
-				.sort(
-					(left, right) =>
-						excalidrawSquaredDistance(start, left) -
-						excalidrawSquaredDistance(start, right),
-				),
-			start,
-			end,
-			// Excalidraw draws the arrowhead on the full final segment.
-			i === points.length - 2 ? arrowheadLength : 0,
-		);
-		for (const glyph of glyphs) {
-			// A cluster of close crossings shares one wider hop.
-			const center = {
-				x: (glyph.before.x + glyph.after.x) / 2,
-				y: (glyph.before.y + glyph.after.y) / 2,
-			};
-			const apex = hopApex(start, end, center, EDGE_CROSSING_GLYPH_RADIUS);
-			result.push({ ...glyph.before }, apex, { ...glyph.after });
-		}
-		result.push({ ...end });
-	}
-	return result;
 }
 
 function hopApex(
@@ -524,24 +464,6 @@ function excalidrawPointOnSegment(
 	}
 	const proj = { x: start.x + t * dx, y: start.y + t * dy };
 	return excalidrawSquaredDistance(proj, point) <= tolerance * tolerance;
-}
-
-function excalidrawPointAlong(
-	start: Point,
-	end: Point,
-	at: { x: number; y: number },
-	offset: number,
-): Point {
-	const dx = end.x - start.x;
-	const dy = end.y - start.y;
-	const length = Math.hypot(dx, dy);
-	if (length < 1e-9) {
-		return { x: at.x, y: at.y };
-	}
-	return {
-		x: at.x + (dx / length) * offset,
-		y: at.y + (dy / length) * offset,
-	};
 }
 
 function excalidrawSquaredDistance(

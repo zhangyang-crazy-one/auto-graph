@@ -842,4 +842,54 @@ describe("Excalidraw pieces split at a gap", () => {
 			true,
 		);
 	});
+
+	it("keeps a jump right beside a gap", () => {
+		// A gap at x=150 and a jump at x=154 share one glyph width: the gap
+		// cuts [144,152], the jump bumps over [152,160].
+		const diagram = {
+			id: "gap-jump",
+			direction: "LR",
+			nodes: [],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				...[150, 154].map((x) => ({
+					id: `v${x}`,
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x, y: 0 },
+						{ x, y: 100 },
+					],
+				})),
+			],
+			edgeCrossings: [
+				{ x: 150, y: 50, underEdgeId: "h", overEdgeId: "v150", style: "gap" },
+				{ x: 154, y: 50, underEdgeId: "h", overEdgeId: "v154", style: "jump" },
+			],
+		} as unknown as CoordinatedDiagram;
+		const pieces = JSON.parse(exportExcalidraw(diagram)).elements.filter(
+			(element: { id: string }) => element.id.startsWith("edge:h"),
+		);
+		expect(pieces).toHaveLength(2);
+		const [first, second] = pieces;
+		// The first piece stops at the gap's start (x=144).
+		expect(first.x + first.points.at(-1).x).toBe(144);
+		// The second starts halfway (x=152) and bumps for the jump.
+		expect(second.x).toBe(152);
+		expect(second.points.some((point: { y: number }) => point.y < -1)).toBe(
+			true,
+		);
+	});
 });

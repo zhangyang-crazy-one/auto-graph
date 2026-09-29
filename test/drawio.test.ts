@@ -702,6 +702,37 @@ describe("draw.io export", () => {
 		expect(xml).toContain('<mxPoint as="sourcePoint" x="100" y="10"/>');
 	});
 
+	it("gives a node listed by equally large nested groups to the inner one", () => {
+		// Outer "a" nests inner "z" with no padding (same box), and both list
+		// node "a": the node belongs to "z", though "a" sorts first by id.
+		const box = { x: 490, y: 90, width: 120, height: 60 };
+		const xml = exportDrawio(
+			diagram({
+				groups: [
+					{
+						id: "a",
+						label: { text: "Outer" },
+						nodeIds: ["a"],
+						groupIds: ["z"],
+						box,
+					},
+					{
+						id: "z",
+						label: { text: "Inner" },
+						nodeIds: ["a"],
+						groupIds: [],
+						box,
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		const innerId = xml.match(/<mxCell id="(\d+)" value="Inner"/)?.[1];
+		expect(innerId).toBeDefined();
+		expect(xml).toMatch(
+			new RegExp(`value="A" style="[^"]*" vertex="1" parent="${innerId}"`),
+		);
+	});
+
 	it("emits a nested group after an equally large parent", () => {
 		// "z" contains "a" with no padding: both boxes are the same, and "a"
 		// sorts first by id, yet the parent must come first.

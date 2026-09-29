@@ -46,6 +46,13 @@ export interface AssignSameSideSlotsResult {
 }
 
 /**
+ * Least distance between two ends on one side, or between an end and a
+ * named port's centre: a port cell is 10px wide, so an end any closer
+ * runs its arrowhead into it.
+ */
+const MIN_ATTACH_SPACING = 10;
+
+/**
  * Pre-route same-side slot assignment for anonymous (non-port) endpoints (#92).
  * Ported endpoints are skipped — #91 owns their equal-division placement.
  */
@@ -145,7 +152,8 @@ export function assignSameSideSlots(
 		// Named ports on the side take slots too: the anonymous endpoints
 		// squeeze between them.
 		const occupied = input.occupied?.get(`${nodeId}:${side}`) ?? [];
-		if (ordered.length + occupied.length > maxSlots) {
+		const overCount = ordered.length + occupied.length > maxSlots;
+		if (overCount) {
 			diagnostics.push({
 				severity: "warning",
 				code: "routing.channel.capacity_exhausted",
@@ -176,6 +184,43 @@ export function assignSameSideSlots(
 						),
 					]
 				: freeFractions(ordered.length, occupied);
+		// A count that fits can still crowd a short side: an end too close to
+		// a port (whose cell is drawn around its centre) or to another end
+		// overlaps it. Report that like an overflow.
+		if (!overCount) {
+			const length =
+				side === "left" || side === "right"
+					? geometry.box.height
+					: geometry.box.width;
+			const ends = fractions.map((fraction) => fraction * length);
+			const ports = occupied.map((fraction) => fraction * length);
+			const tightest = Math.min(
+				Number.POSITIVE_INFINITY,
+				...ends.flatMap((end, index) => [
+					...ports.map((port) => Math.abs(end - port)),
+					...ends.slice(index + 1).map((other) => Math.abs(end - other)),
+				]),
+			);
+			if (tightest < MIN_ATTACH_SPACING - 1e-6) {
+				diagnostics.push({
+					severity: "warning",
+					code: "routing.channel.capacity_exhausted",
+					message: `Same-side attach spacing too tight on ${nodeId}/${side}: ends ${Math.round(tightest)}px apart (need ${MIN_ATTACH_SPACING}px from each other and from port centres).`,
+					detail: {
+						nodeId,
+						side,
+						edgeCount: ordered.length,
+						...(occupied.length > 0 ? { portCount: occupied.length } : {}),
+						maxAttachPointsPerSide: maxSlots,
+						spacing: Math.round(tightest * 10) / 10,
+						minSpacing: MIN_ATTACH_SPACING,
+						conflictClass: "fixed-geometry-block",
+						remediationType: "route-rail-or-page-split",
+						edgeIds: ordered.map((entry) => entry.edgeId).join(","),
+					},
+				});
+			}
+		}
 		ordered.forEach((entry, index) => {
 			const fraction = fractions[index] ?? 0.5;
 			assignments.set(`${entry.edgeId}:${entry.endpoint}`, {

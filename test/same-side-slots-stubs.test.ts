@@ -142,6 +142,38 @@ describe("same-side slots + escape stubs (#92)", () => {
 		);
 	});
 
+	it("reports ends crowding a port even when the slot count fits", () => {
+		// A 48px side with ports at 0.25/0.75 and two anonymous ends, five
+		// slots allowed: one end lands at 0.125, 6px from a port centre.
+		const nodes = new Map([
+			shape("a", 0, 0, 80, 48),
+			shape("b", 200, 0),
+			shape("c", 200, 80),
+		]);
+		const edges: NormalizedEdge[] = ["b", "c"].map((target) => ({
+			id: `to-${target}`,
+			source: { nodeId: "a", anchor: "right" },
+			target: { nodeId: target, anchor: "left" },
+		}));
+		const assigned = assignSameSideSlots({
+			edges,
+			nodes,
+			direction: "LR",
+			maxAttachPointsPerSide: 5,
+			occupied: new Map([["a:right", [0.25, 0.75]]]),
+		});
+		expect(assigned.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.channel.capacity_exhausted",
+				detail: expect.objectContaining({
+					nodeId: "a",
+					side: "right",
+					minSpacing: 10,
+				}),
+			}),
+		);
+	});
+
 	it("picks TB slot sides from the boxes for back-edges and same-rank pairs", () => {
 		const nodes = new Map([
 			shape("top", 0, 0),

@@ -165,13 +165,39 @@ export function exportDrawio(
 	}
 	// Group members are children of their group cell, so dragging a group
 	// in draw.io carries its nodes and nested groups along. A member listed
-	// by several groups goes to the smallest (the innermost).
+	// by several groups goes to the innermost: one no other candidate
+	// nests in (by `groupIds`, so equally large nested groups resolve),
+	// then the smallest.
 	const area = (box: Box) => box.width * box.height;
-	const innermost = (candidates: readonly (typeof diagram.groups)[number][]) =>
-		[...candidates].sort(
+	const groupById = new Map(diagram.groups.map((group) => [group.id, group]));
+	const nestsIn = (inner: string, outer: string): boolean => {
+		const seen = new Set<string>();
+		const stack = [...(groupById.get(outer)?.groupIds ?? [])];
+		while (stack.length > 0) {
+			const id = stack.pop() as string;
+			if (id === inner) return true;
+			if (seen.has(id)) continue;
+			seen.add(id);
+			stack.push(...(groupById.get(id)?.groupIds ?? []));
+		}
+		return false;
+	};
+	const innermost = (
+		candidates: readonly (typeof diagram.groups)[number][],
+	) => {
+		// How many of the other candidates a group nests in: the innermost
+		// nests in them all.
+		const depthAmong = (group: (typeof diagram.groups)[number]) =>
+			candidates.filter(
+				(other) => other.id !== group.id && nestsIn(group.id, other.id),
+			).length;
+		return [...candidates].sort(
 			(left, right) =>
-				area(left.box) - area(right.box) || left.id.localeCompare(right.id),
+				depthAmong(right) - depthAmong(left) ||
+				area(left.box) - area(right.box) ||
+				left.id.localeCompare(right.id),
 		)[0];
+	};
 	const groupCells = new Map<string, { id: string; box: Box }>();
 	const parentGroup = (group: (typeof diagram.groups)[number] | undefined) =>
 		group === undefined ? undefined : groupCells.get(group.id);
