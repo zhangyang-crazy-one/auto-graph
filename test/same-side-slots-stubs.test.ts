@@ -761,6 +761,47 @@ describe("relocated endpoint occupancy", () => {
 	});
 });
 
+describe("slot capacity reports with a NaN cap", () => {
+	it("keeps the report against the default cap after routing", () => {
+		const node = (id: string, x: number, y: number, h = 48) => ({
+			id,
+			shape: "rectangle" as const,
+			size: { width: 80, height: h },
+			padding: { top: 8, right: 8, bottom: 8, left: 8 },
+			position: { x, y },
+		});
+		const targets = ["b", "c", "d", "e", "f"];
+		// Five ends on a's 400px right side, well spaced but over the
+		// default three slots.
+		const solved = solveDiagram(
+			{
+				id: "nan-cap",
+				direction: "LR",
+				nodes: [
+					node("a", 0, 0, 400),
+					...targets.map((id, index) => node(id, 300, index * 88)),
+				],
+				edges: targets.map((id) => ({
+					id: `to-${id}`,
+					source: { nodeId: "a" },
+					target: { nodeId: id },
+				})),
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "short-orthogonal-jumps",
+				maxAttachPointsPerSide: Number.NaN,
+			},
+		);
+		expect(solved.diagnostics.map((entry) => entry.code)).toContain(
+			"routing.channel.capacity_exhausted",
+		);
+	});
+});
+
 describe("relocated endpoint capacity reports", () => {
 	const node = (id: string, x: number, y: number, w = 80, h = 48) => ({
 		id,

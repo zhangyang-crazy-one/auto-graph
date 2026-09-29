@@ -42,6 +42,7 @@ import {
 } from "../routing/index.js";
 import {
 	assignSameSideSlots,
+	attachPointCap,
 	freeFractions,
 	MIN_ATTACH_SPACING,
 	slotFits,
@@ -931,10 +932,8 @@ export function coordinateEdges(
 	// A slot report stands only while its side is still crowded in the
 	// final occupancy: over the slot count, or ends and port centres under
 	// the minimum spacing apart.
-	const maxSlots = Math.min(
-		5,
-		Math.max(1, options.maxAttachPointsPerSide ?? 3),
-	);
+	// The cap the slot assignment used (a NaN takes the default there too).
+	const maxSlots = attachPointCap(options.maxAttachPointsPerSide);
 	const stillCrowded = (diagnostic: Diagnostic): boolean => {
 		if (diagnostic.code !== "routing.channel.capacity_exhausted") return true;
 		const nodeId = diagnostic.detail?.nodeId;

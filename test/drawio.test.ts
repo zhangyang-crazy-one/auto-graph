@@ -424,6 +424,31 @@ describe("draw.io export", () => {
 		expect(xml).toContain('value="bdd&lt;br&gt;Plant" style="shape=umlFrame;');
 	});
 
+	it("keeps line breaks in evidence text without a layout", () => {
+		const xml = exportDrawio(
+			diagram({
+				evidencePanels: [
+					{
+						id: "p",
+						kind: "legend",
+						items: [{ label: { text: "Key\nsecond line" } }],
+						box: { x: 500, y: 150, width: 100, height: 40 },
+					},
+				],
+			} as never),
+		);
+		expect(xml).toContain("Key&lt;br&gt;second line");
+	});
+
+	it("keeps line breaks inside fallback compartment rows", () => {
+		const base = diagram();
+		const [, b] = base.nodes;
+		if (b === undefined) throw new Error("fixture");
+		b.compartments = { name: "Engine", properties: ["rpm:\nReal"] };
+		const xml = exportDrawio(base);
+		expect(xml).toContain("rpm:&lt;br&gt;Real");
+	});
+
 	it("keeps the line breaks of a node label without solved text", () => {
 		const base = diagram();
 		const [a] = base.nodes;
