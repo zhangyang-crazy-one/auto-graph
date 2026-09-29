@@ -1104,8 +1104,17 @@ function formatNumber(value: number): string {
 		: value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/**
+ * Code points XML 1.0 forbids even as character references (C0 controls
+ * other than tab and line breaks, lone surrogates, U+FFFE/U+FFFF): dropped,
+ * or the document is not well-formed.
+ */
+const XML_FORBIDDEN =
+	/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
 function escapeXml(value: string): string {
 	return value
+		.replace(XML_FORBIDDEN, "")
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;");

@@ -1396,7 +1396,8 @@ function outlineSidesNear(
  * A move is kept only when the route gains no obstacle hit, its
  * neighbouring segments keep their direction (and the end stubs their
  * length), no other edge's parallel segment ends up next to it, and the
- * route crosses no more of the other routes than before.
+ * route neither crosses more of the other routes nor overlaps them along
+ * more of its length than before.
  */
 export function clearOutlineRuns(
 	edges: readonly CoordinatedEdge[],
@@ -1450,6 +1451,9 @@ export function clearOutlineRuns(
 						crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
 				).length;
 			const crossingsBefore = crossings(points);
+			// The stretched neighbours can also land on a parallel segment of
+			// another connector, which the crossing count ignores.
+			const overlapBefore = collinearOverlapLength(points, otherEdges);
 			for (const target of targets) {
 				const moved = points.map((point) => ({ ...point }));
 				for (const at of [index, index + 1]) {
@@ -1478,6 +1482,9 @@ export function clearOutlineRuns(
 				);
 				if (crowded) continue;
 				if (crossings(moved) > crossingsBefore) continue;
+				if (collinearOverlapLength(moved, otherEdges) > overlapBefore + 1e-6) {
+					continue;
+				}
 				routes[edgeIndex] = moved;
 				points.splice(0, points.length, ...moved);
 				break;

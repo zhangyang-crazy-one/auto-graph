@@ -2874,6 +2874,68 @@ edges:
 		expect(callouts.filter(cutsDivider)).toEqual([]);
 	});
 
+	it("keeps external-label keys off group titles", () => {
+		// Four parallel labelled edges run through the group title: the keys
+		// that move along their routes must not land on it.
+		const labelled = (id: string, position: { x: number; y: number }) => ({
+			...node(id, position),
+			label: { text: id },
+		});
+		const result = solveDiagram(
+			{
+				id: "keys-off-group-title",
+				direction: "LR",
+				nodes: [
+					labelled("s2", { x: 0, y: 90 }),
+					labelled("t2", { x: 300, y: 90 }),
+				],
+				edges: Array.from({ length: 4 }, (_, index) => ({
+					id: `e${index}`,
+					source: { nodeId: "s2" },
+					target: { nodeId: "t2" },
+					label: { text: `external callout label number ${index}` },
+				})),
+				groups: [
+					{
+						id: "g",
+						label: { text: "Zone" },
+						nodeIds: ["s2", "t2"],
+						groupIds: [],
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						labelPosition: "top",
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			} as never,
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				externalLabels: true,
+				remediationPolicy: { externalLabels: "auto" },
+				textMeasurer: new DeterministicTextMeasurer(),
+				textIntersectionTolerance: 0,
+			},
+		);
+		const annotations = result.textAnnotations ?? [];
+		const titles = annotations
+			.filter((annotation) => annotation.surfaceKind === "group-label")
+			.map((annotation) => annotation.box);
+		const keys = annotations
+			.filter((annotation) => annotation.placementDetail?.role === "key")
+			.map((annotation) => annotation.box);
+		expect(titles.length).toBe(1);
+		expect(keys.length).toBe(4);
+		const overlaps = (a: Box, b: Box) =>
+			a.x < b.x + b.width &&
+			b.x < a.x + a.width &&
+			a.y < b.y + b.height &&
+			b.y < a.y + a.height;
+		expect(
+			keys.filter((key) => titles.some((title) => overlaps(key, title))),
+		).toEqual([]);
+	});
+
 	it("applies deterministic keyed external callouts when remediation policy is auto", () => {
 		const result = solveDiagram(externalLabelAutoDiagram(), {
 			initialLayout: "positions",

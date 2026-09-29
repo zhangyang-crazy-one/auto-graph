@@ -70,6 +70,7 @@ import {
 	cloneNormalizedNodeForSolver,
 	DEFAULT_MAX_REMEDIATION_ITERATIONS,
 	isTopToBottomReadingDirection,
+	keyTextObstacles,
 	REMEDIATION_ENTRY_DIAGNOSTIC_CODES,
 	removeResolvedOverlapDiagnostics,
 	reportPageOverflow,
@@ -1084,13 +1085,11 @@ export function solveDiagram(
 					...coordinatedMatrices.map((matrix) => matrix.box),
 					...coordinatedTables.map((table) => table.box),
 					...coordinatedEvidencePanels.map((panel) => panel.box),
-					// A key must not cover a title bar, a lane divider or a port
-					// label either.
+					// A key must not cover a title bar, a lane divider, a port
+					// label or a group title either.
 					...titleBarObstacles,
 					...laneBorderLabelObstacles(coordinatedSwimlanes),
-					...baseTextAnnotations
-						.filter((annotation) => annotation.surfaceKind === "port-label")
-						.map((annotation) => annotation.box),
+					...keyTextObstacles(baseTextAnnotations),
 				],
 				// Every callout sits inside the frame, which must fit the page too.
 				...(frame === undefined ? {} : { pageInsets: frameInsets(frame) }),

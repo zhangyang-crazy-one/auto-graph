@@ -799,3 +799,20 @@ export function textAnnotationContentBox(
 		height,
 	};
 }
+
+/**
+ * Solved text an external-label key must not cover: port labels (they often
+ * reach past their node) and group titles on their frames. Neither is in
+ * the later text-collision scan, so an overlap would go unreported.
+ */
+export function keyTextObstacles(
+	annotations: readonly SolvedTextAnnotation[],
+): Box[] {
+	return annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "port-label" ||
+				annotation.surfaceKind === "group-label",
+		)
+		.map((annotation) => annotation.box);
+}

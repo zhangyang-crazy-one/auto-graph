@@ -33,6 +33,28 @@ describe("exporters", () => {
 		expect(arrowhead.right).toEqual({ x: 14, y: 10 });
 	});
 
+	it("drops code points XML forbids from SVG text and attributes", () => {
+		const svg = exportSvg({
+			id: "d\u0000",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a\u0001",
+					shape: "rectangle",
+					box: { x: 0, y: 0, width: 80, height: 40 },
+					label: { text: "A\u0000B\uFFFE" },
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			bounds: { x: 0, y: 0, width: 80, height: 40 },
+		} as unknown as CoordinatedDiagram);
+		expect(svg).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\uFFFE]/);
+		expect(svg).toContain('data-id="a"');
+	});
+
 	it("throws when no non-zero segment exists", () => {
 		expect(() =>
 			computeArrowhead([

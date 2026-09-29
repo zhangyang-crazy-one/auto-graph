@@ -999,6 +999,43 @@ describe("outline clearing and crossings", () => {
 	});
 });
 
+describe("outline clearing and parallel overlaps", () => {
+	it("skips a step that stretches a neighbour onto another connector", () => {
+		// Stepping "a" from y=102 to the near y=108 stretches its vertical
+		// run at x=20 down over "c" (x=20, y=103..106); the far step (y=92)
+		// shortens it instead.
+		const a = {
+			id: "a",
+			source: { nodeId: "a-s" },
+			target: { nodeId: "a-t" },
+			points: [
+				{ x: 0, y: 50 },
+				{ x: 20, y: 50 },
+				{ x: 20, y: 102 },
+				{ x: 180, y: 102 },
+				{ x: 180, y: 150 },
+				{ x: 200, y: 150 },
+			],
+		};
+		const c = {
+			id: "c",
+			source: { nodeId: "c-s" },
+			target: { nodeId: "c-t" },
+			points: [
+				{ x: 20, y: 103 },
+				{ x: 20, y: 106 },
+			],
+		};
+		const [cleared] = clearOutlineRuns(
+			[a, c] as never,
+			[{ x: 0, y: 100, width: 200, height: 100 }],
+			[],
+			new Set(["c"]),
+		);
+		expect(cleared?.points[2]).toEqual({ x: 20, y: 92 });
+	});
+});
+
 describe("same-side slots on dependency rails", () => {
 	it("starts a rail route at its slot, not on a named port", () => {
 		const node = (

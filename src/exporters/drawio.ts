@@ -677,9 +677,22 @@ function renderNodeCell(
 			: [`fontSize=${formatNumber(visual.fontSize)};`]),
 		// The label stays the node's own (editable in draw.io); spacing moves
 		// its centre to the solved box (e.g. a cylinder label below the cap).
-		...(labelled === undefined
-			? []
-			: [labelOffsetStyle(labelled.box, node.box)]),
+		// Without a solved annotation the node's label layout (a box
+		// relative to the node) places it the same way.
+		...(labelled !== undefined
+			? [labelOffsetStyle(labelled.box, node.box)]
+			: node.compartments === undefined && node.labelLayout?.box !== undefined
+				? [
+						labelOffsetStyle(
+							{
+								...node.labelLayout.box,
+								x: node.box.x + node.labelLayout.box.x,
+								y: node.box.y + node.labelLayout.box.y,
+							},
+							node.box,
+						),
+					]
+				: []),
 	].join("");
 	const label = escapeXml(
 		node.compartments === undefined
@@ -1679,8 +1692,17 @@ function escapeHtml(value: string): string {
 		.replaceAll(">", "&gt;");
 }
 
+/**
+ * Code points XML 1.0 forbids even as character references (C0 controls
+ * other than tab and line breaks, lone surrogates, U+FFFE/U+FFFF): dropped,
+ * or the document is not well-formed.
+ */
+const XML_FORBIDDEN =
+	/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
 function escapeXml(value: string): string {
 	return value
+		.replace(XML_FORBIDDEN, "")
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;")

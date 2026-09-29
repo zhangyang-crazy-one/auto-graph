@@ -57,6 +57,7 @@ import {
 	compactDetail,
 	flattenDiagnosticDetailCsvStrings,
 	flattenDiagnosticDetailStrings,
+	keyTextObstacles,
 	recenterNodeLabelLayout,
 	reserveSideGutters,
 	sameBox,
@@ -635,13 +636,11 @@ export function applyExternalLabelRemediation(
 				...context.coordinatedMatrices.map((matrix) => matrix.box),
 				...context.coordinatedTables.map((table) => table.box),
 				...context.coordinatedEvidencePanels.map((panel) => panel.box),
-				// A key must not cover a title bar, a lane divider or a port
-				// label either.
+				// A key must not cover a title bar, a lane divider, a port
+				// label or a group title either.
 				...state.titleBarObstacles,
 				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
-				...state.baseTextAnnotations
-					.filter((annotation) => annotation.surfaceKind === "port-label")
-					.map((annotation) => annotation.box),
+				...keyTextObstacles(state.baseTextAnnotations),
 			],
 			// Every callout sits inside the frame, which must fit the page too.
 			...(state.frame === undefined

@@ -1276,6 +1276,37 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("moves a node label to its label layout box without annotations", () => {
+		const base = diagram();
+		const [a] = base.nodes;
+		if (a === undefined) throw new Error("fixture");
+		a.shape = "cylinder";
+		a.label = { text: "Orders DB" };
+		// Relative to the node: centred 8px below its centre, under the cap.
+		Object.assign(a, {
+			labelLayout: {
+				box: { x: 20, y: 21, width: 60, height: 14 },
+				font: { fontSize: 13 },
+				lines: [{ text: "Orders DB", width: 60 }],
+			},
+		});
+		const xml = exportDrawio(base);
+		expect(xml).toMatch(
+			/value="Orders DB" style="[^"]*fontSize=13;spacingTop=16;"/,
+		);
+	});
+
+	it("drops code points XML forbids from ids, titles and labels", () => {
+		const base = diagram({ id: "d\u0000", title: "T\u0001itle" } as never);
+		const [a] = base.nodes;
+		if (a === undefined) throw new Error("fixture");
+		a.label = { text: "A\u0000B\u000bC\uFFFE" };
+		const xml = exportDrawio(base);
+		expect(xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\uFFFE]/);
+		expect(xml).toContain('value="ABC"');
+		expect(xml).toContain('name="Title"');
+	});
+
 	it("leaves an unlabeled lane blank", () => {
 		const xml = exportDrawio(
 			diagram({
