@@ -11,6 +11,8 @@ export interface NudgeOrthogonalRoutesOptions {
 	idealNudgingDistance?: number;
 	maxTracks?: number;
 	hardObstacles?: readonly Box[];
+	/** Unexpanded node outlines (see `applyChannelTrackAssignments`). */
+	nodeOutlines?: readonly Box[];
 }
 
 export interface NudgeOrthogonalRoutesResult {
@@ -43,6 +45,7 @@ export function nudgeOrthogonalRoutes(
 		edges,
 		tracks.assignments,
 		options.hardObstacles ?? [],
+		options.nodeOutlines,
 	);
 	// A move rolled back for a hard obstacle may sit on another route's new
 	// track: settle the channel as a group.

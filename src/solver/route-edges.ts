@@ -313,7 +313,28 @@ export function coordinateEdges(
 			source === undefined || target === undefined
 				? undefined
 				: layeredCheck(edge, source.box, target.box);
-		if (layered !== undefined) {
+		// A same-side slot (#92) that moved off the layered end (a named
+		// port or another end holds that point) takes effect: the edge is
+		// routed instead of keeping the layered end.
+		const offSlot = (role: "source" | "target", point: Point | undefined) => {
+			const slot = sameSideSlots?.assignments.get(`${edge.id}:${role}`);
+			const end = role === "source" ? edge.source : edge.target;
+			const port = coordinatedNodeById
+				.get(end.nodeId)
+				?.ports?.find((entry) => entry.id === end.portId);
+			return (
+				slot !== undefined &&
+				point !== undefined &&
+				port === undefined &&
+				(end.anchor === undefined || end.anchor === slot.anchor) &&
+				Math.hypot(point.x - slot.point.x, point.y - slot.point.y) > 0.5
+			);
+		};
+		if (
+			layered !== undefined &&
+			!offSlot("source", layered[0]) &&
+			!offSlot("target", layered.at(-1))
+		) {
 			const points = layered.map((point) => ({ ...point }));
 			LAYERED_ROUTES.add(points);
 			coordinated.push({ ...edge, points });
@@ -744,7 +765,11 @@ export function coordinateEdges(
 					route: typeof route;
 					score: number[];
 					picks: [EndChoice, EndChoice];
-				} = { route, score: score(route), picks: [null, null] };
+				} = {
+					route,
+					score: withCrowdedEnds(score(route), 0),
+					picks: [null, null],
+				};
 				for (const sourceChoice of choicesFor("source")) {
 					for (const candidateTarget of choicesFor("target")) {
 						if (sourceChoice === null && candidateTarget === null) continue;
@@ -754,7 +779,12 @@ export function coordinateEdges(
 							...(sourceChoice?.input ?? {}),
 							...(targetChoice?.input ?? {}),
 						});
-						const candidateScore = score(candidate);
+						const candidateScore = withCrowdedEnds(
+							score(candidate),
+							[sourceChoice, targetChoice].filter(
+								(choice) => choice !== null && !choice.fits,
+							).length,
+						);
 						if (compareRouteSeverity(candidateScore, best.score) < 0) {
 							best = {
 								route: candidate,
@@ -931,6 +961,7 @@ export function coordinateEdges(
 				...hardObstacles,
 				...nodeObstacles.map((entry) => entry.box),
 			],
+			nodeOutlines: [...nodes.values()].map((geometry) => geometry.box),
 		});
 		// The edge's own obstacle set (soft, group, text, nodes, hard).
 		const obstaclesFor = (edge: CoordinatedEdge): Box[] => [
@@ -1046,6 +1077,19 @@ function routeSeverity(
 			.length,
 		route.diagnostics.length,
 	];
+}
+
+/**
+ * A relocation candidate's score with its crowded ends (moved onto a side
+ * without room: slot count or spacing) ranked just before length: of two
+ * equally clean candidates, one whose ends fit wins over one that crowds a
+ * side, whatever the order they were tried in.
+ */
+export function withCrowdedEnds(
+	score: readonly number[],
+	crowded: number,
+): number[] {
+	return [...score.slice(0, -1), crowded, ...score.slice(-1)];
 }
 
 function compareRouteSeverity(

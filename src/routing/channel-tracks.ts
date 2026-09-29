@@ -206,6 +206,12 @@ export function applyChannelTrackAssignments(
 	edges: readonly CoordinatedEdge[],
 	assignments: readonly ChannelTrackAssignment[],
 	hardObstacles: readonly Box[] = [],
+	/**
+	 * Unexpanded node outlines. Hard obstacles may be node boxes grown by a
+	 * margin or gutter, which contain their own route ends; a moved track
+	 * is kept out of its end nodes' real outlines instead.
+	 */
+	nodeOutlines?: readonly Box[],
 ): CoordinatedEdge[] {
 	const byEdge = new Map<string, ChannelTrackAssignment[]>();
 	for (const assignment of assignments) {
@@ -240,18 +246,18 @@ export function applyChannelTrackAssignments(
 		if (last !== undefined) {
 			points[points.length - 1] = { ...last };
 		}
-		// The edge's own end nodes are not in its way.
-		const endBoxes = hardObstacles.filter(
-			(box) =>
-				(first !== undefined && touchesBox(first, box)) ||
-				(last !== undefined && touchesBox(last, box)),
-		);
+		// The edge's own end nodes are not in its way, but it may not cut
+		// through them either.
+		const atEnd = (box: Box) =>
+			(first !== undefined && touchesBox(first, box)) ||
+			(last !== undefined && touchesBox(last, box));
+		const endBoxes = hardObstacles.filter(atEnd);
 		if (
 			routeHitsHard(
 				points,
 				hardObstacles.filter((box) => !endBoxes.includes(box)),
 			) ||
-			routeEntersInterior(points, endBoxes)
+			routeEntersInterior(points, nodeOutlines?.filter(atEnd) ?? endBoxes)
 		) {
 			return edge;
 		}

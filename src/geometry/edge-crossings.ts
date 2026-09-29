@@ -5,6 +5,12 @@ import type { Point } from "../ir/geometry.js";
 export const EDGE_CROSSING_GLYPH_RADIUS = 6;
 
 /**
+ * Crossings within this fraction of a segment's length from either end
+ * get no glyph in the coordinate exporters (SVG, Excalidraw, geometry).
+ */
+export const EDGE_CROSSING_END_CUTOFF = 0.02;
+
+/**
  * Detect proper (non-endpoint) intersections between orthogonal edge
  * segments and emit deterministic jump records (#84).
  *
@@ -202,7 +208,13 @@ function fitsGlyph(
 	b: Point,
 	lastSegment: boolean,
 ): boolean {
+	// The exporters' own cutoff too: a glyph that fits in pixels but sits
+	// within the end fraction of a long segment is never drawn.
+	const length = Math.hypot(b.x - a.x, b.y - a.y);
+	const t = length > 0 ? Math.hypot(point.x - a.x, point.y - a.y) / length : 0;
 	return (
+		t > EDGE_CROSSING_END_CUTOFF &&
+		t < 1 - EDGE_CROSSING_END_CUTOFF &&
 		Math.hypot(point.x - a.x, point.y - a.y) >= EDGE_CROSSING_GLYPH_RADIUS &&
 		Math.hypot(point.x - b.x, point.y - b.y) >=
 			EDGE_CROSSING_GLYPH_RADIUS + (lastSegment ? ARROWHEAD_LENGTH : 0)

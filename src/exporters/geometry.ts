@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { hopGlyphs } from "../geometry/edge-crossings.js";
+import {
+	EDGE_CROSSING_END_CUTOFF,
+	hopGlyphs,
+} from "../geometry/edge-crossings.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { Box, Point, PreviousLayout } from "../ir/geometry.js";
 import type {
@@ -721,7 +724,10 @@ function pathWithJumps(
 						off: Math.abs((jump.x - a.x) * uy - (jump.y - a.y) * ux),
 					}))
 					.filter(
-						(entry) => entry.off <= 0.75 && entry.t > 0.02 && entry.t < 0.98,
+						(entry) =>
+							entry.off <= 0.75 &&
+							entry.t > EDGE_CROSSING_END_CUTOFF &&
+							entry.t < 1 - EDGE_CROSSING_END_CUTOFF,
 					)
 					.sort((left, right) => left.t - right.t)
 					.map((entry) => entry.jump),

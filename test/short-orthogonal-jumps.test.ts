@@ -228,6 +228,35 @@ describe("short-orthogonal hard-obstacle gate (#95)", () => {
 });
 
 describe("edge crossings / jumps (#84)", () => {
+	it("lets the other edge jump when the crossing is within a long segment's end cutoff", () => {
+		// "a" is the under edge, but its crossing sits 10px into a 1000px
+		// segment: it clears the glyph radius, yet no exporter draws a hop
+		// within 2% of a segment's end. "b" crosses mid-segment and jumps.
+		const crossings = detectOrthogonalEdgeCrossings([
+			{
+				id: "a",
+				source: { nodeId: "s" },
+				target: { nodeId: "t" },
+				points: [
+					{ x: 0, y: 0 },
+					{ x: 1000, y: 0 },
+				],
+			},
+			{
+				id: "b",
+				source: { nodeId: "u" },
+				target: { nodeId: "v" },
+				points: [
+					{ x: 10, y: -50 },
+					{ x: 10, y: 50 },
+				],
+			},
+		]);
+		expect(crossings).toEqual([
+			expect.objectContaining({ underEdgeId: "b", overEdgeId: "a" }),
+		]);
+	});
+
 	it("detects orthogonal crossings with deterministic over/under", () => {
 		const crossings = detectOrthogonalEdgeCrossings([
 			{

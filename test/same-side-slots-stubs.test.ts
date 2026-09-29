@@ -3,6 +3,7 @@ import { attachSlotFractions } from "../src/geometry/attach-slots.js";
 import { computeShapeGeometry } from "../src/geometry/shapes.js";
 import type { NormalizedEdge } from "../src/ir/elements.js";
 import {
+	applyChannelTrackAssignments,
 	nudgeOrthogonalRoutes,
 	revertCoincidentMoves,
 	revertCrossingMoves,
@@ -13,6 +14,7 @@ import {
 	slotFits,
 } from "../src/routing/same-side-slots.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { withCrowdedEnds } from "../src/solver/route-edges.js";
 
 function shape(
 	id: string,
@@ -80,6 +82,64 @@ describe("channel nudge rollback", () => {
 		const settled = revertCoincidentMoves(original as never, moved as never);
 		expect(settled.overlapping).toBe(true);
 		expect(settled.edges[2]?.points[1]?.y).toBe(60);
+	});
+});
+
+describe("channel track moves beside margin-grown node boxes", () => {
+	// S (0,0,40,40) → T (100,80,40,40); the vertical track moves x 60 → 70.
+	const route = {
+		id: "e",
+		source: { nodeId: "s" },
+		target: { nodeId: "t" },
+		points: [
+			{ x: 40, y: 20 },
+			{ x: 60, y: 20 },
+			{ x: 60, y: 100 },
+			{ x: 100, y: 100 },
+		],
+	};
+	const assignments = [
+		{ edgeId: "e", segmentIndex: 1, axis: "v" as const, track: 1, coord: 70 },
+	];
+	// Hard obstacles grown by a 5px margin contain the route's own ends.
+	const grown = [
+		{ x: -5, y: -5, width: 50, height: 50 },
+		{ x: 95, y: 75, width: 50, height: 50 },
+	];
+	const outlines = [
+		{ x: 0, y: 0, width: 40, height: 40 },
+		{ x: 100, y: 80, width: 40, height: 40 },
+	];
+
+	it("keeps a valid move when the real end outlines are given", () => {
+		const [moved] = applyChannelTrackAssignments(
+			[route] as never,
+			assignments,
+			grown,
+			outlines,
+		);
+		expect(moved?.points[1]).toEqual({ x: 70, y: 20 });
+	});
+
+	it("still refuses a move through an end node's real outline", () => {
+		const [moved] = applyChannelTrackAssignments(
+			[route] as never,
+			[
+				{
+					edgeId: "e",
+					segmentIndex: 0,
+					axis: "h" as const,
+					track: 1,
+					coord: 30,
+				},
+			],
+			grown,
+			[
+				{ x: 0, y: 0, width: 80, height: 40 },
+				{ x: 100, y: 80, width: 40, height: 40 },
+			],
+		);
+		expect(moved).toBe(route);
 	});
 });
 
@@ -728,5 +788,73 @@ describe("relocated endpoint capacity reports", () => {
 		expect(first?.y).toBe(248);
 		expect(last?.y).toBe(248);
 		expect(first?.x).not.toBe(last?.x);
+	});
+});
+
+describe("same-side slots on global layout pages", () => {
+	it("moves a layered end off a named port onto its slot", () => {
+		const node = (id: string, ports?: { id: string; side: "right" }[]) => ({
+			id,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 48 },
+			padding: { top: 8, right: 8, bottom: 8, left: 8 },
+			...(ports === undefined ? {} : { ports }),
+		});
+		const solved = solveDiagram(
+			{
+				id: "layered-slots",
+				direction: "LR",
+				nodes: [
+					node("hub", [{ id: "p", side: "right" }]),
+					node("x"),
+					node("y"),
+				] as never,
+				edges: [
+					{ id: "anon", source: { nodeId: "hub" }, target: { nodeId: "x" } },
+					{
+						id: "via-port",
+						source: { nodeId: "hub", portId: "p" },
+						target: { nodeId: "y" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "global", routeKind: "short-orthogonal-jumps" },
+		);
+		const port = solved.nodes.find((entry) => entry.id === "hub")?.ports?.[0]
+			?.anchor;
+		const start = solved.edges.find((edge) => edge.id === "anon")?.points[0];
+		expect(port).toBeDefined();
+		expect(start).toBeDefined();
+		if (port === undefined || start === undefined) return;
+		// The layered route ended 7px from the port; the slot keeps 10px.
+		expect(
+			Math.hypot(start.x - port.x, start.y - port.y),
+		).toBeGreaterThanOrEqual(10);
+	});
+});
+
+describe("relocation ranking", () => {
+	const lexicographic = (left: number[], right: number[]) => {
+		for (let index = 0; index < left.length; index += 1) {
+			const difference = (left[index] ?? 0) - (right[index] ?? 0);
+			if (difference !== 0) return difference;
+		}
+		return 0;
+	};
+
+	it("ranks an equally clean candidate that fits ahead of a crowding one", () => {
+		// Same hits and penalties; the crowding candidate is even shorter.
+		const crowding = withCrowdedEnds([0, 0, 0, 0, 120], 1);
+		const fitting = withCrowdedEnds([0, 0, 0, 0, 150], 0);
+		expect(lexicographic(fitting, crowding)).toBeLessThan(0);
+	});
+
+	it("never lets room outrank a cleaner route", () => {
+		const cleanerButCrowding = withCrowdedEnds([0, 0, 0, 0, 120], 1);
+		const fittingWithHit = withCrowdedEnds([0, 1, 0, 0, 120], 0);
+		expect(lexicographic(cleanerButCrowding, fittingWithHit)).toBeLessThan(0);
 	});
 });

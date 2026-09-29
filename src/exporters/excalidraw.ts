@@ -1,5 +1,6 @@
 import {
 	ARROWHEAD_LENGTH,
+	EDGE_CROSSING_END_CUTOFF,
 	EDGE_CROSSING_GLYPH_RADIUS,
 	hopGlyphs,
 } from "../geometry/edge-crossings.js";
@@ -459,7 +460,7 @@ function excalidrawPointOnSegment(
 		return excalidrawSquaredDistance(start, point) <= tolerance * tolerance;
 	}
 	const t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq;
-	if (t <= 0.02 || t >= 0.98) {
+	if (t <= EDGE_CROSSING_END_CUTOFF || t >= 1 - EDGE_CROSSING_END_CUTOFF) {
 		return false;
 	}
 	const proj = { x: start.x + t * dx, y: start.y + t * dy };
