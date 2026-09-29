@@ -501,6 +501,16 @@ export interface ExternalLabelShelfOptions {
 /** Callouts are kept this far inside `pageBounds`. */
 const SHELF_PAGE_INSET = 8;
 
+/** A callout key's drawn extent: its text box plus the backdrop margin. */
+function keyBackdrop(box: Box): Box {
+	return {
+		x: box.x - LABEL_ROUTE_CLEARANCE.x,
+		y: box.y - LABEL_ROUTE_CLEARANCE.y,
+		width: box.width + 2 * LABEL_ROUTE_CLEARANCE.x,
+		height: box.height + 2 * LABEL_ROUTE_CLEARANCE.y,
+	};
+}
+
 /** The page area inside `insets`, each at least `minimum`. */
 function usablePage(
 	page: { width: number; height: number },
@@ -612,24 +622,37 @@ export function buildExternalLabelCallouts(
 			? undefined
 			: usablePage(options.pageBounds, shelf.pageInsets, 0);
 	const pageIsHard = shelf.pageInsets !== undefined;
-	const onPage = (box: Box) =>
-		keyArea === undefined ||
-		(box.x >= keyArea.left - 1e-6 &&
-			box.y >= keyArea.top - 1e-6 &&
-			box.x + box.width <= keyArea.right + 1e-6 &&
-			box.y + box.height <= keyArea.bottom + 1e-6);
+	// A key is drawn over an opaque backdrop a little larger than its text:
+	// every test below uses (and reserves) that extent.
+	const onPage = (key: Box) => {
+		const box = keyBackdrop(key);
+		return (
+			keyArea === undefined ||
+			(box.x >= keyArea.left - 1e-6 &&
+				box.y >= keyArea.top - 1e-6 &&
+				box.x + box.width <= keyArea.right + 1e-6 &&
+				box.y + box.height <= keyArea.bottom + 1e-6)
+		);
+	};
 	for (const entry of measured) {
-		const clearOfKeysAndObstacles = (box: Box) =>
-			(!pageIsHard || onPage(box)) &&
-			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
-			![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
-				boxesOverlap(box, obstacle, 0),
+		const clearOfKeysAndObstacles = (key: Box) => {
+			const box = keyBackdrop(key);
+			return (
+				(!pageIsHard || onPage(key)) &&
+				!placedKeys.some((placed) =>
+					boxesOverlap(box, keyBackdrop(placed), 1),
+				) &&
+				![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
+					boxesOverlap(box, obstacle, 0),
+				)
 			);
-		const clear = (box: Box) =>
-			clearOfKeysAndObstacles(box) &&
+		};
+		const clear = (key: Box) =>
+			clearOfKeysAndObstacles(key) &&
 			![...(shelf.routes ?? new Map()).entries()].some(
 				([edgeId, points]) =>
-					edgeId !== entry.source.ownerId && polylineEntersBox(points, box),
+					edgeId !== entry.source.ownerId &&
+					polylineEntersBox(points, keyBackdrop(key)),
 			);
 		if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
 			const route = shelf.routes?.get(entry.source.ownerId) ?? [];
@@ -826,7 +849,7 @@ function packShelf(
 			...entries.map((entry, index) =>
 				inlineEntries.has(index) && entry.source !== undefined
 					? entry.source.box
-					: entry.keyBox,
+					: keyBackdrop(entry.keyBox),
 			),
 		];
 		const placed: (Box | undefined)[] = [];

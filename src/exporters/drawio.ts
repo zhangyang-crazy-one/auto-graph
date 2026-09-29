@@ -131,6 +131,19 @@ export function exportDrawio(
 	// in draw.io too and move with it.
 	const laneCells: { id: string; box: Box; children: readonly string[] }[] = [];
 	for (const swimlane of diagram.swimlanes ?? []) {
+		// The pool's outer frame, as the SVG draws it: one editable container
+		// holding its lanes.
+		const pool =
+			swimlane.box === undefined
+				? undefined
+				: {
+						id: vertex(
+							"",
+							"rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;",
+							swimlane.box,
+						),
+						box: swimlane.box,
+					};
 		const lanes = swimlaneCells(swimlane, annotations);
 		const laneIds: string[] = [];
 		for (const cell of lanes) {
@@ -141,7 +154,7 @@ export function exportDrawio(
 				cell.style,
 				cell.box,
 				parent === undefined || cell.parentIndex === undefined
-					? undefined
+					? pool
 					: { id: laneIds[cell.parentIndex] ?? "1", box: parent.box },
 			);
 			laneIds.push(id);

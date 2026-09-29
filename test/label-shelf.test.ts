@@ -619,4 +619,54 @@ describe("label shelf packing (#93)", () => {
 		const crossesRoute = callout.x < 240 && callout.x + callout.width > 240;
 		expect(crossesRoute).toBe(false);
 	});
+
+	it("keeps a key's backdrop, not only its text, off a node", () => {
+		const label = required("a", "short", {
+			x: 100,
+			y: 100,
+			width: 40,
+			height: 14,
+		});
+		const routes = new Map([
+			[
+				"a",
+				[
+					{ x: 20, y: 107 },
+					{ x: 220, y: 107 },
+				],
+			],
+		]);
+		const options = { textMeasurer: new DeterministicTextMeasurer() };
+		const bounds = { x: 0, y: 0, width: 240, height: 220 };
+		const free = buildExternalLabelCallouts([label], bounds, options, {
+			routes,
+		})[0]?.callout.keyBox;
+		expect(free).toBeDefined();
+		if (free === undefined) return;
+		// A node 1px right of the key's text box: inside its backdrop.
+		const node = {
+			x: free.x + free.width + 1,
+			y: free.y - 20,
+			width: 30,
+			height: free.height + 40,
+		};
+		const key = buildExternalLabelCallouts([label], bounds, options, {
+			routes,
+			keyObstacles: [node],
+		})[0]?.callout.keyBox;
+		expect(key).toBeDefined();
+		if (key === undefined) return;
+		const backdrop = {
+			x: key.x - 4,
+			y: key.y - 2,
+			width: key.width + 8,
+			height: key.height + 4,
+		};
+		const overlaps =
+			backdrop.x < node.x + node.width &&
+			node.x < backdrop.x + backdrop.width &&
+			backdrop.y < node.y + node.height &&
+			node.y < backdrop.y + backdrop.height;
+		expect(overlaps).toBe(false);
+	});
 });

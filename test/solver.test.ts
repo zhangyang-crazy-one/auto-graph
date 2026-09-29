@@ -1048,6 +1048,41 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("keeps an authored position when ports grow the node", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				direction: "TB",
+				nodes: [
+					{
+						...node("many-ports"),
+						size: { width: 100, height: 40 },
+						position: { x: 0, y: 0 },
+						ports: Array.from({ length: 6 }, (_, i) => ({
+							id: `p${i}`,
+							side: "right" as const,
+							kind: "flow" as const,
+						})),
+					},
+					{ ...node("fixed"), position: { x: 300, y: 0 } },
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+			},
+			{ initialLayout: "positions", portShifting: { spacing: 40 } },
+		);
+		const grown = result.nodes.find((entry) => entry.id === "many-ports");
+		// It keeps its authored top-left (and grows), and so does its
+		// neighbour: nothing is shifted to make room for the growth.
+		expect(grown?.box.height).toBeGreaterThan(40);
+		expect(grown?.box.x).toBe(0);
+		expect(grown?.box.y).toBe(0);
+		expect(
+			result.nodes.find((entry) => entry.id === "fixed")?.box,
+		).toMatchObject({ x: 300, y: 0 });
+	});
+
 	it("re-clamps containment after later constraints push a child outside", () => {
 		const result = solveDiagram({
 			...sampleDiagram(),

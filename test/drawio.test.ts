@@ -640,6 +640,38 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("draws the pool frame and nests its lanes in it", () => {
+		const xml = exportDrawio(
+			diagram({
+				swimlanes: [
+					{
+						id: "pool",
+						orientation: "horizontal",
+						box: { x: 480, y: 80, width: 440, height: 80 },
+						lanes: [
+							{
+								id: "lane",
+								children: [],
+								box: { x: 490, y: 90, width: 420, height: 60 },
+							},
+						],
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		// The pool frame at (480,80) - page origin (500,100), as the SVG's
+		// swimlane-frame rect; the lane is its child at (10,10).
+		const poolId = xml.match(
+			/<mxCell id="(\d+)" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="-20" y="-20" width="440" height="80"/,
+		)?.[1];
+		expect(poolId).toBeDefined();
+		expect(xml).toMatch(
+			new RegExp(
+				`style="swimlane;[^"]*" vertex="1" parent="${poolId}"><mxGeometry x="10" y="10" width="420" height="60"`,
+			),
+		);
+	});
+
 	it("emits a nested group after an equally large parent", () => {
 		// "z" contains "a" with no padding: both boxes are the same, and "a"
 		// sorts first by id, yet the parent must come first.
