@@ -38,6 +38,7 @@ import {
 	routeEndDirectionPenalty,
 	separateParallelSegments,
 	simplifyRoute,
+	trackPitch,
 } from "../routing/index.js";
 import {
 	assignSameSideSlots,
@@ -546,7 +547,7 @@ export function coordinateEdges(
 					...softObstacles.map(() => ({ kind: "evidence" as const })),
 				]
 			: routeHardObstacleMetadata;
-		const nudgePitch = options.idealNudgingDistance ?? 10;
+		const nudgePitch = trackPitch(options.idealNudgingDistance);
 		const routeInput: RouteEdgeInput = {
 			kind: options.routeKind ?? "orthogonal",
 			direction,
@@ -970,7 +971,7 @@ export function coordinateEdges(
 	// derived from the routes.
 	if (shortPath && options.rsopChannelNudge === true) {
 		const nudged = nudgeOrthogonalRoutes(finalized, {
-			idealNudgingDistance: options.idealNudgingDistance ?? 10,
+			idealNudgingDistance: trackPitch(options.idealNudgingDistance),
 			hardObstacles: [
 				...hardObstacles,
 				...nodeObstacles.map((entry) => entry.box),

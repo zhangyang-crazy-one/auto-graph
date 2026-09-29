@@ -1247,6 +1247,57 @@ describe("draw.io export", () => {
 		}
 	});
 
+	it("keeps authored compartments when only some rows are solved", () => {
+		const styled = diagram({
+			textAnnotations: [
+				{
+					text: "Engine",
+					ownerId: "b",
+					surfaceKind: "compartment-row",
+					surfaceIndex: 1,
+					box: { x: 832, y: 127, width: 36, height: 13 },
+					lines: [{ text: "Engine", width: 36 }],
+					fontFamily: "Arial",
+					fontSize: 11,
+				},
+			],
+		} as unknown as Partial<CoordinatedDiagram>);
+		const [, b] = styled.nodes;
+		if (b === undefined) throw new Error("fixture");
+		b.compartments = {
+			stereotype: "«block»",
+			name: "Engine",
+			properties: ["rpm: Real"],
+		};
+		const xml = exportDrawio(styled);
+		// The stereotype and property rows are not solved: the node keeps its
+		// authored compartments, and no partial row cells are drawn.
+		expect(xml).toContain("«block»&lt;br&gt;&lt;b&gt;Engine&lt;/b&gt;");
+		expect(xml).toContain("rpm: Real");
+		expect(xml).not.toMatch(/value="Engine" style="text;/);
+	});
+
+	it("keeps the line breaks of an authored port label without solved text", () => {
+		const base = diagram();
+		const [a] = base.nodes;
+		if (a === undefined) throw new Error("fixture");
+		Object.assign(a, {
+			ports: [
+				{
+					id: "p",
+					side: "right",
+					box: { x: 596, y: 116, width: 8, height: 8 },
+					anchor: { x: 600, y: 120 },
+					label: { text: "CMD\nIN" },
+				},
+			],
+		});
+		const xml = exportDrawio(base);
+		expect(xml).toMatch(
+			/value="CMD&lt;br&gt;IN" style="text;[^"]*"[^>]*><mxGeometry [^>]*height="28"/,
+		);
+	});
+
 	it("draws solved compartment rows at their own boxes", () => {
 		const styled = diagram({
 			textAnnotations: [
