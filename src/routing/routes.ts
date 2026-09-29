@@ -16,6 +16,7 @@ import type {
 import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
 import { resolveMaxCorners, resolveMaxNodes } from "./budget.js";
 import { trackPitch } from "./channel-tracks.js";
+import { attachPointCap } from "./same-side-slots.js";
 import { findSparseGridPath } from "./sparse-grid-router.js";
 import type {
 	RouteEdgeInput,
@@ -1091,13 +1092,9 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 		{
 			fallbackSeverity: input.fallbackSeverity,
 		};
-	const maxAttachPoints = Math.min(
-		5,
-		Math.max(
-			1,
-			input.maxAttachPointsPerSide ??
-				((input.kind ?? "orthogonal") === "short-orthogonal-jumps" ? 3 : 1),
-		),
+	const maxAttachPoints = attachPointCap(
+		input.maxAttachPointsPerSide,
+		(input.kind ?? "orthogonal") === "short-orthogonal-jumps" ? 3 : 1,
 	);
 	// Best rejected path from A* routing — used as fallback when all
 	// heuristic candidates also fail, to avoid returning a 2-point

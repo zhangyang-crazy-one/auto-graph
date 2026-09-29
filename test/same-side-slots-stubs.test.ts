@@ -278,6 +278,29 @@ describe("same-side slots + escape stubs (#92)", () => {
 		expect(new Set(ys).size).toBe(3);
 	});
 
+	it("caps a side at the default slot count when given NaN", () => {
+		const targets = ["b", "c", "d", "e", "f", "g"];
+		const nodes = new Map([
+			shape("a", 0, 0, 80, 480),
+			...targets.map((id, index) => shape(id, 200, index * 80)),
+		]);
+		const edges: NormalizedEdge[] = targets.map((target) => ({
+			id: `to-${target}`,
+			source: { nodeId: "a", anchor: "right" },
+			target: { nodeId: target, anchor: "left" },
+		}));
+		// Six anonymous ends on one side overflow the default three slots.
+		const assigned = assignSameSideSlots({
+			edges,
+			nodes,
+			direction: "LR",
+			maxAttachPointsPerSide: Number.NaN,
+		});
+		expect(assigned.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+			"routing.channel.capacity_exhausted",
+		);
+	});
+
 	it("counts named ports on a side toward its slot capacity", () => {
 		const nodes = new Map([
 			shape("a", 0, 0, 80, 160),

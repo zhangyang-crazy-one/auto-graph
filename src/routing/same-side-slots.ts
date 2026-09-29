@@ -57,13 +57,25 @@ export const MIN_ATTACH_SPACING = 10;
  * already holds `occupied` (ports and assigned ends): within the slot
  * count and at least `MIN_ATTACH_SPACING` from every one of them.
  */
+/**
+ * Attach points per side as a whole number from 1 to 5: a non-finite cap
+ * (a library caller's NaN) takes `fallback`, and a fraction rounds down.
+ */
+export function attachPointCap(
+	value: number | undefined,
+	fallback = 3,
+): number {
+	const cap = value !== undefined && Number.isFinite(value) ? value : fallback;
+	return Math.min(5, Math.max(1, Math.floor(cap)));
+}
+
 export function slotFits(
 	fraction: number,
 	occupied: readonly number[],
 	length: number,
 	maxAttachPointsPerSide = 3,
 ): boolean {
-	const maxSlots = Math.min(5, Math.max(1, maxAttachPointsPerSide));
+	const maxSlots = attachPointCap(maxAttachPointsPerSide);
 	if (occupied.length + 1 > maxSlots) return false;
 	return occupied.every(
 		(other) => Math.abs(other - fraction) * length >= MIN_ATTACH_SPACING - 1e-6,
@@ -77,7 +89,7 @@ export function slotFits(
 export function assignSameSideSlots(
 	input: AssignSameSideSlotsInput,
 ): AssignSameSideSlotsResult {
-	const maxSlots = Math.min(5, Math.max(1, input.maxAttachPointsPerSide ?? 3));
+	const maxSlots = attachPointCap(input.maxAttachPointsPerSide);
 	const diagnostics: Diagnostic[] = [];
 	const buckets = new Map<
 		string,
