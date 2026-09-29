@@ -10,6 +10,7 @@ import type {
 	EdgeCrossingStyle,
 	NodeShape,
 	Swimlane,
+	SwimlaneLane,
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
@@ -114,22 +115,27 @@ export function exportDrawio(
 			);
 		}
 	}
+	// Lane cells, so a lane's children (nodes, groups) can be its children
+	// in draw.io too and move with it.
+	const laneCells: { id: string; box: Box; children: readonly string[] }[] = [];
 	for (const swimlane of diagram.swimlanes ?? []) {
 		const lanes = swimlaneCells(swimlane, annotations);
 		const laneIds: string[] = [];
 		for (const cell of lanes) {
 			const parent =
 				cell.parentIndex === undefined ? undefined : lanes[cell.parentIndex];
-			laneIds.push(
-				vertex(
-					cell.value,
-					cell.style,
-					cell.box,
-					parent === undefined || cell.parentIndex === undefined
-						? undefined
-						: { id: laneIds[cell.parentIndex] ?? "1", box: parent.box },
-				),
+			const id = vertex(
+				cell.value,
+				cell.style,
+				cell.box,
+				parent === undefined || cell.parentIndex === undefined
+					? undefined
+					: { id: laneIds[cell.parentIndex] ?? "1", box: parent.box },
 			);
+			laneIds.push(id);
+			if (cell.lane !== undefined) {
+				laneCells.push({ id, box: cell.box, children: cell.lane.children });
+			}
 		}
 	}
 	// Group members are children of their group cell, so dragging a group
@@ -144,6 +150,19 @@ export function exportDrawio(
 	const groupCells = new Map<string, { id: string; box: Box }>();
 	const parentGroup = (group: (typeof diagram.groups)[number] | undefined) =>
 		group === undefined ? undefined : groupCells.get(group.id);
+	// The lane listing an element as a child (or, for a group, the lane its
+	// box lies in): the parent of a node or top-level group outside groups.
+	const laneOf = (id: string, box?: Box) =>
+		laneCells.find((lane) => lane.children.includes(id)) ??
+		(box === undefined
+			? undefined
+			: laneCells.find(
+					(lane) =>
+						box.x >= lane.box.x - 0.5 &&
+						box.y >= lane.box.y - 0.5 &&
+						box.x + box.width <= lane.box.x + lane.box.width + 0.5 &&
+						box.y + box.height <= lane.box.y + lane.box.height + 0.5,
+				));
 	// Outer groups first so nested ones are drawn on top (and their parent
 	// cell exists before them).
 	for (const group of [...diagram.groups].sort(
@@ -169,7 +188,7 @@ export function exportDrawio(
 							outer.id !== group.id && outer.groupIds.includes(group.id),
 					),
 				),
-			),
+			) ?? laneOf(group.id, group.box),
 		);
 		groupCells.set(group.id, { id: groupId, box: group.box });
 		if (title !== undefined) {
@@ -231,13 +250,16 @@ export function exportDrawio(
 							(left, right) =>
 								(left.surfaceIndex ?? 0) - (right.surfaceIndex ?? 0),
 						);
-		const group = parentGroup(
-			innermost(
-				diagram.groups.filter((candidate) =>
-					candidate.nodeIds.includes(node.id),
+		// A node in a group is its child; otherwise a lane child is the
+		// lane's.
+		const group =
+			parentGroup(
+				innermost(
+					diagram.groups.filter((candidate) =>
+						candidate.nodeIds.includes(node.id),
+					),
 				),
-			),
-		);
+			) ?? laneOf(node.id);
 		cells.push(
 			renderNodeCell(
 				cellId,
@@ -536,6 +558,8 @@ interface SwimlaneCell {
 	value: string;
 	style: string;
 	box: Box;
+	/** The lane this cell draws (lane cells only, not their titles). */
+	lane?: SwimlaneLane;
 	/** Index of the cell (in the same list) this one is a child of. */
 	parentIndex?: number;
 }
@@ -578,6 +602,7 @@ function swimlaneCells(
 			value: title === undefined ? escapeHtml(lane.label?.text ?? "") : "",
 			style: `swimlane;whiteSpace=wrap;html=1;startSize=${formatNumber(startSize)};${leftHeader ? "horizontal=0;" : ""}`,
 			box: lane.box,
+			lane,
 		});
 		if (title !== undefined) {
 			cells.push({
@@ -641,6 +666,9 @@ function renderEdgeCell(input: {
 		`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
 	];
 	if (edge.style === "dashed") styleParts.push("dashed=1");
+	// The label (inline or a callout key) sits over connectors like the
+	// SVG's: an opaque backdrop keeps strokes from showing through it.
+	if (input.label !== "") styleParts.push("labelBackgroundColor=#ffffff");
 	if (input.labelFont !== undefined) {
 		styleParts.push(...labelFontStyle(input.labelFont));
 	}

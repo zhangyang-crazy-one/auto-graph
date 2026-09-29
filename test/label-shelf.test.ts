@@ -589,4 +589,34 @@ describe("label shelf packing (#93)", () => {
 		expect(key).toBeDefined();
 		expect(key?.y ?? -1).toBeGreaterThanOrEqual(0);
 	});
+
+	it("keeps a bounded callout off connector routes", () => {
+		// The column beside the content is taken and an unrelated route runs
+		// down through the next free one.
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 20, y: 40, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 800, height: 120 },
+			},
+			{
+				obstacles: [{ x: 100, y: 0, width: 120, height: 120 }],
+				routes: new Map([
+					[
+						"z",
+						[
+							{ x: 240, y: 0 },
+							{ x: 240, y: 120 },
+						],
+					],
+				]),
+			},
+		);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		if (callout === undefined) return;
+		const crossesRoute = callout.x < 240 && callout.x + callout.width > 240;
+		expect(crossesRoute).toBe(false);
+	});
 });

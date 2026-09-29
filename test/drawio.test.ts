@@ -346,7 +346,13 @@ describe("draw.io export", () => {
 				} as never,
 			],
 		});
-		expect(exportDrawio(wrapped)).toContain('value="first&lt;br&gt;second"');
+		const xml = exportDrawio(wrapped);
+		expect(xml).toContain('value="first&lt;br&gt;second"');
+		// An opaque backdrop keeps crossing strokes out of the label, as in
+		// the SVG.
+		expect(xml).toMatch(
+			/value="first&lt;br&gt;second" style="[^"]*labelBackgroundColor=#ffffff/,
+		);
 	});
 
 	it("draws edge labels with the solved typography", () => {
@@ -539,6 +545,13 @@ describe("draw.io export", () => {
 		expect(xml).toMatch(
 			new RegExp(
 				`value="Order&lt;br&gt;desk" [^>]*parent="${laneId}"><mxGeometry x="-5" y="6" `,
+			),
+		);
+		// The lane's child node is a child of the lane cell (lane-relative),
+		// so dragging the lane carries it along.
+		expect(xml).toMatch(
+			new RegExp(
+				`value="A" style="[^"]*" vertex="1" parent="${laneId}"><mxGeometry x="0" y="0" width="100" height="40"`,
 			),
 		);
 	});

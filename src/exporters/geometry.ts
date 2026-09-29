@@ -727,6 +727,8 @@ function pathWithJumps(
 					.map((entry) => entry.jump),
 				a,
 				b,
+				0,
+				(jump) => jump.style ?? "jump",
 			);
 			for (const glyph of glyphs) {
 				commands.push({ op: "L", x: glyph.before.x, y: glyph.before.y });

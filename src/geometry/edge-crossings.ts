@@ -109,6 +109,12 @@ export function hopGlyphs<T extends Point>(
 	end: Point,
 	/** Extra room kept clear before `end` (an arrowhead on a final segment). */
 	endClearance = 0,
+	/**
+	 * Drawing style of a crossing (gap or jump). A cluster mixing styles is
+	 * split into same-style runs meeting halfway between neighbours, so each
+	 * crossing keeps its own style and no two glyphs overlap.
+	 */
+	styleOf?: (hop: T) => string,
 ): HopGlyph<T>[] {
 	const length = Math.hypot(end.x - start.x, end.y - start.y);
 	if (length < 1e-9) return [];
@@ -139,15 +145,42 @@ export function hopGlyphs<T extends Point>(
 		}
 	}
 	const glyphs: HopGlyph<T>[] = [];
-	for (const hops of clusters) {
-		// Every member fits on its own, so the cluster's glyph fits too.
-		const from = along(hops[0] as T) - EDGE_CROSSING_GLYPH_RADIUS;
-		const to = along(hops.at(-1) as T) + EDGE_CROSSING_GLYPH_RADIUS;
-		glyphs.push({
-			hops,
-			before: { x: start.x + ux * from, y: start.y + uy * from },
-			after: { x: start.x + ux * to, y: start.y + uy * to },
-			halfLength: (to - from) / 2,
+	for (const cluster of clusters) {
+		const runs: T[][] = [];
+		for (const hop of cluster) {
+			const run = runs.at(-1);
+			const previous = run?.at(-1);
+			if (
+				run !== undefined &&
+				previous !== undefined &&
+				styleOf?.(previous) === styleOf?.(hop)
+			) {
+				run.push(hop);
+			} else {
+				runs.push([hop]);
+			}
+		}
+		runs.forEach((hops, index) => {
+			// Every member fits on its own, so the cluster's glyph fits too;
+			// runs of one cluster split it halfway between their neighbours.
+			const first = along(hops[0] as T);
+			const last = along(hops.at(-1) as T);
+			const previous = runs[index - 1]?.at(-1);
+			const next = runs[index + 1]?.[0];
+			const from =
+				previous === undefined
+					? first - EDGE_CROSSING_GLYPH_RADIUS
+					: (along(previous) + first) / 2;
+			const to =
+				next === undefined
+					? last + EDGE_CROSSING_GLYPH_RADIUS
+					: (last + along(next)) / 2;
+			glyphs.push({
+				hops,
+				before: { x: start.x + ux * from, y: start.y + uy * from },
+				after: { x: start.x + ux * to, y: start.y + uy * to },
+				halfLength: (to - from) / 2,
+			});
 		});
 	}
 	return glyphs;

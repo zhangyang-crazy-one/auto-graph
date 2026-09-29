@@ -696,6 +696,8 @@ function formatPathWithJumps(
 				),
 			start,
 			end,
+			0,
+			(jump) => jump.style ?? "jump",
 		);
 		for (const glyph of glyphs) {
 			moveOrLine(glyph.before);

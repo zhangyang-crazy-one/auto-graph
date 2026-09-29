@@ -423,6 +423,48 @@ describe("edge crossings / jumps (#84)", () => {
 		expect(path).toBe("M 0 50 L 90 50 A 10 6 0 0 0 110 50 L 190 50");
 	});
 
+	it("keeps each style in a cluster of a gap and a jump", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "mixed-hops",
+			direction: "LR",
+			nodes: [],
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				...[96, 104].map((x) => ({
+					id: `v${x}`,
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x, y: 20 },
+						{ x, y: 80 },
+					],
+				})),
+			],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edgeCrossings: [
+				{ x: 96, y: 50, underEdgeId: "h", overEdgeId: "v96", style: "gap" },
+				{ x: 104, y: 50, underEdgeId: "h", overEdgeId: "v104", style: "jump" },
+			],
+		};
+		const path = exportSvg(diagram).match(/data-id="h" d="([^"]*)"/)?.[1] ?? "";
+		// The gap at 96 breaks the line from 90 to the midpoint 100; the jump
+		// at 104 arcs from there to 110. Neither takes the other's style.
+		expect(path).toBe(
+			"M 0 50 L 90 50 M 100 50 L 100 50 A 5 6 0 0 0 110 50 L 190 50",
+		);
+	});
+
 	it("keeps a drawable hop next to a crossing right at the segment end", () => {
 		const diagram: CoordinatedDiagram = {
 			id: "hop-near-end",

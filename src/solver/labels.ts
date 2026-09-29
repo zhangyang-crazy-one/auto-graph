@@ -767,6 +767,18 @@ function packShelf(
 	shelf: ExternalLabelShelfOptions,
 ): (Box | undefined)[] {
 	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
+	const routeSegmentBoxes: Box[] = [...(shelf.routes?.values() ?? [])].flatMap(
+		(points) =>
+			points.slice(1).map((end, index) => {
+				const start = points[index] as Point;
+				return {
+					x: Math.min(start.x, end.x),
+					y: Math.min(start.y, end.y),
+					width: Math.abs(end.x - start.x),
+					height: Math.abs(end.y - start.y),
+				};
+			}),
+	);
 	const { top, bottom, left, right } = usablePage(
 		page,
 		shelf.pageInsets,
@@ -808,6 +820,9 @@ function packShelf(
 	): (Box | undefined)[] {
 		const blockers: Box[] = [
 			...(shelf.obstacles ?? []),
+			// An opaque callout packed across the drawing must not hide a
+			// connector: every route segment (its bounds) blocks too.
+			...routeSegmentBoxes,
 			...entries.map((entry, index) =>
 				inlineEntries.has(index) && entry.source !== undefined
 					? entry.source.box
