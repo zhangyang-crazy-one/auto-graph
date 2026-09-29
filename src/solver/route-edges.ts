@@ -482,6 +482,14 @@ export function coordinateEdges(
 				railBandObstacles: railTextObstacles,
 				hardObstacles,
 				occupancy: railOccupancy,
+				// The rail starts and ends at the slot or port points the
+				// other routes see as taken, not the sides' default points.
+				...(sourcePreassign === undefined
+					? {}
+					: { sourcePoint: sourcePreassign.point }),
+				...(targetPreassign === undefined
+					? {}
+					: { targetPoint: targetPreassign.point }),
 			});
 			if (acceptedRail !== undefined) {
 				railAllocations?.set(edge.id, acceptedRail.allocation);
@@ -2855,6 +2863,9 @@ export function tryAcceptDependencyRail(input: {
 	railBandObstacles: readonly Box[];
 	hardObstacles: readonly Box[];
 	occupancy: RailOccupancyState;
+	/** Preassigned end points (same-side slots, named ports), if any. */
+	sourcePoint?: Point;
+	targetPoint?: Point;
 }):
 	| {
 			points: Point[];
@@ -2878,6 +2889,10 @@ export function tryAcceptDependencyRail(input: {
 		laneIndex,
 		side,
 		input.avoidFrameTitleRails,
+		{
+			...(input.sourcePoint === undefined ? {} : { source: input.sourcePoint }),
+			...(input.targetPoint === undefined ? {} : { target: input.targetPoint }),
+		},
 	);
 	if (railPoints === undefined) {
 		return undefined;
@@ -3027,6 +3042,8 @@ export function railRoutePoints(
 	laneIndex: number,
 	side: RoutingRailAllocation["side"],
 	avoidFrameTitleRails: boolean,
+	/** Preassigned end points (same-side slots, named ports), if any. */
+	ends: { source?: Point; target?: Point } = {},
 ): Point[] | undefined {
 	const gap = 18;
 	if (direction === "LR" || direction === "RL") {
@@ -3058,12 +3075,12 @@ export function railRoutePoints(
 		) {
 			return undefined;
 		}
-		const start = getEdgePort(
-			source,
-			target.center,
-			sourceAnchor ?? sourceSide,
-		);
-		const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
+		const start =
+			ends.source ??
+			getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
+		const end =
+			ends.target ??
+			getEdgePort(target, source.center, targetAnchor ?? targetSide);
 		const sourceOutward =
 			side === "bottom"
 				? sourceSide === "left"
@@ -3126,8 +3143,12 @@ export function railRoutePoints(
 	) {
 		return undefined;
 	}
-	const start = getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
-	const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
+	const start =
+		ends.source ??
+		getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
+	const end =
+		ends.target ??
+		getEdgePort(target, source.center, targetAnchor ?? targetSide);
 	const sourceJogY =
 		side === "right"
 			? sourceSide === "top"

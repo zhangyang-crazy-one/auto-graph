@@ -30,6 +30,7 @@ export function exportDrawio(
 	options: ExportOptions = {},
 ): string {
 	const title = options.title ?? diagram.title ?? diagram.id;
+	const fallbackLabels = fallbackPortLabels(diagram);
 	// The page is the solved bounds plus the requested viewport padding.
 	// Boundary ports and text drawn outside a node (port labels, for one)
 	// can reach past the solved bounds: the page covers them too.
@@ -40,6 +41,7 @@ export function exportDrawio(
 				(node.ports ?? []).map((port) => port.box),
 			),
 			...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
+			...fallbackLabels.map((fallback) => fallback.box),
 			// A native hop arc reaches its glyph radius past the crossing.
 			...(diagram.edgeCrossings ?? []).map((crossing) => ({
 				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
@@ -418,9 +420,6 @@ export function exportDrawio(
 			);
 		}
 	}
-	// Port cells that received a solved label (the joined owner id is
-	// ambiguous when ids contain dots, so the cell is what counts).
-	const labelledPorts = new Set<string>();
 	for (const portLabel of annotations.filter(
 		(annotation) => annotation.surfaceKind === "port-label",
 	)) {
@@ -431,7 +430,6 @@ export function exportDrawio(
 			portParents.get(portLabel.ownerId) ?? [],
 			portLabel.box,
 		);
-		if (port !== undefined) labelledPorts.add(port.id);
 		vertex(
 			calloutText(portLabel),
 			`${PORT_LABEL_STYLE}${
@@ -446,31 +444,14 @@ export function exportDrawio(
 
 	// A port with an authored label but no solved one (a diagram built
 	// without text annotations) still gets its label, placed as the SVG
-	// places it: beside the port, 8px out and just above its anchor.
-	for (const node of diagram.nodes) {
-		for (const port of node.ports ?? []) {
-			const text = port.label?.text;
-			const cell = portCells.get(node.id)?.get(port.id);
-			if (
-				text === undefined ||
-				(cell !== undefined && labelledPorts.has(cell.id))
-			) {
-				continue;
-			}
-			const width = Math.max(10, text.length * 6);
-			const left = port.side === "left";
-			vertex(
-				escapeHtml(text),
-				`${PORT_LABEL_STYLE}fontSize=10;${left ? "align=right;" : "align=left;"}`,
-				{
-					x: left ? port.anchor.x - 8 - width : port.anchor.x + 8,
-					y: port.anchor.y - 18,
-					width,
-					height: 14,
-				},
-				cell,
-			);
-		}
+	// places it (see `fallbackPortLabels`).
+	for (const fallback of fallbackLabels) {
+		vertex(
+			escapeHtml(fallback.text),
+			`${PORT_LABEL_STYLE}fontSize=10;${fallback.left ? "align=right;" : "align=left;"}`,
+			fallback.box,
+			portCells.get(fallback.nodeId)?.get(fallback.portId),
+		);
 	}
 	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
 	const boxOf = (node: CoordinatedNode | undefined) =>
@@ -889,13 +870,18 @@ function renderEdgeCells(
 		}
 	});
 	const pieces = splitPolylineAt(points, cuts);
-	const labelAt =
-		input.labelBox === undefined
-			? undefined
-			: along({
+	// A label with no solved box (an authored fallback) rides on the piece
+	// holding the route's middle, where draw.io would put it.
+	const labelCenter =
+		input.labelBox !== undefined
+			? {
 					x: input.labelBox.x + input.labelBox.width / 2,
 					y: input.labelBox.y + input.labelBox.height / 2,
-				});
+				}
+			: input.label !== ""
+				? pointAtHalfLength(points)
+				: undefined;
+	const labelAt = labelCenter === undefined ? undefined : along(labelCenter);
 	const pieceIndex = (at: number) => cuts.filter((cut) => at > cut).length;
 	const labelled = labelAt === undefined ? -1 : pieceIndex(labelAt);
 	return pieces.map((piece, index) => {
@@ -1521,6 +1507,63 @@ function labelFontStyle(
 }
 
 /** The annotation whose box centre is nearest to `target`'s centre. */
+/**
+ * Authored port labels that no solved port-label annotation covers, with
+ * the box each is drawn in: beside the port, 8px out and just above its
+ * anchor, as the SVG places it. A solved label goes to the nearest port
+ * with its (dot-joined, so possibly ambiguous) owner id, as it is drawn.
+ */
+function fallbackPortLabels(diagram: CoordinatedDiagram): {
+	nodeId: string;
+	portId: string;
+	text: string;
+	left: boolean;
+	box: Box;
+}[] {
+	const key = (nodeId: string, portId: string) => `${nodeId}\u0000${portId}`;
+	const candidates = new Map<string, { key: string; box: Box }[]>();
+	for (const node of diagram.nodes) {
+		for (const port of node.ports ?? []) {
+			const owner = `${node.id}.${port.id}`;
+			candidates.set(owner, [
+				...(candidates.get(owner) ?? []),
+				{ key: key(node.id, port.id), box: port.box },
+			]);
+		}
+	}
+	const solved = new Set<string>();
+	for (const annotation of diagram.textAnnotations ?? []) {
+		if (annotation.surfaceKind !== "port-label") continue;
+		const port = nearestBox(
+			candidates.get(annotation.ownerId) ?? [],
+			annotation.box,
+		);
+		if (port !== undefined) solved.add(port.key);
+	}
+	return diagram.nodes.flatMap((node) =>
+		(node.ports ?? []).flatMap((port) => {
+			const text = port.label?.text;
+			if (text === undefined || solved.has(key(node.id, port.id))) return [];
+			const width = Math.max(10, text.length * 6);
+			const left = port.side === "left";
+			return [
+				{
+					nodeId: node.id,
+					portId: port.id,
+					text,
+					left,
+					box: {
+						x: left ? port.anchor.x - 8 - width : port.anchor.x + 8,
+						y: port.anchor.y - 18,
+						width,
+						height: 14,
+					},
+				},
+			];
+		}),
+	);
+}
+
 function nearestBox<T extends { box: Box }>(
 	candidates: readonly T[],
 	target: Box,

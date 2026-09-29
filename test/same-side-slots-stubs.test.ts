@@ -895,3 +895,59 @@ describe("route tidying and crossings", () => {
 		expect(tidied?.points).toEqual(a.points);
 	});
 });
+
+describe("same-side slots on dependency rails", () => {
+	it("starts a rail route at its slot, not on a named port", () => {
+		const node = (
+			id: string,
+			x: number,
+			y: number,
+			ports?: { id: string; side: "right"; kind: "flow" }[],
+		) => ({
+			id,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x, y },
+			...(ports === undefined ? {} : { ports }),
+		});
+		const solved = solveDiagram(
+			{
+				id: "rail-slots",
+				direction: "LR",
+				nodes: [
+					node("a", 0, 0, [{ id: "p", side: "right", kind: "flow" }]),
+					node("b", 240, 0),
+					node("c", 240, 100),
+				] as never,
+				edges: [
+					{ id: "anon", source: { nodeId: "a" }, target: { nodeId: "b" } },
+					{
+						id: "via-port",
+						source: { nodeId: "a", portId: "p" },
+						target: { nodeId: "c" },
+					},
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "short-orthogonal-jumps",
+				railRouting: "dependency",
+			},
+		);
+		expect(solved.routing?.rails?.map((rail) => rail.edgeId)).toEqual(["anon"]);
+		const port = solved.nodes.find((entry) => entry.id === "a")?.ports?.[0]
+			?.anchor;
+		const start = solved.edges.find((edge) => edge.id === "anon")?.points[0];
+		expect(port).toBeDefined();
+		expect(start).toBeDefined();
+		if (port === undefined || start === undefined) return;
+		// The rail used the side's default point, the port's own point.
+		expect(
+			Math.hypot(start.x - port.x, start.y - port.y),
+		).toBeGreaterThanOrEqual(10);
+	});
+});

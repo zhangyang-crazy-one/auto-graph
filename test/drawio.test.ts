@@ -316,6 +316,46 @@ describe("draw.io export", () => {
 		expect(xml).toContain('value="AUTHORED"');
 	});
 
+	it("keeps an authored label on a split edge without solved text", () => {
+		const base = diagram({
+			edgeCrossings: [
+				{ x: 650, y: 110, underEdgeId: "a-b", overEdgeId: "z", style: "gap" },
+				{ x: 750, y: 130, underEdgeId: "a-b", overEdgeId: "y", style: "jump" },
+			],
+		});
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.label = { text: "flows" };
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		const pieces = [...xml.matchAll(/<mxCell [^>]*dgeEdge=a-b[^>]*>/g)].map(
+			(match) => match[0],
+		);
+		expect(pieces).toHaveLength(2);
+		expect(
+			pieces.filter((cell) => cell.includes('value="flows"')),
+		).toHaveLength(1);
+	});
+
+	it("covers authored port labels on the page", () => {
+		const base = diagram();
+		const node = base.nodes[1];
+		if (node === undefined) throw new Error("fixture");
+		// A right-side port on the right edge of the bounds (x=900).
+		node.ports = [
+			{
+				id: "out",
+				side: "right",
+				kind: "flow",
+				label: { text: "LONGLABEL" },
+				anchor: { x: 900, y: 120 },
+				box: { x: 895, y: 115, width: 10, height: 10 },
+			},
+		];
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		// The label starts 8px out and runs 54px: the page reaches x=962.
+		expect(xml).toContain('pageWidth="462"');
+	});
+
 	it("exports groups, swimlanes, evidence and callouts", () => {
 		const xml = exportDrawio(
 			diagram({
