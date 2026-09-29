@@ -813,13 +813,15 @@ function compartmentHtml(node: CoordinatedNode): string {
 	const header = [
 		...(compartments.stereotype === undefined
 			? []
-			: [escapeHtml(compartments.stereotype)]),
-		`<b>${escapeHtml(compartments.name ?? node.label?.text ?? node.id)}</b>`,
+			: [multilineHtml(compartments.stereotype)]),
+		`<b>${multilineHtml(compartments.name ?? node.label?.text ?? node.id)}</b>`,
 	].join("<br>");
+	// Line breaks inside a row become <br> too (an attribute would flatten
+	// them).
 	const sections = [
 		header,
-		(compartments.properties ?? []).map(escapeHtml).join("<br>"),
-		(compartments.constraints ?? []).map(escapeHtml).join("<br>"),
+		(compartments.properties ?? []).map(multilineHtml).join("<br>"),
+		(compartments.constraints ?? []).map(multilineHtml).join("<br>"),
 	].filter((section) => section.length > 0);
 	return sections.join("<hr>");
 }
@@ -1427,9 +1429,10 @@ function evidenceCellText(
 	text: string,
 ): string {
 	const lines = layout?.lines ?? [];
+	// Authored text keeps its line breaks (an attribute would flatten them).
 	return lines.length > 0
 		? lines.map(escapeHtml).join("<br>")
-		: escapeHtml(text);
+		: multilineHtml(text);
 }
 
 function matrixCells(matrix: CoordinatedMatrixBlock): EvidenceCellVertex[] {
