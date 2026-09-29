@@ -570,8 +570,9 @@ export function buildExternalLabelCallouts(
 	// clear the nodes, panels and other keys leaves its label inline.
 	const placedKeys: Box[] = [];
 	const keysOnRoutes: string[] = [];
-	// Ordinary edge labels stay where they are: a key must not cover one
-	// (often the very label that forced this one out).
+	// Labels that stay inline: ordinary edge labels (often the very label
+	// that forced a callout) and, as keys are blocked, their full labels.
+	// No key may cover one.
 	const ordinaryLabels = annotations
 		.filter(
 			(annotation) =>
@@ -614,6 +615,8 @@ export function buildExternalLabelCallouts(
 				spot === undefined ? spots.find(clearOfKeysAndObstacles) : undefined;
 			if (spot === undefined && fallback === undefined) {
 				entry.blocked = true;
+				// Its full label stays inline: later keys keep off it.
+				ordinaryLabels.push(entry.source.box);
 				continue;
 			}
 			if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
@@ -647,10 +650,7 @@ export function buildExternalLabelCallouts(
 
 	// Labels whose keys were blocked stay inline at full size, and so does
 	// every edge label that never needed a callout.
-	const inlineBoxes = [
-		...blocked.map((entry) => entry.source.box),
-		...ordinaryLabels,
-	];
+	const inlineBoxes = ordinaryLabels;
 	const placements =
 		options.pageBounds === undefined
 			? // The unbounded shelf starts right of every inline label and

@@ -373,4 +373,49 @@ describe("label shelf packing (#93)", () => {
 		);
 		expect(built[0]?.callout.calloutBox.x ?? 0).toBeGreaterThanOrEqual(155);
 	});
+
+	it("keeps later keys off a label whose key was blocked", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		// "a"'s key is blocked (its short route lies inside a node), so its
+		// label stays inline; "b"'s key starts on that label and must move.
+		const built = buildExternalLabelCallouts(
+			[
+				required("a", "first", { x: 100, y: 20, width: 60, height: 14 }),
+				required("b", "second", { x: 110, y: 20, width: 40, height: 14 }),
+			],
+			{ x: 0, y: 0, width: 300, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				diagnostics,
+				keyObstacles: [{ x: 120, y: 0, width: 20, height: 60 }],
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 128, y: 27 },
+							{ x: 132, y: 27 },
+						],
+					],
+					[
+						"b",
+						[
+							{ x: 60, y: 27 },
+							{ x: 240, y: 27 },
+						],
+					],
+				]),
+			},
+		);
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["b"]);
+		const key = built[0]?.callout.keyBox;
+		expect(key).toBeDefined();
+		if (key === undefined) return;
+		const label = { x: 100, y: 20, width: 60, height: 14 };
+		const overlaps =
+			key.x < label.x + label.width &&
+			label.x < key.x + key.width &&
+			key.y < label.y + label.height &&
+			label.y < key.y + key.height;
+		expect(overlaps).toBe(false);
+	});
 });

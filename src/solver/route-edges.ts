@@ -856,8 +856,10 @@ export function coordinateEdges(
 			const moved = nudged.edges[index];
 			if (moved === undefined || moved.points === edge.points) return edge;
 			const obstacles = obstaclesFor(edge);
+			// Nor may it trade one obstacle for another (text for a table).
 			return routeObstacleHits(moved.points, obstacles) >
-				routeObstacleHits(edge.points, obstacles)
+				routeObstacleHits(edge.points, obstacles) ||
+				gainsObstacle(edge.points, moved.points, obstacles)
 				? edge
 				: moved;
 		});
