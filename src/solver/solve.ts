@@ -1068,8 +1068,10 @@ export function solveDiagram(
 					...coordinatedTables.map((table) => table.box),
 					...coordinatedEvidencePanels.map((panel) => panel.box),
 					...policyHardObstacles,
-					// Frame and lane title bars keep their titles readable.
+					// Frame and lane title bars keep their titles readable, and an
+					// opaque callout must not cut a lane divider.
 					...titleBarObstacles,
+					...laneBorderLabelObstacles(coordinatedSwimlanes),
 					// Port labels often reach past their node.
 					...baseTextAnnotations
 						.filter((annotation) => annotation.surfaceKind === "port-label")
@@ -1082,8 +1084,10 @@ export function solveDiagram(
 					...coordinatedMatrices.map((matrix) => matrix.box),
 					...coordinatedTables.map((table) => table.box),
 					...coordinatedEvidencePanels.map((panel) => panel.box),
-					// A key must not cover a title bar or a port label either.
+					// A key must not cover a title bar, a lane divider or a port
+					// label either.
 					...titleBarObstacles,
+					...laneBorderLabelObstacles(coordinatedSwimlanes),
 					...baseTextAnnotations
 						.filter((annotation) => annotation.surfaceKind === "port-label")
 						.map((annotation) => annotation.box),

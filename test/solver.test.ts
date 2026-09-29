@@ -2818,6 +2818,62 @@ edges:
 		);
 	});
 
+	it("keeps auto external callouts off lane dividers", () => {
+		const lanesDiagram = {
+			...externalLabelAutoDiagram(),
+			id: "external-label-auto-lanes",
+			swimlanes: [
+				{
+					id: "pool",
+					orientation: "horizontal" as const,
+					headerHeight: 20,
+					lanes: [
+						{ id: "zeta-lane", children: ["zeta-source", "zeta-target"] },
+						{ id: "alpha-lane", children: ["alpha-source", "alpha-target"] },
+						{
+							id: "middle-lane",
+							children: ["middle-source", "middle-target"],
+						},
+					],
+				},
+			],
+		};
+		const result = solveDiagram(lanesDiagram, {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+			pageBounds: { width: 520, height: 400 },
+		});
+		const lanes = (result.swimlanes ?? []).flatMap((swimlane) =>
+			swimlane.lanes.flatMap((lane) =>
+				lane.box === undefined ? [] : [lane.box],
+			),
+		);
+		const callouts = (result.textAnnotations ?? [])
+			.filter((annotation) => annotation.placement === "external-callout")
+			.map((annotation) => annotation.box);
+		expect(lanes.length).toBe(3);
+		expect(callouts.length).toBeGreaterThan(0);
+		const cutsDivider = (box: Box) =>
+			lanes.some(
+				(lane) =>
+					([lane.y, lane.y + lane.height].some(
+						(y) => box.y < y && y < box.y + box.height,
+					) &&
+						box.x < lane.x + lane.width &&
+						lane.x < box.x + box.width) ||
+					([lane.x, lane.x + lane.width].some(
+						(x) => box.x < x && x < box.x + box.width,
+					) &&
+						box.y < lane.y + lane.height &&
+						lane.y < box.y + box.height),
+			);
+		expect(callouts.filter(cutsDivider)).toEqual([]);
+	});
+
 	it("applies deterministic keyed external callouts when remediation policy is auto", () => {
 		const result = solveDiagram(externalLabelAutoDiagram(), {
 			initialLayout: "positions",

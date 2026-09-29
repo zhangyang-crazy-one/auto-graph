@@ -31,6 +31,7 @@ import {
 	type RouteEdgeInput,
 	type RouteHardObstacleMetadata,
 	revertCoincidentMoves,
+	revertCrossingMoves,
 	routeEdge,
 	routeEndDirectionPenalty,
 	separateParallelSegments,
@@ -236,9 +237,11 @@ export function coordinateEdges(
 				),
 			})
 		: undefined;
-	if (sameSideSlots !== undefined) {
-		diagnostics.push(...sameSideSlots.diagnostics);
-	}
+	// Slot capacity reports are settled once routing is done: a relocated
+	// end frees its slot, so a side it leaves may no longer be crowded.
+	// They keep their place among the diagnostics.
+	const slotReportsAt = diagnostics.length;
+	const slotReports: Diagnostic[] = [...(sameSideSlots?.diagnostics ?? [])];
 	// Fractions taken per node side (ports and slots), for slot retries.
 	const slotOccupancy =
 		sameSideSlots === undefined
@@ -676,41 +679,66 @@ export function coordinateEdges(
 				/** Whether the side had room (slot count and spacing). */
 				fits: boolean;
 			} | null;
-			const choicesFor = (endpoint: "source" | "target"): EndChoice[] => {
-				const slot = endpoint === "source" ? sourceSlot : targetSlot;
+			// The end's choice on one side, at a free fraction there (with
+			// `extra` fractions taken too); a side without room (slot count
+			// or spacing, as the initial assignment checks) is reported if
+			// taken.
+			const choiceOn = (
+				endpoint: "source" | "target",
+				side: CoordinatedPort["side"],
+				extra: readonly number[] = [],
+			): NonNullable<EndChoice> => {
 				const nodeId =
 					endpoint === "source" ? edge.source.nodeId : edge.target.nodeId;
 				const geometry = endpoint === "source" ? source : target;
-				if (slot === undefined) return [null];
-				// Every side may be tried; one without room (slot count or
-				// spacing, as the initial assignment checks) is reported if taken.
-				const others = (["right", "bottom", "left", "top"] as const)
-					.filter((side) => side !== slot.anchor)
-					.map((side) => {
-						const occupied = slotOccupancy.get(`${nodeId}:${side}`) ?? [];
-						const fraction = freeFractions(1, occupied)[0] ?? 0.5;
-						const length =
-							side === "left" || side === "right"
-								? geometry.box.height
-								: geometry.box.width;
-						const point = sidePointAtFraction(geometry.box, side, fraction);
-						return {
-							side,
-							fraction,
-							fits: slotFits(
-								fraction,
-								occupied,
-								length,
-								options.maxAttachPointsPerSide ?? 3,
-							),
-							input:
-								endpoint === "source"
-									? { sourceAnchor: side, sourcePoint: point }
-									: { targetAnchor: side, targetPoint: point },
-						};
-					});
-				return [null, ...others];
+				const occupied = [
+					...(slotOccupancy.get(`${nodeId}:${side}`) ?? []),
+					...extra,
+				];
+				const fraction = freeFractions(1, occupied)[0] ?? 0.5;
+				const length =
+					side === "left" || side === "right"
+						? geometry.box.height
+						: geometry.box.width;
+				const point = sidePointAtFraction(geometry.box, side, fraction);
+				return {
+					side,
+					fraction,
+					fits: slotFits(
+						fraction,
+						occupied,
+						length,
+						options.maxAttachPointsPerSide ?? 3,
+					),
+					input:
+						endpoint === "source"
+							? { sourceAnchor: side, sourcePoint: point }
+							: { targetAnchor: side, targetPoint: point },
+				};
 			};
+			// Every other side may be tried.
+			const choicesFor = (endpoint: "source" | "target"): EndChoice[] => {
+				const slot = endpoint === "source" ? sourceSlot : targetSlot;
+				if (slot === undefined) return [null];
+				return [
+					null,
+					...(["right", "bottom", "left", "top"] as const)
+						.filter((side) => side !== slot.anchor)
+						.map((side) => choiceOn(endpoint, side)),
+				];
+			};
+			// Both ends of a self-loop moving to one side: the target is
+			// placed beside the source's new fraction, not on it.
+			const pairedTarget = (
+				sourceChoice: EndChoice,
+				targetChoice: EndChoice,
+			): EndChoice =>
+				sourceChoice !== null &&
+				targetChoice !== null &&
+				edge.source.nodeId === edge.target.nodeId &&
+				sourceChoice.side === targetChoice.side
+					? choiceOn("target", targetChoice.side, [sourceChoice.fraction])
+					: targetChoice;
 			if (blocked(route)) {
 				let best: {
 					route: typeof route;
@@ -718,8 +746,9 @@ export function coordinateEdges(
 					picks: [EndChoice, EndChoice];
 				} = { route, score: score(route), picks: [null, null] };
 				for (const sourceChoice of choicesFor("source")) {
-					for (const targetChoice of choicesFor("target")) {
-						if (sourceChoice === null && targetChoice === null) continue;
+					for (const candidateTarget of choicesFor("target")) {
+						if (sourceChoice === null && candidateTarget === null) continue;
+						const targetChoice = pairedTarget(sourceChoice, candidateTarget);
 						const candidate = routeEdge({
 							...routeInput,
 							...(sourceChoice?.input ?? {}),
@@ -755,7 +784,7 @@ export function coordinateEdges(
 						slotOccupancy.set(vacatedKey, remaining);
 					}
 					if (!pick.fits) {
-						diagnostics.push({
+						slotReports.push({
 							severity: "warning",
 							code: "routing.channel.capacity_exhausted",
 							message: `Relocated end of ${edge.id} crowds ${nodeId}/${pick.side}: no slot left there, or under ${MIN_ATTACH_SPACING}px from its ports and ends.`,
@@ -854,6 +883,34 @@ export function coordinateEdges(
 		});
 	}
 
+	// A slot report stands only while its side is still crowded in the
+	// final occupancy: over the slot count, or ends and port centres under
+	// the minimum spacing apart.
+	const maxSlots = Math.min(
+		5,
+		Math.max(1, options.maxAttachPointsPerSide ?? 3),
+	);
+	const stillCrowded = (diagnostic: Diagnostic): boolean => {
+		if (diagnostic.code !== "routing.channel.capacity_exhausted") return true;
+		const nodeId = diagnostic.detail?.nodeId;
+		const side = diagnostic.detail?.side;
+		const box = typeof nodeId === "string" ? nodes.get(nodeId)?.box : undefined;
+		if (box === undefined || typeof side !== "string") return true;
+		const fractions = [...(slotOccupancy?.get(`${nodeId}:${side}`) ?? [])].sort(
+			(left, right) => left - right,
+		);
+		if (fractions.length > maxSlots) return true;
+		const length = side === "left" || side === "right" ? box.height : box.width;
+		return fractions
+			.slice(1)
+			.some(
+				(fraction, index) =>
+					(fraction - (fractions[index] as number)) * length <
+					MIN_ATTACH_SPACING - 1e-6,
+			);
+	};
+	diagnostics.splice(slotReportsAt, 0, ...slotReports.filter(stillCrowded));
+
 	let finalized = finalizeCoordinatedEdges(
 		coordinated,
 		nodes,
@@ -905,8 +962,10 @@ export function coordinateEdges(
 				? edge
 				: moved;
 		});
+		// Nor may a move cross more routes than the edge did in place.
+		const uncrossed = revertCrossingMoves(before, accepted);
 		// Those rollbacks are per edge: settle the channel as a group again.
-		const settled = revertCoincidentMoves(before, accepted);
+		const settled = revertCoincidentMoves(before, uncrossed);
 		finalized = settled.edges;
 		// A nudged route that now clears its text leaves no text-clearance
 		// diagnostic behind (it would start remediation on stale evidence).

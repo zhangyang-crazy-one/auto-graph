@@ -617,8 +617,10 @@ export function applyExternalLabelRemediation(
 				...context.coordinatedTables.map((table) => table.box),
 				...context.coordinatedEvidencePanels.map((panel) => panel.box),
 				...state.policyHardObstacles,
-				// Frame and lane title bars keep their titles readable.
+				// Frame and lane title bars keep their titles readable, and an
+				// opaque callout must not cut a lane divider.
 				...state.titleBarObstacles,
+				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
 				// Port labels often reach past their node.
 				...state.baseTextAnnotations
 					.filter((annotation) => annotation.surfaceKind === "port-label")
@@ -633,8 +635,10 @@ export function applyExternalLabelRemediation(
 				...context.coordinatedMatrices.map((matrix) => matrix.box),
 				...context.coordinatedTables.map((table) => table.box),
 				...context.coordinatedEvidencePanels.map((panel) => panel.box),
-				// A key must not cover a title bar or a port label either.
+				// A key must not cover a title bar, a lane divider or a port
+				// label either.
 				...state.titleBarObstacles,
+				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
 				...state.baseTextAnnotations
 					.filter((annotation) => annotation.surfaceKind === "port-label")
 					.map((annotation) => annotation.box),

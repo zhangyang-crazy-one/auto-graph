@@ -1,3 +1,4 @@
+import { detectOrthogonalEdgeCrossings } from "../geometry/edge-crossings.js";
 import type { CoordinatedEdge } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 
@@ -312,6 +313,46 @@ export function revertCoincidentMoves(
 		(edge, index) => edge !== undefined && coincidence(edge, index) > 1e-6,
 	);
 	return { edges: result as CoordinatedEdge[], overlapping };
+}
+
+/**
+ * A nudged track stretches its neighbouring segments, which can carry them
+ * across other routes. Undo every move that leaves its route crossing
+ * other routes more often than it did in place, one at a time (the first
+ * offender), until none does.
+ */
+export function revertCrossingMoves(
+	original: readonly CoordinatedEdge[],
+	moved: readonly CoordinatedEdge[],
+): CoordinatedEdge[] {
+	const crossingCount = (
+		edge: CoordinatedEdge,
+		others: readonly CoordinatedEdge[],
+	): number =>
+		detectOrthogonalEdgeCrossings([edge, ...others]).filter(
+			(crossing) =>
+				crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
+		).length;
+	let result: (CoordinatedEdge | undefined)[] = moved.map(
+		(edge, index) => edge ?? original[index],
+	);
+	for (let pass = 0; pass < result.length; pass += 1) {
+		const offender = result.findIndex((edge, index) => {
+			const before = original[index];
+			if (edge === undefined || before === undefined) return false;
+			if (edge.points === before.points) return false;
+			const others = result.filter(
+				(other, at): other is CoordinatedEdge =>
+					at !== index && other !== undefined,
+			);
+			return crossingCount(edge, others) > crossingCount(before, others);
+		});
+		if (offender < 0) break;
+		result = result.map((edge, index) =>
+			index === offender ? original[index] : edge,
+		);
+	}
+	return result as CoordinatedEdge[];
 }
 
 /** Axis-aligned segments of one route, as channel intervals. */

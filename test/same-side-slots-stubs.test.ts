@@ -5,6 +5,7 @@ import type { NormalizedEdge } from "../src/ir/elements.js";
 import {
 	nudgeOrthogonalRoutes,
 	revertCoincidentMoves,
+	revertCrossingMoves,
 	routeEdge,
 } from "../src/routing/index.js";
 import {
@@ -59,6 +60,67 @@ describe("channel nudge rollback", () => {
 		const settled = revertCoincidentMoves(original as never, moved as never);
 		expect(settled.overlapping).toBe(true);
 		expect(settled.edges[2]?.points[1]?.y).toBe(60);
+	});
+});
+
+describe("channel nudge crossing rollback", () => {
+	const route = (id: string, points: { x: number; y: number }[]) => ({
+		id,
+		source: { nodeId: `${id}-s` },
+		target: { nodeId: `${id}-t` },
+		points,
+	});
+	// "b" is a vertical route at x=50 spanning y 0..40.
+	const b = route("b", [
+		{ x: 50, y: 0 },
+		{ x: 50, y: 40 },
+	]);
+
+	it("undoes a track move that stretches a route across another", () => {
+		// "a"'s middle track moves from y=60 (below "b") to y=20, across it.
+		const original = [
+			route("a", [
+				{ x: 0, y: 100 },
+				{ x: 0, y: 60 },
+				{ x: 100, y: 60 },
+				{ x: 100, y: 100 },
+			]),
+			b,
+		];
+		const moved = [
+			route("a", [
+				{ x: 0, y: 100 },
+				{ x: 0, y: 20 },
+				{ x: 100, y: 20 },
+				{ x: 100, y: 100 },
+			]),
+			b,
+		];
+		const settled = revertCrossingMoves(original as never, moved as never);
+		expect(settled[0]).toBe(original[0]);
+	});
+
+	it("keeps a move that crosses no more routes than before", () => {
+		const original = [
+			route("a", [
+				{ x: 0, y: 100 },
+				{ x: 0, y: 60 },
+				{ x: 100, y: 60 },
+				{ x: 100, y: 100 },
+			]),
+			b,
+		];
+		const moved = [
+			route("a", [
+				{ x: 0, y: 100 },
+				{ x: 0, y: 70 },
+				{ x: 100, y: 70 },
+				{ x: 100, y: 100 },
+			]),
+			b,
+		];
+		const settled = revertCrossingMoves(original as never, moved as never);
+		expect(settled[0]).toBe(moved[0]);
 	});
 });
 
@@ -561,5 +623,90 @@ describe("relocated endpoint occupancy", () => {
 		expect(solved.diagnostics.map((entry) => entry.code)).not.toContain(
 			"routing.channel.capacity_exhausted",
 		);
+	});
+});
+
+describe("relocated endpoint capacity reports", () => {
+	const node = (id: string, x: number, y: number, w = 80, h = 48) => ({
+		id,
+		shape: "rectangle" as const,
+		size: { width: w, height: h },
+		padding: { top: 8, right: 8, bottom: 8, left: 8 },
+		position: { x, y },
+	});
+	const solve = (
+		id: string,
+		nodes: ReturnType<typeof node>[],
+		edges: NormalizedEdge[],
+		maxAttachPointsPerSide: number,
+	) =>
+		solveDiagram(
+			{
+				id,
+				direction: "LR",
+				nodes,
+				edges,
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "short-orthogonal-jumps",
+				maxAttachPointsPerSide,
+			},
+		);
+
+	it("drops a side's overflow report once relocations empty it", () => {
+		// Both ends start on a's right side (one slot); the wall sends one
+		// out by the top and the other by the bottom.
+		const solved = solve(
+			"relieved-side",
+			[
+				node("a", 0, 200),
+				node("wall", 140, 120, 30, 210),
+				node("b", 260, 120),
+				node("b2", 260, 260),
+			],
+			[
+				{ id: "e1", source: { nodeId: "a" }, target: { nodeId: "b" } },
+				{ id: "e3", source: { nodeId: "a" }, target: { nodeId: "b2" } },
+			],
+			1,
+		);
+		const starts = solved.edges.map((edge) => edge.points[0]);
+		expect(starts).toEqual([
+			{ x: 40, y: 200 },
+			{ x: 40, y: 248 },
+		]);
+		expect(solved.diagnostics.map((entry) => entry.code)).not.toContain(
+			"routing.channel.capacity_exhausted",
+		);
+	});
+
+	it("keeps a self-loop's two relocated ends apart on one side", () => {
+		const solved = solve(
+			"paired-loop",
+			[
+				node("a", 0, 200),
+				node("r", 90, 150, 30, 150),
+				node("l", -50, 150, 40, 150),
+			],
+			[
+				{
+					id: "loop",
+					source: { nodeId: "a", anchor: "right" },
+					target: { nodeId: "a", anchor: "right" },
+				},
+			],
+			3,
+		);
+		const points = solved.edges[0]?.points ?? [];
+		const first = points[0];
+		const last = points.at(-1);
+		// Both ends leave by the bottom, at different points.
+		expect(first?.y).toBe(248);
+		expect(last?.y).toBe(248);
+		expect(first?.x).not.toBe(last?.x);
 	});
 });
