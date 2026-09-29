@@ -161,6 +161,107 @@ describe("draw.io export", () => {
 		expect(xml).toContain('value="OUT"');
 	});
 
+	it("covers crossing glyphs on the page", () => {
+		const xml = exportDrawio(
+			diagram({
+				edgeCrossings: [
+					{
+						x: 700,
+						y: 100,
+						underEdgeId: "a-b",
+						overEdgeId: "z",
+						style: "jump",
+					},
+				],
+			}),
+		);
+		// The bounds start at y=100; the hop reaches 6px above it.
+		expect(xml).toContain('pageHeight="46"');
+	});
+
+	it("writes each jumping edge after the edge it jumps", () => {
+		const cross = (
+			id: string,
+			points: { x: number; y: number }[],
+		): CoordinatedDiagram["edges"][number] => ({
+			id,
+			source: { nodeId: "a" },
+			target: { nodeId: "b" },
+			points,
+		});
+		// "v" hops "h", but "h" comes later in the diagram.
+		const xml = exportDrawio(
+			diagram({
+				edges: [
+					cross("v", [
+						{ x: 700, y: 100 },
+						{ x: 700, y: 140 },
+					]),
+					cross("h", [
+						{ x: 600, y: 120 },
+						{ x: 800, y: 120 },
+					]),
+				],
+				edgeCrossings: [
+					{ x: 700, y: 120, underEdgeId: "v", overEdgeId: "h", style: "jump" },
+				],
+			}),
+		);
+		const cells = [...xml.matchAll(/<mxCell [^>]*edge="1"[^>]*>/g)].map(
+			(match) => match[0],
+		);
+		expect(cells).toHaveLength(2);
+		expect(cells[0]).toContain("jumpStyle=none");
+		expect(cells[1]).toContain("jumpStyle=arc");
+	});
+
+	it("splits edges whose hops form a cycle by role", () => {
+		// "p" hops "q" at one crossing and "q" hops "p" at another: no
+		// document order draws both. Each edge's jumping piece is written
+		// after every piece that is jumped.
+		const xml = exportDrawio(
+			diagram({
+				edges: [
+					{
+						id: "p",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 600, y: 110 },
+							{ x: 800, y: 110 },
+						],
+					},
+					{
+						id: "q",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 650, y: 100 },
+							{ x: 650, y: 140 },
+							{ x: 750, y: 140 },
+							{ x: 750, y: 100 },
+						],
+					},
+				],
+				edgeCrossings: [
+					{ x: 650, y: 110, underEdgeId: "p", overEdgeId: "q", style: "jump" },
+					{ x: 750, y: 110, underEdgeId: "q", overEdgeId: "p", style: "jump" },
+				],
+			}),
+		);
+		const cells = [...xml.matchAll(/<mxCell [^>]*edge="1"[^>]*>/g)].map(
+			(match) => match[0],
+		);
+		expect(cells).toHaveLength(4);
+		// Two pieces that are only jumped, then two that jump.
+		expect(
+			cells.slice(0, 2).every((cell) => cell.includes("jumpStyle=none")),
+		).toBe(true);
+		expect(cells.slice(2).every((cell) => cell.includes("jumpStyle=arc"))).toBe(
+			true,
+		);
+	});
+
 	it("exports groups, swimlanes, evidence and callouts", () => {
 		const xml = exportDrawio(
 			diagram({

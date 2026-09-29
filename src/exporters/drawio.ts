@@ -1,4 +1,4 @@
-import { unionBoxes } from "../geometry/index.js";
+import { EDGE_CROSSING_GLYPH_RADIUS, unionBoxes } from "../geometry/index.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -40,6 +40,13 @@ export function exportDrawio(
 				(node.ports ?? []).map((port) => port.box),
 			),
 			...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
+			// A native hop arc reaches its glyph radius past the crossing.
+			...(diagram.edgeCrossings ?? []).map((crossing) => ({
+				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
+				y: crossing.y - EDGE_CROSSING_GLYPH_RADIUS,
+				width: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+				height: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+			})),
 		]),
 		Math.max(0, options.viewportPadding ?? 0),
 	);
@@ -470,6 +477,15 @@ export function exportDrawio(
 		}
 		return chain;
 	};
+	// draw.io draws a hop on a connector where it crosses one behind it
+	// (earlier in the document). Each crossing's jumping edge is therefore
+	// written after the edge it jumps: edges in z-order, over before under.
+	// Edges whose over/under relations form a cycle cannot all be ordered;
+	// they are split where their role changes, their jumping pieces written
+	// after every other edge and the rest before them.
+	const cyclic = hopCycleEdges(diagram.edges, crossings);
+	const hopOrder = hopZOrder(diagram.edges, crossings, cyclic);
+	const edgeCellsById = new Map<string, EdgeCellPiece[]>();
 	for (const edge of diagram.edges) {
 		const cellId = String(nextId++);
 		// An edge between two cells of one group or lane is that
@@ -491,8 +507,9 @@ export function exportDrawio(
 			loopNode !== undefined && loopCellId !== undefined
 				? { id: loopCellId, box: loopNode.box }
 				: sourceContainers.find((cell) => targetIds.has(cell.id));
-		edgeLayer.push(
-			...renderEdgeCells(
+		edgeCellsById.set(
+			edge.id,
+			renderEdgeCells(
 				{
 					cellId,
 					edge,
@@ -537,9 +554,30 @@ export function exportDrawio(
 					labelFont: labelByEdge.get(edge.id),
 				},
 				() => String(nextId++),
+				cyclic.has(edge.id),
 			),
 		);
 	}
+	const piecesOf = (edgeId: string) => edgeCellsById.get(edgeId) ?? [];
+	edgeLayer.push(
+		...diagram.edges.flatMap((edge) =>
+			cyclic.has(edge.id)
+				? piecesOf(edge.id).flatMap((piece) =>
+						piece.jumps ? [] : [piece.cell],
+					)
+				: [],
+		),
+		...hopOrder.flatMap((edgeId) =>
+			piecesOf(edgeId).map((piece) => piece.cell),
+		),
+		...diagram.edges.flatMap((edge) =>
+			cyclic.has(edge.id)
+				? piecesOf(edge.id).flatMap((piece) =>
+						piece.jumps ? [piece.cell] : [],
+					)
+				: [],
+		),
+	);
 
 	for (const callout of annotations.filter(
 		(annotation) => annotation.placementDetail?.role === "callout",
@@ -801,22 +839,31 @@ interface EdgeCellInput {
 function renderEdgeCells(
 	input: EdgeCellInput,
 	newCellId: () => string,
-): string[] {
+	/** Also cut where the edge turns from jumping to being jumped. */
+	splitRoles = false,
+): EdgeCellPiece[] {
 	const { edge, points } = input;
 	const jumps = input.crossings.filter(
 		(crossing) => crossing.underEdgeId === edge.id,
 	);
-	if (new Set(jumps.map((jump) => jump.style)).size <= 1 || points.length < 2) {
-		return [renderEdgeCell(input)];
+	// What each crossing asks of this edge: a hop of some style, or none.
+	const roleOf = (crossing: EdgeCrossing) =>
+		crossing.underEdgeId === edge.id ? crossing.style : "over";
+	const marked = splitRoles ? input.crossings : jumps;
+	if (new Set(marked.map(roleOf)).size <= 1 || points.length < 2) {
+		return [{ cell: renderEdgeCell(input), jumps: jumps.length > 0 }];
 	}
 	const along = (point: Point) => distanceAlong(points, point);
-	const sorted = jumps
-		.map((jump) => ({ jump, at: along(jump) }))
+	const sorted = marked
+		.map((crossing) => ({ crossing, at: along(crossing) }))
 		.sort((left, right) => left.at - right.at);
 	const cuts: number[] = [];
 	sorted.forEach((entry, index) => {
 		const previous = sorted[index - 1];
-		if (previous !== undefined && previous.jump.style !== entry.jump.style) {
+		if (
+			previous !== undefined &&
+			roleOf(previous.crossing) !== roleOf(entry.crossing)
+		) {
 			cuts.push((previous.at + entry.at) / 2);
 		}
 	});
@@ -834,24 +881,152 @@ function renderEdgeCells(
 		const first = index === 0;
 		const last = index === pieces.length - 1;
 		const hasLabel = index === labelled;
-		return renderEdgeCell({
-			...input,
-			cellId: first ? input.cellId : newCellId(),
-			points: piece,
-			sourceBox: first ? input.sourceBox : undefined,
-			sourceId: first ? input.sourceId : undefined,
-			targetBox: last ? input.targetBox : undefined,
-			targetId: last ? input.targetId : undefined,
-			crossings: input.crossings.filter(
-				(crossing) => pieceIndex(along(crossing)) === index,
+		const pieceCrossings = input.crossings.filter(
+			(crossing) => pieceIndex(along(crossing)) === index,
+		);
+		return {
+			jumps: pieceCrossings.some(
+				(crossing) => crossing.underEdgeId === edge.id,
 			),
-			label: hasLabel ? input.label : "",
-			labelBox: hasLabel ? input.labelBox : undefined,
-			labelFont: hasLabel ? input.labelFont : undefined,
-			endArrow: last,
-			pieceOf: edge.id,
-		});
+			cell: renderEdgeCell({
+				...input,
+				cellId: first ? input.cellId : newCellId(),
+				points: piece,
+				sourceBox: first ? input.sourceBox : undefined,
+				sourceId: first ? input.sourceId : undefined,
+				targetBox: last ? input.targetBox : undefined,
+				targetId: last ? input.targetId : undefined,
+				crossings: pieceCrossings,
+				label: hasLabel ? input.label : "",
+				labelBox: hasLabel ? input.labelBox : undefined,
+				labelFont: hasLabel ? input.labelFont : undefined,
+				endArrow: last,
+				pieceOf: edge.id,
+			}),
+		};
 	});
+}
+
+/** One draw.io edge cell, and whether it draws a hop. */
+interface EdgeCellPiece {
+	cell: string;
+	jumps: boolean;
+}
+
+/**
+ * Edges whose "jumped before jumping" relations (over edge, then the under
+ * edge that hops it) form a cycle: no document order draws every hop.
+ */
+function hopCycleEdges(
+	edges: readonly CoordinatedEdge[],
+	crossings: readonly EdgeCrossing[],
+): Set<string> {
+	const next = hopSuccessors(crossings);
+	// Tarjan's strongly connected components, iteratively.
+	const index = new Map<string, number>();
+	const low = new Map<string, number>();
+	const onStack = new Set<string>();
+	const stack: string[] = [];
+	const cyclic = new Set<string>();
+	let counter = 0;
+	for (const root of edges.map((edge) => edge.id)) {
+		if (index.has(root)) continue;
+		const work: { id: string; children: string[] }[] = [];
+		const open = (id: string) => {
+			index.set(id, counter);
+			low.set(id, counter);
+			counter += 1;
+			stack.push(id);
+			onStack.add(id);
+			work.push({ id, children: [...(next.get(id) ?? [])] });
+		};
+		open(root);
+		while (work.length > 0) {
+			const frame = work[work.length - 1] as (typeof work)[number];
+			const child = frame.children.shift();
+			if (child !== undefined) {
+				if (!index.has(child)) open(child);
+				else if (onStack.has(child)) {
+					low.set(
+						frame.id,
+						Math.min(low.get(frame.id) ?? 0, index.get(child) ?? 0),
+					);
+				}
+				continue;
+			}
+			work.pop();
+			const parent = work[work.length - 1];
+			if (parent !== undefined) {
+				low.set(
+					parent.id,
+					Math.min(low.get(parent.id) ?? 0, low.get(frame.id) ?? 0),
+				);
+			}
+			if (low.get(frame.id) === index.get(frame.id)) {
+				const component: string[] = [];
+				for (;;) {
+					const id = stack.pop() as string;
+					onStack.delete(id);
+					component.push(id);
+					if (id === frame.id) break;
+				}
+				if (component.length > 1) for (const id of component) cyclic.add(id);
+			}
+		}
+	}
+	return cyclic;
+}
+
+/**
+ * The other edges in document order: every over edge before the edges that
+ * hop it, otherwise in diagram order.
+ */
+function hopZOrder(
+	edges: readonly CoordinatedEdge[],
+	crossings: readonly EdgeCrossing[],
+	cyclic: ReadonlySet<string>,
+): string[] {
+	const ids = edges.map((edge) => edge.id).filter((id) => !cyclic.has(id));
+	const position = new Map(ids.map((id, at) => [id, at] as const));
+	const next = hopSuccessors(crossings);
+	const pending = new Map<string, number>(ids.map((id) => [id, 0]));
+	for (const id of ids) {
+		for (const successor of next.get(id) ?? []) {
+			if (pending.has(successor)) {
+				pending.set(successor, (pending.get(successor) ?? 0) + 1);
+			}
+		}
+	}
+	const order: string[] = [];
+	const ready = ids.filter((id) => pending.get(id) === 0);
+	while (ready.length > 0) {
+		ready.sort(
+			(left, right) => (position.get(left) ?? 0) - (position.get(right) ?? 0),
+		);
+		const id = ready.shift() as string;
+		order.push(id);
+		for (const successor of next.get(id) ?? []) {
+			if (!pending.has(successor)) continue;
+			const left = (pending.get(successor) ?? 0) - 1;
+			pending.set(successor, left);
+			if (left === 0) ready.push(successor);
+		}
+	}
+	return order;
+}
+
+/** Over edge → the under edges that hop it (deduplicated). */
+function hopSuccessors(
+	crossings: readonly EdgeCrossing[],
+): Map<string, Set<string>> {
+	const next = new Map<string, Set<string>>();
+	for (const crossing of crossings) {
+		if (crossing.overEdgeId === crossing.underEdgeId) continue;
+		const set = next.get(crossing.overEdgeId) ?? new Set<string>();
+		set.add(crossing.underEdgeId);
+		next.set(crossing.overEdgeId, set);
+	}
+	return next;
 }
 
 /** Distance along a polyline to the point on it nearest to `point`. */
