@@ -51,4 +51,5 @@ export const DELIVERABILITY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"layout.container-fixed-bounds-overflow",
 	"route_obstacle_fallback",
 	"routing.text-clearance.unresolved",
+	"routing.short-orthogonal.bend_budget_exceeded",
 ]);

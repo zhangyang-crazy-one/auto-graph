@@ -564,6 +564,26 @@ function routeShortOrthogonalJumps(
 		// Full slot tournament (#84 / Codex P2) — no mid/mid early-exit.
 	}
 
+	// A soft-text micro-clear can add bends past the 0–2 bend contract;
+	// such a route is delivered only with an explicit degraded report.
+	const withinBendBudget = (result: RouteEdgeResult): RouteEdgeResult => {
+		const bends = routeBendCount(result.points);
+		if (bends > 2) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.short-orthogonal.bend_budget_exceeded",
+				message: `Short-orthogonal route has ${bends} bends (contract: at most 2); a soft-text micro-clear needed the extra bends. Prefer external-label remediation.`,
+				detail: {
+					bendCount: bends,
+					maxBends: 2,
+					conflictClass: "node-label-strike",
+					remediationType: "external-label-or-split",
+					routingPolicy: "short-orthogonal-jumps",
+				},
+			});
+		}
+		return result;
+	};
 	if (feasibleTournament.length > 0) {
 		feasibleTournament.sort(
 			(left, right) =>
@@ -579,11 +599,11 @@ function routeShortOrthogonalJumps(
 					best.target,
 				);
 				if (accepted !== undefined) {
-					return accepted;
+					return withinBendBudget(accepted);
 				}
 				const excessive = returnBestExcessiveCleanRoute();
 				if (excessive !== undefined) {
-					return excessive;
+					return withinBendBudget(excessive);
 				}
 			} else {
 				// Same acceptance as a clean route (blocking nodes, backtracking
@@ -605,7 +625,10 @@ function routeShortOrthogonalJumps(
 							maxDetourRatio: detourBudget,
 						},
 					});
-					return { points: simplifyRoute(accepted.points), diagnostics };
+					return withinBendBudget({
+						points: simplifyRoute(accepted.points),
+						diagnostics,
+					});
 				}
 			}
 		}

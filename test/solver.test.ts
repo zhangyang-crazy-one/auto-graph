@@ -4803,6 +4803,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.port.capacity_exhausted",
 		"routing.rail-capacity.exceeded",
 		"routing.route-label-loop.exhausted",
+		"routing.short-orthogonal.bend_budget_exceeded",
 		"routing.text-clearance.unresolved",
 	]);
 });

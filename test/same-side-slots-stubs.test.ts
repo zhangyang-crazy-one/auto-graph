@@ -422,4 +422,50 @@ describe("same-side slots + escape stubs (#92)", () => {
 			"routing.obstacle.unavoidable",
 		);
 	});
+
+	it("reports a micro-clear route past the two-bend contract", () => {
+		// Soft text leaves only micro-cleared candidates, which need four
+		// bends: the route is delivered, but never silently.
+		const result = routeEdge({
+			kind: "short-orthogonal-jumps",
+			direction: "LR",
+			source: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 0, y: 0, width: 80, height: 60 },
+			}),
+			target: computeShapeGeometry({
+				shape: "rectangle",
+				box: { x: 300, y: 80, width: 80, height: 60 },
+			}),
+			sourceAnchor: "right",
+			targetAnchor: "left",
+			obstacles: [
+				{ x: 177, y: 133, width: 63, height: 35 },
+				{ x: 95, y: 154, width: 45, height: 16 },
+				{ x: 180, y: 14, width: 30, height: 30 },
+				{ x: 187, y: 100, width: 58, height: 30 },
+			],
+			hardObstacles: [],
+			softTextClearPitch: 10,
+			maxAttachPointsPerSide: 3,
+			maxDetourRatio: 3,
+		});
+		let bends = 0;
+		for (let index = 1; index < result.points.length - 1; index += 1) {
+			const a = result.points[index - 1];
+			const b = result.points[index];
+			const c = result.points[index + 1];
+			if (a === undefined || b === undefined || c === undefined) continue;
+			if (Math.abs(a.x - b.x) < 0.5 !== Math.abs(b.x - c.x) < 0.5) {
+				bends += 1;
+			}
+		}
+		expect(bends).toBeGreaterThan(2);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.short-orthogonal.bend_budget_exceeded",
+				detail: expect.objectContaining({ bendCount: bends, maxBends: 2 }),
+			}),
+		);
+	});
 });

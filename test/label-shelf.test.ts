@@ -669,4 +669,41 @@ describe("label shelf packing (#93)", () => {
 			node.y < backdrop.y + backdrop.height;
 		expect(overlaps).toBe(false);
 	});
+
+	it("packs beside a diagonal route rather than off its bounding box", () => {
+		// The column beside the content is taken, and a diagonal route's
+		// bounding box covers every other column; the line itself leaves
+		// room above it further right.
+		const diagonal = [
+			{ x: 230, y: 0 },
+			{ x: 790, y: 120 },
+		];
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 20, y: 40, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 800, height: 120 },
+			},
+			{
+				diagnostics,
+				obstacles: [{ x: 100, y: 0, width: 120, height: 120 }],
+				routes: new Map([["z", diagonal]]),
+			},
+		);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		expect(diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+			"routing.label-shelf.capacity_exhausted",
+		);
+		if (callout === undefined) return;
+		// It stays clear of the line on one side: the line's height across
+		// the callout lies wholly above or wholly below it.
+		const lineY = (x: number) => ((x - 230) / (790 - 230)) * 120;
+		const ys = [lineY(callout.x), lineY(callout.x + callout.width)];
+		const above = ys.every((y) => y < callout.y);
+		const below = ys.every((y) => y > callout.y + callout.height);
+		expect(above || below).toBe(true);
+	});
 });

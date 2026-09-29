@@ -790,17 +790,22 @@ function packShelf(
 	shelf: ExternalLabelShelfOptions,
 ): (Box | undefined)[] {
 	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
-	const routeSegmentBoxes: Box[] = [...(shelf.routes?.values() ?? [])].flatMap(
-		(points) =>
-			points.slice(1).map((end, index) => {
-				const start = points[index] as Point;
-				return {
-					x: Math.min(start.x, end.x),
-					y: Math.min(start.y, end.y),
-					width: Math.abs(end.x - start.x),
-					height: Math.abs(end.y - start.y),
-				};
-			}),
+	// Route segments a callout must keep clear of: orthogonal ones as their
+	// (zero-width) boxes, diagonal ones tested as segments, since their
+	// bounding box would block the whole rectangle between their ends.
+	const routeSegments = [...(shelf.routes?.values() ?? [])].flatMap((points) =>
+		points.slice(1).map((end, index) => [points[index] as Point, end] as const),
+	);
+	const routeSegmentBoxes: Box[] = routeSegments
+		.filter(([start, end]) => start.x === end.x || start.y === end.y)
+		.map(([start, end]) => ({
+			x: Math.min(start.x, end.x),
+			y: Math.min(start.y, end.y),
+			width: Math.abs(end.x - start.x),
+			height: Math.abs(end.y - start.y),
+		}));
+	const diagonalSegments = routeSegments.filter(
+		([start, end]) => start.x !== end.x && start.y !== end.y,
 	);
 	const { top, bottom, left, right } = usablePage(
 		page,
@@ -869,7 +874,16 @@ function packShelf(
 					const clash = blockers.filter((blocker) =>
 						boxesOverlap(candidate, blocker, gap),
 					);
-					if (clash.length === 0) {
+					const margin = {
+						x: candidate.x - gap,
+						y: candidate.y - gap,
+						width: candidate.width + 2 * gap,
+						height: candidate.height + 2 * gap,
+					};
+					const crossesDiagonal = diagonalSegments.some(([start, end]) =>
+						segmentIntersectsBox(start, end, margin),
+					);
+					if (clash.length === 0 && !crossesDiagonal) {
 						box = candidate;
 						column = index;
 						cursor = y + entry.height + gap;
