@@ -80,7 +80,7 @@ export function exportDrawio(
 				annotation.surfaceKind === "frame-title" &&
 				annotation.ownerId === frame.kind,
 		);
-		vertex(
+		const frameId = vertex(
 			title === undefined ? escapeHtml(frame.titleTab) : "",
 			[
 				"shape=umlFrame;whiteSpace=wrap;html=1;",
@@ -94,18 +94,33 @@ export function exportDrawio(
 			].join(""),
 			frame.box,
 		);
-		// The solved title in its tab (lines, typography and box).
+		// The solved title in its tab (lines, typography and box), a child
+		// of the frame so it moves with it.
 		if (title !== undefined) {
 			vertex(
 				calloutText(title),
 				`${SOLVED_TEXT_STYLE}${fontStyleEntries(title)}`,
 				title.box,
+				{ id: frameId, box: frame.box },
 			);
 		}
 	}
 	for (const swimlane of diagram.swimlanes ?? []) {
-		for (const cell of swimlaneCells(swimlane, annotations)) {
-			vertex(cell.value, cell.style, cell.box);
+		const lanes = swimlaneCells(swimlane, annotations);
+		const laneIds: string[] = [];
+		for (const cell of lanes) {
+			const parent =
+				cell.parentIndex === undefined ? undefined : lanes[cell.parentIndex];
+			laneIds.push(
+				vertex(
+					cell.value,
+					cell.style,
+					cell.box,
+					parent === undefined || cell.parentIndex === undefined
+						? undefined
+						: { id: laneIds[cell.parentIndex] ?? "1", box: parent.box },
+				),
+			);
 		}
 	}
 	// Outer groups first so nested ones are drawn on top.
@@ -122,7 +137,7 @@ export function exportDrawio(
 				annotation.surfaceKind === "group-label" &&
 				annotation.ownerId === group.id,
 		);
-		vertex(
+		const groupId = vertex(
 			title === undefined ? escapeHtml(group.label?.text ?? "") : "",
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
@@ -134,6 +149,7 @@ export function exportDrawio(
 					.map((entry) => `${entry};`)
 					.join("")}`,
 				title.box,
+				{ id: groupId, box: group.box },
 			);
 		}
 	}
@@ -469,11 +485,19 @@ function compartmentHtml(node: CoordinatedNode): string {
 	return sections.join("<hr>");
 }
 
+interface SwimlaneCell {
+	value: string;
+	style: string;
+	box: Box;
+	/** Index of the cell (in the same list) this one is a child of. */
+	parentIndex?: number;
+}
+
 function swimlaneCells(
 	swimlane: Swimlane,
 	annotations: readonly SolvedTextAnnotation[],
-): { value: string; style: string; box: Box }[] {
-	const cells: { value: string; style: string; box: Box }[] = [];
+): SwimlaneCell[] {
+	const cells: SwimlaneCell[] = [];
 	for (const lane of swimlane.lanes) {
 		if (lane.box === undefined) continue;
 		const header = lane.headerBox;
@@ -510,6 +534,8 @@ function swimlaneCells(
 		});
 		if (title !== undefined) {
 			cells.push({
+				// A child of its lane, so it moves with the lane.
+				parentIndex: cells.length - 1,
 				value: calloutText(title),
 				// Horizontal pools draw the label turned, as the SVG does.
 				style: `${SOLVED_TEXT_STYLE}${swimlane.orientation === "horizontal" ? "rotation=-90;" : ""}${fontStyleEntries(title)}`,

@@ -63,6 +63,7 @@ import {
 	coordinateFrame,
 	coordinateGroups,
 	coordinateNodes,
+	frameInsets,
 } from "./coordinate.js";
 import {
 	cloneBoxMap,
@@ -1087,6 +1088,8 @@ export function solveDiagram(
 						.filter((annotation) => annotation.surfaceKind === "port-label")
 						.map((annotation) => annotation.box),
 				],
+				// Every callout sits inside the frame, which must fit the page too.
+				...(frame === undefined ? {} : { pageInsets: frameInsets(frame) }),
 			},
 		);
 		if (externalLabelCallouts.length > 0) {

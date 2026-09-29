@@ -126,19 +126,20 @@ export function separateParallelSegments(
 		splitCollinearEnds(points, movable, minStub, spacing);
 	}
 
-	// Fixed routes (e.g. allocated rails) never move, but their segments are
-	// locked bundle members: movable tracks must keep clear of them (and of
-	// every route's end segments with `lockEnds`).
-	const locked = collectLockedSegments(
-		points,
-		routes,
-		options.lockEnds === true,
-	);
-
 	const passes = options.separate === false ? 0 : maxPasses;
 	for (let pass = 0; pass < passes; pass += 1) {
 		let moved = false;
 		for (const orientation of ["v", "h"] as const) {
+			// Fixed routes (e.g. allocated rails) never move, but their segments
+			// are locked bundle members: movable tracks must keep clear of them
+			// (and of every route's end segments with `lockEnds`). Collected per
+			// orientation: moving a track stretches the end segment next to it,
+			// which the other orientation's pass must see at its new span.
+			const locked = collectLockedSegments(
+				points,
+				routes,
+				options.lockEnds === true,
+			);
 			const segments = collectMovableSegments(points, movable, orientation);
 			for (const cluster of clusterSegments(segments, spacing)) {
 				// Re-read coordinates: earlier clusters in this pass may have

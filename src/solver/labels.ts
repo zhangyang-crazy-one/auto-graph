@@ -18,7 +18,7 @@ import type {
 	NormalizedEdge,
 	Swimlane,
 } from "../ir/elements.js";
-import type { Box, Point } from "../ir/geometry.js";
+import type { Box, Insets, Point } from "../ir/geometry.js";
 import type {
 	LabelLayout,
 	SolvedTextAnnotation,
@@ -490,6 +490,12 @@ export interface ExternalLabelShelfOptions {
 	 * panels). Groups are left out: a key on a route inside a zone is fine.
 	 */
 	keyObstacles?: readonly Box[];
+	/**
+	 * Room kept free at each edge of `pageBounds` beyond the usual inset: a
+	 * diagram frame is drawn around every callout, so its padding and title
+	 * bar must still fit on the page.
+	 */
+	pageInsets?: Insets;
 }
 
 /** Callouts are kept this far inside `pageBounds`. */
@@ -726,10 +732,11 @@ function packShelf(
 	shelf: ExternalLabelShelfOptions,
 ): (Box | undefined)[] {
 	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
-	const top = SHELF_PAGE_INSET;
-	const bottom = page.height - SHELF_PAGE_INSET;
-	const left = SHELF_PAGE_INSET;
-	const right = page.width - SHELF_PAGE_INSET;
+	const insets = shelf.pageInsets;
+	const top = Math.max(SHELF_PAGE_INSET, insets?.top ?? 0);
+	const bottom = page.height - Math.max(SHELF_PAGE_INSET, insets?.bottom ?? 0);
+	const left = Math.max(SHELF_PAGE_INSET, insets?.left ?? 0);
+	const right = page.width - Math.max(SHELF_PAGE_INSET, insets?.right ?? 0);
 	const columnWidth = Math.max(...entries.map((entry) => entry.width));
 	const columns: number[] = [];
 	const first = Math.min(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SolvedTextAnnotation } from "../src/ir/index.js";
+import { solveDiagram } from "../src/solver/index.js";
 import { buildExternalLabelCallouts } from "../src/solver/labels.js";
 import { withKeyBlocked } from "../src/solver/remediation.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
@@ -457,5 +458,80 @@ describe("label shelf packing (#93)", () => {
 		expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
 			"routing.label-shelf.capacity_exhausted",
 		);
+	});
+
+	it("keeps room on the page for the frame drawn around the callouts", () => {
+		// The frame wraps every callout in its padding and title bar, so a
+		// callout at the usual page inset would push the frame off the page.
+		const node = (id: string, x: number, y: number) => ({
+			id,
+			shape: "rectangle" as const,
+			size: { width: 80, height: 40 },
+			padding: { top: 0, right: 0, bottom: 0, left: 0 },
+			position: { x, y },
+			label: { text: id },
+		});
+		const nodes = Array.from({ length: 5 }, (_, index) => [
+			node(`s${index}`, 200, 200 + index * 70),
+			node(`t${index}`, 500, 200 + index * 70),
+		]).flat();
+		const result = solveDiagram(
+			{
+				id: "framed-shelf",
+				direction: "LR",
+				nodes,
+				edges: Array.from({ length: 20 }, (_, index) => ({
+					id: `e${index}`,
+					source: { nodeId: `s${index % 5}` },
+					target: {
+						nodeId: `t${(index * 2 + Math.floor(index / 5)) % 5}`,
+					},
+					label: { text: `capability dependency ${index}` },
+				})),
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+				frame: { kind: "sysml", titleTab: "CV-1 capability dependency view" },
+			} as never,
+			{
+				initialLayout: "positions",
+				textMeasurer: new DeterministicTextMeasurer(),
+				externalLabels: true,
+				remediationPolicy: { externalLabels: "auto" },
+				pageBounds: { width: 1000, height: 700 },
+			},
+		);
+		const callouts = (result.textAnnotations ?? []).filter(
+			(annotation) =>
+				annotation.placement === "external-callout" &&
+				annotation.placementDetail?.role !== "key",
+		);
+		expect(callouts.length).toBeGreaterThan(0);
+		expect(
+			result.diagnostics.map((diagnostic) => diagnostic.code),
+		).not.toContain("page_overflow");
+		const frame = result.frame?.box;
+		expect(frame).toBeDefined();
+		if (frame === undefined) return;
+		expect(frame.y).toBeGreaterThanOrEqual(0);
+		expect(frame.y + frame.height).toBeLessThanOrEqual(700);
+	});
+
+	it("packs a bounded shelf inside the requested page insets", () => {
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 120, y: 140, width: 40, height: 14 })],
+			{ x: 100, y: 100, width: 100, height: 100 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 400, height: 300 },
+			},
+			{ pageInsets: { top: 60, right: 32, bottom: 32, left: 32 } },
+		);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		if (callout === undefined) return;
+		expect(callout.y).toBeGreaterThanOrEqual(60);
+		expect(callout.x + callout.width).toBeLessThanOrEqual(400 - 32);
+		expect(callout.y + callout.height).toBeLessThanOrEqual(300 - 32);
 	});
 });

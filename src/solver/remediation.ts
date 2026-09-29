@@ -44,6 +44,7 @@ import {
 	coordinateFrame,
 	coordinateGroups,
 	coordinateNodes,
+	frameInsets,
 } from "./coordinate.js";
 import {
 	measureEvidenceTextBlocks,
@@ -638,6 +639,10 @@ export function applyExternalLabelRemediation(
 					.filter((annotation) => annotation.surfaceKind === "port-label")
 					.map((annotation) => annotation.box),
 			],
+			// Every callout sits inside the frame, which must fit the page too.
+			...(state.frame === undefined
+				? {}
+				: { pageInsets: frameInsets(state.frame) }),
 		},
 	);
 	state.shelfDiagnostics = shelfDiagnostics;

@@ -433,8 +433,15 @@ describe("draw.io export", () => {
 		expect(xml).toMatch(
 			/value="Control&lt;br&gt;zone" style="text;[^"]*fontFamily=Arial;fontSize=11;"/,
 		);
-		// Page-relative: (500,92) - bounds origin (500,100).
-		expect(xml).toContain('x="0" y="-8" width="44" height="28"');
+		// A child of the group box, so it moves with it: (500,92) - (490,90).
+		const groupId = xml.match(
+			/<mxCell id="(\d+)" value="" style="rounded=0;/,
+		)?.[1];
+		expect(xml).toMatch(
+			new RegExp(
+				`value="Control&lt;br&gt;zone" [^>]*parent="${groupId}"><mxGeometry x="10" y="2" width="44" height="28"`,
+			),
+		);
 	});
 
 	it("draws lane labels and the frame title from their solved annotations", () => {
@@ -497,6 +504,25 @@ describe("draw.io export", () => {
 		);
 		expect(xml).toMatch(
 			/value="Order&lt;br&gt;desk" style="text;[^"]*rotation=-90;fontFamily=Noto Sans CJK SC;fontSize=13;"/,
+		);
+		// Each title is a child of the cell it labels, so dragging the frame
+		// or lane in draw.io carries it along: (484,62) - (480,60) and
+		// (495,106) - (500,100).
+		const frameId = xml.match(
+			/<mxCell id="(\d+)" value="" style="shape=umlFrame;/,
+		)?.[1];
+		const laneId = xml.match(
+			/<mxCell id="(\d+)" value="" style="swimlane;/,
+		)?.[1];
+		expect(xml).toMatch(
+			new RegExp(
+				`value="bdd Plant&lt;br&gt;control" [^>]*parent="${frameId}"><mxGeometry x="4" y="2" `,
+			),
+		);
+		expect(xml).toMatch(
+			new RegExp(
+				`value="Order&lt;br&gt;desk" [^>]*parent="${laneId}"><mxGeometry x="-5" y="6" `,
+			),
 		);
 	});
 
@@ -768,12 +794,21 @@ describe("draw.io export", () => {
 				],
 			} as unknown as Partial<CoordinatedDiagram>),
 		);
-		// Page-relative: bounds origin (500,100).
+		// Each label is a child of its own lane (at (500,100) and (700,100)),
+		// so both sit at the same lane-relative spot.
+		const laneIds = [
+			...xml.matchAll(/<mxCell id="(\d+)" value="" style="swimlane;/g),
+		].map((match) => match[1]);
+		expect(laneIds).toHaveLength(2);
 		expect(xml).toMatch(
-			/value="First" style="text;[^"]*"[^>]*><mxGeometry x="30" y="3"/,
+			new RegExp(
+				`value="First" style="text;[^"]*" vertex="1" parent="${laneIds[0]}"><mxGeometry x="30" y="3"`,
+			),
 		);
 		expect(xml).toMatch(
-			/value="Second" style="text;[^"]*"[^>]*><mxGeometry x="230" y="3"/,
+			new RegExp(
+				`value="Second" style="text;[^"]*" vertex="1" parent="${laneIds[1]}"><mxGeometry x="30" y="3"`,
+			),
 		);
 	});
 
