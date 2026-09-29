@@ -253,10 +253,19 @@ describe("draw.io export", () => {
 			}),
 		);
 		expect(xml).not.toContain("&lt;table");
-		// Narrow first column (60) and wide second (240), both rows.
+		// Narrow first column (60) and wide second (240), both rows, as
+		// children of the table's background cell (table-relative).
+		const tableId = xml.match(
+			/<mxCell id="(\d+)" value="" style="[^"]*" vertex="1" parent="1"><mxGeometry x="0" y="100" width="300" height="40"/,
+		)?.[1];
+		expect(tableId).toBeDefined();
 		expect(xml).toContain('value="Key"');
-		expect(xml).toContain('x="0" y="100" width="60" height="20"');
-		expect(xml).toContain('x="60" y="120" width="240" height="20"');
+		expect(xml).toContain(
+			`parent="${tableId}"><mxGeometry x="0" y="0" width="60" height="20"`,
+		);
+		expect(xml).toContain(
+			`parent="${tableId}"><mxGeometry x="60" y="20" width="240" height="20"`,
+		);
 	});
 
 	it("escapes literal label markup for draw.io's HTML labels", () => {
@@ -301,12 +310,14 @@ describe("draw.io export", () => {
 		const xml = exportDrawio(ported);
 		const nodeId = /<mxCell id="(\d+)" value="A"/.exec(xml)?.[1];
 		expect(nodeId).toBeDefined();
-		// Port at node-relative (95,15); its label at (110,0).
+		// Port at node-relative (95,15); its label is a child of the port,
+		// so it follows a moved port: (610,100) - (595,115).
+		const portId = new RegExp(
+			`<mxCell id="(\\d+)" value="" style="[^"]*" vertex="1" parent="${nodeId}"><mxGeometry x="95" y="15" width="10" height="10"`,
+		).exec(xml)?.[1];
+		expect(portId).toBeDefined();
 		expect(xml).toContain(
-			`parent="${nodeId}"><mxGeometry x="95" y="15" width="10" height="10"`,
-		);
-		expect(xml).toContain(
-			`parent="${nodeId}"><mxGeometry x="110" y="0" width="10" height="10"`,
+			`parent="${portId}"><mxGeometry x="15" y="-15" width="10" height="10"`,
 		);
 	});
 
@@ -526,6 +537,41 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("stretches the page over ports and port labels past the bounds", () => {
+		// Node "b" spans x 800–900; its right port and that port's label
+		// reach past the solved bounds (500,100 400×40).
+		const ported = diagram({
+			textAnnotations: [
+				{
+					text: "OUT",
+					ownerId: "b.out",
+					surfaceKind: "port-label",
+					box: { x: 906, y: 90, width: 24, height: 12 },
+					anchor: { x: 900, y: 120 },
+					paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+					lines: [],
+					fontFamily: "Arial",
+					fontSize: 10,
+				},
+			],
+		});
+		const node = ported.nodes[1];
+		if (node === undefined) throw new Error("fixture");
+		node.ports = [
+			{
+				id: "out",
+				side: "right",
+				kind: "flow",
+				box: { x: 895, y: 115, width: 10, height: 10 },
+				anchor: { x: 900, y: 120 },
+			},
+		];
+		const xml = exportDrawio(ported);
+		// Page from (500,90) to (930,140): 430×50, so node "a" sits at y=10.
+		expect(xml).toContain('pageWidth="430" pageHeight="50"');
+		expect(xml).toContain('x="0" y="10" width="100" height="40"');
+	});
+
 	it("pads the page by the requested viewport padding", () => {
 		const xml = exportDrawio(diagram(), { viewportPadding: 24 });
 		// Bounds 400×40 at (500,100) → page 448×88, node "a" at (24,24).
@@ -715,28 +761,24 @@ describe("draw.io export", () => {
 			xml.match(
 				new RegExp(`<mxCell id="(\\d+)" value="${label}" style="shape=`),
 			)?.[1];
-		// Each label is a child of its own port's node.
-		expect(xml).toMatch(
-			new RegExp(
-				`value="OUT" style="[^"]*" vertex="1" parent="${nodeCell("A")}"`,
-			),
-		);
-		expect(xml).toMatch(
-			new RegExp(
-				`value="IN" style="[^"]*" vertex="1" parent="${nodeCell("B")}"`,
-			),
-		);
-		const portCell = (x: number, y: number) =>
+		const portCell = (node: string, x: number, y: number) =>
 			xml.match(
 				new RegExp(
-					`<mxCell id="(\\d+)" value="" style="[^"]*" vertex="1" parent="\\d+"><mxGeometry x="${x}" y="${y}" width="10" height="10"`,
+					`<mxCell id="(\\d+)" value="" style="[^"]*" vertex="1" parent="${nodeCell(node)}"><mxGeometry x="${x}" y="${y}" width="10" height="10"`,
 				),
 			)?.[1];
-		const sourcePort = portCell(95, 5);
-		const targetPort = portCell(-5, 25);
+		const sourcePort = portCell("A", 95, 5);
+		const targetPort = portCell("B", -5, 25);
 		expect(sourcePort).toBeDefined();
 		expect(targetPort).toBeDefined();
 		expect(sourcePort).not.toBe(targetPort);
+		// Each label is a child of its own port.
+		expect(xml).toMatch(
+			new RegExp(`value="OUT" style="[^"]*" vertex="1" parent="${sourcePort}"`),
+		);
+		expect(xml).toMatch(
+			new RegExp(`value="IN" style="[^"]*" vertex="1" parent="${targetPort}"`),
+		);
 		expect(xml).toContain(`source="${sourcePort}" target="${targetPort}"`);
 	});
 
@@ -853,12 +895,23 @@ describe("draw.io export", () => {
 				],
 			}),
 		);
-		// Title column 72 wide (0.36 × 200), rows 20 high, page-relative.
+		// Title column 72 wide (0.36 × 200), rows 20 high, as children of
+		// the panel's background cell (panel-relative).
+		const panelId = xml.match(
+			/<mxCell id="(\d+)" value="" style="[^"]*" vertex="1" parent="1"><mxGeometry x="0" y="100" width="200" height="40"/,
+		)?.[1];
+		expect(panelId).toBeDefined();
 		expect(xml).toContain('value="legend:&lt;br&gt;legend-1"');
-		expect(xml).toContain('x="0" y="100" width="72" height="40"');
+		expect(xml).toContain(
+			`parent="${panelId}"><mxGeometry x="0" y="0" width="72" height="40"`,
+		);
 		expect(xml).toContain('value="Solid: flow"');
-		expect(xml).toContain('x="72" y="100" width="128" height="20"');
-		expect(xml).toContain('x="72" y="120" width="128" height="20"');
+		expect(xml).toContain(
+			`parent="${panelId}"><mxGeometry x="72" y="0" width="128" height="20"`,
+		);
+		expect(xml).toContain(
+			`parent="${panelId}"><mxGeometry x="72" y="20" width="128" height="20"`,
+		);
 	});
 
 	it("keeps the solver's node-label line breaks and size", () => {

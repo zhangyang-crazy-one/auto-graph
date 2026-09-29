@@ -1,3 +1,4 @@
+import { unionBoxes } from "../geometry/index.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -29,8 +30,16 @@ export function exportDrawio(
 ): string {
 	const title = options.title ?? diagram.title ?? diagram.id;
 	// The page is the solved bounds plus the requested viewport padding.
+	// Boundary ports and text drawn outside a node (port labels, for one)
+	// can reach past the solved bounds: the page covers them too.
 	const page = expandBoxForDrawio(
-		diagram.bounds,
+		unionBoxes([
+			diagram.bounds,
+			...diagram.nodes.flatMap((node) =>
+				(node.ports ?? []).map((port) => port.box),
+			),
+			...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
+		]),
 		Math.max(0, options.viewportPadding ?? 0),
 	);
 	const origin = { x: page.x, y: page.y };
@@ -155,32 +164,29 @@ export function exportDrawio(
 	}
 	// Matrices and tables are laid out cell by cell on the solved geometry,
 	// as the SVG exporter draws them, so draw.io keeps the column widths.
-	for (const matrix of diagram.matrices ?? []) {
-		for (const cell of matrixCells(matrix)) {
-			vertex(cell.value, cell.style, cell.box);
-		}
-	}
-	for (const table of diagram.tables ?? []) {
-		for (const cell of tableCells(table)) {
-			vertex(cell.value, cell.style, cell.box);
-		}
-	}
-	for (const panel of diagram.evidencePanels ?? []) {
-		for (const cell of panelCells(panel)) {
-			vertex(cell.value, cell.style, cell.box);
-		}
-	}
+	// The first cell is the block's background; the others are its
+	// children, so dragging the block carries its headers and cells along.
+	const block = (blockCells: readonly EvidenceCellVertex[]) => {
+		const [background, ...rest] = blockCells;
+		if (background === undefined) return;
+		const parent = {
+			id: vertex(background.value, background.style, background.box),
+			box: background.box,
+		};
+		for (const cell of rest) vertex(cell.value, cell.style, cell.box, parent);
+	};
+	for (const matrix of diagram.matrices ?? []) block(matrixCells(matrix));
+	for (const table of diagram.tables ?? []) block(tableCells(table));
+	for (const panel of diagram.evidencePanels ?? []) block(panelCells(panel));
 
-	// Ports and their labels are children of their node, so they move with
-	// it (and with the edges pinned to it) when the node is dragged.
+	// Ports are children of their node, so they move with it (and with the
+	// edges pinned to it) when the node is dragged; a port label is a child
+	// of its port, so it also follows the port when the port is moved.
 	const nodeCellIds = new Map<string, string>();
 	// A port label's owner id joins node and port ids with a dot, which is
-	// ambiguous when ids contain dots: keep every port under that key and
-	// give the label to the nearest one.
-	const portParents = new Map<
-		string,
-		{ parent: { id: string; box: Box }; port: Box }[]
-	>();
+	// ambiguous when ids contain dots: keep every port cell under that key
+	// and give the label to the nearest one.
+	const portParents = new Map<string, { id: string; box: Box }[]>();
 	// Port cells are the terminals of edges docked at named ports, so the
 	// connector follows a port moved in draw.io.
 	// Keyed by node, then port: ids may contain dots, so "a"."b.c" and
@@ -219,18 +225,19 @@ export function exportDrawio(
 		);
 		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
+			const portCell = {
+				id: vertex("", portStyle(port.style), port.box, parent),
+				box: port.box,
+			};
 			const ownerKey = `${node.id}.${port.id}`;
 			portParents.set(ownerKey, [
 				...(portParents.get(ownerKey) ?? []),
-				{ parent, port: port.box },
+				portCell,
 			]);
 			const nodePorts =
 				portCells.get(node.id) ?? new Map<string, { id: string; box: Box }>();
 			portCells.set(node.id, nodePorts);
-			nodePorts.set(port.id, {
-				id: vertex("", portStyle(port.style), port.box, parent),
-				box: port.box,
-			});
+			nodePorts.set(port.id, portCell);
 		}
 		for (const row of rows) {
 			const index = row.surfaceIndex ?? 0;
@@ -269,7 +276,8 @@ export function exportDrawio(
 					: "fontSize=10;"
 			}${font.map((entry) => `${entry};`).join("")}`,
 			portLabel.box,
-			nearestPortParent(portParents.get(portLabel.ownerId), portLabel.box),
+			// The nearest candidate port: a label sits beside its port.
+			nearestBox(portParents.get(portLabel.ownerId) ?? [], portLabel.box),
 		);
 	}
 
@@ -977,22 +985,6 @@ function nearestBox<T extends { box: Box }>(
 	return [...candidates].sort(
 		(left, right) => distance(left.box) - distance(right.box),
 	)[0];
-}
-
-/** The candidate port nearest to a port label (it sits beside its port). */
-function nearestPortParent(
-	candidates:
-		| readonly { parent: { id: string; box: Box }; port: Box }[]
-		| undefined,
-	label: Box,
-): { id: string; box: Box } | undefined {
-	const cx = label.x + label.width / 2;
-	const cy = label.y + label.height / 2;
-	const distance = (box: Box) =>
-		Math.hypot(box.x + box.width / 2 - cx, box.y + box.height / 2 - cy);
-	return [...(candidates ?? [])].sort(
-		(left, right) => distance(left.port) - distance(right.port),
-	)[0]?.parent;
 }
 
 /** A solved label's lines, joined with HTML line breaks. */

@@ -534,4 +534,32 @@ describe("label shelf packing (#93)", () => {
 		expect(callout.x + callout.width).toBeLessThanOrEqual(400 - 32);
 		expect(callout.y + callout.height).toBeLessThanOrEqual(300 - 32);
 	});
+
+	it("moves a key out of the frame insets of a bounded page", () => {
+		// The label (and so its key) starts in the top inset a frame's title
+		// bar needs; its route runs down into the usable page.
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 100, y: 30, width: 40, height: 14 })],
+			{ x: 60, y: 20, width: 200, height: 200 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 600, height: 400 },
+			},
+			{
+				pageInsets: { top: 60, right: 32, bottom: 32, left: 32 },
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 120, y: 20 },
+							{ x: 120, y: 220 },
+						],
+					],
+				]),
+			},
+		);
+		const key = built[0]?.callout.keyBox;
+		expect(key).toBeDefined();
+		expect(key?.y ?? 0).toBeGreaterThanOrEqual(60);
+	});
 });

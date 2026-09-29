@@ -501,6 +501,20 @@ export interface ExternalLabelShelfOptions {
 /** Callouts are kept this far inside `pageBounds`. */
 const SHELF_PAGE_INSET = 8;
 
+/** The page area inside `insets`, each at least `minimum`. */
+function usablePage(
+	page: { width: number; height: number },
+	insets: Insets | undefined,
+	minimum: number,
+): { top: number; bottom: number; left: number; right: number } {
+	return {
+		top: Math.max(minimum, insets?.top ?? 0),
+		bottom: page.height - Math.max(minimum, insets?.bottom ?? 0),
+		left: Math.max(minimum, insets?.left ?? 0),
+		right: page.width - Math.max(minimum, insets?.right ?? 0),
+	};
+}
+
 export function buildExternalLabelCallouts(
 	annotations: readonly SolvedTextAnnotation[],
 	bounds: Box,
@@ -587,8 +601,23 @@ export function buildExternalLabelCallouts(
 				annotation.placement !== "external-callout",
 		)
 		.map((annotation) => annotation.box);
+	// On a bounded framed page a key also stays clear of the frame insets:
+	// the frame is drawn around every key, so a key there pushes the frame
+	// off the page. (Without a frame the key sits on its route, which the
+	// page already has to hold.)
+	const keyArea =
+		options.pageBounds === undefined || shelf.pageInsets === undefined
+			? undefined
+			: usablePage(options.pageBounds, shelf.pageInsets, 0);
+	const onPage = (box: Box) =>
+		keyArea === undefined ||
+		(box.x >= keyArea.left - 1e-6 &&
+			box.y >= keyArea.top - 1e-6 &&
+			box.x + box.width <= keyArea.right + 1e-6 &&
+			box.y + box.height <= keyArea.bottom + 1e-6);
 	for (const entry of measured) {
 		const clearOfKeysAndObstacles = (box: Box) =>
+			onPage(box) &&
 			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
 			![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
 				boxesOverlap(box, obstacle, 0),
@@ -732,11 +761,11 @@ function packShelf(
 	shelf: ExternalLabelShelfOptions,
 ): (Box | undefined)[] {
 	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
-	const insets = shelf.pageInsets;
-	const top = Math.max(SHELF_PAGE_INSET, insets?.top ?? 0);
-	const bottom = page.height - Math.max(SHELF_PAGE_INSET, insets?.bottom ?? 0);
-	const left = Math.max(SHELF_PAGE_INSET, insets?.left ?? 0);
-	const right = page.width - Math.max(SHELF_PAGE_INSET, insets?.right ?? 0);
+	const { top, bottom, left, right } = usablePage(
+		page,
+		shelf.pageInsets,
+		SHELF_PAGE_INSET,
+	);
 	const columnWidth = Math.max(...entries.map((entry) => entry.width));
 	const columns: number[] = [];
 	const first = Math.min(
