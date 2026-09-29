@@ -563,6 +563,53 @@ describe("draw.io export", () => {
 		expect(xml).not.toContain("&lt;hr&gt;");
 	});
 
+	it("moves a node label to its solved box with spacing", () => {
+		const styled = diagram({
+			textAnnotations: [
+				{
+					text: "Orders DB",
+					ownerId: "a",
+					surfaceKind: "node-label",
+					// 8px below the node centre (550,120), as for a cylinder cap.
+					box: { x: 520, y: 121, width: 60, height: 14 },
+					lines: [{ text: "Orders DB", width: 60 }],
+					fontFamily: "Arial",
+					fontSize: 13,
+				},
+			],
+		} as unknown as Partial<CoordinatedDiagram>);
+		const [a] = styled.nodes;
+		if (a === undefined) throw new Error("fixture");
+		a.shape = "cylinder";
+		a.label = { text: "Orders DB" };
+		const xml = exportDrawio(styled);
+		expect(xml).toMatch(
+			/value="Orders DB" style="[^"]*fontSize=13;spacingTop=16;"/,
+		);
+	});
+
+	it("leaves an unlabeled lane blank", () => {
+		const xml = exportDrawio(
+			diagram({
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "vertical",
+						lanes: [
+							{
+								id: "lane-internal-id",
+								children: ["a"],
+								box: { x: 500, y: 100, width: 120, height: 40 },
+							},
+						],
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		expect(xml).not.toContain("lane-internal-id");
+		expect(xml).toMatch(/value="" style="swimlane;/);
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

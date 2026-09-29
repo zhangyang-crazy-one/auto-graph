@@ -1067,6 +1067,8 @@ export function solveDiagram(
 					...coordinatedTables.map((table) => table.box),
 					...coordinatedEvidencePanels.map((panel) => panel.box),
 					...policyHardObstacles,
+					// Frame and lane title bars keep their titles readable.
+					...titleBarObstacles,
 					// Port labels often reach past their node.
 					...baseTextAnnotations
 						.filter((annotation) => annotation.surfaceKind === "port-label")

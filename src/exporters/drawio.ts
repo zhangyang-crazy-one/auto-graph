@@ -176,7 +176,19 @@ export function exportDrawio(
 							(left, right) =>
 								(left.surfaceIndex ?? 0) - (right.surfaceIndex ?? 0),
 						);
-		cells.push(renderNodeCell(cellId, node, shift(node.box), rows.length > 0));
+		cells.push(
+			renderNodeCell(
+				cellId,
+				node,
+				shift(node.box),
+				rows.length > 0,
+				annotations.find(
+					(annotation) =>
+						annotation.surfaceKind === "node-label" &&
+						annotation.ownerId === node.id,
+				),
+			),
+		);
 		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
 			portParents.set(`${node.id}.${port.id}`, parent);
@@ -324,31 +336,68 @@ function renderNodeCell(
 	node: CoordinatedNode,
 	box: Box,
 	solvedRows = false,
+	/** The solved node label, when there is one (not for compartments). */
+	solvedLabel?: SolvedTextAnnotation,
 ): string {
 	const visual = node.style;
+	const labelled = node.compartments === undefined ? solvedLabel : undefined;
 	const style = [
 		nodeShapeStyle(node.shape),
 		...(node.compartments === undefined ? [] : ["verticalAlign=top;"]),
 		...(visual?.fill === undefined ? [] : [`fillColor=${visual.fill};`]),
 		...(visual?.stroke === undefined ? [] : [`strokeColor=${visual.stroke};`]),
 		...(visual?.fontFamily === undefined
-			? []
+			? labelled === undefined
+				? []
+				: labelFontStyle({ fontFamily: labelled.fontFamily }).map(
+						(entry) => `${entry};`,
+					)
 			: [`fontFamily=${visual.fontFamily};`]),
 		// The solver measured the label at this size.
 		...(visual?.fontSize === undefined
-			? node.labelLayout === undefined
-				? []
-				: [`fontSize=${formatNumber(node.labelLayout.font.fontSize)};`]
+			? labelled !== undefined
+				? [`fontSize=${formatNumber(labelled.fontSize)};`]
+				: node.labelLayout === undefined
+					? []
+					: [`fontSize=${formatNumber(node.labelLayout.font.fontSize)};`]
 			: [`fontSize=${formatNumber(visual.fontSize)};`]),
+		// The label stays the node's own (editable in draw.io); spacing moves
+		// its centre to the solved box (e.g. a cylinder label below the cap).
+		...(labelled === undefined
+			? []
+			: [labelOffsetStyle(labelled.box, node.box)]),
 	].join("");
 	const label = escapeXml(
 		node.compartments === undefined
-			? nodeLabelHtml(node)
+			? labelled !== undefined
+				? calloutText(labelled)
+				: nodeLabelHtml(node)
 			: solvedRows
 				? ""
 				: compartmentHtml(node),
 	);
 	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
+}
+
+/**
+ * draw.io centres a node label in the node box less its spacing: extra
+ * spacing of 2d on one side moves the label centre by d the other way.
+ */
+function labelOffsetStyle(label: Box, node: Box): string {
+	const dx = label.x + label.width / 2 - (node.x + node.width / 2);
+	const dy = label.y + label.height / 2 - (node.y + node.height / 2);
+	const entries: string[] = [];
+	if (Math.abs(dx) > 0.5) {
+		entries.push(
+			`${dx > 0 ? "spacingLeft" : "spacingRight"}=${formatNumber(2 * Math.abs(dx))};`,
+		);
+	}
+	if (Math.abs(dy) > 0.5) {
+		entries.push(
+			`${dy > 0 ? "spacingTop" : "spacingBottom"}=${formatNumber(2 * Math.abs(dy))};`,
+		);
+	}
+	return entries.join("");
 }
 
 /**
@@ -404,7 +453,8 @@ function swimlaneCells(
 				annotation.ownerId === `${swimlane.id}.${lane.id}`,
 		);
 		cells.push({
-			value: title === undefined ? escapeHtml(lane.label?.text ?? lane.id) : "",
+			// A lane without a label stays blank, as in the SVG.
+			value: title === undefined ? escapeHtml(lane.label?.text ?? "") : "",
 			style: `swimlane;whiteSpace=wrap;html=1;startSize=${formatNumber(startSize)};${leftHeader ? "horizontal=0;" : ""}`,
 			box: lane.box,
 		});

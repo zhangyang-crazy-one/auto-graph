@@ -616,6 +616,8 @@ export function applyExternalLabelRemediation(
 				...context.coordinatedTables.map((table) => table.box),
 				...context.coordinatedEvidencePanels.map((panel) => panel.box),
 				...state.policyHardObstacles,
+				// Frame and lane title bars keep their titles readable.
+				...state.titleBarObstacles,
 				// Port labels often reach past their node.
 				...state.baseTextAnnotations
 					.filter((annotation) => annotation.surfaceKind === "port-label")
