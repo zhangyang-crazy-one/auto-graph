@@ -42,6 +42,7 @@ export function exportDrawio(
 			),
 			...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
 			...fallbackLabels.map((fallback) => fallback.box),
+			...fallbackEdgeLabelBoxes(diagram),
 			// A native hop arc reaches its glyph radius past the crossing.
 			...(diagram.edgeCrossings ?? []).map((crossing) => ({
 				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
@@ -1544,7 +1545,7 @@ function fallbackPortLabels(diagram: CoordinatedDiagram): {
 		(node.ports ?? []).flatMap((port) => {
 			const text = port.label?.text;
 			if (text === undefined || solved.has(key(node.id, port.id))) return [];
-			const width = Math.max(10, text.length * 6);
+			const width = Math.max(10, fallbackTextWidth(text, 10));
 			const left = port.side === "left";
 			return [
 				{
@@ -1562,6 +1563,56 @@ function fallbackPortLabels(diagram: CoordinatedDiagram): {
 			];
 		}),
 	);
+}
+
+/**
+ * A conservative width for text drawn without a solved measurement:
+ * wide glyphs (CJK, Hangul, fullwidth forms) take a full em, others 0.6.
+ */
+function fallbackTextWidth(text: string, fontSize: number): number {
+	let width = 0;
+	for (const char of text) {
+		const code = char.codePointAt(0) ?? 0;
+		const wide =
+			(code >= 0x1100 && code <= 0x115f) ||
+			(code >= 0x2e80 && code <= 0xa4cf) ||
+			(code >= 0xac00 && code <= 0xd7a3) ||
+			(code >= 0xf900 && code <= 0xfaff) ||
+			(code >= 0xfe30 && code <= 0xfe4f) ||
+			(code >= 0xff00 && code <= 0xff60) ||
+			(code >= 0xffe0 && code <= 0xffe6) ||
+			code >= 0x1f300;
+		width += wide ? fontSize : fontSize * 0.6;
+	}
+	return width;
+}
+
+/**
+ * Boxes of authored edge labels that no solved edge label covers: draw.io
+ * draws them at the route's middle, at its default 11px font.
+ */
+function fallbackEdgeLabelBoxes(diagram: CoordinatedDiagram): Box[] {
+	const solved = new Set(
+		(diagram.textAnnotations ?? [])
+			.filter((annotation) => annotation.surfaceKind === "edge-label")
+			.map((annotation) => annotation.ownerId),
+	);
+	return diagram.edges.flatMap((edge) => {
+		const text = edge.label?.text;
+		const middle = pointAtHalfLength(edge.points);
+		if (text === undefined || text === "" || solved.has(edge.id)) return [];
+		if (middle === undefined) return [];
+		const width = fallbackTextWidth(text, 11) + 4;
+		const height = 16;
+		return [
+			{
+				x: middle.x - width / 2,
+				y: middle.y - height / 2,
+				width,
+				height,
+			},
+		];
+	});
 }
 
 function nearestBox<T extends { box: Box }>(

@@ -356,6 +356,40 @@ describe("draw.io export", () => {
 		expect(xml).toContain('pageWidth="462"');
 	});
 
+	it("sizes wide-glyph fallback port labels at a full em", () => {
+		const base = diagram();
+		const node = base.nodes[1];
+		if (node === undefined) throw new Error("fixture");
+		node.ports = [
+			{
+				id: "out",
+				side: "right",
+				kind: "flow",
+				label: { text: "主控单元输出" },
+				anchor: { x: 900, y: 120 },
+				box: { x: 895, y: 115, width: 10, height: 10 },
+			},
+		];
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		// Six CJK glyphs at 10px, 8px out from x=900: the page reaches 968.
+		expect(xml).toContain('pageWidth="468"');
+	});
+
+	it("covers authored edge labels on the page", () => {
+		const base = diagram();
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		// A route along the top of the bounds, labelled without solved text.
+		edge.points = [
+			{ x: 600, y: 100 },
+			{ x: 800, y: 100 },
+		];
+		edge.label = { text: "flows" };
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		// The 16px label box is centred on y=100: the page starts at y=92.
+		expect(xml).toContain('pageHeight="48"');
+	});
+
 	it("exports groups, swimlanes, evidence and callouts", () => {
 		const xml = exportDrawio(
 			diagram({
