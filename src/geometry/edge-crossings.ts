@@ -107,6 +107,8 @@ export function hopGlyphs<T extends Point>(
 	sorted: readonly T[],
 	start: Point,
 	end: Point,
+	/** Extra room kept clear before `end` (an arrowhead on a final segment). */
+	endClearance = 0,
 ): HopGlyph<T>[] {
 	const length = Math.hypot(end.x - start.x, end.y - start.y);
 	if (length < 1e-9) return [];
@@ -120,7 +122,7 @@ export function hopGlyphs<T extends Point>(
 	const drawable = sorted.filter(
 		(hop) =>
 			along(hop) >= EDGE_CROSSING_GLYPH_RADIUS - 1e-6 &&
-			length - along(hop) >= EDGE_CROSSING_GLYPH_RADIUS - 1e-6,
+			length - along(hop) >= EDGE_CROSSING_GLYPH_RADIUS + endClearance - 1e-6,
 	);
 	const clusters: T[][] = [];
 	for (const hop of drawable) {
@@ -155,7 +157,7 @@ export function hopGlyphs<T extends Point>(
  * Length exporters cut off an edge's last segment for its arrowhead
  * (`computeArrowhead`'s default); a hop cannot be drawn inside it.
  */
-const ARROWHEAD_LENGTH = 10;
+export const ARROWHEAD_LENGTH = 10;
 
 /**
  * A hop glyph centred at `point` fits inside segment `a`–`b` (with the

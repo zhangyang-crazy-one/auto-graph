@@ -330,4 +330,47 @@ describe("label shelf packing (#93)", () => {
 		expect(callout).toBeDefined();
 		expect(callout?.x ?? 0).toBeGreaterThanOrEqual(250);
 	});
+
+	it("keeps a key off the inline label that forced its callout", () => {
+		const inline: SolvedTextAnnotation = {
+			...required("c", "inline label", { x: 36, y: 20, width: 40, height: 14 }),
+		};
+		delete (inline as { placement?: string }).placement;
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 30, y: 20, width: 40, height: 14 }), inline],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 10, y: 27 },
+							{ x: 200, y: 27 },
+						],
+					],
+				]),
+			},
+		);
+		const key = built[0]?.callout.keyBox;
+		expect(key).toBeDefined();
+		if (key === undefined) return;
+		const box = inline.box;
+		const overlaps =
+			key.x < box.x + box.width &&
+			box.x < key.x + key.width &&
+			key.y < box.y + box.height &&
+			box.y < key.y + key.height;
+		expect(overlaps).toBe(false);
+	});
+
+	it("starts an unbounded shelf right of protruding obstacles", () => {
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 20, y: 40, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{ obstacles: [{ x: 95, y: 20, width: 60, height: 12 }] },
+		);
+		expect(built[0]?.callout.calloutBox.x ?? 0).toBeGreaterThanOrEqual(155);
+	});
 });

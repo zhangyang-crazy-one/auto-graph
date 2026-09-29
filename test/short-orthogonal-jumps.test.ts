@@ -465,6 +465,98 @@ describe("edge crossings / jumps (#84)", () => {
 		expect(path).toBe("M 0 50 L 10 50 A 6 6 0 0 0 22 50 L 190 50");
 	});
 
+	it("does not run a short route through a table as a text-clearance problem", () => {
+		const table = { x: 180, y: -200, width: 60, height: 460 };
+		const solved = solveDiagram(
+			{
+				id: "short-through-table",
+				direction: "LR",
+				nodes: [
+					{
+						id: "a",
+						shape: "rectangle",
+						size: { width: 80, height: 40 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 0, y: 0 },
+					},
+					{
+						id: "b",
+						shape: "rectangle",
+						size: { width: 80, height: 40 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 340, y: 0 },
+					},
+				],
+				edges: [
+					{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } },
+				],
+				groups: [],
+				tables: [
+					{
+						id: "t",
+						columns: [{ id: "c", label: { text: "Spec" } }],
+						rows: [{ id: "r", cells: { c: { text: "x" } } }],
+						position: { x: table.x, y: table.y },
+						size: { width: table.width, height: table.height },
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ initialLayout: "positions", routeKind: "short-orthogonal-jumps" },
+		);
+		// A crossing, if any, is reported as an obstacle, never as a label
+		// problem external-label remediation could fix.
+		expect(
+			solved.diagnostics.filter(
+				(diagnostic) =>
+					diagnostic.code === "routing.text-clearance.unresolved" &&
+					diagnostic.detail?.edgeId === "a-b",
+			),
+		).toEqual([]);
+	});
+
+	it("keeps Excalidraw hops clear of the arrowhead", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "hop-at-arrowhead",
+			direction: "LR",
+			nodes: [],
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				{
+					id: "v",
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x: 188, y: 20 },
+						{ x: 188, y: 80 },
+					],
+				},
+			],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			// 12px before the target: room for the glyph, not for the arrowhead.
+			edgeCrossings: [
+				{ x: 188, y: 50, underEdgeId: "h", overEdgeId: "v", style: "jump" },
+			],
+		};
+		const scene = JSON.parse(exportExcalidraw(diagram)) as {
+			elements: Array<{ id: string; points?: Array<{ x: number; y: number }> }>;
+		};
+		const under = scene.elements.find((element) => element.id === "edge:h");
+		expect(under?.points).toHaveLength(2);
+	});
+
 	it("emits edgeCrossings from solve without treating jumps as unsatisfiable alone", () => {
 		const solved = solveDiagram(
 			{

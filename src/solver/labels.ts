@@ -570,10 +570,20 @@ export function buildExternalLabelCallouts(
 	// clear the nodes, panels and other keys leaves its label inline.
 	const placedKeys: Box[] = [];
 	const keysOnRoutes: string[] = [];
+	// Ordinary edge labels stay where they are: a key must not cover one
+	// (often the very label that forced this one out).
+	const ordinaryLabels = annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "edge-label" &&
+				annotation.placement !== "external-callout-required" &&
+				annotation.placement !== "external-callout",
+		)
+		.map((annotation) => annotation.box);
 	for (const entry of measured) {
 		const clearOfKeysAndObstacles = (box: Box) =>
 			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
-			!(shelf.keyObstacles ?? []).some((obstacle) =>
+			![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
 				boxesOverlap(box, obstacle, 0),
 			);
 		const clear = (box: Box) =>
@@ -639,19 +649,16 @@ export function buildExternalLabelCallouts(
 	// every edge label that never needed a callout.
 	const inlineBoxes = [
 		...blocked.map((entry) => entry.source.box),
-		...annotations
-			.filter(
-				(annotation) =>
-					annotation.surfaceKind === "edge-label" &&
-					annotation.placement !== "external-callout-required" &&
-					annotation.placement !== "external-callout",
-			)
-			.map((annotation) => annotation.box),
+		...ordinaryLabels,
 	];
 	const placements =
 		options.pageBounds === undefined
-			? // The unbounded shelf starts right of every inline label too.
-				stackShelf(shelved, unionBoxes([bounds, ...inlineBoxes]))
+			? // The unbounded shelf starts right of every inline label and
+				// obstacle too (port labels reach past their node).
+				stackShelf(
+					shelved,
+					unionBoxes([bounds, ...inlineBoxes, ...(shelf.obstacles ?? [])]),
+				)
 			: packShelf(shelved, bounds, options.pageBounds, {
 					...shelf,
 					obstacles: [...(shelf.obstacles ?? []), ...inlineBoxes],

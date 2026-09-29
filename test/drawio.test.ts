@@ -610,6 +610,31 @@ describe("draw.io export", () => {
 		expect(xml).toMatch(/value="" style="swimlane;/);
 	});
 
+	it("docks an edge at its named port cell", () => {
+		const ported = diagram({});
+		const [a] = ported.nodes;
+		const [edge] = ported.edges;
+		if (a === undefined || edge === undefined) throw new Error("fixture");
+		a.ports = [
+			{
+				id: "out",
+				side: "right",
+				kind: "flow",
+				anchor: { x: 600, y: 110 },
+				box: { x: 595, y: 105, width: 10, height: 10 },
+			},
+		];
+		edge.source = { nodeId: "a", portId: "out" };
+		const xml = exportDrawio(ported);
+		const portId = xml.match(
+			/<mxCell id="(\d+)" value="" style="[^"]*" vertex="1" parent="\d+"><mxGeometry x="95" y="5" width="10" height="10"/,
+		)?.[1];
+		expect(portId).toBeDefined();
+		// The edge starts at the port cell, at its centre.
+		expect(xml).toMatch(new RegExp(`edge="1" parent="1" source="${portId}"`));
+		expect(xml).toContain("exitX=0.5;exitY=0.5;");
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

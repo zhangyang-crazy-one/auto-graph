@@ -55,7 +55,7 @@ export function exportDrawio(
 		style: string,
 		box: Box,
 		parent?: { id: string; box: Box },
-	): void => {
+	): string => {
 		const cellId = String(nextId++);
 		// A child's geometry is relative to its parent's origin.
 		const placed =
@@ -70,6 +70,7 @@ export function exportDrawio(
 		cells.push(
 			`<mxCell id="${cellId}" value="${escapeXml(value)}" style="${escapeXml(style)}" vertex="1" parent="${escapeXml(parent?.id ?? "1")}">${geometry(placed)}</mxCell>`,
 		);
+		return cellId;
 	};
 
 	if (diagram.frame !== undefined) {
@@ -158,6 +159,9 @@ export function exportDrawio(
 	// it (and with the edges pinned to it) when the node is dragged.
 	const nodeCellIds = new Map<string, string>();
 	const portParents = new Map<string, { id: string; box: Box }>();
+	// Port cells are the terminals of edges docked at named ports, so the
+	// connector follows a port moved in draw.io.
+	const portCells = new Map<string, { id: string; box: Box }>();
 	for (const node of diagram.nodes) {
 		const cellId = String(nextId++);
 		nodeCellIds.set(node.id, cellId);
@@ -192,7 +196,10 @@ export function exportDrawio(
 		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
 			portParents.set(`${node.id}.${port.id}`, parent);
-			vertex("", portStyle(port.style), port.box, parent);
+			portCells.set(`${node.id}.${port.id}`, {
+				id: vertex("", portStyle(port.style), port.box, parent),
+				box: port.box,
+			});
 		}
 		for (const row of rows) {
 			const index = row.surfaceIndex ?? 0;
@@ -256,10 +263,28 @@ export function exportDrawio(
 				cellId,
 				edge,
 				points: edge.points.map(move),
-				sourceBox: boxOf(nodeById.get(edge.source.nodeId)),
-				targetBox: boxOf(nodeById.get(edge.target.nodeId)),
-				sourceId: nodeCellIds.get(edge.source.nodeId),
-				targetId: nodeCellIds.get(edge.target.nodeId),
+				...(() => {
+					const terminal = (end: CoordinatedEdge["source"]) => {
+						const port =
+							end.portId === undefined
+								? undefined
+								: portCells.get(`${end.nodeId}.${end.portId}`);
+						return port === undefined
+							? {
+									box: boxOf(nodeById.get(end.nodeId)),
+									id: nodeCellIds.get(end.nodeId),
+								}
+							: { box: shift(port.box), id: port.id };
+					};
+					const source = terminal(edge.source);
+					const target = terminal(edge.target);
+					return {
+						sourceBox: source.box,
+						targetBox: target.box,
+						sourceId: source.id,
+						targetId: target.id,
+					};
+				})(),
 				crossings: crossings
 					.filter(
 						(crossing) =>

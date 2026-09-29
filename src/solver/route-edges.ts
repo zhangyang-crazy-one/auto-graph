@@ -474,8 +474,11 @@ export function coordinateEdges(
 
 		// RSOP (#86/#87): foreign nodes/groups are hard; text stays soft with
 		// finite cost so micro-clear can run without treating nodes as soft.
+		// Structural blocks (tables, evidence panels, title bars) are hard
+		// too: a short route through one is not a text-clearance problem that
+		// label remediation could repair.
 		const routeSoftObstacles = shortPath
-			? [...softObstacles, ...routeTextObstacles]
+			? routeTextObstacles
 			: [
 					...routeNodeObstacles,
 					...softObstacles,
@@ -483,13 +486,19 @@ export function coordinateEdges(
 					...routeTextObstacles,
 				];
 		const routeHardObstacles = shortPath
-			? [...hardObstacles, ...routeNodeObstacles, ...routeGroupObstacles]
+			? [
+					...hardObstacles,
+					...routeNodeObstacles,
+					...routeGroupObstacles,
+					...softObstacles,
+				]
 			: hardObstacles;
 		const routeHardMetadata: readonly RouteHardObstacleMetadata[] = shortPath
 			? [
 					...routeHardObstacleMetadata,
 					...routeNodeObstacles.map(() => ({ kind: "node" as const })),
 					...routeGroupObstacles.map(() => ({ kind: "node" as const })),
+					...softObstacles.map(() => ({ kind: "evidence" as const })),
 				]
 			: routeHardObstacleMetadata;
 		const nudgePitch = options.idealNudgingDistance ?? 10;
@@ -1281,6 +1290,7 @@ function clearOutlineRuns(
 				}
 				if (!keepsNeighbours(points, moved, index)) continue;
 				if (routeObstacleHits(moved, edgeObstacles) > before) continue;
+				if (gainsObstacle(points, moved, edgeObstacles)) continue;
 				const crowded = others.some(
 					(other) =>
 						other.horizontal === candidate.horizontal &&
@@ -1508,6 +1518,7 @@ function slideCandidates(
 			) {
 				continue;
 			}
+			if (gainsObstacle(points, candidate, edgeObstacles)) continue;
 			out.push({ edge: { ...edge, points: candidate }, segments });
 		}
 	}
@@ -1713,6 +1724,7 @@ function tidyRouteEnds(
 				}
 				const compacted = simplifyRoute(moved);
 				if (hits(compacted) > hits(points)) continue;
+				if (gainsObstacle(points, compacted, edgeObstacles)) continue;
 				points = compacted;
 				i = 0;
 				break;
@@ -1736,7 +1748,8 @@ function tidyRouteEnds(
 				}
 				if (
 					keepsNeighbours(points, moved, n - 3) &&
-					hits(moved) <= hits(points)
+					hits(moved) <= hits(points) &&
+					!gainsObstacle(points, moved, edgeObstacles)
 				) {
 					points = moved;
 				}
@@ -1808,6 +1821,22 @@ function obstaclesForEdge(
 	return obstacles
 		.filter((obstacle) => obstacleAppliesTo(obstacle, edge))
 		.map((obstacle) => obstacle.box);
+}
+
+/**
+ * Whether `after` enters an obstacle `before` did not: a move may trade
+ * nothing, not even one soft hit for a hard one.
+ */
+function gainsObstacle(
+	before: readonly Point[],
+	after: readonly Point[],
+	obstacles: readonly Box[],
+): boolean {
+	return obstacles.some(
+		(box) =>
+			routeObstacleHits(after, [box]) > 0 &&
+			routeObstacleHits(before, [box]) === 0,
+	);
 }
 
 /** Number of (segment, obstacle) pairs where a route enters an obstacle. */

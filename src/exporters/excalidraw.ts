@@ -1,4 +1,5 @@
 import {
+	ARROWHEAD_LENGTH,
 	EDGE_CROSSING_GLYPH_RADIUS,
 	hopGlyphs,
 } from "../geometry/edge-crossings.js";
@@ -454,6 +455,8 @@ function applyJumpBumps(
 				),
 			start,
 			end,
+			// Excalidraw draws the arrowhead on the full final segment.
+			i === points.length - 2 ? ARROWHEAD_LENGTH : 0,
 		);
 		for (const glyph of glyphs) {
 			// A cluster of close crossings shares one wider hop.
