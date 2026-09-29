@@ -1570,7 +1570,8 @@ function fallbackPortLabels(diagram: CoordinatedDiagram): {
 
 /**
  * A conservative width for text drawn without a solved measurement:
- * wide glyphs (CJK, Hangul, fullwidth forms) take a full em, others 0.6.
+ * wide glyphs (CJK, Hangul, fullwidth forms) and the broadest Latin ones
+ * (M, W, m, w, @, %, &) take a full em, other capitals 0.75, the rest 0.6.
  */
 function fallbackTextWidth(text: string, fontSize: number): number {
 	let width = 0;
@@ -1585,7 +1586,12 @@ function fallbackTextWidth(text: string, fontSize: number): number {
 			(code >= 0xff00 && code <= 0xff60) ||
 			(code >= 0xffe0 && code <= 0xffe6) ||
 			code >= 0x1f300;
-		width += wide ? fontSize : fontSize * 0.6;
+		// Latin capitals run up to ~0.9 em in Arial/Helvetica (W, M), and a
+		// few other glyphs reach a full em: size those up too.
+		const broad = "MWmw@%&".includes(char);
+		const capital = char >= "A" && char <= "Z";
+		width +=
+			wide || broad ? fontSize : capital ? fontSize * 0.75 : fontSize * 0.6;
 	}
 	return width;
 }

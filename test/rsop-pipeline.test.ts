@@ -175,6 +175,17 @@ edges: [a -> b]
 		});
 	});
 
+	it("rejects a zero channel-nudging distance in the DSL", () => {
+		const parsed = parseDiagramDsl(`
+routing: { kind: short-orthogonal-jumps, rsopChannelNudge: true, idealNudgingDistance: 0 }
+nodes: { a: { label: A }, b: { label: B } }
+edges: [a -> b]
+`);
+		expect(parsed.diagnostics).toContainEqual(
+			expect.objectContaining({ severity: "error" }),
+		);
+	});
+
 	it("groups near-coincident channels across a rounding boundary", () => {
 		const edges = [1.9, 2.1].map((x, index) => ({
 			id: `e${index}`,

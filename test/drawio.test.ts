@@ -384,8 +384,9 @@ describe("draw.io export", () => {
 			},
 		];
 		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
-		// The label starts 8px out and runs 54px: the page reaches x=962.
-		expect(xml).toContain('pageWidth="462"');
+		// The label starts 8px out and runs 9 capitals at 7.5px: the page
+		// reaches x=975.5.
+		expect(xml).toContain('pageWidth="475.5"');
 	});
 
 	it("sizes wide-glyph fallback port labels at a full em", () => {
@@ -404,6 +405,25 @@ describe("draw.io export", () => {
 		];
 		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
 		// Six CJK glyphs at 10px, 8px out from x=900: the page reaches 968.
+		expect(xml).toContain('pageWidth="468"');
+	});
+
+	it("sizes broad Latin fallback port labels at a full em", () => {
+		const base = diagram();
+		const node = base.nodes[1];
+		if (node === undefined) throw new Error("fixture");
+		node.ports = [
+			{
+				id: "out",
+				side: "right",
+				kind: "flow",
+				label: { text: "WWWWWW" },
+				anchor: { x: 900, y: 120 },
+				box: { x: 895, y: 115, width: 10, height: 10 },
+			},
+		];
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		// Six W at 10px, 8px out from x=900: the page reaches 968.
 		expect(xml).toContain('pageWidth="468"');
 	});
 

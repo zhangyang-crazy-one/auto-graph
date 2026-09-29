@@ -436,8 +436,11 @@ export const diagramDslSchema = z
 						}),
 					])
 					.optional(),
-				/** Short-orthogonal channel track pitch (default 10). */
-				idealNudgingDistance: nonNegativeNumberSchema.optional(),
+				/**
+				 * Short-orthogonal channel track pitch (default 10). Positive:
+				 * a zero pitch would stack every track on one coordinate.
+				 */
+				idealNudgingDistance: finiteNumberSchema.positive().optional(),
 				/** Opt-in Left-Edge channel nudge for short-orthogonal routes. */
 				rsopChannelNudge: z.boolean().optional(),
 				railRouting: z
