@@ -25,7 +25,7 @@ import { computeArrowhead } from "./arrow.js";
 import { compartmentSeparatorRows } from "./compartments.js";
 import { fallbackTextWidth } from "./fallback-text.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
-import { usablePage } from "./page.js";
+import { fittedPageScale, usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
 /** Default margin between the drawn content and the canvas edge. */
@@ -56,9 +56,43 @@ export function exportSvg(
 	options: ExportOptions = {},
 ): string {
 	const title = options.title ?? diagram.title;
+	const body = renderBody(diagram);
+	const content = canvasContent(diagram, body, options);
+	const page = usablePage(options.page);
+	// On a page the view box is the page in diagram units, centred on the
+	// content, so the drawing appears at `scale` in the middle of the page.
+	// The scale shrinks when the content with its margin would not fit.
+	const scale = page === undefined ? 1 : fittedPageScale(content, page);
+	const viewBox =
+		page === undefined
+			? content
+			: {
+					x: content.x + content.width / 2 - page.width / scale / 2,
+					y: content.y + content.height / 2 - page.height / scale / 2,
+					width: page.width / scale,
+					height: page.height / scale,
+				};
+	// The background fills the whole canvas, margin included.
+	const background = viewBox;
+	return `${[
+		`<svg xmlns="http://www.w3.org/2000/svg" role="img"${page === undefined ? "" : ` width="${formatNumber(page.width)}" height="${formatNumber(page.height)}"`} viewBox="${formatBoxViewBox(viewBox)}">`,
+		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
+		...(options.viewportPadding === undefined
+			? []
+			: [
+					`  <metadata data-dge-viewport="${escapeAttribute(viewportMetadata(diagram.bounds, options.viewportPadding))}"></metadata>`,
+				]),
+		`  <rect class="background" x="${formatNumber(background.x)}" y="${formatNumber(background.y)}" width="${formatNumber(background.width)}" height="${formatNumber(background.height)}" fill="#ffffff"/>`,
+		...body,
+		"</svg>",
+	].join("\n")}\n`;
+}
+
+/** Everything below the background, in paint order. */
+function renderBody(diagram: CoordinatedDiagram): string[] {
 	const annotations = diagram.textAnnotations ?? [];
 	const crossings = diagram.edgeCrossings ?? [];
-	const body = [
+	return [
 		...(diagram.frame === undefined
 			? []
 			: [indent(renderFrame(diagram.frame, annotations))]),
@@ -94,50 +128,36 @@ export function exportSvg(
 		),
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
 	];
-	// The canvas holds everything drawn, not just the solved geometry, plus
-	// a margin (`viewportPadding`, else SVG_CANVAS_MARGIN).
+}
+
+/**
+ * The SVG canvas content: everything drawn (see `drawnExtent`) plus a
+ * margin (`viewportPadding`, else SVG_CANVAS_MARGIN).
+ */
+function canvasContent(
+	diagram: CoordinatedDiagram,
+	body: readonly string[],
+	options: ExportOptions,
+): Box {
 	const padding = options.viewportPadding;
-	const content = expandBox(
+	return expandBox(
 		drawnExtent(diagram, unsolvedTextExtents(body.join("\n"))),
 		padding !== undefined && Number.isFinite(padding)
 			? Math.max(0, padding)
 			: SVG_CANVAS_MARGIN,
 	);
-	const page = usablePage(options.page);
-	// On a page the view box is the page in diagram units, centred on the
-	// content, so the drawing appears at `scale` in the middle of the page.
-	// The scale shrinks when the content with its margin would not fit.
-	const scale =
-		page === undefined
-			? 1
-			: Math.min(
-					page.scale,
-					page.width / content.width,
-					page.height / content.height,
-				);
-	const viewBox =
-		page === undefined
-			? content
-			: {
-					x: content.x + content.width / 2 - page.width / scale / 2,
-					y: content.y + content.height / 2 - page.height / scale / 2,
-					width: page.width / scale,
-					height: page.height / scale,
-				};
-	// The background fills the whole canvas, margin included.
-	const background = viewBox;
-	return `${[
-		`<svg xmlns="http://www.w3.org/2000/svg" role="img"${page === undefined ? "" : ` width="${formatNumber(page.width)}" height="${formatNumber(page.height)}"`} viewBox="${formatBoxViewBox(viewBox)}">`,
-		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
-		...(options.viewportPadding === undefined
-			? []
-			: [
-					`  <metadata data-dge-viewport="${escapeAttribute(viewportMetadata(diagram.bounds, options.viewportPadding))}"></metadata>`,
-				]),
-		`  <rect class="background" x="${formatNumber(background.x)}" y="${formatNumber(background.y)}" width="${formatNumber(background.width)}" height="${formatNumber(background.height)}" fill="#ffffff"/>`,
-		...body,
-		"</svg>",
-	].join("\n")}\n`;
+}
+
+/**
+ * The box `exportSvg` fits to a page: what it draws plus its margin, so
+ * callers can tell the scale the page will really show it at
+ * (`fittedPageScale`).
+ */
+export function svgCanvasContent(
+	diagram: CoordinatedDiagram,
+	options: ExportOptions = {},
+): Box {
+	return canvasContent(diagram, renderBody(diagram), options);
 }
 
 /**

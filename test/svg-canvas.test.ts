@@ -316,6 +316,8 @@ describe("SVG canvas", () => {
 			["@", 1.015],
 			["W", 0.944],
 			["o", 0.556],
+			["&", 0.667],
+			["%", 0.889],
 			["\u4e2d", 1],
 		];
 		for (const [glyph, em] of advances) {
@@ -323,5 +325,28 @@ describe("SVG canvas", () => {
 				em * 100,
 			);
 		}
+	});
+
+	it("reports the scale a padded page is drawn at", () => {
+		const source =
+			"nodes: { a: { label: A }, b: { label: B } }\nedges: [a -> b]\n";
+		const plain = renderDiagramDsl(source, {
+			format: "svg",
+			page: "400x300",
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const padded = renderDiagramDsl(source, {
+			format: "svg",
+			page: "400x300",
+			padding: 300,
+			textMeasurer: new DeterministicTextMeasurer(),
+		});
+		const scale = padded.page?.scale ?? 1;
+		// The 300px margin cannot fit at the natural size: the page shows the
+		// drawing smaller, and the fit (and label size) says so.
+		expect(scale).toBeLessThan(plain.page?.scale ?? 0);
+		expect(padded.page?.fontPx).toBeLessThan(plain.page?.fontPx ?? 0);
+		const [, , width] = viewBoxOf(padded.content ?? "");
+		expect(width).toBeCloseTo(400 / scale, 2);
 	});
 });

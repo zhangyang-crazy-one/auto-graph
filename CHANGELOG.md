@@ -5,8 +5,8 @@
 ### SVG canvas
 
 - **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, all text drawn without a solved box (fallback labels, compartment rows, frame and lane titles, evidence text), hop glyphs and arrowheads, plus how far a stroke paints past its outline (up to 3px at a mitred corner). A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.
-- **`viewportPadding` pads the SVG**: it sets that margin (it used to only write `data-dge-viewport` metadata), as it already padded the draw.io page. The CLI takes it as `--padding <px>` and `renderDiagramDsl` as `padding`. On a page (`--page`) the drawing is shown smaller when it would not fit with its margin.
-- **Conservative fallback text widths**: text without a solved measurement is sized at least at its Arial advance: a full em outside ASCII (1.25 for emoji), 1.05 for "@", 0.8 for capitals. Turned lane labels of horizontal swimlanes are covered as drawn.
+- **`viewportPadding` pads the SVG**: it sets that margin (it used to only write `data-dge-viewport` metadata), as it already padded the draw.io page. The CLI takes it as `--padding <px>` and `renderDiagramDsl` as `padding`. On a page (`--page`) the drawing is shown smaller when it would not fit with its margin, in SVG and draw.io alike, and the reported page fit (scale, label size, readability) is the one drawn.
+- **Conservative fallback text widths**: text without a solved measurement is sized at least at its Arial advance: a full em outside ASCII (1.25 for emoji), 1.05 for "@", a full em for M, W, m, w, % and &, 0.8 for other capitals. Turned lane labels of horizontal swimlanes are covered as drawn.
 - **Vertical hop clusters**: a merged hop on a vertical segment takes its along-segment radius as the y radius; with the radii swapped SVG scaled the arc up and it bulged far past 6px.
 
 ### Dense MBSE issues on top of RSOP (#76, #88, #91–#95)
