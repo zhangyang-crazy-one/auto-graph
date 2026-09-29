@@ -874,12 +874,12 @@ export function coordinateEdges(
 		// diagnostic behind (it would start remediation on stale evidence).
 		// Only text counts here: other obstacles it still meets have their
 		// own diagnostics.
+		// The router's own rule: an edge's own port labels count, so an
+		// unresolved strike through one stays reported.
 		const textFor = (edge: CoordinatedEdge): Box[] =>
 			textObstacles
 				.filter(isLocalRouteClearanceText)
-				.filter(
-					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
-				)
+				.filter((annotation) => isRouteTextObstacleFor(edge, annotation))
 				.map((annotation) => textObstacleBox(annotation, options));
 		const nudgedById = new Map(
 			finalized
@@ -1148,12 +1148,17 @@ export function finalizeCoordinatedEdges(
 		options,
 		layered,
 	);
-	// Implicit and same-side-slot ends sit on the bounding box; move them
-	// onto a non-rectangular outline (the end segment keeps its normal).
+	// Implicit, same-side-slot and obstacle-avoiding ends (tournament slots
+	// and spread ends) sit on the bounding box; move them onto a
+	// non-rectangular outline (the end segment keeps its normal). Elsewhere
+	// only layered routes' ends are snapped.
+	const routeKind = options.routeKind ?? "orthogonal";
 	const snapped = snapEndpointsToShapeOutline(
 		separated,
 		nodes,
-		implicit || (options.routeKind ?? "orthogonal") === "short-orthogonal-jumps"
+		implicit ||
+			routeKind === "short-orthogonal-jumps" ||
+			routeKind === "obstacle-avoiding"
 			? undefined
 			: layered,
 	);

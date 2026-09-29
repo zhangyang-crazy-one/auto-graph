@@ -706,4 +706,30 @@ describe("label shelf packing (#93)", () => {
 		const below = ys.every((y) => y > callout.y + callout.height);
 		expect(above || below).toBe(true);
 	});
+
+	it("still shelves a narrow callout beside one wider than the page", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const built = buildExternalLabelCallouts(
+			[
+				required("wide", Array.from({ length: 30 }, () => "wide").join(" "), {
+					x: 20,
+					y: 40,
+					width: 40,
+					height: 14,
+				}),
+				required("narrow", "ok", { x: 20, y: 80, width: 20, height: 14 }),
+			],
+			{ x: 0, y: 0, width: 20, height: 120 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 120, height: 400 },
+			},
+			{ diagnostics },
+		);
+		// The wide one stays inline (reported); the narrow one is shelved.
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["narrow"]);
+		expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+			"routing.label-shelf.capacity_exhausted",
+		);
+	});
 });

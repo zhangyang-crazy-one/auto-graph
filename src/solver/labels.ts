@@ -812,7 +812,19 @@ function packShelf(
 		shelf.pageInsets,
 		SHELF_PAGE_INSET,
 	);
-	const columnWidth = Math.max(...entries.map((entry) => entry.width));
+	// A callout wider than the usable page can never be placed: it stays
+	// inline from the start and does not widen the columns for the rest.
+	const oversized = new Set(
+		entries.flatMap((entry, index) =>
+			entry.width > right - left + 1e-6 ? [index] : [],
+		),
+	);
+	const columnWidth = Math.max(
+		0,
+		...entries
+			.filter((_, index) => !oversized.has(index))
+			.map((entry) => entry.width),
+	);
 	const columns: number[] = [];
 	const first = Math.min(
 		bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
@@ -821,7 +833,6 @@ function packShelf(
 	// The column beside the content first, then the free page to its right,
 	// and only then columns further left, across the drawing.
 	const step = columnWidth + 2 * gap;
-	// A callout wider than the usable page has no column at all.
 	if (first >= left - 1e-6) columns.push(first);
 	for (let x = first + step; x + columnWidth <= right + 1e-6; x += step) {
 		columns.push(x);
@@ -831,7 +842,7 @@ function packShelf(
 	}
 	// Labels that find no spot stay inline at full size, so a repack keeps
 	// every callout off them; repeat until no further label drops out.
-	let inline = new Set<number>();
+	let inline = new Set<number>(oversized);
 	let placed = packColumns(inline);
 	for (let pass = 0; pass < entries.length; pass += 1) {
 		const dropped = new Set(

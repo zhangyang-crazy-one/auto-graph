@@ -973,3 +973,57 @@ describe("backward edges across rows", () => {
 		expect(flowAwareAnchorSide(d, c, "LR", "source")).toBe("left");
 	});
 });
+
+describe("obstacle-avoiding ends on non-rectangular nodes", () => {
+	it("snaps tournament and spread ends onto an ellipse outline", () => {
+		const ys = [0, 40, 80, 120];
+		const solved = solveDiagram(
+			{
+				id: "ellipse-fan-in",
+				direction: "LR",
+				nodes: [
+					...ys.map((y, index) => ({
+						id: `s${index}`,
+						shape: "rectangle" as const,
+						size: { width: 80, height: 30 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 0, y },
+					})),
+					{
+						id: "e",
+						shape: "ellipse" as const,
+						size: { width: 100, height: 60 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 300, y: 40 },
+					},
+				],
+				edges: ys.map((_, index) => ({
+					id: `x${index}`,
+					source: { nodeId: `s${index}` },
+					target: { nodeId: "e" },
+				})),
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			} as never,
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const box = solved.nodes.find((node) => node.id === "e")?.box;
+		expect(box).toBeDefined();
+		if (box === undefined) return;
+		const cx = box.x + box.width / 2;
+		const cy = box.y + box.height / 2;
+		for (const edge of solved.edges) {
+			const end = edge.points.at(-1);
+			if (end === undefined) continue;
+			const k =
+				((end.x - cx) / (box.width / 2)) ** 2 +
+				((end.y - cy) / (box.height / 2)) ** 2;
+			expect(k, edge.id).toBeCloseTo(1, 3);
+		}
+	});
+});
