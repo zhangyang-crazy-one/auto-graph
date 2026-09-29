@@ -335,7 +335,7 @@ page: A4                     # A3, A5, letter, legal, slide (16:9), slide-4:3, "
 - A small diagram is not blown up: it keeps its natural size, centred. The SVG gets the page's width and height.
 - The fit reports the scale and the size labels end up at on the page: below 8 px it is unreadable, below 11 px small.
 
-**Canvas margin.** Without a page, the SVG canvas (view box and white background) holds everything drawn — the solved bounds, label backdrops, ports, hop glyphs, arrowheads and the half stroke outside each outline — plus a 4 px margin. `--padding <px>` (or `padding` in `renderDiagramDsl`, `viewportPadding` in `ExportOptions`) sets that margin; it also pads the draw.io page (default 0 there). It only adds room around the drawing and never moves it. The three size settings do different things:
+**Canvas margin.** Without a page, the SVG canvas (view box and white background) holds everything drawn — the solved bounds, label backdrops, ports, unsolved fallback labels, hop glyphs, arrowheads and the stroke painted past each outline (up to 3 px at a mitred corner) — plus a 4 px margin. `--padding <px>` (or `padding` in `renderDiagramDsl`, `viewportPadding` in `ExportOptions`) sets that margin; it also pads the draw.io page (default 0 there). It only adds room around the drawing and never moves it. The three size settings do different things:
 
 | Setting | Changes |
 |---|---|

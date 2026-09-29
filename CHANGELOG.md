@@ -4,7 +4,7 @@
 
 ### SVG canvas
 
-- **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, hop glyphs and arrowheads, plus the half stroke outside each outline. A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.
+- **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, labels drawn without a solved box, hop glyphs and arrowheads, plus how far a stroke paints past its outline (up to 3px at a mitred corner). A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.
 - **`viewportPadding` pads the SVG**: it sets that margin (it used to only write `data-dge-viewport` metadata), as it already padded the draw.io page. The CLI takes it as `--padding <px>` and `renderDiagramDsl` as `padding`.
 
 ### Dense MBSE issues on top of RSOP (#76, #88, #91–#95)

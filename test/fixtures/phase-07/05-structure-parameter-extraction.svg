@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="115 75 1407.2 676">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="113 73 1411.2 680">
   <title>Structure Parameter Extraction Evidence Blocks</title>
-  <rect class="background" x="115" y="75" width="1407.2" height="676" fill="#ffffff"/>
+  <rect class="background" x="113" y="73" width="1411.2" height="680" fill="#ffffff"/>
   <g class="matrix-block" data-id="structure-parameter-extraction-matrix" data-row-count="4" data-column-count="4">
     <rect class="matrix-frame" x="120" y="420" width="576" height="180" fill="#f8fafc" stroke="#374151"/>
     <rect class="matrix-corner-header" x="120" y="420" width="96" height="36" fill="#e5e7eb" stroke="#374151"/>

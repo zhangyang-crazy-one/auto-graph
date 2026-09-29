@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
+import { exportSvg } from "../src/exporters/index.js";
+import type { CoordinatedDiagram } from "../src/ir/index.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 const EXAMPLES = fileURLToPath(new URL("../examples/", import.meta.url));
@@ -111,5 +113,92 @@ describe("SVG canvas", () => {
 		expect(svg).toContain(
 			`<rect class="background" x="${vx}" y="${vy}" width="${vw}" height="${vh}"`,
 		);
+	});
+
+	const viewBoxOf = (svg: string) =>
+		(svg.match(/viewBox="([^"]*)"/)?.[1] ?? "").split(" ").map(Number) as [
+			number,
+			number,
+			number,
+			number,
+		];
+	const bare = (overrides: Partial<CoordinatedDiagram>): CoordinatedDiagram =>
+		({
+			id: "canvas",
+			direction: "LR",
+			nodes: [],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			bounds: { x: 0, y: 0, width: 100, height: 100 },
+			...overrides,
+		}) as CoordinatedDiagram;
+
+	it("covers the mitred corner of a route on the bounds", () => {
+		// A 1.5px route turning on the left bound: its miter reaches
+		// 0.75 * sqrt(2) ≈ 1.06px past the corner, beyond a plain half stroke.
+		const svg = exportSvg(
+			bare({
+				edges: [
+					{
+						id: "e",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 50, y: 20 },
+							{ x: 0, y: 20 },
+							{ x: 0, y: 80 },
+							{ x: 50, y: 80 },
+						],
+					},
+				] as never,
+			}),
+			{ viewportPadding: 0 },
+		);
+		expect(viewBoxOf(svg)[0]).toBeLessThanOrEqual(-0.75 * Math.SQRT2);
+	});
+
+	it("covers labels drawn without a solved box", () => {
+		const svg = exportSvg(
+			bare({
+				nodes: [
+					{
+						id: "n",
+						shape: "rectangle",
+						box: { x: 20, y: 20, width: 60, height: 60 },
+						ports: [
+							{
+								id: "p",
+								side: "right",
+								kind: "flow",
+								box: { x: 76, y: 46, width: 8, height: 8 },
+								anchor: { x: 80, y: 50 },
+								label: { text: "A LONG PORT LABEL" },
+							},
+						],
+					},
+				] as never,
+				edges: [
+					{
+						id: "e",
+						source: { nodeId: "n" },
+						target: { nodeId: "n" },
+						label: { text: "an authored edge label" },
+						points: [
+							{ x: 50, y: 0 },
+							{ x: 50, y: 20 },
+						],
+					},
+				] as never,
+			}),
+			{ viewportPadding: 0 },
+		);
+		const [x, y, width] = viewBoxOf(svg);
+		// The port label starts 8px right of the port and runs past x=100;
+		// the edge label is centred on the route, above y=0.
+		expect(x + width).toBeGreaterThan(88 + 17 * 6);
+		expect(y).toBeLessThan(0);
+		expect(x).toBeLessThan(50 - 60);
 	});
 });

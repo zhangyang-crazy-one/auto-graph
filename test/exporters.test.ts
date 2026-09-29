@@ -77,11 +77,12 @@ describe("exporters", () => {
 
 		expect(svg).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
 		expect(svg).toContain('role="img"');
-		// Bounds 520×360 at the origin, plus the 1px stroke overhang and the
-		// default 4px margin on every side.
-		expect(svg).toContain('viewBox="-5 -5 530 370"');
+		// Bounds 520×360 at the origin, plus the 3px stroke overhang (half
+		// the 1.5px edge stroke, up to the miter limit) and the default 4px
+		// margin on every side.
+		expect(svg).toContain('viewBox="-7 -7 534 374"');
 		expect(svg).toContain(
-			'<rect class="background" x="-5" y="-5" width="530" height="370"',
+			'<rect class="background" x="-7" y="-7" width="534" height="374"',
 		);
 		expect(svg).toContain("<title>Export &lt;Check&gt;</title>");
 		expect(svg).toContain('class="group"');
@@ -144,8 +145,8 @@ describe("exporters", () => {
 		const svg = exportSvg(diagram, { viewportPadding: 24 });
 
 		// The padding replaces the default 4px margin around the drawn
-		// extent (bounds plus the 1px stroke overhang).
-		expect(svg).toContain('viewBox="-345 -185 1090 352"');
+		// extent (bounds plus the 3px stroke overhang).
+		expect(svg).toContain('viewBox="-347 -187 1094 356"');
 		expect(svg).toContain('d="M 80 60 L 180 60 L 180 120"');
 		expect(svg).toContain("data-dge-viewport=");
 		expect(svg).toContain("&quot;x&quot;:-344");

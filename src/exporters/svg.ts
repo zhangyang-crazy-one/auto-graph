@@ -22,13 +22,17 @@ import type {
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
+import { fallbackTextWidth } from "./fallback-text.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import type { ExportOptions } from "./types.js";
 
 /** Default margin between the drawn content and the canvas edge. */
 export const SVG_CANVAS_MARGIN = 4;
-/** Half the widest stroke (1.5px edges), rounded up: it straddles its path. */
-const STROKE_OVERHANG = 1;
+/**
+ * How far a stroke can paint past its outline: half the widest stroke
+ * (1.5px edges), up to the default miter limit (4) at a sharp corner.
+ */
+const STROKE_OVERHANG = 4 * (1.5 / 2);
 const NODE_FILL = "#f8fafc";
 const GROUP_FILL = "#f9fafb";
 const STROKE = "#374151";
@@ -124,10 +128,54 @@ export function exportSvg(
 
 /**
  * Everything the SVG draws: the solved bounds, label backdrops (wider than
- * their text), port boxes, crossing hop glyphs and arrowheads, grown by
- * the half stroke that straddles each outline.
+ * their text), port boxes, labels drawn without a solved box (sized
+ * conservatively), crossing hop glyphs and arrowheads, grown by the
+ * stroke that straddles each outline.
  */
 function drawnExtent(diagram: CoordinatedDiagram): Box {
+	const annotations = diagram.textAnnotations ?? [];
+	// Port and edge labels without a solved annotation are drawn where
+	// `renderPorts` and `renderEdgeLabel` put them.
+	const fallbackPortLabels = diagram.nodes.flatMap((node) =>
+		(node.ports ?? []).flatMap((port) => {
+			const text = port.label?.text;
+			if (
+				text === undefined ||
+				findAnnotation(annotations, "port-label", `${node.id}.${port.id}`) !==
+					undefined
+			) {
+				return [];
+			}
+			const width = fallbackTextWidth(text, 10);
+			const x = portLabelX(port.anchor.x, port.side);
+			return [
+				{
+					x: port.side === "left" ? x - width : x,
+					y: port.anchor.y - 8 - 11,
+					width,
+					height: 14,
+				},
+			];
+		}),
+	);
+	const fallbackEdgeLabels = diagram.edges.flatMap((edge) => {
+		const text = edge.label?.text;
+		if (
+			text === undefined ||
+			edge.points.length < 2 ||
+			annotations.some(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.ownerId === edge.id,
+			)
+		) {
+			return [];
+		}
+		const at = labelPlacementOnPolyline(edge.points);
+		if (at === undefined) return [];
+		const width = fallbackTextWidth(text, 12);
+		return [{ x: at.x - width / 2, y: at.y - 8, width, height: 16 }];
+	});
 	const arrowheads = diagram.edges.flatMap((edge) => {
 		try {
 			const { tip, left, right } = computeArrowhead(edge.points);
@@ -146,7 +194,9 @@ function drawnExtent(diagram: CoordinatedDiagram): Box {
 	return expandBox(
 		unionBoxes([
 			diagram.bounds,
-			...(diagram.textAnnotations ?? []).map(labelBackdropBox),
+			...annotations.map(labelBackdropBox),
+			...fallbackPortLabels,
+			...fallbackEdgeLabels,
 			...diagram.nodes.flatMap((node) =>
 				(node.ports ?? []).map((port) => port.box),
 			),

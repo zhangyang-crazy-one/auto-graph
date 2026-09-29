@@ -922,8 +922,8 @@ describe("edge crossings / jumps (#84)", () => {
 		const svg = exportSvg(diagram);
 		expect(svg).toMatch(/data-id="h"[^>]* M /);
 		// The glyph lies inside the bounds: the canvas is the bounds plus the
-		// 1px stroke overhang and the 4px margin.
-		expect(svg).toContain('viewBox="-5 -5 210 110"');
+		// 3px stroke overhang and the 4px margin.
+		expect(svg).toContain('viewBox="-7 -7 214 114"');
 	});
 });
 
