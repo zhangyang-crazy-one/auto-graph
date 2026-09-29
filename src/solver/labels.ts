@@ -634,59 +634,90 @@ export function buildExternalLabelCallouts(
 				box.y + box.height <= keyArea.bottom + 1e-6)
 		);
 	};
-	for (const entry of measured) {
-		const clearOfKeysAndObstacles = (key: Box) => {
-			const box = keyBackdrop(key);
-			return (
-				(!pageIsHard || onPage(key)) &&
-				!placedKeys.some((placed) =>
-					boxesOverlap(box, keyBackdrop(placed), 1),
-				) &&
-				![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
-					boxesOverlap(box, obstacle, 0),
-				)
-			);
-		};
-		const clear = (key: Box) =>
-			clearOfKeysAndObstacles(key) &&
-			![...(shelf.routes ?? new Map()).entries()].some(
-				([edgeId, points]) =>
-					edgeId !== entry.source.ownerId &&
-					polylineEntersBox(points, keyBackdrop(key)),
-			);
-		if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
-			const route = shelf.routes?.get(entry.source.ownerId) ?? [];
-			const center = boxCenter(entry.keyBox);
-			const spots = [
-				entry.keyBox,
-				...samplePolyline(route, 4)
-					.sort(
-						(left, right) =>
-							Math.hypot(left.x - center.x, left.y - center.y) -
-							Math.hypot(right.x - center.x, right.y - center.y),
-					)
-					.map((point) => ({
-						...entry.keyBox,
-						x: point.x - entry.keyBox.width / 2,
-						y: point.y - entry.keyBox.height / 2,
-					})),
-			];
-			// Spots on the page first, at each tier.
-			const first = (test: (box: Box) => boolean) =>
-				spots.find((box) => test(box) && onPage(box)) ?? spots.find(test);
-			const spot = first(clear);
-			const fallback =
-				spot === undefined ? first(clearOfKeysAndObstacles) : undefined;
-			if (spot === undefined && fallback === undefined) {
+	// A label whose key is blocked stays inline, and no key may cover it;
+	// keys placed before it was blocked are placed again, until no further
+	// label is blocked.
+	const initialKeys = measured.map((entry) => entry.keyBox);
+	const inlineLabels = [...ordinaryLabels];
+	let blockedIds = new Set<number>();
+	for (let pass = 0; pass <= measured.length; pass += 1) {
+		placedKeys.length = 0;
+		keysOnRoutes.length = 0;
+		ordinaryLabels.length = 0;
+		ordinaryLabels.push(
+			...inlineLabels,
+			...[...blockedIds].map(
+				(index) => (measured[index] as (typeof measured)[number]).source.box,
+			),
+		);
+		measured.forEach((entry, index) => {
+			entry.keyBox = initialKeys[index] as Box;
+			entry.blocked = false;
+		});
+		for (const [index, entry] of measured.entries()) {
+			// Blocked in an earlier pass: it stays inline (reserved above).
+			if (blockedIds.has(index)) {
 				entry.blocked = true;
-				// Its full label stays inline: later keys keep off it.
-				ordinaryLabels.push(entry.source.box);
 				continue;
 			}
-			if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
-			entry.keyBox = (spot ?? fallback) as Box;
+			const clearOfKeysAndObstacles = (key: Box) => {
+				const box = keyBackdrop(key);
+				return (
+					(!pageIsHard || onPage(key)) &&
+					!placedKeys.some((placed) =>
+						boxesOverlap(box, keyBackdrop(placed), 1),
+					) &&
+					![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
+						boxesOverlap(box, obstacle, 0),
+					)
+				);
+			};
+			const clear = (key: Box) =>
+				clearOfKeysAndObstacles(key) &&
+				![...(shelf.routes ?? new Map()).entries()].some(
+					([edgeId, points]) =>
+						edgeId !== entry.source.ownerId &&
+						polylineEntersBox(points, keyBackdrop(key)),
+				);
+			if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
+				const route = shelf.routes?.get(entry.source.ownerId) ?? [];
+				const center = boxCenter(entry.keyBox);
+				const spots = [
+					entry.keyBox,
+					...samplePolyline(route, 4)
+						.sort(
+							(left, right) =>
+								Math.hypot(left.x - center.x, left.y - center.y) -
+								Math.hypot(right.x - center.x, right.y - center.y),
+						)
+						.map((point) => ({
+							...entry.keyBox,
+							x: point.x - entry.keyBox.width / 2,
+							y: point.y - entry.keyBox.height / 2,
+						})),
+				];
+				// Spots on the page first, at each tier.
+				const first = (test: (box: Box) => boolean) =>
+					spots.find((box) => test(box) && onPage(box)) ?? spots.find(test);
+				const spot = first(clear);
+				const fallback =
+					spot === undefined ? first(clearOfKeysAndObstacles) : undefined;
+				if (spot === undefined && fallback === undefined) {
+					entry.blocked = true;
+					// Its full label stays inline: later keys keep off it.
+					ordinaryLabels.push(entry.source.box);
+					continue;
+				}
+				if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
+				entry.keyBox = (spot ?? fallback) as Box;
+			}
+			placedKeys.push(entry.keyBox);
 		}
-		placedKeys.push(entry.keyBox);
+		const now = new Set(
+			measured.flatMap((entry, index) => (entry.blocked ? [index] : [])),
+		);
+		if (now.size === blockedIds.size) break;
+		blockedIds = now;
 	}
 	if (keysOnRoutes.length > 0) {
 		shelf.diagnostics?.push({
@@ -819,37 +850,51 @@ function packShelf(
 			entry.width > right - left + 1e-6 ? [index] : [],
 		),
 	);
-	const columnWidth = Math.max(
-		0,
-		...entries
-			.filter((_, index) => !oversized.has(index))
-			.map((entry) => entry.width),
-	);
-	const columns: number[] = [];
-	const first = Math.min(
-		bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
-		right - columnWidth,
-	);
-	// The column beside the content first, then the free page to its right,
-	// and only then columns further left, across the drawing.
-	const step = columnWidth + 2 * gap;
-	if (first >= left - 1e-6) columns.push(first);
-	for (let x = first + step; x + columnWidth <= right + 1e-6; x += step) {
-		columns.push(x);
-	}
-	for (let x = first - step; x >= left - 1e-6; x -= step) {
-		columns.push(x);
-	}
+	// Columns are as wide as the widest callout still to place: one that
+	// dropped out (too tall, or blocked) no longer spaces them for the rest.
+	const columnsFor = (inlineEntries: ReadonlySet<number>): number[] => {
+		const columnWidth = Math.max(
+			0,
+			...entries
+				.filter((_, index) => !inlineEntries.has(index))
+				.map((entry) => entry.width),
+		);
+		const columns: number[] = [];
+		const first = Math.min(
+			bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
+			right - columnWidth,
+		);
+		// The column beside the content first, then the free page to its
+		// right, and only then columns further left, across the drawing.
+		const step = columnWidth + 2 * gap;
+		if (first >= left - 1e-6) columns.push(first);
+		for (let x = first + step; x + columnWidth <= right + 1e-6; x += step) {
+			columns.push(x);
+		}
+		for (let x = first - step; x >= left - 1e-6; x -= step) {
+			columns.push(x);
+		}
+		return columns;
+	};
 	// Labels that find no spot stay inline at full size, so a repack keeps
 	// every callout off them; repeat until no further label drops out.
-	let inline = new Set<number>(oversized);
+	// One label at a time, the widest first: once it is out, the columns
+	// narrow and the others get another try.
+	const inline = new Set<number>(oversized);
 	let placed = packColumns(inline);
 	for (let pass = 0; pass < entries.length; pass += 1) {
-		const dropped = new Set(
-			placed.flatMap((box, index) => (box === undefined ? [index] : [])),
-		);
-		if ([...dropped].every((index) => inline.has(index))) break;
-		inline = new Set([...inline, ...dropped]);
+		const dropped = placed
+			.flatMap((box, index) =>
+				box === undefined && !inline.has(index) ? [index] : [],
+			)
+			.sort(
+				(left, right) =>
+					(entries[right]?.width ?? 0) - (entries[left]?.width ?? 0) ||
+					left - right,
+			);
+		const widest = dropped[0];
+		if (widest === undefined) break;
+		inline.add(widest);
 		placed = packColumns(inline);
 	}
 	return reportShelfCapacity(placed);
@@ -857,6 +902,12 @@ function packShelf(
 	function packColumns(
 		inlineEntries: ReadonlySet<number>,
 	): (Box | undefined)[] {
+		// The grid spaced for every callout that could fit, then the one
+		// re-spaced for those still to place: narrower columns add spots
+		// without losing any.
+		const columns = [
+			...new Set([...columnsFor(oversized), ...columnsFor(inlineEntries)]),
+		];
 		const blockers: Box[] = [
 			...(shelf.obstacles ?? []),
 			// An opaque callout packed across the drawing must not hide a
@@ -928,7 +979,13 @@ function packShelf(
 						entries.reduce((sum, entry) => sum + entry.height + gap, 0),
 					),
 					availableHeight: Math.round(bottom - top),
-					columnCount: columns.length,
+					columnCount: columnsFor(
+						new Set(
+							placed.flatMap((box, index) =>
+								box === undefined ? [index] : [],
+							),
+						),
+					).length,
 					conflictClass: "label-capacity",
 					remediationType: "external-label-or-split",
 				},

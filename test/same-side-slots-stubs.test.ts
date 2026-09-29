@@ -7,7 +7,10 @@ import {
 	revertCoincidentMoves,
 	routeEdge,
 } from "../src/routing/index.js";
-import { assignSameSideSlots } from "../src/routing/same-side-slots.js";
+import {
+	assignSameSideSlots,
+	slotFits,
+} from "../src/routing/same-side-slots.js";
 import { solveDiagram } from "../src/solver/index.js";
 
 function shape(
@@ -499,5 +502,17 @@ describe("same-side slots + escape stubs (#92)", () => {
 				detail: expect.objectContaining({ bendCount: bends, maxBends: 2 }),
 			}),
 		);
+	});
+});
+
+describe("relocated endpoint capacity", () => {
+	it("refuses a side with no slot left or no room beside its ports", () => {
+		// Two ports and an end already on a 48px side: a fourth does not fit
+		// three slots.
+		expect(slotFits(0.5, [0.25, 0.75, 0.125], 48, 3)).toBe(false);
+		// A free slot, but 6px from a port centre on a 48px side.
+		expect(slotFits(0.125, [0.25, 0.75], 48, 5)).toBe(false);
+		// Room on a longer side.
+		expect(slotFits(0.5, [0.25, 0.75], 96, 3)).toBe(true);
 	});
 });

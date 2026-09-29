@@ -39,6 +39,8 @@ import {
 import {
 	assignSameSideSlots,
 	freeFractions,
+	MIN_ATTACH_SPACING,
+	slotFits,
 } from "../routing/same-side-slots.js";
 import {
 	ancestorGroupIds,
@@ -671,6 +673,8 @@ export function coordinateEdges(
 				side: CoordinatedPort["side"];
 				fraction: number;
 				input: Partial<RouteEdgeInput>;
+				/** Whether the side had room (slot count and spacing). */
+				fits: boolean;
 			} | null;
 			const choicesFor = (endpoint: "source" | "target"): EndChoice[] => {
 				const slot = endpoint === "source" ? sourceSlot : targetSlot;
@@ -678,18 +682,27 @@ export function coordinateEdges(
 					endpoint === "source" ? edge.source.nodeId : edge.target.nodeId;
 				const geometry = endpoint === "source" ? source : target;
 				if (slot === undefined) return [null];
+				// Every side may be tried; one without room (slot count or
+				// spacing, as the initial assignment checks) is reported if taken.
 				const others = (["right", "bottom", "left", "top"] as const)
 					.filter((side) => side !== slot.anchor)
 					.map((side) => {
-						const fraction =
-							freeFractions(
-								1,
-								slotOccupancy.get(`${nodeId}:${side}`) ?? [],
-							)[0] ?? 0.5;
+						const occupied = slotOccupancy.get(`${nodeId}:${side}`) ?? [];
+						const fraction = freeFractions(1, occupied)[0] ?? 0.5;
+						const length =
+							side === "left" || side === "right"
+								? geometry.box.height
+								: geometry.box.width;
 						const point = sidePointAtFraction(geometry.box, side, fraction);
 						return {
 							side,
 							fraction,
+							fits: slotFits(
+								fraction,
+								occupied,
+								length,
+								options.maxAttachPointsPerSide ?? 3,
+							),
 							input:
 								endpoint === "source"
 									? { sourceAnchor: side, sourcePoint: point }
@@ -732,6 +745,22 @@ export function coordinateEdges(
 					if (pick === null) return;
 					const nodeId = index === 0 ? edge.source.nodeId : edge.target.nodeId;
 					const key = `${nodeId}:${pick.side}`;
+					if (!pick.fits) {
+						diagnostics.push({
+							severity: "warning",
+							code: "routing.channel.capacity_exhausted",
+							message: `Relocated end of ${edge.id} crowds ${nodeId}/${pick.side}: no slot left there, or under ${MIN_ATTACH_SPACING}px from its ports and ends.`,
+							detail: {
+								nodeId,
+								side: pick.side,
+								edgeIds: edge.id,
+								maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
+								minSpacing: MIN_ATTACH_SPACING,
+								conflictClass: "fixed-geometry-block",
+								remediationType: "route-rail-or-page-split",
+							},
+						});
+					}
 					slotOccupancy.set(key, [
 						...(slotOccupancy.get(key) ?? []),
 						pick.fraction,
@@ -999,11 +1028,11 @@ export function pruneResolvedRouteDiagnostics(
 			...hardObstacles,
 			...softObstacles,
 			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+			// The router's own text rule: a strike through the edge's own
+			// port label keeps the route unclean.
 			...textObstacles
 				.filter(isLocalRouteClearanceText)
-				.filter(
-					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
-				)
+				.filter((annotation) => isRouteTextObstacleFor(edge, annotation))
 				.map((annotation) => textObstacleBox(annotation, options)),
 		];
 		const result = routeObstacleHits(edge.points, obstacles) === 0;

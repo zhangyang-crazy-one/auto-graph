@@ -50,7 +50,25 @@ export interface AssignSameSideSlotsResult {
  * named port's centre: a port cell is 10px wide, so an end any closer
  * runs its arrowhead into it.
  */
-const MIN_ATTACH_SPACING = 10;
+export const MIN_ATTACH_SPACING = 10;
+
+/**
+ * Whether one more end fits at `fraction` of a side of `length` px that
+ * already holds `occupied` (ports and assigned ends): within the slot
+ * count and at least `MIN_ATTACH_SPACING` from every one of them.
+ */
+export function slotFits(
+	fraction: number,
+	occupied: readonly number[],
+	length: number,
+	maxAttachPointsPerSide = 3,
+): boolean {
+	const maxSlots = Math.min(5, Math.max(1, maxAttachPointsPerSide));
+	if (occupied.length + 1 > maxSlots) return false;
+	return occupied.every(
+		(other) => Math.abs(other - fraction) * length >= MIN_ATTACH_SPACING - 1e-6,
+	);
+}
 
 /**
  * Pre-route same-side slot assignment for anonymous (non-port) endpoints (#92).

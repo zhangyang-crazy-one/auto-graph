@@ -189,12 +189,15 @@ describe("label shelf packing (#93)", () => {
 		const built = buildExternalLabelCallouts(
 			[
 				required("a", "first", { x: 0, y: 20, width: 24, height: 14 }),
-				required("b", "second", { x: 0, y: 20, width: 24, height: 14 }),
+				// "b"'s label sits clear below: only its key is crowded out.
+				required("b", "second", { x: 60, y: 44, width: 24, height: 14 }),
 			],
 			{ x: 0, y: 0, width: 100, height: 60 },
 			{ textMeasurer: new DeterministicTextMeasurer() },
 			{
 				diagnostics,
+				// A node covers "b"'s own spot.
+				keyObstacles: [{ x: 55, y: 40, width: 40, height: 25 }],
 				// Both routes are a few px long at the same spot: "b"'s key has
 				// nowhere to go but on top of "a"'s.
 				routes: new Map([
@@ -731,5 +734,79 @@ describe("label shelf packing (#93)", () => {
 		expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
 			"routing.label-shelf.capacity_exhausted",
 		);
+	});
+
+	it("moves an earlier key off a label that stays inline later", () => {
+		// "a"'s key would sit where "b"'s label is; "b"'s key is crowded out
+		// onto "a"'s key, so "b" stays inline and "a"'s key must move off it.
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const tiny = [
+			{ x: 10, y: 30 },
+			{ x: 14, y: 30 },
+		];
+		const built = buildExternalLabelCallouts(
+			[
+				required("a", "first", { x: 0, y: 23, width: 24, height: 14 }),
+				required("b", "second", { x: 0, y: 23, width: 24, height: 14 }),
+			],
+			{ x: 0, y: 0, width: 200, height: 120 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+			{
+				diagnostics,
+				routes: new Map([
+					[
+						"a",
+						[
+							{ x: 12, y: 30 },
+							{ x: 12, y: 110 },
+						],
+					],
+					["b", tiny],
+				]),
+			},
+		);
+		const bLabel = { x: 0, y: 23, width: 24, height: 14 };
+		const aKey = built.find((entry) => entry.callout.edgeId === "a")?.callout
+			.keyBox;
+		expect(aKey).toBeDefined();
+		expect(diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.label-shelf.key_blocked",
+				detail: expect.objectContaining({ edgeIds: ["b"] }),
+			}),
+		);
+		if (aKey === undefined) return;
+		const overlaps =
+			aKey.x < bLabel.x + bLabel.width &&
+			bLabel.x < aKey.x + aKey.width &&
+			aKey.y < bLabel.y + bLabel.height &&
+			bLabel.y < aKey.y + aKey.height;
+		expect(overlaps).toBe(false);
+	});
+
+	it("re-spaces columns once the widest callout drops out", () => {
+		// The wide callout fits the page width but is too tall for it; the
+		// narrow one fits beside the content once columns stop being spaced
+		// for the wide one (its single column would sit on the drawing).
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const built = buildExternalLabelCallouts(
+			[
+				required("wide", Array.from({ length: 40 }, () => "wide").join(" "), {
+					x: 20,
+					y: 20,
+					width: 40,
+					height: 14,
+				}),
+				required("narrow", "ok", { x: 20, y: 40, width: 20, height: 14 }),
+			],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 200, height: 60 },
+			},
+			{ diagnostics, obstacles: [{ x: 0, y: 0, width: 100, height: 60 }] },
+		);
+		expect(built.map((entry) => entry.callout.edgeId)).toEqual(["narrow"]);
+		expect(built[0]?.callout.calloutBox.x ?? 0).toBeGreaterThanOrEqual(100);
 	});
 });

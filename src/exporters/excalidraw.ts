@@ -316,15 +316,14 @@ function renderArrowElements(
 	// A gap cuts the arrow into pieces; only the last one ends at the
 	// target, so only it carries the arrowhead, and only the first binds
 	// to the source.
+	// Later pieces live in their own id namespace: appending a suffix to
+	// the edge id could collide with another edge's id.
 	return pieces.map((points, index) =>
 		renderArrow(
-			{
-				...edge,
-				id: index === 0 ? edge.id : `${edge.id}:gap-${index}`,
-				points,
-			},
+			{ ...edge, points },
 			index === pieces.length - 1,
 			index === 0,
+			index === 0 ? `edge:${edge.id}` : `edge-piece:${index}:${edge.id}`,
 		),
 	);
 }
@@ -389,6 +388,7 @@ function renderArrow(
 	endsAtTarget = true,
 	/** False for a piece that starts at a gap, not at the source. */
 	startsAtSource = true,
+	elementId = `edge:${edge.id}`,
 ): ExcalidrawArrowElement {
 	const first = edge.points[0];
 	if (first === undefined) {
@@ -406,7 +406,7 @@ function renderArrow(
 	const box = pointsBox(relativePoints);
 
 	return {
-		...baseElement(`edge:${edge.id}`, "arrow", {
+		...baseElement(elementId, "arrow", {
 			x: origin.x,
 			y: origin.y,
 			width: box.width,

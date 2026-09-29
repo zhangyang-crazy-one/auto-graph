@@ -825,7 +825,8 @@ describe("Excalidraw pieces split at a gap", () => {
 			],
 		} as unknown as CoordinatedDiagram;
 		const pieces = JSON.parse(exportExcalidraw(diagram)).elements.filter(
-			(element: { id: string }) => element.id.startsWith("edge:h"),
+			(element: { id: string }) =>
+				element.id === "edge:h" || /^edge-piece:\d+:h$/.test(element.id),
 		);
 		expect(pieces).toHaveLength(2);
 		const [first, second] = pieces;
@@ -880,7 +881,8 @@ describe("Excalidraw pieces split at a gap", () => {
 			],
 		} as unknown as CoordinatedDiagram;
 		const pieces = JSON.parse(exportExcalidraw(diagram)).elements.filter(
-			(element: { id: string }) => element.id.startsWith("edge:h"),
+			(element: { id: string }) =>
+				element.id === "edge:h" || /^edge-piece:\d+:h$/.test(element.id),
 		);
 		expect(pieces).toHaveLength(2);
 		const [first, second] = pieces;
@@ -891,5 +893,52 @@ describe("Excalidraw pieces split at a gap", () => {
 		expect(second.points.some((point: { y: number }) => point.y < -1)).toBe(
 			true,
 		);
+	});
+
+	it("never gives a gap piece another edge's element id", () => {
+		// Edge "a" splits at a gap; another edge is literally named "a:gap-1".
+		const diagram = {
+			id: "gap-ids",
+			direction: "LR",
+			nodes: [],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edges: [
+				{
+					id: "a",
+					source: { nodeId: "p" },
+					target: { nodeId: "q" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				{
+					id: "a:gap-1",
+					source: { nodeId: "r" },
+					target: { nodeId: "s" },
+					points: [
+						{ x: 100, y: 0 },
+						{ x: 100, y: 100 },
+					],
+				},
+			],
+			edgeCrossings: [
+				{
+					x: 100,
+					y: 50,
+					underEdgeId: "a",
+					overEdgeId: "a:gap-1",
+					style: "gap",
+				},
+			],
+		} as unknown as CoordinatedDiagram;
+		const ids = JSON.parse(exportExcalidraw(diagram)).elements.map(
+			(element: { id: string }) => element.id,
+		);
+		expect(new Set(ids).size).toBe(ids.length);
+		expect(ids).toContain("edge:a:gap-1");
 	});
 });
