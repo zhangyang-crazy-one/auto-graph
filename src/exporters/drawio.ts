@@ -424,7 +424,18 @@ export function exportDrawio(
 		const targetIds = new Set(
 			containersOf(nodeCellIds.get(edge.target.nodeId)).map((cell) => cell.id),
 		);
-		const container = sourceContainers.find((cell) => targetIds.has(cell.id));
+		// A self-loop belongs to its node: dragging the node carries the
+		// loop's waypoints along.
+		const loopNode =
+			edge.source.nodeId === edge.target.nodeId
+				? nodeById.get(edge.source.nodeId)
+				: undefined;
+		const loopCellId =
+			loopNode === undefined ? undefined : nodeCellIds.get(loopNode.id);
+		const container =
+			loopNode !== undefined && loopCellId !== undefined
+				? { id: loopCellId, box: loopNode.box }
+				: sourceContainers.find((cell) => targetIds.has(cell.id));
 		edgeLayer.push(
 			renderEdgeCell({
 				cellId,

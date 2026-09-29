@@ -786,3 +786,60 @@ describe("#95 fallback end pinning", () => {
 		expect(routeEndsAt(pinned, { x: 20, y: 30 }, undefined)).toBe(false);
 	});
 });
+
+describe("Excalidraw pieces split at a gap", () => {
+	it("hops on every piece and puts the arrowhead only at the target", () => {
+		const diagram = {
+			id: "gap-pieces",
+			direction: "LR",
+			nodes: [],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 100, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				...[84, 150, 170].map((x) => ({
+					id: `v${x}`,
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x, y: 0 },
+						{ x, y: 100 },
+					],
+				})),
+			],
+			edgeCrossings: [
+				{ x: 84, y: 50, underEdgeId: "h", overEdgeId: "v84", style: "jump" },
+				{ x: 150, y: 50, underEdgeId: "h", overEdgeId: "v150", style: "gap" },
+				{ x: 170, y: 50, underEdgeId: "h", overEdgeId: "v170", style: "jump" },
+			],
+		} as unknown as CoordinatedDiagram;
+		const pieces = JSON.parse(exportExcalidraw(diagram)).elements.filter(
+			(element: { id: string }) => element.id.startsWith("edge:h"),
+		);
+		expect(pieces).toHaveLength(2);
+		const [first, second] = pieces;
+		// The piece cut at the gap has no arrowhead and no binding there.
+		expect(first.endArrowhead).toBeNull();
+		expect(first.endBinding).toBeNull();
+		expect(first.startBinding).not.toBeNull();
+		// The piece after the gap keeps its own hop (at x=170) and ends at
+		// the target with the arrowhead.
+		expect(second.startBinding).toBeNull();
+		expect(second.endBinding).not.toBeNull();
+		expect(second.endArrowhead).toBe("arrow");
+		expect(second.points.some((point: { y: number }) => point.y < -1)).toBe(
+			true,
+		);
+	});
+});

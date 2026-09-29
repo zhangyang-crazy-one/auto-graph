@@ -96,10 +96,10 @@ interface ExcalidrawTextElement extends ExcalidrawElementBase<"text"> {
 interface ExcalidrawArrowElement extends ExcalidrawElementBase<"arrow"> {
 	type: "arrow";
 	points: Point[];
-	startBinding: { elementId: string; focus: 0; gap: 0 };
-	endBinding: { elementId: string; focus: 0; gap: 0 };
+	startBinding: { elementId: string; focus: 0; gap: 0 } | null;
+	endBinding: { elementId: string; focus: 0; gap: 0 } | null;
 	startArrowhead: null;
-	endArrowhead: "arrow" | "triangle" | "triangle_outline";
+	endArrowhead: "arrow" | "triangle" | "triangle_outline" | null;
 }
 
 export function exportExcalidraw(
@@ -320,18 +320,21 @@ function renderArrowElements(
 		return [renderArrow(edge, hops)];
 	}
 	const segments = splitPolylineAtGaps(edge.points, gaps);
-	return segments.map((points, index) => {
-		const { arrowhead: _ignored, ...rest } = edge;
-		const segmentEdge: CoordinatedEdge = {
-			...rest,
-			id: index === 0 ? edge.id : `${edge.id}:gap-${index}`,
-			points,
-			...(index === segments.length - 1 && edge.arrowhead !== undefined
-				? { arrowhead: edge.arrowhead }
-				: {}),
-		};
-		return renderArrow(segmentEdge, index === 0 ? hops : []);
-	});
+	// Every piece draws the hops on its own segments; only the last piece
+	// ends at the target, so only it carries (and keeps room for) the
+	// arrowhead.
+	return segments.map((points, index) =>
+		renderArrow(
+			{
+				...edge,
+				id: index === 0 ? edge.id : `${edge.id}:gap-${index}`,
+				points,
+			},
+			hops,
+			index === segments.length - 1,
+			index === 0,
+		),
+	);
 }
 
 function splitPolylineAtGaps(
@@ -392,6 +395,10 @@ function splitPolylineAtGaps(
 function renderArrow(
 	edge: CoordinatedEdge,
 	crossings: readonly EdgeCrossing[] = [],
+	/** False for a piece cut at a gap before the target: no arrowhead. */
+	endsAtTarget = true,
+	/** False for a piece that starts at a gap, not at the source. */
+	startsAtSource = true,
 ): ExcalidrawArrowElement {
 	const first = edge.points[0];
 	if (first === undefined) {
@@ -405,6 +412,7 @@ function renderArrow(
 		crossings.filter(
 			(crossing) => crossing.style === "jump" || crossing.style === "bridge",
 		),
+		endsAtTarget ? ARROWHEAD_LENGTH : 0,
 	);
 	const origin = hopped[0] ?? first;
 	const relativePoints = hopped.map((point) => ({
@@ -423,16 +431,23 @@ function renderArrow(
 		backgroundColor: "transparent",
 		strokeStyle: edge.style ?? "solid",
 		points: relativePoints,
-		startBinding: { elementId: `node:${edge.source.nodeId}`, focus: 0, gap: 0 },
-		endBinding: { elementId: `node:${edge.target.nodeId}`, focus: 0, gap: 0 },
+		// Only ends that reach a node bind to it; a cut end stays free.
+		startBinding: startsAtSource
+			? { elementId: `node:${edge.source.nodeId}`, focus: 0, gap: 0 }
+			: null,
+		endBinding: endsAtTarget
+			? { elementId: `node:${edge.target.nodeId}`, focus: 0, gap: 0 }
+			: null,
 		startArrowhead: null,
-		endArrowhead: mapArrowhead(edge.arrowhead),
+		endArrowhead: endsAtTarget ? mapArrowhead(edge.arrowhead) : null,
 	};
 }
 
 function applyJumpBumps(
 	points: readonly Point[],
 	jumps: readonly EdgeCrossing[],
+	/** Room kept before the end for an arrowhead (none for a cut piece). */
+	arrowheadLength: number,
 ): Point[] {
 	if (jumps.length === 0 || points.length < 2) {
 		return points.map((point) => ({ ...point }));
@@ -456,7 +471,7 @@ function applyJumpBumps(
 			start,
 			end,
 			// Excalidraw draws the arrowhead on the full final segment.
-			i === points.length - 2 ? ARROWHEAD_LENGTH : 0,
+			i === points.length - 2 ? arrowheadLength : 0,
 		);
 		for (const glyph of glyphs) {
 			// A cluster of close crossings shares one wider hop.

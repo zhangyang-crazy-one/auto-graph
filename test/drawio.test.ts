@@ -672,6 +672,36 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("makes a self-loop its node's child", () => {
+		const xml = exportDrawio(
+			diagram({
+				edges: [
+					{
+						id: "loop",
+						source: { nodeId: "a" },
+						target: { nodeId: "a" },
+						points: [
+							{ x: 600, y: 110 },
+							{ x: 620, y: 110 },
+							{ x: 620, y: 90 },
+							{ x: 560, y: 90 },
+							{ x: 560, y: 100 },
+						],
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		const nodeId = xml.match(/<mxCell id="(\d+)" value="A"/)?.[1];
+		expect(nodeId).toBeDefined();
+		// Points relative to node "a" at (500,100): (600,110) -> (100,10).
+		expect(xml).toMatch(
+			new RegExp(
+				`edge="1" parent="${nodeId}"[^>]*><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="120" y="10"/>`,
+			),
+		);
+		expect(xml).toContain('<mxPoint as="sourcePoint" x="100" y="10"/>');
+	});
+
 	it("emits a nested group after an equally large parent", () => {
 		// "z" contains "a" with no padding: both boxes are the same, and "a"
 		// sorts first by id, yet the parent must come first.
