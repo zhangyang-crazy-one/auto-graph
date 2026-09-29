@@ -14,6 +14,7 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import { usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
 /**
@@ -59,7 +60,7 @@ export function exportDrawio(
 	// On a requested page (paper size and fit scale), the paper is drawn
 	// at `1 / scale` in diagram units with the content centred, as the SVG
 	// lays it out; printing at the page scale restores the paper size.
-	const paper = options.page;
+	const paper = usablePage(options.page);
 	const origin =
 		paper === undefined
 			? { x: page.x, y: page.y }
@@ -130,7 +131,7 @@ export function exportDrawio(
 				annotation.ownerId === frame.kind,
 		);
 		const frameId = vertex(
-			title === undefined ? escapeHtml(frame.titleTab) : "",
+			title === undefined ? multilineHtml(frame.titleTab) : "",
 			[
 				"shape=umlFrame;whiteSpace=wrap;html=1;",
 				`width=${formatNumber(frame.titleBox.width)};height=${formatNumber(frame.titleBox.height)};`,
@@ -985,7 +986,14 @@ function renderEdgeCells(
 				targetId: last ? input.targetId : undefined,
 				crossings: pieceCrossings,
 				label: hasLabel ? input.label : "",
-				labelBox: hasLabel ? input.labelBox : undefined,
+				// A fallback label keeps the original route's middle: an empty
+				// box there gives the piece its offset.
+				labelBox: hasLabel
+					? (input.labelBox ??
+						(labelCenter === undefined
+							? undefined
+							: { ...labelCenter, width: 0, height: 0 }))
+					: undefined,
 				labelFont: hasLabel ? input.labelFont : undefined,
 				endArrow: last,
 				pieceOf: edge.id,
@@ -1204,7 +1212,11 @@ function renderEdgeCell(input: EdgeCellInput): string {
 		// Encoded: an id's ';' or '=' would otherwise split the style string.
 		...(input.pieceOf === undefined
 			? []
-			: [`dgeEdge=${encodeURIComponent(input.pieceOf)}`]),
+			: // Code points XML forbids go first: a lone surrogate would
+				// make encodeURIComponent throw.
+				[
+					`dgeEdge=${encodeURIComponent(input.pieceOf.replace(XML_FORBIDDEN, ""))}`,
+				]),
 	];
 	if (edge.style === "dashed") styleParts.push("dashed=1");
 	// The label (inline or a callout key) sits over connectors like the

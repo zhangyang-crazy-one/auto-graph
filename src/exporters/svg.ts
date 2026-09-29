@@ -22,6 +22,7 @@ import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
+import { usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
 const NODE_FILL = "#f8fafc";
@@ -51,7 +52,7 @@ export function exportSvg(
 		crossings.length === 0
 			? diagram.bounds
 			: expandBox(diagram.bounds, EDGE_CROSSING_GLYPH_RADIUS);
-	const page = options.page;
+	const page = usablePage(options.page);
 	// On a page the view box is the page in diagram units, centred on the
 	// content, so the drawing appears at `scale` in the middle of the page.
 	const viewBox =
