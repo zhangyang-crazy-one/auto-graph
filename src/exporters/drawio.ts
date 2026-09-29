@@ -56,8 +56,19 @@ export function exportDrawio(
 	});
 	const crossings = diagram.edgeCrossings ?? [];
 	const annotations = diagram.textAnnotations ?? [];
+	// draw.io paints cells in document order (a child with its parent), so
+	// the XML follows the SVG's paint order: frame, lanes and evidence
+	// blocks, then edges, then groups, nodes, ports and their labels, so
+	// those labels' backdrops cover the edges. Ids still follow creation
+	// order; draw.io resolves references to cells later in the document.
 	const cells: string[] = [`<mxCell id="0"/>`, `<mxCell id="1" parent="0"/>`];
+	const edgeLayer: string[] = [];
+	const foreground: string[] = [];
+	let layer = cells;
 	let nextId = 2;
+	// Each vertex's parent cell, so an edge can find the container its
+	// ends share.
+	const parentOf = new Map<string, { id: string; box: Box }>();
 	// `value` is draw.io HTML (every style sets html=1): plain text goes
 	// through escapeHtml first, generated markup is passed as is.
 	const vertex = (
@@ -67,6 +78,7 @@ export function exportDrawio(
 		parent?: { id: string; box: Box },
 	): string => {
 		const cellId = String(nextId++);
+		if (parent !== undefined) parentOf.set(cellId, parent);
 		// A child's geometry is relative to its parent's origin.
 		const placed =
 			parent === undefined
@@ -77,7 +89,7 @@ export function exportDrawio(
 						width: box.width,
 						height: box.height,
 					};
-		cells.push(
+		layer.push(
 			`<mxCell id="${cellId}" value="${escapeXml(value)}" style="${escapeXml(style)}" vertex="1" parent="${escapeXml(parent?.id ?? "1")}">${geometry(placed)}</mxCell>`,
 		);
 		return cellId;
@@ -163,11 +175,39 @@ export function exportDrawio(
 						box.x + box.width <= lane.box.x + lane.box.width + 0.5 &&
 						box.y + box.height <= lane.box.y + lane.box.height + 0.5,
 				));
-	// Outer groups first so nested ones are drawn on top (and their parent
-	// cell exists before them).
+	// A group's parent group: the innermost group listing it.
+	const outerGroup = (group: (typeof diagram.groups)[number]) =>
+		innermost(
+			diagram.groups.filter(
+				(outer) => outer.id !== group.id && outer.groupIds.includes(group.id),
+			),
+		);
+	const depthCache = new Map<string, number>();
+	const depth = (
+		group: (typeof diagram.groups)[number],
+		seen = new Set<string>(),
+	): number => {
+		const cached = depthCache.get(group.id);
+		if (cached !== undefined) return cached;
+		const outer = outerGroup(group);
+		// A cycle in groupIds is broken at the repeated group.
+		const value =
+			outer === undefined || seen.has(outer.id)
+				? 0
+				: depth(outer, new Set([...seen, group.id])) + 1;
+		depthCache.set(group.id, value);
+		return value;
+	};
+	// Groups (and so their titles) paint above the edges.
+	layer = foreground;
+	// Parents before children (by nesting, not area: a parent with no
+	// padding can be exactly as large as its child), so each parent cell
+	// exists first; outer groups are drawn below nested ones.
 	for (const group of [...diagram.groups].sort(
 		(left, right) =>
-			area(right.box) - area(left.box) || left.id.localeCompare(right.id),
+			depth(left) - depth(right) ||
+			area(right.box) - area(left.box) ||
+			left.id.localeCompare(right.id),
 	)) {
 		// The solved title (its lines, typography and collision-safe box)
 		// is a text cell of its own, so draw.io does not rewrap it across
@@ -181,14 +221,7 @@ export function exportDrawio(
 			title === undefined ? escapeHtml(group.label?.text ?? "") : "",
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
-			parentGroup(
-				innermost(
-					diagram.groups.filter(
-						(outer) =>
-							outer.id !== group.id && outer.groupIds.includes(group.id),
-					),
-				),
-			) ?? laneOf(group.id, group.box),
+			parentGroup(outerGroup(group)) ?? laneOf(group.id, group.box),
 		);
 		groupCells.set(group.id, { id: groupId, box: group.box });
 		if (title !== undefined) {
@@ -215,9 +248,12 @@ export function exportDrawio(
 		};
 		for (const cell of rest) vertex(cell.value, cell.style, cell.box, parent);
 	};
+	// Evidence blocks sit below the edges, as in the SVG.
+	layer = cells;
 	for (const matrix of diagram.matrices ?? []) block(matrixCells(matrix));
 	for (const table of diagram.tables ?? []) block(tableCells(table));
 	for (const panel of diagram.evidencePanels ?? []) block(panelCells(panel));
+	layer = foreground;
 
 	// Ports are children of their node, so they move with it (and with the
 	// edges pinned to it) when the node is dragged; a port label is a child
@@ -260,7 +296,8 @@ export function exportDrawio(
 					),
 				),
 			) ?? laneOf(node.id);
-		cells.push(
+		if (group !== undefined) parentOf.set(cellId, group);
+		layer.push(
 			renderNodeCell(
 				cellId,
 				node,
@@ -353,13 +390,36 @@ export function exportDrawio(
 			labelByEdge.set(annotation.ownerId, annotation);
 		}
 	}
+	// The containers (groups, lanes) around a cell, innermost first.
+	const containersOf = (cellId: string | undefined) => {
+		const chain: { id: string; box: Box }[] = [];
+		const seen = new Set<string>();
+		let current = cellId === undefined ? undefined : parentOf.get(cellId);
+		while (current !== undefined && !seen.has(current.id)) {
+			seen.add(current.id);
+			chain.push(current);
+			current = parentOf.get(current.id);
+		}
+		return chain;
+	};
 	for (const edge of diagram.edges) {
 		const cellId = String(nextId++);
-		cells.push(
+		// An edge between two cells of one group or lane is that
+		// container's child (waypoints relative to it), so dragging the
+		// container carries the whole route along.
+		const sourceContainers = containersOf(nodeCellIds.get(edge.source.nodeId));
+		const targetIds = new Set(
+			containersOf(nodeCellIds.get(edge.target.nodeId)).map((cell) => cell.id),
+		);
+		const container = sourceContainers.find((cell) => targetIds.has(cell.id));
+		edgeLayer.push(
 			renderEdgeCell({
 				cellId,
 				edge,
 				points: edge.points.map(move),
+				...(container === undefined
+					? {}
+					: { parent: { id: container.id, origin: shift(container.box) } }),
 				...(() => {
 					const terminal = (end: CoordinatedEdge["source"]) => {
 						const port =
@@ -418,7 +478,7 @@ export function exportDrawio(
 		`  <diagram id="${escapeXml(diagram.id)}" name="${escapeXml(title)}">`,
 		`    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="${formatNumber(Math.max(page.width, 1))}" pageHeight="${formatNumber(Math.max(page.height, 1))}">`,
 		`      <root>`,
-		...cells.map((cell) => `        ${cell}`),
+		...[...cells, ...edgeLayer, ...foreground].map((cell) => `        ${cell}`),
 		`      </root>`,
 		`    </mxGraphModel>`,
 		`  </diagram>`,
@@ -640,6 +700,8 @@ function renderEdgeCell(input: {
 	labelBox: Box | undefined;
 	/** The solved label's typography (the box was measured with it). */
 	labelFont: Pick<SolvedTextAnnotation, "fontFamily" | "fontSize"> | undefined;
+	/** The container cell this edge belongs to, with its page origin. */
+	parent?: { id: string; origin: Point };
 }): string {
 	const { edge, points, crossings } = input;
 	const orthogonal = points.every((point, index) => {
@@ -713,8 +775,14 @@ function renderEdgeCell(input: {
 		);
 	}
 	const geometryChildren: string[] = [];
+	// Geometry points are relative to the edge's parent cell.
+	const origin = input.parent?.origin ?? { x: 0, y: 0 };
+	const local = (point: Point): Point => ({
+		x: point.x - origin.x,
+		y: point.y - origin.y,
+	});
 	if (points.length >= 2 && first !== undefined && last !== undefined) {
-		const waypoints = points.slice(1, -1);
+		const waypoints = points.slice(1, -1).map(local);
 		if (waypoints.length > 0) {
 			geometryChildren.push(
 				`<Array as="points">${waypoints
@@ -725,9 +793,11 @@ function renderEdgeCell(input: {
 					.join("")}</Array>`,
 			);
 		}
+		const start = local(first);
+		const end = local(last);
 		geometryChildren.push(
-			`<mxPoint as="sourcePoint" x="${formatNumber(first.x)}" y="${formatNumber(first.y)}"/>`,
-			`<mxPoint as="targetPoint" x="${formatNumber(last.x)}" y="${formatNumber(last.y)}"/>`,
+			`<mxPoint as="sourcePoint" x="${formatNumber(start.x)}" y="${formatNumber(start.y)}"/>`,
+			`<mxPoint as="targetPoint" x="${formatNumber(end.x)}" y="${formatNumber(end.y)}"/>`,
 		);
 	}
 	// draw.io puts an edge label at the route's middle (by length) plus an
@@ -742,13 +812,13 @@ function renderEdgeCell(input: {
 			`<mxPoint as="offset" x="${formatNumber(center.x - middle.x)}" y="${formatNumber(center.y - middle.y)}"/>`,
 		);
 	}
-	for (const jump of jumps) {
+	for (const jump of jumps.map(local)) {
 		geometryChildren.push(
 			`<mxPoint as="dgeJump" x="${formatNumber(jump.x)}" y="${formatNumber(jump.y)}" />`,
 		);
 	}
 	const terminals = `${input.sourceId === undefined ? "" : ` source="${escapeXml(input.sourceId)}"`}${input.targetId === undefined ? "" : ` target="${escapeXml(input.targetId)}"`}`;
-	return `<mxCell id="${escapeXml(input.cellId)}" value="${escapeXml(input.label)}" style="${escapeXml(styleParts.join(";"))}" edge="1" parent="1"${terminals}><mxGeometry relative="1" as="geometry">${geometryChildren.join("")}</mxGeometry></mxCell>`;
+	return `<mxCell id="${escapeXml(input.cellId)}" value="${escapeXml(input.label)}" style="${escapeXml(styleParts.join(";"))}" edge="1" parent="${escapeXml(input.parent?.id ?? "1")}"${terminals}><mxGeometry relative="1" as="geometry">${geometryChildren.join("")}</mxGeometry></mxCell>`;
 }
 
 /**

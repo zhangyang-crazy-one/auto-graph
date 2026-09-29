@@ -101,6 +101,47 @@ describe("same-side slots + escape stubs (#92)", () => {
 		expect(new Set(ys).size).toBe(3);
 	});
 
+	it("counts named ports on a side toward its slot capacity", () => {
+		const nodes = new Map([
+			shape("a", 0, 0, 80, 160),
+			shape("b", 200, 0),
+			shape("c", 200, 80),
+			shape("d", 200, 160),
+		]);
+		const edges: NormalizedEdge[] = ["b", "c", "d"].map((target) => ({
+			id: `to-${target}`,
+			source: { nodeId: "a", anchor: "right" },
+			target: { nodeId: target, anchor: "left" },
+		}));
+		// Three anonymous ends fit three slots on a free side, but not
+		// beside two named ports.
+		const free = assignSameSideSlots({
+			edges,
+			nodes,
+			direction: "LR",
+			maxAttachPointsPerSide: 3,
+		});
+		expect(free.diagnostics).toEqual([]);
+		const ported = assignSameSideSlots({
+			edges,
+			nodes,
+			direction: "LR",
+			maxAttachPointsPerSide: 3,
+			occupied: new Map([["a:right", [0.25, 0.75]]]),
+		});
+		expect(ported.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "routing.channel.capacity_exhausted",
+				detail: expect.objectContaining({
+					nodeId: "a",
+					side: "right",
+					edgeCount: 3,
+					portCount: 2,
+				}),
+			}),
+		);
+	});
+
 	it("picks TB slot sides from the boxes for back-edges and same-rank pairs", () => {
 		const nodes = new Map([
 			shape("top", 0, 0),

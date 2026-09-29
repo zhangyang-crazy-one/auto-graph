@@ -142,15 +142,19 @@ export function assignSameSideSlots(
 		const geometry = input.nodes.get(nodeId);
 		if (geometry === undefined) continue;
 
-		if (ordered.length > maxSlots) {
+		// Named ports on the side take slots too: the anonymous endpoints
+		// squeeze between them.
+		const occupied = input.occupied?.get(`${nodeId}:${side}`) ?? [];
+		if (ordered.length + occupied.length > maxSlots) {
 			diagnostics.push({
 				severity: "warning",
 				code: "routing.channel.capacity_exhausted",
-				message: `Same-side attach capacity exhausted on ${nodeId}/${side}: ${ordered.length} anonymous edges for ${maxSlots} slots.`,
+				message: `Same-side attach capacity exhausted on ${nodeId}/${side}: ${ordered.length} anonymous edges${occupied.length > 0 ? ` and ${occupied.length} named ports` : ""} for ${maxSlots} slots.`,
 				detail: {
 					nodeId,
 					side,
 					edgeCount: ordered.length,
+					...(occupied.length > 0 ? { portCount: occupied.length } : {}),
 					maxAttachPointsPerSide: maxSlots,
 					conflictClass: "fixed-geometry-block",
 					remediationType: "route-rail-or-page-split",
@@ -161,7 +165,6 @@ export function assignSameSideSlots(
 
 		// Every endpoint gets its own fraction (overflow is reported above,
 		// never stacked on one point), placed between the side's ports.
-		const occupied = input.occupied?.get(`${nodeId}:${side}`) ?? [];
 		const fractions =
 			ordered.length === 1 && occupied.length === 0
 				? [

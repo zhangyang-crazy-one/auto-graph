@@ -631,6 +631,54 @@ describe("draw.io export", () => {
 		expect(a?.slice(3)).toEqual(["10", "10"]);
 		expect(b?.[2]).toBe(outer?.[1]);
 		expect(b?.slice(3)).toEqual(["320", "20"]);
+		// The edge between a and b lives in their shared group, outer, with
+		// its points relative to it: (600,110) - (480,80).
+		expect(xml).toMatch(
+			new RegExp(
+				`edge="1" parent="${outer?.[1]}"[^>]*><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="220" y="30"/><mxPoint x="220" y="50"/></Array><mxPoint as="sourcePoint" x="120" y="30"/><mxPoint as="targetPoint" x="320" y="50"/>`,
+			),
+		);
+	});
+
+	it("emits a nested group after an equally large parent", () => {
+		// "z" contains "a" with no padding: both boxes are the same, and "a"
+		// sorts first by id, yet the parent must come first.
+		const box = { x: 490, y: 90, width: 120, height: 60 };
+		const xml = exportDrawio(
+			diagram({
+				groups: [
+					{
+						id: "a",
+						label: { text: "Inner" },
+						nodeIds: ["a"],
+						groupIds: [],
+						box,
+					},
+					{
+						id: "z",
+						label: { text: "Outer" },
+						nodeIds: [],
+						groupIds: ["a"],
+						box,
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		const outerId = xml.match(/<mxCell id="(\d+)" value="Outer"/)?.[1];
+		expect(outerId).toBeDefined();
+		expect(xml).toMatch(
+			new RegExp(
+				`value="Inner" [^>]*parent="${outerId}"><mxGeometry x="0" y="0"`,
+			),
+		);
+	});
+
+	it("paints edges below nodes, ports and their labels, as the SVG does", () => {
+		const xml = exportDrawio(diagram());
+		const edgeAt = xml.indexOf('edge="1"');
+		const nodeAt = xml.indexOf('value="A"');
+		expect(edgeAt).toBeGreaterThan(0);
+		expect(nodeAt).toBeGreaterThan(edgeAt);
 	});
 
 	it("pads the page by the requested viewport padding", () => {
