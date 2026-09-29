@@ -1395,9 +1395,10 @@ function outlineSidesNear(
  * {@link OUTLINE_STEP} from the side, on the side's nearer free face.
  * A move is kept only when the route gains no obstacle hit, its
  * neighbouring segments keep their direction (and the end stubs their
- * length), and no other edge's parallel segment ends up next to it.
+ * length), no other edge's parallel segment ends up next to it, and the
+ * route crosses no more of the other routes than before.
  */
-function clearOutlineRuns(
+export function clearOutlineRuns(
 	edges: readonly CoordinatedEdge[],
 	outlines: readonly Box[],
 	obstacles: readonly PostPassObstacle[],
@@ -1435,6 +1436,20 @@ function clearOutlineRuns(
 				);
 			const before = routeObstacleHits(points, edgeObstacles);
 			const others = otherSegments(edgeIndex);
+			// The move stretches both neighbouring segments, which can carry
+			// the route across another connector as the routes stand now.
+			const otherEdges = edges.flatMap((other, at) =>
+				at === edgeIndex ? [] : [{ ...other, points: routes[at] as Point[] }],
+			);
+			const crossings = (route: Point[]) =>
+				detectOrthogonalEdgeCrossings([
+					{ ...edge, points: route },
+					...otherEdges,
+				]).filter(
+					(crossing) =>
+						crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
+				).length;
+			const crossingsBefore = crossings(points);
 			for (const target of targets) {
 				const moved = points.map((point) => ({ ...point }));
 				for (const at of [index, index + 1]) {
@@ -1462,6 +1477,7 @@ function clearOutlineRuns(
 							0,
 				);
 				if (crowded) continue;
+				if (crossings(moved) > crossingsBefore) continue;
 				routes[edgeIndex] = moved;
 				points.splice(0, points.length, ...moved);
 				break;

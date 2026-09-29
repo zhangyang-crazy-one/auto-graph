@@ -14,7 +14,11 @@ import {
 	slotFits,
 } from "../src/routing/same-side-slots.js";
 import { solveDiagram } from "../src/solver/index.js";
-import { tidyRouteEnds, withCrowdedEnds } from "../src/solver/route-edges.js";
+import {
+	clearOutlineRuns,
+	tidyRouteEnds,
+	withCrowdedEnds,
+} from "../src/solver/route-edges.js";
 
 function shape(
 	id: string,
@@ -954,6 +958,44 @@ describe("route tidying and crossings", () => {
 			new Set(["b", "c"]),
 		);
 		expect(tidied?.points).toEqual(a.points);
+	});
+});
+
+describe("outline clearing and crossings", () => {
+	it("steps a run off an outline only where it crosses no new route", () => {
+		// "a" runs 2px below a frame's top side (y=100). The nearest step
+		// (y=108) would cross the vertical run of "b" (x=100, from y=104);
+		// the far step (y=92) crosses nothing.
+		const a = {
+			id: "a",
+			source: { nodeId: "a-s" },
+			target: { nodeId: "a-t" },
+			points: [
+				{ x: 0, y: 50 },
+				{ x: 20, y: 50 },
+				{ x: 20, y: 102 },
+				{ x: 180, y: 102 },
+				{ x: 180, y: 150 },
+				{ x: 200, y: 150 },
+			],
+		};
+		const b = {
+			id: "b",
+			source: { nodeId: "b-s" },
+			target: { nodeId: "b-t" },
+			points: [
+				{ x: 100, y: 104 },
+				{ x: 100, y: 150 },
+			],
+		};
+		const [cleared] = clearOutlineRuns(
+			[a, b] as never,
+			[{ x: 0, y: 100, width: 200, height: 100 }],
+			[],
+			new Set(["b"]),
+		);
+		expect(cleared?.points[2]).toEqual({ x: 20, y: 92 });
+		expect(cleared?.points[3]).toEqual({ x: 180, y: 92 });
 	});
 });
 

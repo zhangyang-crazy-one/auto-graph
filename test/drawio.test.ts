@@ -475,6 +475,36 @@ describe("draw.io export", () => {
 		expect(xml).toContain('pageHeight="48"');
 	});
 
+	it("covers an authored edge label whose only annotation is a callout", () => {
+		const base = diagram();
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.points = [
+			{ x: 600, y: 100 },
+			{ x: 800, y: 100 },
+		];
+		edge.label = { text: "flows" };
+		// The callout is not the edge's drawn label: the authored text still
+		// sits on the route middle, so the page still covers it.
+		const xml = exportDrawio({
+			...base,
+			textAnnotations: [
+				{
+					text: "flows",
+					ownerId: "a-b",
+					surfaceKind: "edge-label",
+					placement: "external-callout",
+					placementDetail: { role: "callout" },
+					box: { x: 650, y: 110, width: 40, height: 16 },
+					lines: [],
+					fontFamily: "Arial",
+					fontSize: 11,
+				},
+			],
+		} as never);
+		expect(xml).toContain('pageHeight="48"');
+	});
+
 	it("exports groups, swimlanes, evidence and callouts", () => {
 		const xml = exportDrawio(
 			diagram({

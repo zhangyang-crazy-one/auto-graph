@@ -1619,9 +1619,15 @@ function fallbackTextWidth(text: string, fontSize: number): number {
  * draws them at the route's middle, at its default 11px font.
  */
 function fallbackEdgeLabelBoxes(diagram: CoordinatedDiagram): Box[] {
+	// A callout alone is not drawn as the edge's label (`labelByEdge` skips
+	// it), so the authored text still goes to the route middle.
 	const solved = new Set(
 		(diagram.textAnnotations ?? [])
-			.filter((annotation) => annotation.surfaceKind === "edge-label")
+			.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placementDetail?.role !== "callout",
+			)
 			.map((annotation) => annotation.ownerId),
 	);
 	return diagram.edges.flatMap((edge) => {
