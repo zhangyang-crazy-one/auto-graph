@@ -423,6 +423,48 @@ describe("edge crossings / jumps (#84)", () => {
 		expect(path).toBe("M 0 50 L 90 50 A 10 6 0 0 0 110 50 L 190 50");
 	});
 
+	it("keeps a drawable hop next to a crossing right at the segment end", () => {
+		const diagram: CoordinatedDiagram = {
+			id: "hop-near-end",
+			direction: "LR",
+			nodes: [],
+			edges: [
+				{
+					id: "h",
+					source: { nodeId: "a" },
+					target: { nodeId: "b" },
+					points: [
+						{ x: 0, y: 50 },
+						{ x: 200, y: 50 },
+					],
+				},
+				...[5, 16].map((x) => ({
+					id: `v${x}`,
+					source: { nodeId: "c" },
+					target: { nodeId: "d" },
+					points: [
+						{ x, y: 20 },
+						{ x, y: 80 },
+					],
+				})),
+			],
+			groups: [],
+			diagnostics: [],
+			degraded: false,
+			bounds: { x: 0, y: 0, width: 200, height: 100 },
+			edgeCrossings: [5, 16].map((x) => ({
+				x,
+				y: 50,
+				underEdgeId: "h",
+				overEdgeId: `v${x}`,
+				style: "jump" as const,
+			})),
+		};
+		const path = exportSvg(diagram).match(/data-id="h" d="([^"]*)"/)?.[1] ?? "";
+		// The crossing at x=5 has no room; the one at x=16 still gets its hop.
+		expect(path).toBe("M 0 50 L 10 50 A 6 6 0 0 0 22 50 L 190 50");
+	});
+
 	it("emits edgeCrossings from solve without treating jumps as unsatisfiable alone", () => {
 		const solved = solveDiagram(
 			{

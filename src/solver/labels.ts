@@ -635,25 +635,26 @@ export function buildExternalLabelCallouts(
 
 	if (shelved.length === 0) return [];
 
+	// Labels whose keys were blocked stay inline at full size, and so does
+	// every edge label that never needed a callout.
+	const inlineBoxes = [
+		...blocked.map((entry) => entry.source.box),
+		...annotations
+			.filter(
+				(annotation) =>
+					annotation.surfaceKind === "edge-label" &&
+					annotation.placement !== "external-callout-required" &&
+					annotation.placement !== "external-callout",
+			)
+			.map((annotation) => annotation.box),
+	];
 	const placements =
 		options.pageBounds === undefined
-			? stackShelf(shelved, bounds)
+			? // The unbounded shelf starts right of every inline label too.
+				stackShelf(shelved, unionBoxes([bounds, ...inlineBoxes]))
 			: packShelf(shelved, bounds, options.pageBounds, {
 					...shelf,
-					// Labels whose keys were blocked stay inline at full size, and
-					// so does every edge label that never needed a callout.
-					obstacles: [
-						...(shelf.obstacles ?? []),
-						...blocked.map((entry) => entry.source.box),
-						...annotations
-							.filter(
-								(annotation) =>
-									annotation.surfaceKind === "edge-label" &&
-									annotation.placement !== "external-callout-required" &&
-									annotation.placement !== "external-callout",
-							)
-							.map((annotation) => annotation.box),
-					],
+					obstacles: [...(shelf.obstacles ?? []), ...inlineBoxes],
 				});
 	const built: BuiltExternalLabelCallout[] = [];
 	shelved.forEach((entry, index) => {

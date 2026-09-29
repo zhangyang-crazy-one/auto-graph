@@ -315,4 +315,19 @@ describe("label shelf packing (#93)", () => {
 			box.y < callout.y + callout.height;
 		expect(overlaps).toBe(false);
 	});
+
+	it("starts an unbounded shelf right of protruding inline labels", () => {
+		const inline: SolvedTextAnnotation = {
+			...required("c", "inline label", { x: 90, y: 0, width: 160, height: 20 }),
+		};
+		delete (inline as { placement?: string }).placement;
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 20, y: 40, width: 40, height: 14 }), inline],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{ textMeasurer: new DeterministicTextMeasurer() },
+		);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		expect(callout?.x ?? 0).toBeGreaterThanOrEqual(250);
+	});
 });

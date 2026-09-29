@@ -99,9 +99,9 @@ export interface HopGlyph<T extends Point> {
 /**
  * Hop glyphs for one segment, from crossings already sorted along it.
  * Crossings closer than a glyph (2 × radius) share one wider glyph, so
- * every crossing stays under a hop and no two glyphs overlap. A glyph that
- * does not fit inside the segment (a crossing right at a bend) is left out:
- * those crossings are drawn plainly (they stay recorded and counted).
+ * every crossing stays under a hop and no two glyphs overlap. A crossing
+ * whose own glyph does not fit inside the segment (right at a bend) is
+ * drawn plainly (it stays recorded and counted) and never joins a cluster.
  */
 export function hopGlyphs<T extends Point>(
 	sorted: readonly T[],
@@ -114,8 +114,16 @@ export function hopGlyphs<T extends Point>(
 	const uy = (end.y - start.y) / length;
 	const along = (point: Point) =>
 		(point.x - start.x) * ux + (point.y - start.y) * uy;
+	// A crossing whose own glyph cannot fit (right at an end of the
+	// segment) is drawn plainly; it must not pull a drawable neighbour
+	// into a cluster that no longer fits.
+	const drawable = sorted.filter(
+		(hop) =>
+			along(hop) >= EDGE_CROSSING_GLYPH_RADIUS - 1e-6 &&
+			length - along(hop) >= EDGE_CROSSING_GLYPH_RADIUS - 1e-6,
+	);
 	const clusters: T[][] = [];
-	for (const hop of sorted) {
+	for (const hop of drawable) {
 		const current = clusters.at(-1);
 		const last = current?.at(-1);
 		if (
@@ -130,9 +138,9 @@ export function hopGlyphs<T extends Point>(
 	}
 	const glyphs: HopGlyph<T>[] = [];
 	for (const hops of clusters) {
+		// Every member fits on its own, so the cluster's glyph fits too.
 		const from = along(hops[0] as T) - EDGE_CROSSING_GLYPH_RADIUS;
 		const to = along(hops.at(-1) as T) + EDGE_CROSSING_GLYPH_RADIUS;
-		if (from < -1e-6 || to > length + 1e-6) continue;
 		glyphs.push({
 			hops,
 			before: { x: start.x + ux * from, y: start.y + uy * from },
