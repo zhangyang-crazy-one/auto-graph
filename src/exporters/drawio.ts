@@ -368,7 +368,7 @@ export function exportDrawio(
 		nodeCellIds.set(node.id, cellId);
 		// Solved compartment rows are drawn at their own boxes (typography
 		// and row pitch as solved), not reflowed into one node label.
-		const rows =
+		const solvedRows =
 			node.compartments === undefined
 				? []
 				: annotations
@@ -381,6 +381,18 @@ export function exportDrawio(
 							(left, right) =>
 								(left.surfaceIndex ?? 0) - (right.surfaceIndex ?? 0),
 						);
+		// Only a full set of solved rows replaces the authored compartments:
+		// with some missing, the node keeps its authored rows (drawn by
+		// draw.io) rather than losing the unsolved ones.
+		const covered = new Set(solvedRows.map((row) => row.surfaceIndex ?? 0));
+		const rowCount = compartmentRowCount(node);
+		const rows =
+			rowCount > 0 &&
+			Array.from({ length: rowCount }, (_, index) => index).every((index) =>
+				covered.has(index),
+			)
+				? solvedRows
+				: [];
 		// A node in a group is its child; otherwise a lane child is the
 		// lane's.
 		const group =
@@ -480,7 +492,7 @@ export function exportDrawio(
 	// places it (see `fallbackPortLabels`).
 	for (const fallback of fallbackLabels) {
 		vertex(
-			escapeHtml(fallback.text),
+			multilineHtml(fallback.text),
 			`${PORT_LABEL_STYLE}fontSize=10;${fallback.left ? "align=right;" : "align=left;"}`,
 			fallback.box,
 			portCells.get(fallback.nodeId)?.get(fallback.portId),
@@ -776,6 +788,18 @@ function nodeLabelHtml(node: CoordinatedNode): string {
 }
 
 /** SysML compartments as the SVG draws them: header, properties, constraints. */
+/** Rows `compartmentHtml` draws: stereotype, name, properties, constraints. */
+function compartmentRowCount(node: CoordinatedNode): number {
+	const compartments = node.compartments;
+	if (compartments === undefined) return 0;
+	return (
+		(compartments.stereotype === undefined ? 0 : 1) +
+		1 +
+		(compartments.properties ?? []).length +
+		(compartments.constraints ?? []).length
+	);
+}
+
 function compartmentHtml(node: CoordinatedNode): string {
 	const compartments = node.compartments ?? {};
 	const header = [
@@ -1627,7 +1651,13 @@ function fallbackPortLabels(diagram: CoordinatedDiagram): {
 		(node.ports ?? []).flatMap((port) => {
 			const text = port.label?.text;
 			if (text === undefined || solved.has(key(node.id, port.id))) return [];
-			const width = Math.max(10, fallbackTextWidth(text, 10));
+			// One 14px row per authored line, bottom kept 4px above the port.
+			const lines = textLines(text);
+			const width = Math.max(
+				10,
+				...lines.map((line) => fallbackTextWidth(line, 10)),
+			);
+			const height = 14 * lines.length;
 			const left = port.side === "left";
 			return [
 				{
@@ -1637,9 +1667,9 @@ function fallbackPortLabels(diagram: CoordinatedDiagram): {
 					left,
 					box: {
 						x: left ? port.anchor.x - 8 - width : port.anchor.x + 8,
-						y: port.anchor.y - 18,
+						y: port.anchor.y - 4 - height,
 						width,
-						height: 14,
+						height,
 					},
 				},
 			];

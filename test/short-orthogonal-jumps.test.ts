@@ -184,6 +184,34 @@ describe("short-orthogonal micro-clears", () => {
 	});
 });
 
+describe("short-orthogonal soft-text pitch", () => {
+	it("routes with the default pitch when given an unusable one", () => {
+		// Soft text on the straight run between two aligned nodes: only the
+		// micro-clear offsets (one pitch aside) get past it.
+		const route = (softTextClearPitch?: number) =>
+			routeEdge({
+				kind: "short-orthogonal-jumps",
+				direction: "LR",
+				source: computeShapeGeometry({
+					shape: "rectangle",
+					box: { x: 0, y: 0, width: 80, height: 40 },
+				}),
+				target: computeShapeGeometry({
+					shape: "rectangle",
+					box: { x: 200, y: 0, width: 80, height: 40 },
+				}),
+				obstacles: [{ x: 120, y: 14, width: 40, height: 12 }],
+				maxAttachPointsPerSide: 1,
+				maxDetourRatio: 3,
+				...(softTextClearPitch === undefined ? {} : { softTextClearPitch }),
+			}).points;
+		const expected = route();
+		for (const pitch of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(route(pitch), String(pitch)).toEqual(expected);
+		}
+	});
+});
+
 describe("short-orthogonal hard-obstacle gate (#95)", () => {
 	it("never delivers a route through a blocker on the midline in degraded-ok mode", () => {
 		const blocker = { x: 100, y: -40, width: 40, height: 200 };

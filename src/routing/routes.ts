@@ -15,6 +15,7 @@ import type {
 } from "../ir/geometry.js";
 import { filterObstaclesByCorridor, findObstacleFreePath } from "./astar.js";
 import { resolveMaxCorners, resolveMaxNodes } from "./budget.js";
+import { trackPitch } from "./channel-tracks.js";
 import { findSparseGridPath } from "./sparse-grid-router.js";
 import type {
 	RouteEdgeInput,
@@ -465,7 +466,7 @@ function routeShortOrthogonalJumps(
 ): RouteEdgeResult {
 	const endpointObstacles = endpointInteriorObstacles(input);
 	const detourBudget = input.maxDetourRatio ?? 3;
-	const pitch = input.softTextClearPitch ?? 10;
+	const pitch = trackPitch(input.softTextClearPitch);
 	const pairs = routeTournamentPairs(input, defaultAnchors, maxAttachPoints);
 	const feasibleTournament: Array<{
 		points: Point[];

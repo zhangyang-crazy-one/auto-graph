@@ -34,6 +34,17 @@ const DEFAULT_MAX_TRACKS = 8;
 const DEFAULT_PITCH = 10;
 
 /**
+ * The pitch between parallel tracks (and soft-text micro-clear offsets):
+ * a zero, negative or non-finite value would stack every track on one
+ * coordinate (or disable the offsets), so library callers get the default.
+ */
+export function trackPitch(requested: number | undefined): number {
+	return requested !== undefined && Number.isFinite(requested) && requested > 0
+		? requested
+		: DEFAULT_PITCH;
+}
+
+/**
  * Extract axis-aligned interior segments and assign VLSI-style tracks via
  * Left-Edge / interval coloring (#86 / #88 / #92). MLCM path ordering is
  * deferred — this is greedy track coloring only.
@@ -46,13 +57,7 @@ export function assignChannelTracks(
 		hardObstacles?: readonly Box[];
 	} = {},
 ): AssignChannelTracksResult {
-	// A zero, negative or non-finite pitch would stack every track on one
-	// coordinate: library callers get the default instead.
-	const requested = options.idealNudgingDistance;
-	const pitch =
-		requested !== undefined && Number.isFinite(requested) && requested > 0
-			? requested
-			: DEFAULT_PITCH;
+	const pitch = trackPitch(options.idealNudgingDistance);
 	const maxTracks = options.maxTracks ?? DEFAULT_MAX_TRACKS;
 	const hardObstacles = options.hardObstacles ?? [];
 	const segments = extractChannelSegments(edges);
