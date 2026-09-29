@@ -1122,7 +1122,10 @@ function renderEdgeCell(input: EdgeCellInput): string {
 					"endArrow=block",
 					`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
 				]),
-		...(input.pieceOf === undefined ? [] : [`dgeEdge=${input.pieceOf}`]),
+		// Encoded: an id's ';' or '=' would otherwise split the style string.
+		...(input.pieceOf === undefined
+			? []
+			: [`dgeEdge=${encodeURIComponent(input.pieceOf)}`]),
 	];
 	if (edge.style === "dashed") styleParts.push("dashed=1");
 	// The label (inline or a callout key) sits over connectors like the

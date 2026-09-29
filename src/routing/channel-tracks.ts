@@ -327,9 +327,9 @@ export function revertCoincidentMoves(
 
 /**
  * A nudged track stretches its neighbouring segments, which can carry them
- * across other routes. Undo every move that leaves its route crossing
- * other routes more often than it did in place, one at a time (the first
- * offender), until none does.
+ * across other routes. Undo every move that leaves its route crossing the
+ * current routes more often than it crossed the original ones in place,
+ * one at a time (the first offender), until none does.
  */
 export function revertCrossingMoves(
 	original: readonly CoordinatedEdge[],
@@ -355,7 +355,13 @@ export function revertCrossingMoves(
 				(other, at): other is CoordinatedEdge =>
 					at !== index && other !== undefined,
 			);
-			return crossingCount(edge, others) > crossingCount(before, others);
+			// Against the untouched routes: two moves that only cross each
+			// other would each look no worse against the other's new line.
+			const originals = original.filter(
+				(other, at): other is CoordinatedEdge =>
+					at !== index && other !== undefined,
+			);
+			return crossingCount(edge, others) > crossingCount(before, originals);
 		});
 		if (offender < 0) break;
 		result = result.map((edge, index) =>

@@ -180,6 +180,34 @@ describe("channel nudge crossing rollback", () => {
 		expect(settled[0]).toBe(original[0]);
 	});
 
+	it("undoes two moves that only cross each other", () => {
+		// Apart in place; each moved route crosses the other's old line and
+		// the two moved lines cross each other.
+		const original = [
+			route("a", [
+				{ x: 0, y: 0 },
+				{ x: 100, y: 0 },
+			]),
+			route("b", [
+				{ x: 200, y: -50 },
+				{ x: 200, y: 50 },
+			]),
+		];
+		const moved = [
+			route("a", [
+				{ x: 0, y: 0 },
+				{ x: 300, y: 0 },
+			]),
+			route("b", [
+				{ x: 50, y: -50 },
+				{ x: 50, y: 50 },
+			]),
+		];
+		const settled = revertCrossingMoves(original as never, moved as never);
+		expect(settled[0]).toBe(original[0]);
+		expect(settled[1]).toBe(original[1]);
+	});
+
 	it("keeps a move that crosses no more routes than before", () => {
 		const original = [
 			route("a", [

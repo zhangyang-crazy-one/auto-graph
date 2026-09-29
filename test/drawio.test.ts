@@ -125,6 +125,38 @@ describe("draw.io export", () => {
 		expect(last).toContain("endArrow=block");
 	});
 
+	it("encodes a split edge's id in its style", () => {
+		const base = diagram({
+			edgeCrossings: [
+				{
+					x: 650,
+					y: 110,
+					underEdgeId: "a;endArrow=none",
+					overEdgeId: "z",
+					style: "gap",
+				},
+				{
+					x: 750,
+					y: 130,
+					underEdgeId: "a;endArrow=none",
+					overEdgeId: "y",
+					style: "jump",
+				},
+			],
+		});
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.id = "a;endArrow=none";
+		const xml = exportDrawio(base);
+		const pieces = [
+			...xml.matchAll(/<mxCell [^>]*dgeEdge=a%3BendArrow%3Dnone[^>]*>/g),
+		].map((match) => match[0]);
+		expect(pieces).toHaveLength(2);
+		// The last piece keeps its arrowhead: the id adds no style entry.
+		expect(pieces[1]).toContain("endArrow=block");
+		expect(pieces[1]).not.toContain("endArrow=none");
+	});
+
 	it("keeps a single-style edge as one connector", () => {
 		const xml = exportDrawio(
 			diagram({
