@@ -639,85 +639,135 @@ export function buildExternalLabelCallouts(
 	// label is blocked.
 	const initialKeys = measured.map((entry) => entry.keyBox);
 	const inlineLabels = [...ordinaryLabels];
-	let blockedIds = new Set<number>();
-	for (let pass = 0; pass <= measured.length; pass += 1) {
-		placedKeys.length = 0;
-		keysOnRoutes.length = 0;
-		ordinaryLabels.length = 0;
-		ordinaryLabels.push(
-			...inlineLabels,
-			...[...blockedIds].map(
-				(index) => (measured[index] as (typeof measured)[number]).source.box,
-			),
-		);
-		measured.forEach((entry, index) => {
-			entry.keyBox = initialKeys[index] as Box;
-			entry.blocked = false;
-		});
-		for (const [index, entry] of measured.entries()) {
-			// Blocked in an earlier pass: it stays inline (reserved above).
-			if (blockedIds.has(index)) {
-				entry.blocked = true;
-				continue;
-			}
-			const clearOfKeysAndObstacles = (key: Box) => {
-				const box = keyBackdrop(key);
-				return (
-					(!pageIsHard || onPage(key)) &&
-					!placedKeys.some((placed) =>
-						boxesOverlap(box, keyBackdrop(placed), 1),
-					) &&
-					![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
-						boxesOverlap(box, obstacle, 0),
-					)
-				);
-			};
-			const clear = (key: Box) =>
-				clearOfKeysAndObstacles(key) &&
-				![...(shelf.routes ?? new Map()).entries()].some(
-					([edgeId, points]) =>
-						edgeId !== entry.source.ownerId &&
-						polylineEntersBox(points, keyBackdrop(key)),
-				);
-			if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
-				const route = shelf.routes?.get(entry.source.ownerId) ?? [];
-				const center = boxCenter(entry.keyBox);
-				const spots = [
-					entry.keyBox,
-					...samplePolyline(route, 4)
-						.sort(
-							(left, right) =>
-								Math.hypot(left.x - center.x, left.y - center.y) -
-								Math.hypot(right.x - center.x, right.y - center.y),
-						)
-						.map((point) => ({
-							...entry.keyBox,
-							x: point.x - entry.keyBox.width / 2,
-							y: point.y - entry.keyBox.height / 2,
-						})),
-				];
-				// Spots on the page first, at each tier.
-				const first = (test: (box: Box) => boolean) =>
-					spots.find((box) => test(box) && onPage(box)) ?? spots.find(test);
-				const spot = first(clear);
-				const fallback =
-					spot === undefined ? first(clearOfKeysAndObstacles) : undefined;
-				if (spot === undefined && fallback === undefined) {
+	// A label the shelf has no room for stays inline too: keys are placed
+	// again with its full label reserved (and its key gone), and the shelf
+	// packed again, until no further label drops out.
+	const dropped = new Set<number>();
+	let shelvedIds: number[] = [];
+	let placements: (Box | undefined)[] = [];
+	let shelfDiagnostics: Diagnostic[] = [];
+	for (let round = 0; round <= measured.length; round += 1) {
+		let blockedIds = new Set<number>();
+		for (let pass = 0; pass <= measured.length; pass += 1) {
+			placedKeys.length = 0;
+			keysOnRoutes.length = 0;
+			ordinaryLabels.length = 0;
+			ordinaryLabels.push(
+				...inlineLabels,
+				...[...blockedIds, ...dropped].map(
+					(index) => (measured[index] as (typeof measured)[number]).source.box,
+				),
+			);
+			measured.forEach((entry, index) => {
+				entry.keyBox = initialKeys[index] as Box;
+				entry.blocked = false;
+			});
+			for (const [index, entry] of measured.entries()) {
+				// Blocked in an earlier pass: it stays inline (reserved above).
+				if (blockedIds.has(index)) {
 					entry.blocked = true;
-					// Its full label stays inline: later keys keep off it.
-					ordinaryLabels.push(entry.source.box);
 					continue;
 				}
-				if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
-				entry.keyBox = (spot ?? fallback) as Box;
+				// Left out by the shelf in an earlier round: inline, no key.
+				if (dropped.has(index)) continue;
+				const clearOfKeysAndObstacles = (key: Box) => {
+					const box = keyBackdrop(key);
+					return (
+						(!pageIsHard || onPage(key)) &&
+						!placedKeys.some((placed) =>
+							boxesOverlap(box, keyBackdrop(placed), 1),
+						) &&
+						![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some(
+							(obstacle) => boxesOverlap(box, obstacle, 0),
+						)
+					);
+				};
+				const clear = (key: Box) =>
+					clearOfKeysAndObstacles(key) &&
+					![...(shelf.routes ?? new Map()).entries()].some(
+						([edgeId, points]) =>
+							edgeId !== entry.source.ownerId &&
+							polylineEntersBox(points, keyBackdrop(key)),
+					);
+				if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
+					const route = shelf.routes?.get(entry.source.ownerId) ?? [];
+					const center = boxCenter(entry.keyBox);
+					const spots = [
+						entry.keyBox,
+						...samplePolyline(route, 4)
+							.sort(
+								(left, right) =>
+									Math.hypot(left.x - center.x, left.y - center.y) -
+									Math.hypot(right.x - center.x, right.y - center.y),
+							)
+							.map((point) => ({
+								...entry.keyBox,
+								x: point.x - entry.keyBox.width / 2,
+								y: point.y - entry.keyBox.height / 2,
+							})),
+					];
+					// Spots on the page first, at each tier.
+					const first = (test: (box: Box) => boolean) =>
+						spots.find((box) => test(box) && onPage(box)) ?? spots.find(test);
+					const spot = first(clear);
+					const fallback =
+						spot === undefined ? first(clearOfKeysAndObstacles) : undefined;
+					if (spot === undefined && fallback === undefined) {
+						entry.blocked = true;
+						// Its full label stays inline: later keys keep off it.
+						ordinaryLabels.push(entry.source.box);
+						continue;
+					}
+					if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
+					entry.keyBox = (spot ?? fallback) as Box;
+				}
+				placedKeys.push(entry.keyBox);
 			}
-			placedKeys.push(entry.keyBox);
+			const now = new Set(
+				measured.flatMap((entry, index) => (entry.blocked ? [index] : [])),
+			);
+			if (now.size === blockedIds.size) break;
+			blockedIds = now;
 		}
-		const now = new Set(
-			measured.flatMap((entry, index) => (entry.blocked ? [index] : [])),
+		shelvedIds = measured.flatMap((entry, index) =>
+			entry.blocked ? [] : [index],
 		);
-		if (now.size === blockedIds.size) break;
-		blockedIds = now;
+		if (shelvedIds.length === 0) break;
+		const shelved = shelvedIds.map(
+			(index) => measured[index] as (typeof measured)[number],
+		);
+		// Labels whose keys were blocked stay inline at full size, and so
+		// does every edge label that never needed a callout.
+		const inlineBoxes = ordinaryLabels;
+		shelfDiagnostics = [];
+		placements =
+			options.pageBounds === undefined
+				? // The unbounded shelf starts right of every inline label and
+					// obstacle too (port labels reach past their node).
+					stackShelf(
+						shelved,
+						unionBoxes([bounds, ...inlineBoxes, ...(shelf.obstacles ?? [])]),
+					)
+				: packShelf(
+						shelved,
+						bounds,
+						options.pageBounds,
+						{
+							...shelf,
+							obstacles: [...(shelf.obstacles ?? []), ...inlineBoxes],
+							diagnostics: shelfDiagnostics,
+						},
+						new Set(
+							shelvedIds.flatMap((index, at) =>
+								dropped.has(index) ? [at] : [],
+							),
+						),
+					);
+		const fresh = shelvedIds.filter(
+			(index, at) => placements[at] === undefined && !dropped.has(index),
+		);
+		if (fresh.length === 0) break;
+		for (const index of fresh) dropped.add(index);
 	}
 	if (keysOnRoutes.length > 0) {
 		shelf.diagnostics?.push({
@@ -739,25 +789,11 @@ export function buildExternalLabelCallouts(
 			},
 		});
 	}
-	const shelved = measured.filter((entry) => !entry.blocked);
-
-	if (shelved.length === 0) return [];
-
-	// Labels whose keys were blocked stay inline at full size, and so does
-	// every edge label that never needed a callout.
-	const inlineBoxes = ordinaryLabels;
-	const placements =
-		options.pageBounds === undefined
-			? // The unbounded shelf starts right of every inline label and
-				// obstacle too (port labels reach past their node).
-				stackShelf(
-					shelved,
-					unionBoxes([bounds, ...inlineBoxes, ...(shelf.obstacles ?? [])]),
-				)
-			: packShelf(shelved, bounds, options.pageBounds, {
-					...shelf,
-					obstacles: [...(shelf.obstacles ?? []), ...inlineBoxes],
-				});
+	shelf.diagnostics?.push(...shelfDiagnostics);
+	if (shelvedIds.length === 0) return [];
+	const shelved = shelvedIds.map(
+		(index) => measured[index] as (typeof measured)[number],
+	);
 	const built: BuiltExternalLabelCallout[] = [];
 	shelved.forEach((entry, index) => {
 		const calloutBox = placements[index];
@@ -819,6 +855,8 @@ function packShelf(
 	bounds: Box,
 	page: { width: number; height: number },
 	shelf: ExternalLabelShelfOptions,
+	/** Entries that stay inline from the start (left out in an earlier round). */
+	preset: ReadonlySet<number> = new Set(),
 ): (Box | undefined)[] {
 	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
 	// Route segments a callout must keep clear of: orthogonal ones as their
@@ -880,7 +918,7 @@ function packShelf(
 	// every callout off them; repeat until no further label drops out.
 	// One label at a time, the widest first: once it is out, the columns
 	// narrow and the others get another try.
-	const inline = new Set<number>(oversized);
+	const inline = new Set<number>([...oversized, ...preset]);
 	let placed = packColumns(inline);
 	for (let pass = 0; pass < entries.length; pass += 1) {
 		const dropped = placed

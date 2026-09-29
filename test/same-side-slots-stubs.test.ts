@@ -516,3 +516,50 @@ describe("relocated endpoint capacity", () => {
 		expect(slotFits(0.5, [0.25, 0.75], 96, 3)).toBe(true);
 	});
 });
+
+describe("relocated endpoint occupancy", () => {
+	it("frees the slot an end leaves for later relocations", () => {
+		const node = (id: string, x: number, y: number, w = 80, h = 48) => ({
+			id,
+			shape: "rectangle" as const,
+			size: { width: w, height: h },
+			padding: { top: 8, right: 8, bottom: 8, left: 8 },
+			position: { x, y },
+		});
+		// "e1" is slotted on a's right, walled off, and leaves by the top;
+		// "e2" is slotted on a's bottom, floored off, and takes the right
+		// side e1 vacated: the lone end there, centred and within capacity.
+		const solved = solveDiagram(
+			{
+				id: "vacated-slot",
+				direction: "LR",
+				nodes: [
+					node("a", 0, 200),
+					node("wall", 140, 120, 30, 210),
+					node("b", 260, 120),
+					node("floor", -80, 300, 180, 30),
+					node("c", -20, 420),
+				],
+				edges: [
+					{ id: "e1", source: { nodeId: "a" }, target: { nodeId: "b" } },
+					{ id: "e2", source: { nodeId: "a" }, target: { nodeId: "c" } },
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "short-orthogonal-jumps",
+				maxAttachPointsPerSide: 1,
+			},
+		);
+		const start = (id: string) =>
+			solved.edges.find((edge) => edge.id === id)?.points[0];
+		expect(start("e1")).toEqual({ x: 40, y: 200 });
+		expect(start("e2")).toEqual({ x: 80, y: 224 });
+		expect(solved.diagnostics.map((entry) => entry.code)).not.toContain(
+			"routing.channel.capacity_exhausted",
+		);
+	});
+});

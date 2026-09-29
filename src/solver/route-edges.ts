@@ -745,6 +745,15 @@ export function coordinateEdges(
 					if (pick === null) return;
 					const nodeId = index === 0 ? edge.source.nodeId : edge.target.nodeId;
 					const key = `${nodeId}:${pick.side}`;
+					// The end leaves its assigned slot: free it for later ends.
+					const vacated = index === 0 ? sourceSlot : targetSlot;
+					if (vacated !== undefined) {
+						const vacatedKey = `${nodeId}:${vacated.anchor}`;
+						const remaining = [...(slotOccupancy.get(vacatedKey) ?? [])];
+						const at = remaining.indexOf(vacated.fraction);
+						if (at >= 0) remaining.splice(at, 1);
+						slotOccupancy.set(vacatedKey, remaining);
+					}
 					if (!pick.fits) {
 						diagnostics.push({
 							severity: "warning",
