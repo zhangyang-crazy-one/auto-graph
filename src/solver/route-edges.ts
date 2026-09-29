@@ -403,10 +403,10 @@ export function coordinateEdges(
 			textObstacles.filter(isLocalRouteClearanceText),
 		);
 		const routeTextObstacles = edgeTextObstacles
-			.filter(
-				(annotation) =>
-					!isEdgeConnectedTextAnnotation(edge, annotation) ||
-					(shortPath && annotation.surfaceKind === "port-label"),
+			.filter((annotation) =>
+				shortPath
+					? isRouteTextObstacleFor(edge, annotation)
+					: !isEdgeConnectedTextAnnotation(edge, annotation),
 			)
 			.map((annotation) => textObstacleBox(annotation, options));
 		const railTextObstacles = edgeTextObstacles
@@ -850,9 +850,7 @@ export function coordinateEdges(
 			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
 			...textObstacles
 				.filter(isLocalRouteClearanceText)
-				.filter(
-					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
-				)
+				.filter((annotation) => isRouteTextObstacleFor(edge, annotation))
 				.map((annotation) => textObstacleBox(annotation, options)),
 		];
 		const before = finalized;
@@ -3567,4 +3565,21 @@ export function nonZeroSegments(points: readonly Point[]): Array<{
 		}
 	}
 	return segments;
+}
+
+/**
+ * Whether a text surface is an obstacle for a short-orthogonal route (and
+ * for the channel nudge that moves it): the edge's own label and its
+ * endpoints' node labels are not, but its own port labels are. They sit
+ * beside the port, clear of the end stub, so only a bend or a shifted
+ * track can strike one, and nothing reports it afterwards.
+ */
+export function isRouteTextObstacleFor(
+	edge: NormalizedEdge | CoordinatedEdge,
+	annotation: SolvedTextAnnotation,
+): boolean {
+	return (
+		annotation.surfaceKind === "port-label" ||
+		!isEdgeConnectedTextAnnotation(edge, annotation)
+	);
 }
