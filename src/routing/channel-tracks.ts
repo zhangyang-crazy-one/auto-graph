@@ -372,14 +372,48 @@ export function revertCrossingMoves(
 }
 
 /** Axis-aligned segments of one route, as channel intervals. */
+/**
+ * Total length of `route`'s segments lying on one line with a segment of
+ * `others` (within 0.5px), spans overlapping: connector strokes drawn on
+ * top of each other.
+ */
+export function collinearOverlapLength(
+	route: readonly Point[],
+	others: readonly CoordinatedEdge[],
+): number {
+	const own = segmentsOf("", route);
+	let total = 0;
+	for (const other of others) {
+		for (const theirs of channelSegmentsOf(other)) {
+			for (const segment of own) {
+				if (theirs.axis !== segment.axis) continue;
+				if (Math.abs(theirs.coord - segment.coord) >= 0.5) continue;
+				total += Math.max(
+					0,
+					Math.min(segment.end, theirs.end) -
+						Math.max(segment.start, theirs.start),
+				);
+			}
+		}
+	}
+	return total;
+}
+
 function channelSegmentsOf(edge: CoordinatedEdge): ChannelSegment[] {
+	return segmentsOf(edge.id, edge.points);
+}
+
+function segmentsOf(
+	edgeId: string,
+	points: readonly Point[],
+): ChannelSegment[] {
 	const segments: ChannelSegment[] = [];
-	for (let index = 0; index + 1 < edge.points.length; index += 1) {
-		const a = edge.points[index] as Point;
-		const b = edge.points[index + 1] as Point;
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const a = points[index] as Point;
+		const b = points[index + 1] as Point;
 		if (Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.x - b.x) > 1e-6) {
 			segments.push({
-				edgeId: edge.id,
+				edgeId,
 				segmentIndex: index,
 				axis: "h",
 				coord: a.y,
@@ -388,7 +422,7 @@ function channelSegmentsOf(edge: CoordinatedEdge): ChannelSegment[] {
 			});
 		} else if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) > 1e-6) {
 			segments.push({
-				edgeId: edge.id,
+				edgeId,
 				segmentIndex: index,
 				axis: "v",
 				coord: a.x,

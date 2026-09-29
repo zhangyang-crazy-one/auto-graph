@@ -497,6 +497,7 @@ function routeShortOrthogonalJumps(
 		];
 		const expanded: Point[][] = [];
 		const inseparable: Point[][] = [];
+		const fallbackOnly = new Set<Point[]>();
 		for (const raw of baseCandidates) {
 			const points = simplifyRoute(raw);
 			if (points.length < 2) continue;
@@ -509,9 +510,17 @@ function routeShortOrthogonalJumps(
 			} else {
 				inseparable.push(points);
 			}
+			// Only soft text justifies bends past the 0–2 contract: a route
+			// that crosses none never loses to its own extra-bend detours
+			// (and a bend-budget report) just because they are separable.
+			// Those detours stay available to the obstacle fallback.
+			const clearOfText = !routeIntersectsObstacles(points, softObstacles);
 			for (const micro of softTextMicroClearCandidates(points, pitch)) {
 				const cleared = simplifyRoute(micro);
 				if (cleared.length < 2) continue;
+				if (clearOfText && routeBendCount(cleared) > 2) {
+					fallbackOnly.add(cleared);
+				}
 				if (hasSeparableInteriorSpan(cleared, pitch)) {
 					expanded.push(cleared);
 				} else {
@@ -549,6 +558,7 @@ function routeShortOrthogonalJumps(
 				continue;
 			}
 			recordRejected(points, pair.source, pair.target, endpointObstacles);
+			if (fallbackOnly.has(points)) continue;
 			feasibleTournament.push({
 				points,
 				source: pair.source,

@@ -159,6 +159,31 @@ describe("short-orthogonal-jumps (#84 §C)", () => {
 	});
 });
 
+describe("short-orthogonal micro-clears", () => {
+	it("keeps a clear route within the bend budget", () => {
+		// No soft text anywhere: nothing to micro-clear, so no route trades
+		// a clean shape for extra bends and a bend-budget report.
+		for (const dy of [-8, -2, 2, 8]) {
+			const result = routeEdge({
+				kind: "short-orthogonal-jumps",
+				direction: "LR",
+				source: computeShapeGeometry({
+					shape: "rectangle",
+					box: { x: 0, y: 0, width: 80, height: 40 },
+				}),
+				target: computeShapeGeometry({
+					shape: "rectangle",
+					box: { x: 100, y: dy, width: 80, height: 40 },
+				}),
+				maxAttachPointsPerSide: 1,
+				maxDetourRatio: 3,
+			});
+			expect(result.diagnostics, `dy=${dy}`).toEqual([]);
+			expect(result.points.length, `dy=${dy}`).toBeLessThanOrEqual(4);
+		}
+	});
+});
+
 describe("short-orthogonal hard-obstacle gate (#95)", () => {
 	it("never delivers a route through a blocker on the midline in degraded-ok mode", () => {
 		const blocker = { x: 100, y: -40, width: 40, height: 200 };

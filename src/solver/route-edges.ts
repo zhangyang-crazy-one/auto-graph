@@ -28,6 +28,7 @@ import type {
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import {
+	collinearOverlapLength,
 	nudgeOrthogonalRoutes,
 	type RouteEdgeInput,
 	type RouteHardObstacleMetadata,
@@ -1803,7 +1804,8 @@ const END_STUB = 16;
  * segment the end slides along its node side (never a named port's end,
  * and only within the side). A short final segment gets room by moving the
  * segment before it outward. Every change keeps the route's obstacle hits
- * and neighbouring segment directions.
+ * and neighbouring segment directions, and adds no crossing or collinear
+ * overlap with the other routes.
  */
 export function tidyRouteEnds(
 	edges: readonly CoordinatedEdge[],
@@ -1830,6 +1832,12 @@ export function tidyRouteEnds(
 				(crossing) =>
 					crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
 			).length;
+		// Crossings ignore collinear runs: a moved segment landing on a
+		// parallel segment of another connector is an overlap instead.
+		const overlap = (route: readonly Point[]) =>
+			collinearOverlapLength(route, others);
+		const gainsOverlap = (before: readonly Point[], after: readonly Point[]) =>
+			overlap(after) > overlap(before) + 1e-6;
 		// The border side an end sits on (clear of the corners), if any.
 		const sideAt = (
 			point: Point,
@@ -1900,6 +1908,7 @@ export function tidyRouteEnds(
 				if (hits(compacted) > hits(points)) continue;
 				if (gainsObstacle(points, compacted, edgeObstacles)) continue;
 				if (crossings(compacted) > crossings(points)) continue;
+				if (gainsOverlap(points, compacted)) continue;
 				points = compacted;
 				i = 0;
 				break;
@@ -1925,7 +1934,8 @@ export function tidyRouteEnds(
 					keepsNeighbours(points, moved, n - 3) &&
 					hits(moved) <= hits(points) &&
 					!gainsObstacle(points, moved, edgeObstacles) &&
-					crossings(moved) <= crossings(points)
+					crossings(moved) <= crossings(points) &&
+					!gainsOverlap(points, moved)
 				) {
 					points = moved;
 				}

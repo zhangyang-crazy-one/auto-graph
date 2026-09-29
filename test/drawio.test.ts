@@ -170,6 +170,39 @@ describe("draw.io export", () => {
 		expect(xml).toContain("jumpStyle=gap");
 	});
 
+	it("encodes an edge's crossing records as one style value", () => {
+		const xml = exportDrawio(
+			diagram({
+				edgeCrossings: [
+					{ x: 650, y: 110, underEdgeId: "a-b", overEdgeId: "z", style: "gap" },
+					{ x: 750, y: 130, underEdgeId: "a-b", overEdgeId: "y", style: "gap" },
+				],
+			}),
+		);
+		expect(xml).toContain("dgeCrossings=150%2C10%2Cgap%3B250%2C30%2Cgap");
+		expect(xml).not.toContain(";250,30,gap");
+	});
+
+	it("keeps authored colours and fonts to one style entry each", () => {
+		const base = diagram();
+		const node = base.nodes[0];
+		if (node === undefined) throw new Error("fixture");
+		Object.assign(node, {
+			shape: "rectangle",
+			style: {
+				fill: "#fff;shape=ellipse",
+				stroke: "#000;dashed=1",
+				fontFamily: "Arial;fontSize=40",
+			},
+		});
+		const xml = exportDrawio(base);
+		const cell = xml.match(/<mxCell id="[^"]*" value="A"[^>]*>/)?.[0] ?? "";
+		expect(cell).toContain("fillColor=#fffshape=ellipse;");
+		expect(cell).not.toContain(";shape=ellipse");
+		expect(cell).not.toContain(";dashed=1");
+		expect(cell).not.toContain(";fontSize=40");
+	});
+
 	it("falls back to authored port labels without solved text", () => {
 		const base = diagram();
 		const node = base.nodes[0];

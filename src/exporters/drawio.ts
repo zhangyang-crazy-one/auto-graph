@@ -133,10 +133,10 @@ export function exportDrawio(
 				`width=${formatNumber(frame.titleBox.width)};height=${formatNumber(frame.titleBox.height)};`,
 				...(frame.style?.fill === undefined
 					? []
-					: [`fillColor=${frame.style.fill};`]),
+					: [`fillColor=${styleValue(frame.style.fill)};`]),
 				...(frame.style?.stroke === undefined
 					? []
-					: [`strokeColor=${frame.style.stroke};`]),
+					: [`strokeColor=${styleValue(frame.style.stroke)};`]),
 			].join(""),
 			frame.box,
 		);
@@ -614,8 +614,10 @@ export function exportDrawio(
 function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 	return [
 		"rounded=0;whiteSpace=wrap;html=1;",
-		`fillColor=${style?.fill ?? "#d9ead3"};`,
-		...(style?.stroke === undefined ? [] : [`strokeColor=${style.stroke};`]),
+		`fillColor=${styleValue(style?.fill ?? "#d9ead3")};`,
+		...(style?.stroke === undefined
+			? []
+			: [`strokeColor=${styleValue(style.stroke)};`]),
 	].join("");
 }
 /** A port label: a backdrop keeps passing edges off it, as in the SVG. */
@@ -652,15 +654,19 @@ function renderNodeCell(
 	const style = [
 		nodeShapeStyle(node.shape),
 		...(node.compartments === undefined ? [] : ["verticalAlign=top;"]),
-		...(visual?.fill === undefined ? [] : [`fillColor=${visual.fill};`]),
-		...(visual?.stroke === undefined ? [] : [`strokeColor=${visual.stroke};`]),
+		...(visual?.fill === undefined
+			? []
+			: [`fillColor=${styleValue(visual.fill)};`]),
+		...(visual?.stroke === undefined
+			? []
+			: [`strokeColor=${styleValue(visual.stroke)};`]),
 		...(visual?.fontFamily === undefined
 			? labelled === undefined
 				? []
 				: labelFontStyle({ fontFamily: labelled.fontFamily }).map(
 						(entry) => `${entry};`,
 					)
-			: [`fontFamily=${visual.fontFamily};`]),
+			: [`fontFamily=${styleValue(visual.fontFamily)};`]),
 		// The solver measured the label at this size.
 		...(visual?.fontSize === undefined
 			? labelled !== undefined
@@ -1166,12 +1172,15 @@ function renderEdgeCell(input: EdgeCellInput): string {
 	}
 	if (crossings.length > 0) {
 		styleParts.push(
-			`dgeCrossings=${crossings
-				.map(
-					(crossing) =>
-						`${formatNumber(crossing.x)},${formatNumber(crossing.y)},${crossing.style}`,
-				)
-				.join(";")}`,
+			// One style value: `;` would start a new style entry per record.
+			`dgeCrossings=${encodeURIComponent(
+				crossings
+					.map(
+						(crossing) =>
+							`${formatNumber(crossing.x)},${formatNumber(crossing.y)},${crossing.style}`,
+					)
+					.join(";"),
+			)}`,
 		);
 	}
 	const geometryChildren: string[] = [];
@@ -1306,7 +1315,7 @@ const EVIDENCE_HEADER_FILL = "#e5e7eb";
 
 function evidenceCellStyle(fill: string, stroke = "#9ca3af"): string {
 	// The solver measured evidence text in Arial 10px (EVIDENCE_TEXT_FONT).
-	return `rounded=0;whiteSpace=wrap;html=1;overflow=hidden;fontFamily=Arial;fontSize=10;spacing=2;fillColor=${fill};strokeColor=${stroke};`;
+	return `rounded=0;whiteSpace=wrap;html=1;overflow=hidden;fontFamily=Arial;fontSize=10;spacing=2;fillColor=${styleValue(fill)};strokeColor=${styleValue(stroke)};`;
 }
 
 function evidenceCellText(
@@ -1496,13 +1505,22 @@ function panelCells(panel: CoordinatedEvidencePanel): EvidenceCellVertex[] {
 	return cells;
 }
 
+/**
+ * An authored value inside mxGraph's `key=value;` style string: `;` would
+ * end the entry and start a new key (e.g. `#fff;shape=ellipse`), so it is
+ * dropped.
+ */
+function styleValue(value: string): string {
+	return value.replaceAll(";", "");
+}
+
 /** Style entries for a solved label's typography (the box was measured with it). */
 function labelFontStyle(
 	font: Partial<Pick<SolvedTextAnnotation, "fontFamily" | "fontSize">>,
 ): string[] {
 	const entries: string[] = [];
-	// `;` separates style entries, so it cannot appear in a value.
-	const family = font.fontFamily?.replaceAll(";", "");
+	const family =
+		font.fontFamily === undefined ? undefined : styleValue(font.fontFamily);
 	if (family) entries.push(`fontFamily=${family}`);
 	if (font.fontSize !== undefined && Number.isFinite(font.fontSize)) {
 		entries.push(`fontSize=${formatNumber(font.fontSize)}`);

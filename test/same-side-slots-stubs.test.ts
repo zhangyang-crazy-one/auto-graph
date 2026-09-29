@@ -922,6 +922,39 @@ describe("route tidying and crossings", () => {
 		);
 		expect(tidied?.points).toEqual(a.points);
 	});
+
+	it("keeps a jog whose straightening lands on a parallel connector", () => {
+		// Either straightening puts a horizontal run of "a" on a horizontal
+		// run of "b" (y=50) or "c" (y=51.5): no crossing, but overlapping
+		// strokes.
+		const a = edge("a", [
+			{ x: 0, y: 0 },
+			{ x: 0, y: 50 },
+			{ x: 50, y: 50 },
+			{ x: 50, y: 51.5 },
+			{ x: 100, y: 51.5 },
+			{ x: 100, y: 100 },
+		]);
+		const b = edge("b", [
+			{ x: 60, y: 20 },
+			{ x: 60, y: 50 },
+			{ x: 90, y: 50 },
+			{ x: 90, y: 20 },
+		]);
+		const c = edge("c", [
+			{ x: 10, y: 80 },
+			{ x: 10, y: 51.5 },
+			{ x: 40, y: 51.5 },
+			{ x: 40, y: 80 },
+		]);
+		const [tidied] = tidyRouteEnds(
+			[a, b, c] as never,
+			new Map(),
+			[],
+			new Set(["b", "c"]),
+		);
+		expect(tidied?.points).toEqual(a.points);
+	});
 });
 
 describe("same-side slots on dependency rails", () => {
