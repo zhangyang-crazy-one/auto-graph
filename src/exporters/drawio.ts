@@ -132,11 +132,23 @@ export function exportDrawio(
 			);
 		}
 	}
-	// Outer groups first so nested ones are drawn on top.
+	// Group members are children of their group cell, so dragging a group
+	// in draw.io carries its nodes and nested groups along. A member listed
+	// by several groups goes to the smallest (the innermost).
+	const area = (box: Box) => box.width * box.height;
+	const innermost = (candidates: readonly (typeof diagram.groups)[number][]) =>
+		[...candidates].sort(
+			(left, right) =>
+				area(left.box) - area(right.box) || left.id.localeCompare(right.id),
+		)[0];
+	const groupCells = new Map<string, { id: string; box: Box }>();
+	const parentGroup = (group: (typeof diagram.groups)[number] | undefined) =>
+		group === undefined ? undefined : groupCells.get(group.id);
+	// Outer groups first so nested ones are drawn on top (and their parent
+	// cell exists before them).
 	for (const group of [...diagram.groups].sort(
 		(left, right) =>
-			right.box.width * right.box.height - left.box.width * left.box.height ||
-			left.id.localeCompare(right.id),
+			area(right.box) - area(left.box) || left.id.localeCompare(right.id),
 	)) {
 		// The solved title (its lines, typography and collision-safe box)
 		// is a text cell of its own, so draw.io does not rewrap it across
@@ -150,7 +162,16 @@ export function exportDrawio(
 			title === undefined ? escapeHtml(group.label?.text ?? "") : "",
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
+			parentGroup(
+				innermost(
+					diagram.groups.filter(
+						(outer) =>
+							outer.id !== group.id && outer.groupIds.includes(group.id),
+					),
+				),
+			),
 		);
+		groupCells.set(group.id, { id: groupId, box: group.box });
 		if (title !== undefined) {
 			vertex(
 				calloutText(title),
@@ -210,11 +231,26 @@ export function exportDrawio(
 							(left, right) =>
 								(left.surfaceIndex ?? 0) - (right.surfaceIndex ?? 0),
 						);
+		const group = parentGroup(
+			innermost(
+				diagram.groups.filter((candidate) =>
+					candidate.nodeIds.includes(node.id),
+				),
+			),
+		);
 		cells.push(
 			renderNodeCell(
 				cellId,
 				node,
-				shift(node.box),
+				group === undefined
+					? shift(node.box)
+					: {
+							x: node.box.x - group.box.x,
+							y: node.box.y - group.box.y,
+							width: node.box.width,
+							height: node.box.height,
+						},
+				group?.id ?? "1",
 				rows.length > 0,
 				annotations.find(
 					(annotation) =>
@@ -377,8 +413,9 @@ function portStyle(style: { fill?: string; stroke?: string } | undefined) {
 		...(style?.stroke === undefined ? [] : [`strokeColor=${style.stroke};`]),
 	].join("");
 }
+/** A port label: a backdrop keeps passing edges off it, as in the SVG. */
 const PORT_LABEL_STYLE =
-	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;";
+	"text;html=1;whiteSpace=nowrap;align=center;verticalAlign=middle;labelBackgroundColor=#ffffff;";
 /** A thin rule between SysML compartments. */
 const COMPARTMENT_SEPARATOR_STYLE =
 	"line;html=1;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;";
@@ -398,7 +435,9 @@ function geometry(box: Box): string {
 function renderNodeCell(
 	cellId: string,
 	node: CoordinatedNode,
+	/** The node's geometry, relative to its parent cell. */
 	box: Box,
+	parentId: string,
 	solvedRows = false,
 	/** The solved node label, when there is one (not for compartments). */
 	solvedLabel?: SolvedTextAnnotation,
@@ -440,7 +479,7 @@ function renderNodeCell(
 				? ""
 				: compartmentHtml(node),
 	);
-	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
+	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="${escapeXml(parentId)}">${geometry(box)}</mxCell>`;
 }
 
 /**

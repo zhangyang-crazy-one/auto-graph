@@ -319,6 +319,12 @@ describe("draw.io export", () => {
 		expect(xml).toContain(
 			`parent="${portId}"><mxGeometry x="15" y="-15" width="10" height="10"`,
 		);
+		// A white backdrop keeps passing edges off the label, as in the SVG.
+		expect(xml).toMatch(
+			new RegExp(
+				`value="P" style="[^"]*labelBackgroundColor=#ffffff;[^"]*" vertex="1" parent="${portId}"`,
+			),
+		);
 	});
 
 	it("keeps solved edge-label line breaks", () => {
@@ -570,6 +576,48 @@ describe("draw.io export", () => {
 		// Page from (500,90) to (930,140): 430×50, so node "a" sits at y=10.
 		expect(xml).toContain('pageWidth="430" pageHeight="50"');
 		expect(xml).toContain('x="0" y="10" width="100" height="40"');
+	});
+
+	it("nests grouped nodes and inner groups under their group cells", () => {
+		const xml = exportDrawio(
+			diagram({
+				groups: [
+					{
+						id: "outer",
+						label: { text: "Outer" },
+						nodeIds: ["b"],
+						groupIds: ["inner"],
+						box: { x: 480, y: 80, width: 440, height: 80 },
+					},
+					{
+						id: "inner",
+						label: { text: "Inner" },
+						nodeIds: ["a"],
+						groupIds: [],
+						box: { x: 490, y: 90, width: 120, height: 60 },
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		const cellOf = (label: string) =>
+			xml.match(
+				new RegExp(
+					`<mxCell id="(\\d+)" value="${label}" [^>]*parent="(\\d+)"><mxGeometry x="([^"]+)" y="([^"]+)"`,
+				),
+			);
+		const outer = cellOf("Outer");
+		const inner = cellOf("Inner");
+		const a = cellOf("A");
+		const b = cellOf("B");
+		// Outer is at the root; inner sits in outer, a in inner, b in outer,
+		// each at geometry relative to its parent.
+		expect(outer?.[2]).toBe("1");
+		expect(inner?.[2]).toBe(outer?.[1]);
+		expect(inner?.slice(3)).toEqual(["10", "10"]);
+		expect(a?.[2]).toBe(inner?.[1]);
+		expect(a?.slice(3)).toEqual(["10", "10"]);
+		expect(b?.[2]).toBe(outer?.[1]);
+		expect(b?.slice(3)).toEqual(["320", "20"]);
 	});
 
 	it("pads the page by the requested viewport padding", () => {

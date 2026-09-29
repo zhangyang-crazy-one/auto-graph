@@ -601,14 +601,17 @@ export function buildExternalLabelCallouts(
 				annotation.placement !== "external-callout",
 		)
 		.map((annotation) => annotation.box);
-	// On a bounded framed page a key also stays clear of the frame insets:
-	// the frame is drawn around every key, so a key there pushes the frame
-	// off the page. (Without a frame the key sits on its route, which the
-	// page already has to hold.)
+	// On a bounded page a key keeps inside the page: a key past its edge
+	// grows the drawing past it. With a frame that is a hard rule, keeping
+	// clear of the frame insets too (the frame is drawn around every key).
+	// Without one it is a preference: a spot on the page wins, but a key
+	// is not dropped when its whole route lies off the page (the drawing
+	// overflows anyway then).
 	const keyArea =
-		options.pageBounds === undefined || shelf.pageInsets === undefined
+		options.pageBounds === undefined
 			? undefined
 			: usablePage(options.pageBounds, shelf.pageInsets, 0);
+	const pageIsHard = shelf.pageInsets !== undefined;
 	const onPage = (box: Box) =>
 		keyArea === undefined ||
 		(box.x >= keyArea.left - 1e-6 &&
@@ -617,7 +620,7 @@ export function buildExternalLabelCallouts(
 			box.y + box.height <= keyArea.bottom + 1e-6);
 	for (const entry of measured) {
 		const clearOfKeysAndObstacles = (box: Box) =>
-			onPage(box) &&
+			(!pageIsHard || onPage(box)) &&
 			!placedKeys.some((key) => boxesOverlap(box, key, 1)) &&
 			![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some((obstacle) =>
 				boxesOverlap(box, obstacle, 0),
@@ -628,7 +631,7 @@ export function buildExternalLabelCallouts(
 				([edgeId, points]) =>
 					edgeId !== entry.source.ownerId && polylineEntersBox(points, box),
 			);
-		if (!clear(entry.keyBox)) {
+		if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
 			const route = shelf.routes?.get(entry.source.ownerId) ?? [];
 			const center = boxCenter(entry.keyBox);
 			const spots = [
@@ -645,9 +648,12 @@ export function buildExternalLabelCallouts(
 						y: point.y - entry.keyBox.height / 2,
 					})),
 			];
-			const spot = spots.find(clear);
+			// Spots on the page first, at each tier.
+			const first = (test: (box: Box) => boolean) =>
+				spots.find((box) => test(box) && onPage(box)) ?? spots.find(test);
+			const spot = first(clear);
 			const fallback =
-				spot === undefined ? spots.find(clearOfKeysAndObstacles) : undefined;
+				spot === undefined ? first(clearOfKeysAndObstacles) : undefined;
 			if (spot === undefined && fallback === undefined) {
 				entry.blocked = true;
 				// Its full label stays inline: later keys keep off it.
@@ -1458,8 +1464,10 @@ export function edgeLabelAnchor(
 					other.extent.maxY >= backdrop.y &&
 					routeIntersectsTextBox(other.points, backdrop),
 			) ||
-			obstacleBoxes.some((box) => intersectsAabb(labelBox, box)) ||
-			placedLabelBoxes.some((box) => intersectsAabb(labelBox, box))
+			// The opaque backdrop may not paint over a node border or an
+			// earlier label either.
+			obstacleBoxes.some((box) => intersectsAabb(backdrop, box)) ||
+			placedLabelBoxes.some((box) => intersectsAabb(backdrop, box))
 		) {
 			continue;
 		}
