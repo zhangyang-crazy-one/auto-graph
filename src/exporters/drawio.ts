@@ -161,7 +161,9 @@ export function exportDrawio(
 	const portParents = new Map<string, { id: string; box: Box }>();
 	// Port cells are the terminals of edges docked at named ports, so the
 	// connector follows a port moved in draw.io.
-	const portCells = new Map<string, { id: string; box: Box }>();
+	// Keyed by node, then port: ids may contain dots, so "a"."b.c" and
+	// "a.b"."c" must not share a key.
+	const portCells = new Map<string, Map<string, { id: string; box: Box }>>();
 	for (const node of diagram.nodes) {
 		const cellId = String(nextId++);
 		nodeCellIds.set(node.id, cellId);
@@ -196,7 +198,10 @@ export function exportDrawio(
 		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
 			portParents.set(`${node.id}.${port.id}`, parent);
-			portCells.set(`${node.id}.${port.id}`, {
+			const nodePorts =
+				portCells.get(node.id) ?? new Map<string, { id: string; box: Box }>();
+			portCells.set(node.id, nodePorts);
+			nodePorts.set(port.id, {
 				id: vertex("", portStyle(port.style), port.box, parent),
 				box: port.box,
 			});
@@ -268,7 +273,7 @@ export function exportDrawio(
 						const port =
 							end.portId === undefined
 								? undefined
-								: portCells.get(`${end.nodeId}.${end.portId}`);
+								: portCells.get(end.nodeId)?.get(end.portId);
 						return port === undefined
 							? {
 									box: boxOf(nodeById.get(end.nodeId)),

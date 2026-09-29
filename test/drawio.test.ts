@@ -635,6 +635,51 @@ describe("draw.io export", () => {
 		expect(xml).toContain("exitX=0.5;exitY=0.5;");
 	});
 
+	it("keeps ports apart when node and port ids contain dots", () => {
+		const dotted = diagram({});
+		const [a, b] = dotted.nodes;
+		const [edge] = dotted.edges;
+		if (a === undefined || b === undefined || edge === undefined) {
+			throw new Error("fixture");
+		}
+		// "a" + "b.c" and "a.b" + "c" would both read "a.b.c".
+		a.id = "a";
+		a.ports = [
+			{
+				id: "b.c",
+				side: "right",
+				kind: "flow",
+				anchor: { x: 600, y: 110 },
+				box: { x: 595, y: 105, width: 10, height: 10 },
+			},
+		];
+		b.id = "a.b";
+		b.ports = [
+			{
+				id: "c",
+				side: "left",
+				kind: "flow",
+				anchor: { x: 800, y: 130 },
+				box: { x: 795, y: 125, width: 10, height: 10 },
+			},
+		];
+		edge.source = { nodeId: "a", portId: "b.c" };
+		edge.target = { nodeId: "a.b", portId: "c" };
+		const xml = exportDrawio(dotted);
+		const portCell = (x: number, y: number) =>
+			xml.match(
+				new RegExp(
+					`<mxCell id="(\\d+)" value="" style="[^"]*" vertex="1" parent="\\d+"><mxGeometry x="${x}" y="${y}" width="10" height="10"`,
+				),
+			)?.[1];
+		const sourcePort = portCell(95, 5);
+		const targetPort = portCell(-5, 25);
+		expect(sourcePort).toBeDefined();
+		expect(targetPort).toBeDefined();
+		expect(sourcePort).not.toBe(targetPort);
+		expect(xml).toContain(`source="${sourcePort}" target="${targetPort}"`);
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

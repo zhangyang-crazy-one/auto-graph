@@ -418,4 +418,20 @@ describe("label shelf packing (#93)", () => {
 			label.y < key.y + key.height;
 		expect(overlaps).toBe(false);
 	});
+
+	it("tries the free page to the right before columns across the drawing", () => {
+		const built = buildExternalLabelCallouts(
+			[required("a", "short", { x: 20, y: 40, width: 40, height: 14 })],
+			{ x: 0, y: 0, width: 100, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 800, height: 120 },
+			},
+			// The column right beside the content is taken.
+			{ obstacles: [{ x: 100, y: 0, width: 120, height: 120 }] },
+		);
+		const callout = built[0]?.callout.calloutBox;
+		expect(callout).toBeDefined();
+		expect(callout?.x ?? 0).toBeGreaterThanOrEqual(220);
+	});
 });

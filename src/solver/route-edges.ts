@@ -2296,7 +2296,9 @@ function spreadCollidingEndpoints(
 				edge === undefined ? [] : obstaclesForEdge(edge, allObstacles);
 			if (
 				routeObstacleHits(shifted, obstacles) >
-				routeObstacleHits(route, obstacles)
+					routeObstacleHits(route, obstacles) ||
+				// Nor trade one obstacle for another.
+				gainsObstacle(route, shifted, obstacles)
 			) {
 				return false;
 			}

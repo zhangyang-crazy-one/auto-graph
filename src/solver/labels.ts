@@ -736,7 +736,14 @@ function packShelf(
 		bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
 		right - columnWidth,
 	);
-	for (let x = first; x >= left - 1e-6; x -= columnWidth + 2 * gap) {
+	// The column beside the content first, then the free page to its right,
+	// and only then columns further left, across the drawing.
+	const step = columnWidth + 2 * gap;
+	columns.push(first);
+	for (let x = first + step; x + columnWidth <= right + 1e-6; x += step) {
+		columns.push(x);
+	}
+	for (let x = first - step; x >= left - 1e-6; x -= step) {
 		columns.push(x);
 	}
 	// Labels that find no spot stay inline at full size, so a repack keeps

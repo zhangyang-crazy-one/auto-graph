@@ -632,6 +632,10 @@ export function applyExternalLabelRemediation(
 				...context.coordinatedMatrices.map((matrix) => matrix.box),
 				...context.coordinatedTables.map((table) => table.box),
 				...context.coordinatedEvidencePanels.map((panel) => panel.box),
+				// A key must not cover a port label either.
+				...state.baseTextAnnotations
+					.filter((annotation) => annotation.surfaceKind === "port-label")
+					.map((annotation) => annotation.box),
 			],
 		},
 	);
