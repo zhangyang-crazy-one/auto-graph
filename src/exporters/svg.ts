@@ -21,6 +21,7 @@ import type {
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
+import { compartmentSeparatorRows } from "./compartments.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import { usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
@@ -510,13 +511,15 @@ function renderCompartments(
 	const lines = [
 		`  <g class="compartment" data-for="${escapeAttribute(node.id)}">`,
 	];
+	// A separator where the property and constraint sections start.
+	const separators = compartmentSeparatorRows(compartments);
 	for (let index = 0; index < rows.length; index += 1) {
 		const row = rows[index];
 		if (row === undefined) {
 			continue;
 		}
 		const y = node.box.y + 18 + index * 16;
-		if (index > 1) {
+		if (separators.has(index)) {
 			lines.push(
 				`    <line class="compartment-separator" x1="${formatNumber(node.box.x)}" y1="${formatNumber(y - 12)}" x2="${formatNumber(node.box.x + node.box.width)}" y2="${formatNumber(y - 12)}" stroke="${STROKE}"/>`,
 			);

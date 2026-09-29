@@ -40,6 +40,9 @@ export function nudgeOrthogonalRoutes(
 		...(options.hardObstacles === undefined
 			? {}
 			: { hardObstacles: options.hardObstacles }),
+		...(options.nodeOutlines === undefined
+			? {}
+			: { nodeOutlines: options.nodeOutlines }),
 	});
 	const applied = applyChannelTrackAssignments(
 		edges,

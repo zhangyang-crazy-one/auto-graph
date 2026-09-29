@@ -289,6 +289,35 @@ describe("channel track pitch and blockers", () => {
 		expect(coords).toEqual([100, 110, 120]);
 	});
 
+	it("counts a shift that pulls a route into its end node", () => {
+		// The third route ends on the left side of a node at x=115; the
+		// others run on to x=200. A blocker takes the track at x=90.
+		// Shifting the bank right (+10) would put the third route's track at
+		// x=120, inside its own end node: that shift is not free, and the
+		// bank moves left until it clears both.
+		const edges = [10, 12, 14].map((y, index) => ({
+			id: `e${index}`,
+			source: { nodeId: `s${index}` },
+			target: { nodeId: `t${index}` },
+			points: [
+				{ x: 0, y },
+				{ x: 100, y },
+				{ x: 100, y: 80 + index * 40 },
+				{ x: index === 2 ? 115 : 200, y: 80 + index * 40 },
+			],
+		}));
+		const coords = verticalCoords(
+			assignChannelTracks(edges, {
+				idealNudgingDistance: 10,
+				hardObstacles: [
+					{ x: 85, y: 40, width: 10, height: 30 },
+					{ x: 115, y: 140, width: 40, height: 40 },
+				],
+			}),
+		);
+		expect(coords).toEqual([60, 70, 80]);
+	});
+
 	it("scores the stretched neighbours when shifting the bank", () => {
 		// The blocker (x=102..108) is off every vertical track; only the
 		// first horizontal run stretched out to the right track (x=110)
