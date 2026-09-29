@@ -93,6 +93,74 @@ describe("draw.io export", () => {
 		expect(exportDrawio(diagram())).toContain("jumpStyle=none");
 	});
 
+	it("splits an edge whose crossings mix styles into styled pieces", () => {
+		const xml = exportDrawio(
+			diagram({
+				edgeCrossings: [
+					{ x: 650, y: 110, underEdgeId: "a-b", overEdgeId: "z", style: "gap" },
+					{
+						x: 750,
+						y: 130,
+						underEdgeId: "a-b",
+						overEdgeId: "y",
+						style: "jump",
+					},
+				],
+			}),
+		);
+		const pieces = [...xml.matchAll(/<mxCell [^>]*dgeEdge=a-b[^>]*>/g)].map(
+			(match) => match[0],
+		);
+		expect(pieces).toHaveLength(2);
+		const [first, last] = pieces as [string, string];
+		// Each piece keeps its own crossing style.
+		expect(first).toContain("jumpStyle=gap");
+		expect(last).toContain("jumpStyle=arc");
+		// Source terminal on the first piece, target and arrowhead on the last.
+		expect(first).toContain(" source=");
+		expect(first).not.toContain(" target=");
+		expect(first).toContain("endArrow=none");
+		expect(last).toContain(" target=");
+		expect(last).not.toContain(" source=");
+		expect(last).toContain("endArrow=block");
+	});
+
+	it("keeps a single-style edge as one connector", () => {
+		const xml = exportDrawio(
+			diagram({
+				edgeCrossings: [
+					{ x: 650, y: 110, underEdgeId: "a-b", overEdgeId: "z", style: "gap" },
+					{ x: 750, y: 130, underEdgeId: "a-b", overEdgeId: "y", style: "gap" },
+				],
+			}),
+		);
+		expect(xml).not.toContain("dgeEdge=");
+		expect(xml).toContain("jumpStyle=gap");
+	});
+
+	it("falls back to authored port labels without solved text", () => {
+		const base = diagram();
+		const node = base.nodes[0];
+		if (node === undefined) throw new Error("fixture");
+		node.ports = [
+			{
+				id: "out",
+				side: "right",
+				kind: "flow",
+				label: { text: "OUT" },
+				anchor: { x: node.box.x + node.box.width, y: node.box.y + 20 },
+				box: {
+					x: node.box.x + node.box.width - 5,
+					y: node.box.y + 15,
+					width: 10,
+					height: 10,
+				},
+			},
+		];
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		expect(xml).toContain('value="OUT"');
+	});
+
 	it("exports groups, swimlanes, evidence and callouts", () => {
 		const xml = exportDrawio(
 			diagram({

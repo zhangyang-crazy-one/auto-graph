@@ -397,6 +397,35 @@ export function exportDrawio(
 			);
 		}
 	}
+	// A port with an authored label but no solved one (a diagram built
+	// without text annotations) still gets its label, placed as the SVG
+	// places it: beside the port, 8px out and just above its anchor.
+	const solvedPortLabels = new Set(
+		annotations
+			.filter((annotation) => annotation.surfaceKind === "port-label")
+			.map((annotation) => annotation.ownerId),
+	);
+	for (const node of diagram.nodes) {
+		for (const port of node.ports ?? []) {
+			const text = port.label?.text;
+			if (text === undefined || solvedPortLabels.has(`${node.id}.${port.id}`)) {
+				continue;
+			}
+			const width = Math.max(10, text.length * 6);
+			const left = port.side === "left";
+			vertex(
+				escapeHtml(text),
+				`${PORT_LABEL_STYLE}fontSize=10;${left ? "align=right;" : "align=left;"}`,
+				{
+					x: left ? port.anchor.x - 8 - width : port.anchor.x + 8,
+					y: port.anchor.y - 18,
+					width,
+					height: 14,
+				},
+				portCells.get(node.id)?.get(port.id),
+			);
+		}
+	}
 	for (const portLabel of annotations.filter(
 		(annotation) => annotation.surfaceKind === "port-label",
 	)) {
@@ -463,49 +492,52 @@ export function exportDrawio(
 				? { id: loopCellId, box: loopNode.box }
 				: sourceContainers.find((cell) => targetIds.has(cell.id));
 		edgeLayer.push(
-			renderEdgeCell({
-				cellId,
-				edge,
-				points: edge.points.map(move),
-				...(container === undefined
-					? {}
-					: { parent: { id: container.id, origin: shift(container.box) } }),
-				...(() => {
-					const terminal = (end: CoordinatedEdge["source"]) => {
-						const port =
-							end.portId === undefined
-								? undefined
-								: portCells.get(end.nodeId)?.get(end.portId);
-						return port === undefined
-							? {
-									box: boxOf(nodeById.get(end.nodeId)),
-									id: nodeCellIds.get(end.nodeId),
-								}
-							: { box: shift(port.box), id: port.id };
-					};
-					const source = terminal(edge.source);
-					const target = terminal(edge.target);
-					return {
-						sourceBox: source.box,
-						targetBox: target.box,
-						sourceId: source.id,
-						targetId: target.id,
-					};
-				})(),
-				crossings: crossings
-					.filter(
-						(crossing) =>
-							crossing.underEdgeId === edge.id ||
-							crossing.overEdgeId === edge.id,
-					)
-					.map((crossing) => ({ ...crossing, ...move(crossing) })),
-				label: edgeLabelHtml(labelByEdge.get(edge.id), edge.label?.text),
-				labelBox: (() => {
-					const box = labelByEdge.get(edge.id)?.box;
-					return box === undefined ? undefined : shift(box);
-				})(),
-				labelFont: labelByEdge.get(edge.id),
-			}),
+			...renderEdgeCells(
+				{
+					cellId,
+					edge,
+					points: edge.points.map(move),
+					...(container === undefined
+						? {}
+						: { parent: { id: container.id, origin: shift(container.box) } }),
+					...(() => {
+						const terminal = (end: CoordinatedEdge["source"]) => {
+							const port =
+								end.portId === undefined
+									? undefined
+									: portCells.get(end.nodeId)?.get(end.portId);
+							return port === undefined
+								? {
+										box: boxOf(nodeById.get(end.nodeId)),
+										id: nodeCellIds.get(end.nodeId),
+									}
+								: { box: shift(port.box), id: port.id };
+						};
+						const source = terminal(edge.source);
+						const target = terminal(edge.target);
+						return {
+							sourceBox: source.box,
+							targetBox: target.box,
+							sourceId: source.id,
+							targetId: target.id,
+						};
+					})(),
+					crossings: crossings
+						.filter(
+							(crossing) =>
+								crossing.underEdgeId === edge.id ||
+								crossing.overEdgeId === edge.id,
+						)
+						.map((crossing) => ({ ...crossing, ...move(crossing) })),
+					label: edgeLabelHtml(labelByEdge.get(edge.id), edge.label?.text),
+					labelBox: (() => {
+						const box = labelByEdge.get(edge.id)?.box;
+						return box === undefined ? undefined : shift(box);
+					})(),
+					labelFont: labelByEdge.get(edge.id),
+				},
+				() => String(nextId++),
+			),
 		);
 	}
 
@@ -737,7 +769,7 @@ function fontStyleEntries(
 		.join("");
 }
 
-function renderEdgeCell(input: {
+interface EdgeCellInput {
 	cellId: string;
 	edge: CoordinatedEdge;
 	points: readonly Point[];
@@ -752,7 +784,134 @@ function renderEdgeCell(input: {
 	labelFont: Pick<SolvedTextAnnotation, "fontFamily" | "fontSize"> | undefined;
 	/** The container cell this edge belongs to, with its page origin. */
 	parent?: { id: string; origin: Point };
-}): string {
+	/** False for a piece that stops before the target: no arrowhead. */
+	endArrow?: boolean;
+	/** Set on the pieces of a split edge: the edge they draw together. */
+	pieceOf?: string;
+}
+
+/**
+ * draw.io's `jumpStyle` is one style per edge cell. An edge whose
+ * crossings mix styles (gap and jump, say) is drawn as consecutive pieces,
+ * cut halfway between neighbouring crossings of different styles, so each
+ * crossing keeps its own glyph. The first piece keeps the source terminal,
+ * the last the target terminal and the arrowhead, and the label rides on
+ * the piece nearest to it. Single-style edges stay one connector.
+ */
+function renderEdgeCells(
+	input: EdgeCellInput,
+	newCellId: () => string,
+): string[] {
+	const { edge, points } = input;
+	const jumps = input.crossings.filter(
+		(crossing) => crossing.underEdgeId === edge.id,
+	);
+	if (new Set(jumps.map((jump) => jump.style)).size <= 1 || points.length < 2) {
+		return [renderEdgeCell(input)];
+	}
+	const along = (point: Point) => distanceAlong(points, point);
+	const sorted = jumps
+		.map((jump) => ({ jump, at: along(jump) }))
+		.sort((left, right) => left.at - right.at);
+	const cuts: number[] = [];
+	sorted.forEach((entry, index) => {
+		const previous = sorted[index - 1];
+		if (previous !== undefined && previous.jump.style !== entry.jump.style) {
+			cuts.push((previous.at + entry.at) / 2);
+		}
+	});
+	const pieces = splitPolylineAt(points, cuts);
+	const labelAt =
+		input.labelBox === undefined
+			? undefined
+			: along({
+					x: input.labelBox.x + input.labelBox.width / 2,
+					y: input.labelBox.y + input.labelBox.height / 2,
+				});
+	const pieceIndex = (at: number) => cuts.filter((cut) => at > cut).length;
+	const labelled = labelAt === undefined ? -1 : pieceIndex(labelAt);
+	return pieces.map((piece, index) => {
+		const first = index === 0;
+		const last = index === pieces.length - 1;
+		const hasLabel = index === labelled;
+		return renderEdgeCell({
+			...input,
+			cellId: first ? input.cellId : newCellId(),
+			points: piece,
+			sourceBox: first ? input.sourceBox : undefined,
+			sourceId: first ? input.sourceId : undefined,
+			targetBox: last ? input.targetBox : undefined,
+			targetId: last ? input.targetId : undefined,
+			crossings: input.crossings.filter(
+				(crossing) => pieceIndex(along(crossing)) === index,
+			),
+			label: hasLabel ? input.label : "",
+			labelBox: hasLabel ? input.labelBox : undefined,
+			labelFont: hasLabel ? input.labelFont : undefined,
+			endArrow: last,
+			pieceOf: edge.id,
+		});
+	});
+}
+
+/** Distance along a polyline to the point on it nearest to `point`. */
+function distanceAlong(points: readonly Point[], point: Point): number {
+	let best = { distance: Number.POSITIVE_INFINITY, at: 0 };
+	let walked = 0;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const length = Math.hypot(b.x - a.x, b.y - a.y);
+		const t =
+			length > 0
+				? Math.min(
+						1,
+						Math.max(
+							0,
+							((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)) /
+								(length * length),
+						),
+					)
+				: 0;
+		const distance = Math.hypot(
+			a.x + (b.x - a.x) * t - point.x,
+			a.y + (b.y - a.y) * t - point.y,
+		);
+		if (distance < best.distance) best = { distance, at: walked + t * length };
+		walked += length;
+	}
+	return best.at;
+}
+
+/** A polyline cut at the given distances along it (ascending). */
+function splitPolylineAt(
+	points: readonly Point[],
+	cuts: readonly number[],
+): Point[][] {
+	const pieces: Point[][] = [];
+	let current: Point[] = [{ ...(points[0] as Point) }];
+	let walked = 0;
+	let next = 0;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const length = Math.hypot(b.x - a.x, b.y - a.y);
+		while (next < cuts.length && (cuts[next] as number) <= walked + length) {
+			const t = length > 0 ? ((cuts[next] as number) - walked) / length : 0;
+			const cut = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+			current.push(cut);
+			pieces.push(current);
+			current = [{ ...cut }];
+			next += 1;
+		}
+		current.push({ ...b });
+		walked += length;
+	}
+	pieces.push(current);
+	return pieces;
+}
+
+function renderEdgeCell(input: EdgeCellInput): string {
 	const { edge, points, crossings } = input;
 	const orthogonal = points.every((point, index) => {
 		const next = points[index + 1];
@@ -774,8 +933,13 @@ function renderEdgeCell(input: {
 		"html=1",
 		`jumpStyle=${jumpStyleOf(jumps)}`,
 		"jumpSize=6",
-		"endArrow=block",
-		`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
+		...(input.endArrow === false
+			? ["endArrow=none"]
+			: [
+					"endArrow=block",
+					`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
+				]),
+		...(input.pieceOf === undefined ? [] : [`dgeEdge=${input.pieceOf}`]),
 	];
 	if (edge.style === "dashed") styleParts.push("dashed=1");
 	// The label (inline or a callout key) sits over connectors like the

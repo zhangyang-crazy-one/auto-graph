@@ -14,7 +14,7 @@ import {
 	slotFits,
 } from "../src/routing/same-side-slots.js";
 import { solveDiagram } from "../src/solver/index.js";
-import { withCrowdedEnds } from "../src/solver/route-edges.js";
+import { tidyRouteEnds, withCrowdedEnds } from "../src/solver/route-edges.js";
 
 function shape(
 	id: string,
@@ -856,5 +856,42 @@ describe("relocation ranking", () => {
 		const cleanerButCrowding = withCrowdedEnds([0, 0, 0, 0, 120], 1);
 		const fittingWithHit = withCrowdedEnds([0, 1, 0, 0, 120], 0);
 		expect(lexicographic(cleanerButCrowding, fittingWithHit)).toBeLessThan(0);
+	});
+});
+
+describe("route tidying and crossings", () => {
+	const edge = (id: string, points: { x: number; y: number }[]) => ({
+		id,
+		source: { nodeId: `${id}-s` },
+		target: { nodeId: `${id}-t` },
+		points,
+	});
+
+	it("keeps a micro-jog whose straightening would cross another route", () => {
+		// "a" has a 1.5px jog at x=50. Straightening it either way sweeps a
+		// strip holding the end of "b" (x=75) or "c" (x=25).
+		const a = edge("a", [
+			{ x: 0, y: 0 },
+			{ x: 0, y: 50 },
+			{ x: 50, y: 50 },
+			{ x: 50, y: 51.5 },
+			{ x: 100, y: 51.5 },
+			{ x: 100, y: 100 },
+		]);
+		const b = edge("b", [
+			{ x: 75, y: 20 },
+			{ x: 75, y: 50.8 },
+		]);
+		const c = edge("c", [
+			{ x: 25, y: 51 },
+			{ x: 25, y: 80 },
+		]);
+		const [tidied] = tidyRouteEnds(
+			[a, b, c] as never,
+			new Map(),
+			[],
+			new Set(["b", "c"]),
+		);
+		expect(tidied?.points).toEqual(a.points);
 	});
 });

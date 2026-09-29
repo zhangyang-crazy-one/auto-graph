@@ -3,6 +3,7 @@
 import {
 	type computeShapeGeometry,
 	createBoxSpatialIndex,
+	detectOrthogonalEdgeCrossings,
 	expandBox,
 	intersectsAabb,
 	queryBoxSpatialIndex,
@@ -1796,18 +1797,31 @@ const END_STUB = 16;
  * segment before it outward. Every change keeps the route's obstacle hits
  * and neighbouring segment directions.
  */
-function tidyRouteEnds(
+export function tidyRouteEnds(
 	edges: readonly CoordinatedEdge[],
 	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	obstacles: readonly PostPassObstacle[],
 	fixed: ReadonlySet<string>,
 ): CoordinatedEdge[] {
-	return edges.map((edge) => {
-		if (fixed.has(edge.id) || edge.points.length < 3) return edge;
+	// Edges are tidied in turn against the others as they stand: a moved
+	// segment sweeps a strip that may hold another connector, so no move
+	// may make its route cross more of them.
+	const result = [...edges];
+	result.forEach((edge, edgeIndex) => {
+		if (fixed.has(edge.id) || edge.points.length < 3) return;
 		const edgeObstacles = obstaclesForEdge(edge, obstacles);
 		let points = edge.points.map((point) => ({ ...point }));
 		const hits = (route: readonly Point[]) =>
 			routeObstacleHits(route, edgeObstacles);
+		const others = result.filter((_, at) => at !== edgeIndex);
+		const crossings = (route: readonly Point[]) =>
+			detectOrthogonalEdgeCrossings([
+				{ ...edge, points: route as Point[] },
+				...others,
+			]).filter(
+				(crossing) =>
+					crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
+			).length;
 		// The border side an end sits on (clear of the corners), if any.
 		const sideAt = (
 			point: Point,
@@ -1877,6 +1891,7 @@ function tidyRouteEnds(
 				const compacted = simplifyRoute(moved);
 				if (hits(compacted) > hits(points)) continue;
 				if (gainsObstacle(points, compacted, edgeObstacles)) continue;
+				if (crossings(compacted) > crossings(points)) continue;
 				points = compacted;
 				i = 0;
 				break;
@@ -1901,14 +1916,16 @@ function tidyRouteEnds(
 				if (
 					keepsNeighbours(points, moved, n - 3) &&
 					hits(moved) <= hits(points) &&
-					!gainsObstacle(points, moved, edgeObstacles)
+					!gainsObstacle(points, moved, edgeObstacles) &&
+					crossings(moved) <= crossings(points)
 				) {
 					points = moved;
 				}
 			}
 		}
-		return { ...edge, points };
+		result[edgeIndex] = { ...edge, points };
 	});
+	return result;
 }
 
 /**
