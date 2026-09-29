@@ -158,7 +158,13 @@ export function exportDrawio(
 	// Ports and their labels are children of their node, so they move with
 	// it (and with the edges pinned to it) when the node is dragged.
 	const nodeCellIds = new Map<string, string>();
-	const portParents = new Map<string, { id: string; box: Box }>();
+	// A port label's owner id joins node and port ids with a dot, which is
+	// ambiguous when ids contain dots: keep every port under that key and
+	// give the label to the nearest one.
+	const portParents = new Map<
+		string,
+		{ parent: { id: string; box: Box }; port: Box }[]
+	>();
 	// Port cells are the terminals of edges docked at named ports, so the
 	// connector follows a port moved in draw.io.
 	// Keyed by node, then port: ids may contain dots, so "a"."b.c" and
@@ -197,7 +203,11 @@ export function exportDrawio(
 		);
 		const parent = { id: cellId, box: node.box };
 		for (const port of node.ports ?? []) {
-			portParents.set(`${node.id}.${port.id}`, parent);
+			const ownerKey = `${node.id}.${port.id}`;
+			portParents.set(ownerKey, [
+				...(portParents.get(ownerKey) ?? []),
+				{ parent, port: port.box },
+			]);
 			const nodePorts =
 				portCells.get(node.id) ?? new Map<string, { id: string; box: Box }>();
 			portCells.set(node.id, nodePorts);
@@ -243,7 +253,7 @@ export function exportDrawio(
 					: "fontSize=10;"
 			}${font.map((entry) => `${entry};`).join("")}`,
 			portLabel.box,
-			portParents.get(portLabel.ownerId),
+			nearestPortParent(portParents.get(portLabel.ownerId), portLabel.box),
 		);
 	}
 
@@ -714,7 +724,8 @@ interface EvidenceCellVertex {
 const EVIDENCE_HEADER_FILL = "#e5e7eb";
 
 function evidenceCellStyle(fill: string, stroke = "#9ca3af"): string {
-	return `rounded=0;whiteSpace=wrap;html=1;overflow=hidden;fontSize=10;spacing=2;fillColor=${fill};strokeColor=${stroke};`;
+	// The solver measured evidence text in Arial 10px (EVIDENCE_TEXT_FONT).
+	return `rounded=0;whiteSpace=wrap;html=1;overflow=hidden;fontFamily=Arial;fontSize=10;spacing=2;fillColor=${fill};strokeColor=${stroke};`;
 }
 
 function evidenceCellText(
@@ -916,6 +927,22 @@ function labelFontStyle(
 		entries.push(`fontSize=${formatNumber(font.fontSize)}`);
 	}
 	return entries;
+}
+
+/** The candidate port nearest to a port label (it sits beside its port). */
+function nearestPortParent(
+	candidates:
+		| readonly { parent: { id: string; box: Box }; port: Box }[]
+		| undefined,
+	label: Box,
+): { id: string; box: Box } | undefined {
+	const cx = label.x + label.width / 2;
+	const cy = label.y + label.height / 2;
+	const distance = (box: Box) =>
+		Math.hypot(box.x + box.width / 2 - cx, box.y + box.height / 2 - cy);
+	return [...(candidates ?? [])].sort(
+		(left, right) => distance(left.port) - distance(right.port),
+	)[0]?.parent;
 }
 
 /** A solved label's lines, joined with HTML line breaks. */

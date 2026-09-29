@@ -156,6 +156,8 @@ describe("draw.io export", () => {
 		expect(xml).toContain("horizontal=0;");
 		expect(xml).toContain("legend");
 		expect(xml).toContain("E1: long label");
+		// Evidence cells use the font their text was measured in.
+		expect(xml).toContain("overflow=hidden;fontFamily=Arial;fontSize=10;");
 		// The callout keeps the typography its shelf box was measured with.
 		expect(xml).toMatch(
 			/value="E1: long label" style="[^"]*fontFamily=Noto Sans CJK SC;fontSize=13;/,
@@ -665,7 +667,39 @@ describe("draw.io export", () => {
 		];
 		edge.source = { nodeId: "a", portId: "b.c" };
 		edge.target = { nodeId: "a.b", portId: "c" };
+		// Both port labels carry the same joined owner id, "a.b.c".
+		dotted.textAnnotations = [
+			{
+				text: "OUT",
+				ownerId: "a.b.c",
+				surfaceKind: "port-label",
+				box: { x: 606, y: 104, width: 20, height: 12 },
+				lines: [],
+			},
+			{
+				text: "IN",
+				ownerId: "a.b.c",
+				surfaceKind: "port-label",
+				box: { x: 772, y: 124, width: 20, height: 12 },
+				lines: [],
+			},
+		] as never;
 		const xml = exportDrawio(dotted);
+		const nodeCell = (label: string) =>
+			xml.match(
+				new RegExp(`<mxCell id="(\\d+)" value="${label}" style="shape=`),
+			)?.[1];
+		// Each label is a child of its own port's node.
+		expect(xml).toMatch(
+			new RegExp(
+				`value="OUT" style="[^"]*" vertex="1" parent="${nodeCell("A")}"`,
+			),
+		);
+		expect(xml).toMatch(
+			new RegExp(
+				`value="IN" style="[^"]*" vertex="1" parent="${nodeCell("B")}"`,
+			),
+		);
 		const portCell = (x: number, y: number) =>
 			xml.match(
 				new RegExp(

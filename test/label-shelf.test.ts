@@ -434,4 +434,28 @@ describe("label shelf packing (#93)", () => {
 		expect(callout).toBeDefined();
 		expect(callout?.x ?? 0).toBeGreaterThanOrEqual(220);
 	});
+
+	it("does not place a callout wider than the usable page", () => {
+		const diagnostics: import("../src/ir/index.js").Diagnostic[] = [];
+		const built = buildExternalLabelCallouts(
+			[
+				required("a", Array.from({ length: 30 }, () => "wide").join(" "), {
+					x: 20,
+					y: 40,
+					width: 40,
+					height: 14,
+				}),
+			],
+			{ x: 0, y: 0, width: 60, height: 60 },
+			{
+				textMeasurer: new DeterministicTextMeasurer(),
+				pageBounds: { width: 80, height: 400 },
+			},
+			{ diagnostics },
+		);
+		expect(built).toEqual([]);
+		expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+			"routing.label-shelf.capacity_exhausted",
+		);
+	});
 });

@@ -32,10 +32,11 @@ export interface AssignSameSideSlotsInput {
 	 */
 	occupied?: ReadonlyMap<string, readonly number[]>;
 	/**
-	 * Named port attach points, keyed `${nodeId}.${portId}`. A lone
-	 * anonymous end facing a ported end lines up with the port.
+	 * Named port attach points by node id, then port id (ids may contain
+	 * dots, so a joined key would be ambiguous). A lone anonymous end facing
+	 * a ported end lines up with the port.
 	 */
-	portPoints?: ReadonlyMap<string, Point>;
+	portPoints?: ReadonlyMap<string, ReadonlyMap<string, Point>>;
 }
 
 export interface AssignSameSideSlotsResult {
@@ -230,7 +231,7 @@ function portPointOf(
 	end: NormalizedEdge["source"],
 ): { otherPoint?: Point } {
 	if (end.portId === undefined) return {};
-	const point = input.portPoints?.get(`${end.nodeId}.${end.portId}`);
+	const point = input.portPoints?.get(end.nodeId)?.get(end.portId);
 	return point === undefined ? {} : { otherPoint: point };
 }
 

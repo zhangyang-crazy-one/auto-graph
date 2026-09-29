@@ -739,7 +739,8 @@ function packShelf(
 	// The column beside the content first, then the free page to its right,
 	// and only then columns further left, across the drawing.
 	const step = columnWidth + 2 * gap;
-	columns.push(first);
+	// A callout wider than the usable page has no column at all.
+	if (first >= left - 1e-6) columns.push(first);
 	for (let x = first + step; x + columnWidth <= right + 1e-6; x += step) {
 		columns.push(x);
 	}

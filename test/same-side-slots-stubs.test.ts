@@ -147,7 +147,7 @@ describe("same-side slots + escape stubs (#92)", () => {
 			nodes,
 			direction: "TB",
 			maxAttachPointsPerSide: 3,
-			portPoints: new Map([["port.p", { x: 300, y: 30 }]]),
+			portPoints: new Map([["port", new Map([["p", { x: 300, y: 30 }]])]]),
 		});
 		// Shared span x 0–80: both ends at x=40, not 44 and 40.
 		expect(assignments.get("down:source")?.point.x).toBe(40);

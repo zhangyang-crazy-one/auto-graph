@@ -220,10 +220,16 @@ export function coordinateEdges(
 				maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
 				occupied: occupiedPortFractions(coordinatedNodes, nodes),
 				portPoints: new Map(
-					coordinatedNodes.flatMap((node) =>
-						(node.ports ?? []).map(
-							(port) => [`${node.id}.${port.id}`, port.anchor] as const,
-						),
+					coordinatedNodes.map(
+						(node) =>
+							[
+								node.id,
+								new Map(
+									(node.ports ?? []).map(
+										(port) => [port.id, port.anchor] as const,
+									),
+								),
+							] as const,
 					),
 				),
 			})
