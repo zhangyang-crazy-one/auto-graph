@@ -62,6 +62,18 @@ describe("exporters", () => {
 		expect(svg).toContain('data-id="a"');
 	});
 
+	it("ignores an SVG page it cannot lay out", () => {
+		const diagram = createCoordinatedDiagram();
+		const plain = exportSvg(diagram);
+		for (const page of [
+			{ width: 800, height: 600, scale: 0 },
+			{ width: 800, height: 600, scale: Number.NaN },
+			{ width: -1, height: 600, scale: 1 },
+		]) {
+			expect(exportSvg(diagram, { page }), JSON.stringify(page)).toBe(plain);
+		}
+	});
+
 	it("throws when no non-zero segment exists", () => {
 		expect(() =>
 			computeArrowhead([

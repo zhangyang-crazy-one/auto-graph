@@ -257,15 +257,49 @@ describe("channel track pitch and blockers", () => {
 		).toEqual([90, 100, 110]);
 	});
 
+	it("uses whole tracks, at least one, whatever cap it is given", () => {
+		for (const maxTracks of [0, -2, Number.NaN, 2.7]) {
+			const result = assignChannelTracks(gutter(), { maxTracks });
+			for (const assignment of result.assignments) {
+				expect(Number.isInteger(assignment.track), String(maxTracks)).toBe(
+					true,
+				);
+				expect(assignment.track).toBeGreaterThanOrEqual(0);
+				expect(Number.isFinite(assignment.coord)).toBe(true);
+			}
+		}
+		// 2.7 caps at two whole tracks: the third route overflows.
+		expect(
+			assignChannelTracks(gutter(), { maxTracks: 2.7 }).capacityExhausted,
+		).toBe(true);
+		expect(
+			verticalCoords(assignChannelTracks(gutter(), { maxTracks: 0 })),
+		).toEqual([90, 100, 110]);
+	});
+
 	it("shifts the bank off a blocker on one side", () => {
-		// A blocker over x=85..95 takes the centred bank's left track (x=90).
+		// A blocker over x=85..95 (between the routes' horizontal runs) takes
+		// the centred bank's left track (x=90).
 		const coords = verticalCoords(
 			assignChannelTracks(gutter(), {
 				idealNudgingDistance: 10,
-				hardObstacles: [{ x: 85, y: 0, width: 10, height: 200 }],
+				hardObstacles: [{ x: 85, y: 40, width: 10, height: 30 }],
 			}),
 		);
 		expect(coords).toEqual([100, 110, 120]);
+	});
+
+	it("scores the stretched neighbours when shifting the bank", () => {
+		// The blocker (x=102..108) is off every vertical track; only the
+		// first horizontal run stretched out to the right track (x=110)
+		// reaches it, so the bank shifts left instead.
+		const coords = verticalCoords(
+			assignChannelTracks(gutter(), {
+				idealNudgingDistance: 10,
+				hardObstacles: [{ x: 102, y: 5, width: 6, height: 15 }],
+			}),
+		);
+		expect(coords).toEqual([80, 90, 100]);
 	});
 });
 

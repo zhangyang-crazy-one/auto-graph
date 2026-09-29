@@ -58,9 +58,17 @@ export function assignChannelTracks(
 	} = {},
 ): AssignChannelTracksResult {
 	const pitch = trackPitch(options.idealNudgingDistance);
-	const maxTracks = options.maxTracks ?? DEFAULT_MAX_TRACKS;
+	// A cap below one track, fractional or non-finite would assign track
+	// -1, fractional tracks or NaN coordinates: use a whole number >= 1.
+	const maxTracks =
+		options.maxTracks !== undefined &&
+		Number.isFinite(options.maxTracks) &&
+		options.maxTracks >= 1
+			? Math.floor(options.maxTracks)
+			: DEFAULT_MAX_TRACKS;
 	const hardObstacles = options.hardObstacles ?? [];
 	const segments = extractChannelSegments(edges);
+	const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
 	const groups = groupOverlappingSegments(segments);
 	const assignments: ChannelTrackAssignment[] = [];
 	let capacityExhausted = false;
@@ -101,18 +109,36 @@ export function assignChannelTracks(
 		// (and that route back onto the channel): shift the whole bank by
 		// whole pitches, up to its own width, to the offset with the fewest
 		// tracks on a hard obstacle, the centred one on a tie.
+		// A moved track also stretches the segments either side of it, so
+		// each route is scored with all three (its end nodes aside, as in
+		// `applyChannelTrackAssignments`).
 		const blocked = (shift: number) =>
 			ordered.filter((segment, index) => {
+				const points = edgeById.get(segment.edgeId)?.points ?? [];
+				const from = points[segment.segmentIndex];
+				const to = points[segment.segmentIndex + 1];
+				if (from === undefined || to === undefined) return false;
 				const at = coordOf(index, shift);
 				const a =
-					segment.axis === "h"
-						? { x: segment.start, y: at }
-						: { x: at, y: segment.start };
+					segment.axis === "h" ? { x: from.x, y: at } : { x: at, y: from.y };
 				const b =
-					segment.axis === "h"
-						? { x: segment.end, y: at }
-						: { x: at, y: segment.end };
-				return hardObstacles.some((box) => segmentHitsBox(a, b, box));
+					segment.axis === "h" ? { x: to.x, y: at } : { x: at, y: to.y };
+				const before = points[segment.segmentIndex - 1];
+				const after = points[segment.segmentIndex + 2];
+				const pieces: [Point, Point][] = [
+					...(before === undefined ? [] : [[before, a] as [Point, Point]]),
+					[a, b],
+					...(after === undefined ? [] : [[b, after] as [Point, Point]]),
+				];
+				const first = points[0];
+				const last = points[points.length - 1];
+				const atEnd = (box: Box) =>
+					(first !== undefined && touchesBox(first, box)) ||
+					(last !== undefined && touchesBox(last, box));
+				return hardObstacles.some(
+					(box) =>
+						!atEnd(box) && pieces.some(([p, q]) => segmentHitsBox(p, q, box)),
+				);
 			}).length;
 		let shift = 0;
 		if (hardObstacles.length > 0) {

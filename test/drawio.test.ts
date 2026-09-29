@@ -338,6 +338,81 @@ describe("draw.io export", () => {
 		expect(xml).toContain('x="600" y="580" width="100" height="40"');
 	});
 
+	it("ignores a page it cannot lay out", () => {
+		const plain = exportDrawio(diagram());
+		for (const page of [
+			{ width: 800, height: 600, scale: 0 },
+			{ width: 800, height: 600, scale: -1 },
+			{ width: 800, height: 600, scale: Number.NaN },
+			{ width: 0, height: 600, scale: 1 },
+			{ width: 800, height: Number.POSITIVE_INFINITY, scale: 1 },
+		]) {
+			expect(exportDrawio(diagram(), { page }), JSON.stringify(page)).toBe(
+				plain,
+			);
+		}
+	});
+
+	it("keeps a split edge's authored label at the route's middle", () => {
+		const base = diagram({
+			edgeCrossings: [
+				{ x: 650, y: 110, underEdgeId: "a-b", overEdgeId: "z", style: "gap" },
+				{ x: 750, y: 130, underEdgeId: "a-b", overEdgeId: "y", style: "jump" },
+			],
+		});
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.label = { text: "flows" };
+		const xml = exportDrawio(base);
+		const labelled = [
+			...xml.matchAll(/<mxCell [^>]*value="flows"[^>]*>.*?<\/mxCell>/g),
+		].map((match) => match[0]);
+		expect(labelled).toHaveLength(1);
+		// The route's middle (700,120) sits 45 right of and 10 below the
+		// labelled piece's own middle (655,110).
+		expect(labelled[0]).toContain('<mxPoint as="offset" x="45" y="10"/>');
+	});
+
+	it("exports a split edge whose id holds a lone surrogate", () => {
+		const base = diagram({
+			edgeCrossings: [
+				{
+					x: 650,
+					y: 110,
+					underEdgeId: "a\uD800b",
+					overEdgeId: "z",
+					style: "gap",
+				},
+				{
+					x: 750,
+					y: 130,
+					underEdgeId: "a\uD800b",
+					overEdgeId: "y",
+					style: "jump",
+				},
+			],
+		});
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.id = "a\uD800b";
+		const xml = exportDrawio(base);
+		expect(xml.match(/dgeEdge=ab[;"]/g)).toHaveLength(2);
+	});
+
+	it("keeps the line breaks of a frame title without solved text", () => {
+		const xml = exportDrawio(
+			diagram({
+				frame: {
+					kind: "bdd",
+					titleTab: "bdd\nPlant",
+					box: { x: 480, y: 60, width: 440, height: 120 },
+					titleBox: { x: 480, y: 60, width: 90, height: 32 },
+				},
+			}),
+		);
+		expect(xml).toContain('value="bdd&lt;br&gt;Plant" style="shape=umlFrame;');
+	});
+
 	it("keeps authored labels of dotted port ids apart", () => {
 		const base = diagram();
 		const [first, second] = base.nodes;

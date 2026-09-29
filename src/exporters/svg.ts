@@ -24,6 +24,7 @@ import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
 import { fallbackTextWidth } from "./fallback-text.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
+import { usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
 /** Default margin between the drawn content and the canvas edge. */
@@ -65,7 +66,7 @@ export function exportSvg(
 			? Math.max(0, padding)
 			: SVG_CANVAS_MARGIN,
 	);
-	const page = options.page;
+	const page = usablePage(options.page);
 	// On a page the view box is the page in diagram units, centred on the
 	// content, so the drawing appears at `scale` in the middle of the page.
 	const viewBox =
