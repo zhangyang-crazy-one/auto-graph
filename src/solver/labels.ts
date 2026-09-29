@@ -18,7 +18,7 @@ import type {
 	NormalizedEdge,
 	Swimlane,
 } from "../ir/elements.js";
-import type { Box, Point } from "../ir/geometry.js";
+import type { Box, Insets, Point } from "../ir/geometry.js";
 import type {
 	LabelLayout,
 	SolvedTextAnnotation,
@@ -68,6 +68,7 @@ import {
 	labelSegmentOnPolyline,
 	reportRouteTextClearance,
 	routeIntersectsTextBox,
+	segmentIntersectsBox,
 	textObstacleBox,
 } from "./route-edges.js";
 
@@ -474,10 +475,61 @@ export function buildTextAnnotation(input: {
 	};
 }
 
+export interface ExternalLabelShelfOptions {
+	/**
+	 * Boxes callouts must keep clear of when packed onto a bounded page
+	 * (nodes, groups, tables, matrices, evidence panels).
+	 */
+	obstacles?: readonly Box[];
+	/** Receives `routing.label-shelf.capacity_exhausted` when some do not fit. */
+	diagnostics?: Diagnostic[];
+	/** Edge routes by id, so crowded keys can move along their own edge. */
+	routes?: ReadonlyMap<string, readonly Point[]>;
+	/**
+	 * Boxes a callout key must not sit on (nodes, tables, matrices, evidence
+	 * panels). Groups are left out: a key on a route inside a zone is fine.
+	 */
+	keyObstacles?: readonly Box[];
+	/**
+	 * Room kept free at each edge of `pageBounds` beyond the usual inset: a
+	 * diagram frame is drawn around every callout, so its padding and title
+	 * bar must still fit on the page.
+	 */
+	pageInsets?: Insets;
+}
+
+/** Callouts are kept this far inside `pageBounds`. */
+const SHELF_PAGE_INSET = 8;
+
+/** A callout key's drawn extent: its text box plus the backdrop margin. */
+function keyBackdrop(box: Box): Box {
+	return {
+		x: box.x - LABEL_ROUTE_CLEARANCE.x,
+		y: box.y - LABEL_ROUTE_CLEARANCE.y,
+		width: box.width + 2 * LABEL_ROUTE_CLEARANCE.x,
+		height: box.height + 2 * LABEL_ROUTE_CLEARANCE.y,
+	};
+}
+
+/** The page area inside `insets`, each at least `minimum`. */
+function usablePage(
+	page: { width: number; height: number },
+	insets: Insets | undefined,
+	minimum: number,
+): { top: number; bottom: number; left: number; right: number } {
+	return {
+		top: Math.max(minimum, insets?.top ?? 0),
+		bottom: page.height - Math.max(minimum, insets?.bottom ?? 0),
+		left: Math.max(minimum, insets?.left ?? 0),
+		right: page.width - Math.max(minimum, insets?.right ?? 0),
+	};
+}
+
 export function buildExternalLabelCallouts(
 	annotations: readonly SolvedTextAnnotation[],
 	bounds: Box,
 	options: SolveDiagramOptions,
+	shelf: ExternalLabelShelfOptions = {},
 ): BuiltExternalLabelCallout[] {
 	const sources = annotations
 		.filter(
@@ -491,10 +543,8 @@ export function buildExternalLabelCallouts(
 	}
 
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
-	let shelfY = bounds.y;
-	return sources.map((source, index) => {
+	const measured = sources.map((source, index) => {
 		const key = externalLabelKey(index);
-		const shelfText = `${key}: ${source.text}`;
 		const keyLayout = fitLabel(
 			key,
 			{
@@ -510,7 +560,7 @@ export function buildExternalLabelCallouts(
 			measurer,
 		);
 		const shelfLayout = fitLabel(
-			shelfText,
+			`${key}: ${source.text}`,
 			{
 				font: {
 					fontFamily: source.fontFamily,
@@ -524,42 +574,516 @@ export function buildExternalLabelCallouts(
 			measurer,
 		);
 		const sourceCenter = boxCenter(source.box);
-		const keyBox = {
-			x: sourceCenter.x - keyLayout.box.width / 2,
-			y: sourceCenter.y - keyLayout.box.height / 2,
-			width: keyLayout.box.width,
-			height: keyLayout.box.height,
-		};
-		const calloutBox = {
-			x: bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
-			y: shelfY,
+		return {
+			source,
+			key,
+			keyLayout,
+			shelfLayout,
+			keyBox: {
+				x: sourceCenter.x - keyLayout.box.width / 2,
+				y: sourceCenter.y - keyLayout.box.height / 2,
+				width: keyLayout.box.width,
+				height: keyLayout.box.height,
+			},
 			width: Math.max(source.box.width, shelfLayout.box.width),
 			height: Math.max(source.box.height, shelfLayout.box.height),
+			/** No key spot clears the page's obstacles: the label stays inline. */
+			blocked: false,
 		};
-		shelfY += Math.max(14, calloutBox.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
+	});
+
+	// Keys of crowded labels start on top of each other: move a clashing
+	// key to the nearest spot on its own route that clears the other keys
+	// and the other routes. When none does, a spot that only crosses
+	// another route is accepted and reported (a keyed marker on a line
+	// reads better than the long label left inline); a key that cannot
+	// clear the nodes, panels and other keys leaves its label inline.
+	const placedKeys: Box[] = [];
+	const keysOnRoutes: string[] = [];
+	// Labels that stay inline: ordinary edge labels (often the very label
+	// that forced a callout) and, as keys are blocked, their full labels.
+	// No key may cover one.
+	const ordinaryLabels = annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "edge-label" &&
+				annotation.placement !== "external-callout-required" &&
+				annotation.placement !== "external-callout",
+		)
+		.map((annotation) => annotation.box);
+	// On a bounded page a key keeps inside the page: a key past its edge
+	// grows the drawing past it. With a frame that is a hard rule, keeping
+	// clear of the frame insets too (the frame is drawn around every key).
+	// Without one it is a preference: a spot on the page wins, but a key
+	// is not dropped when its whole route lies off the page (the drawing
+	// overflows anyway then).
+	const keyArea =
+		options.pageBounds === undefined
+			? undefined
+			: usablePage(options.pageBounds, shelf.pageInsets, 0);
+	const pageIsHard = shelf.pageInsets !== undefined;
+	// A key is drawn over an opaque backdrop a little larger than its text:
+	// every test below uses (and reserves) that extent.
+	const onPage = (key: Box) => {
+		const box = keyBackdrop(key);
+		return (
+			keyArea === undefined ||
+			(box.x >= keyArea.left - 1e-6 &&
+				box.y >= keyArea.top - 1e-6 &&
+				box.x + box.width <= keyArea.right + 1e-6 &&
+				box.y + box.height <= keyArea.bottom + 1e-6)
+		);
+	};
+	// A label whose key is blocked stays inline, and no key may cover it;
+	// keys placed before it was blocked are placed again, until no further
+	// label is blocked.
+	const initialKeys = measured.map((entry) => entry.keyBox);
+	const inlineLabels = [...ordinaryLabels];
+	// A label the shelf has no room for stays inline too: keys are placed
+	// again with its full label reserved (and its key gone), and the shelf
+	// packed again, until no further label drops out.
+	const dropped = new Set<number>();
+	let shelvedIds: number[] = [];
+	let placements: (Box | undefined)[] = [];
+	let shelfDiagnostics: Diagnostic[] = [];
+	for (let round = 0; round <= measured.length; round += 1) {
+		let blockedIds = new Set<number>();
+		for (let pass = 0; pass <= measured.length; pass += 1) {
+			placedKeys.length = 0;
+			keysOnRoutes.length = 0;
+			ordinaryLabels.length = 0;
+			ordinaryLabels.push(
+				...inlineLabels,
+				...[...blockedIds, ...dropped].map(
+					(index) => (measured[index] as (typeof measured)[number]).source.box,
+				),
+			);
+			measured.forEach((entry, index) => {
+				entry.keyBox = initialKeys[index] as Box;
+				entry.blocked = false;
+			});
+			for (const [index, entry] of measured.entries()) {
+				// Blocked in an earlier pass: it stays inline (reserved above).
+				if (blockedIds.has(index)) {
+					entry.blocked = true;
+					continue;
+				}
+				// Left out by the shelf in an earlier round: inline, no key.
+				if (dropped.has(index)) continue;
+				const clearOfKeysAndObstacles = (key: Box) => {
+					const box = keyBackdrop(key);
+					return (
+						(!pageIsHard || onPage(key)) &&
+						!placedKeys.some((placed) =>
+							boxesOverlap(box, keyBackdrop(placed), 1),
+						) &&
+						![...(shelf.keyObstacles ?? []), ...ordinaryLabels].some(
+							(obstacle) => boxesOverlap(box, obstacle, 0),
+						)
+					);
+				};
+				const clear = (key: Box) =>
+					clearOfKeysAndObstacles(key) &&
+					![...(shelf.routes ?? new Map()).entries()].some(
+						([edgeId, points]) =>
+							edgeId !== entry.source.ownerId &&
+							polylineEntersBox(points, keyBackdrop(key)),
+					);
+				if (!clear(entry.keyBox) || !onPage(entry.keyBox)) {
+					const route = shelf.routes?.get(entry.source.ownerId) ?? [];
+					const center = boxCenter(entry.keyBox);
+					const spots = [
+						entry.keyBox,
+						...samplePolyline(route, 4)
+							.sort(
+								(left, right) =>
+									Math.hypot(left.x - center.x, left.y - center.y) -
+									Math.hypot(right.x - center.x, right.y - center.y),
+							)
+							.map((point) => ({
+								...entry.keyBox,
+								x: point.x - entry.keyBox.width / 2,
+								y: point.y - entry.keyBox.height / 2,
+							})),
+					];
+					// Spots on the page first, at each tier.
+					const first = (test: (box: Box) => boolean) =>
+						spots.find((box) => test(box) && onPage(box)) ?? spots.find(test);
+					const spot = first(clear);
+					const fallback =
+						spot === undefined ? first(clearOfKeysAndObstacles) : undefined;
+					if (spot === undefined && fallback === undefined) {
+						entry.blocked = true;
+						// Its full label stays inline: later keys keep off it.
+						ordinaryLabels.push(entry.source.box);
+						continue;
+					}
+					if (spot === undefined) keysOnRoutes.push(entry.source.ownerId);
+					entry.keyBox = (spot ?? fallback) as Box;
+				}
+				placedKeys.push(entry.keyBox);
+			}
+			const now = new Set(
+				measured.flatMap((entry, index) => (entry.blocked ? [index] : [])),
+			);
+			if (now.size === blockedIds.size) break;
+			blockedIds = now;
+		}
+		shelvedIds = measured.flatMap((entry, index) =>
+			entry.blocked ? [] : [index],
+		);
+		if (shelvedIds.length === 0) break;
+		const shelved = shelvedIds.map(
+			(index) => measured[index] as (typeof measured)[number],
+		);
+		// Labels whose keys were blocked stay inline at full size, and so
+		// does every edge label that never needed a callout.
+		const inlineBoxes = ordinaryLabels;
+		shelfDiagnostics = [];
+		placements =
+			options.pageBounds === undefined
+				? // The unbounded shelf starts right of every inline label and
+					// obstacle too (port labels reach past their node).
+					stackShelf(
+						shelved,
+						unionBoxes([bounds, ...inlineBoxes, ...(shelf.obstacles ?? [])]),
+					)
+				: packShelf(
+						shelved,
+						bounds,
+						options.pageBounds,
+						{
+							...shelf,
+							obstacles: [...(shelf.obstacles ?? []), ...inlineBoxes],
+							diagnostics: shelfDiagnostics,
+						},
+						new Set(
+							shelvedIds.flatMap((index, at) =>
+								dropped.has(index) ? [at] : [],
+							),
+						),
+					);
+		const fresh = shelvedIds.filter(
+			(index, at) => placements[at] === undefined && !dropped.has(index),
+		);
+		if (fresh.length === 0) break;
+		for (const index of fresh) dropped.add(index);
+	}
+	if (keysOnRoutes.length > 0) {
+		shelf.diagnostics?.push({
+			severity: "warning",
+			code: "routing.label-shelf.key_on_route",
+			message: `${keysOnRoutes.length} external label key(s) found no spot on their edge clear of other routes; each sits on another route, clear of nodes, panels and other keys.`,
+			detail: { edgeIds: keysOnRoutes, conflictClass: "label-capacity" },
+		});
+	}
+	const blocked = measured.filter((entry) => entry.blocked);
+	if (blocked.length > 0) {
+		shelf.diagnostics?.push({
+			severity: "warning",
+			code: "routing.label-shelf.key_blocked",
+			message: `${blocked.length} external label key(s) have no spot on their edge clear of nodes, tables, panels and other keys; those labels stay on their edges.`,
+			detail: {
+				edgeIds: blocked.map((entry) => entry.source.ownerId),
+				conflictClass: "label-capacity",
+			},
+		});
+	}
+	shelf.diagnostics?.push(...shelfDiagnostics);
+	if (shelvedIds.length === 0) return [];
+	const shelved = shelvedIds.map(
+		(index) => measured[index] as (typeof measured)[number],
+	);
+	const built: BuiltExternalLabelCallout[] = [];
+	shelved.forEach((entry, index) => {
+		const calloutBox = placements[index];
+		if (calloutBox === undefined) return;
 		const callout: ExternalLabelCallout = {
-			edgeId: source.ownerId,
-			key,
-			text: source.text,
-			shelfSide: "right",
-			keyBox,
+			edgeId: entry.source.ownerId,
+			key: entry.key,
+			text: entry.source.text,
+			shelfSide: shelfSideOf(calloutBox, bounds),
+			keyBox: entry.keyBox,
 			calloutBox,
 		};
-		return {
+		built.push({
 			callout,
-			source,
+			source: entry.source,
 			keyAnnotation: buildExternalLabelKeyAnnotation(
-				source,
-				keyLayout,
+				entry.source,
+				entry.keyLayout,
 				callout,
 			),
 			calloutAnnotation: buildExternalLabelCalloutAnnotation(
-				source,
+				entry.source,
 				callout,
-				shelfLayout,
+				entry.shelfLayout,
 			),
-		};
+		});
 	});
+	return built;
+}
+
+interface ShelfEntry {
+	keyBox: Box;
+	width: number;
+	height: number;
+	/** The inline label this callout replaces (it stays if unplaced). */
+	source?: { box: Box };
+}
+
+/** Unbounded page: one growing column to the right of the drawing. */
+function stackShelf(entries: readonly ShelfEntry[], bounds: Box): Box[] {
+	const x = bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP;
+	let y = bounds.y;
+	return entries.map((entry) => {
+		const box = { x, y, width: entry.width, height: entry.height };
+		y += Math.max(14, entry.height) + EXTERNAL_LABEL_SHELF_ROW_GAP;
+		return box;
+	});
+}
+
+/**
+ * Bounded page (#93): pack callouts in reading order into columns inside
+ * the page, right shelf first, then further columns to the left. A callout
+ * never overlaps another callout, a key, or an obstacle (with the row gap
+ * as clearance); a row is never reused. Callouts that find no free spot
+ * are left out (`undefined`) and reported as a capacity failure.
+ */
+function packShelf(
+	entries: readonly ShelfEntry[],
+	bounds: Box,
+	page: { width: number; height: number },
+	shelf: ExternalLabelShelfOptions,
+	/** Entries that stay inline from the start (left out in an earlier round). */
+	preset: ReadonlySet<number> = new Set(),
+): (Box | undefined)[] {
+	const gap = EXTERNAL_LABEL_SHELF_ROW_GAP;
+	// Route segments a callout must keep clear of: orthogonal ones as their
+	// (zero-width) boxes, diagonal ones tested as segments, since their
+	// bounding box would block the whole rectangle between their ends.
+	const routeSegments = [...(shelf.routes?.values() ?? [])].flatMap((points) =>
+		points.slice(1).map((end, index) => [points[index] as Point, end] as const),
+	);
+	const routeSegmentBoxes: Box[] = routeSegments
+		.filter(([start, end]) => start.x === end.x || start.y === end.y)
+		.map(([start, end]) => ({
+			x: Math.min(start.x, end.x),
+			y: Math.min(start.y, end.y),
+			width: Math.abs(end.x - start.x),
+			height: Math.abs(end.y - start.y),
+		}));
+	const diagonalSegments = routeSegments.filter(
+		([start, end]) => start.x !== end.x && start.y !== end.y,
+	);
+	const { top, bottom, left, right } = usablePage(
+		page,
+		shelf.pageInsets,
+		SHELF_PAGE_INSET,
+	);
+	// A callout wider than the usable page can never be placed: it stays
+	// inline from the start and does not widen the columns for the rest.
+	const oversized = new Set(
+		entries.flatMap((entry, index) =>
+			entry.width > right - left + 1e-6 ? [index] : [],
+		),
+	);
+	// Columns are as wide as the widest callout still to place: one that
+	// dropped out (too tall, or blocked) no longer spaces them for the rest.
+	const columnsFor = (inlineEntries: ReadonlySet<number>): number[] => {
+		const columnWidth = Math.max(
+			0,
+			...entries
+				.filter((_, index) => !inlineEntries.has(index))
+				.map((entry) => entry.width),
+		);
+		const columns: number[] = [];
+		const first = Math.min(
+			bounds.x + bounds.width + EXTERNAL_LABEL_SHELF_GAP,
+			right - columnWidth,
+		);
+		// The column beside the content first, then the free page to its
+		// right, and only then columns further left, across the drawing.
+		const step = columnWidth + 2 * gap;
+		if (first >= left - 1e-6) columns.push(first);
+		for (let x = first + step; x + columnWidth <= right + 1e-6; x += step) {
+			columns.push(x);
+		}
+		for (let x = first - step; x >= left - 1e-6; x -= step) {
+			columns.push(x);
+		}
+		return columns;
+	};
+	// Labels that find no spot stay inline at full size, so a repack keeps
+	// every callout off them; repeat until no further label drops out.
+	// One label at a time, the widest first: once it is out, the columns
+	// narrow and the others get another try.
+	const inline = new Set<number>([...oversized, ...preset]);
+	let placed = packColumns(inline);
+	for (let pass = 0; pass < entries.length; pass += 1) {
+		const dropped = placed
+			.flatMap((box, index) =>
+				box === undefined && !inline.has(index) ? [index] : [],
+			)
+			.sort(
+				(left, right) =>
+					(entries[right]?.width ?? 0) - (entries[left]?.width ?? 0) ||
+					left - right,
+			);
+		const widest = dropped[0];
+		if (widest === undefined) break;
+		inline.add(widest);
+		placed = packColumns(inline);
+	}
+	return reportShelfCapacity(placed);
+
+	function packColumns(
+		inlineEntries: ReadonlySet<number>,
+	): (Box | undefined)[] {
+		// The grid spaced for every callout that could fit, then the one
+		// re-spaced for those still to place: narrower columns add spots
+		// without losing any.
+		const columns = [
+			...new Set([...columnsFor(oversized), ...columnsFor(inlineEntries)]),
+		];
+		const blockers: Box[] = [
+			...(shelf.obstacles ?? []),
+			// An opaque callout packed across the drawing must not hide a
+			// connector: every route segment (its bounds) blocks too.
+			...routeSegmentBoxes,
+			...entries.map((entry, index) =>
+				inlineEntries.has(index) && entry.source !== undefined
+					? entry.source.box
+					: keyBackdrop(entry.keyBox),
+			),
+		];
+		const placed: (Box | undefined)[] = [];
+		let column = 0;
+		let cursor = top;
+		for (const [entryIndex, entry] of entries.entries()) {
+			if (inlineEntries.has(entryIndex)) {
+				placed.push(undefined);
+				continue;
+			}
+			let box: Box | undefined;
+			for (let index = column; index < columns.length && !box; index += 1) {
+				const x = columns[index] as number;
+				let y = index === column ? cursor : top;
+				while (y + entry.height <= bottom + 1e-6) {
+					const candidate = { x, y, width: entry.width, height: entry.height };
+					const clash = blockers.filter((blocker) =>
+						boxesOverlap(candidate, blocker, gap),
+					);
+					const margin = {
+						x: candidate.x - gap,
+						y: candidate.y - gap,
+						width: candidate.width + 2 * gap,
+						height: candidate.height + 2 * gap,
+					};
+					const crossesDiagonal = diagonalSegments.some(([start, end]) =>
+						segmentIntersectsBox(start, end, margin),
+					);
+					if (clash.length === 0 && !crossesDiagonal) {
+						box = candidate;
+						column = index;
+						cursor = y + entry.height + gap;
+						break;
+					}
+					y = Math.max(
+						y + 1,
+						...clash.map((blocker) => blocker.y + blocker.height + gap),
+					);
+				}
+			}
+			if (box !== undefined) blockers.push(box);
+			placed.push(box);
+		}
+		return placed;
+	}
+
+	function reportShelfCapacity(
+		placed: (Box | undefined)[],
+	): (Box | undefined)[] {
+		const missing = placed.filter((box) => box === undefined).length;
+		if (missing > 0) {
+			shelf.diagnostics?.push({
+				severity: "warning",
+				code: "routing.label-shelf.capacity_exhausted",
+				message: `${missing} of ${entries.length} external label callout(s) do not fit on the page without overlapping each other or the diagram; they stay on their edges.`,
+				detail: {
+					labelCount: entries.length,
+					placed: entries.length - missing,
+					requiredHeight: Math.round(
+						entries.reduce((sum, entry) => sum + entry.height + gap, 0),
+					),
+					availableHeight: Math.round(bottom - top),
+					columnCount: columnsFor(
+						new Set(
+							placed.flatMap((box, index) =>
+								box === undefined ? [index] : [],
+							),
+						),
+					).length,
+					conflictClass: "label-capacity",
+					remediationType: "external-label-or-split",
+				},
+			});
+		}
+		return placed;
+	}
+}
+
+/** Points every `step` px along a polyline (vertices included). */
+function samplePolyline(points: readonly Point[], step: number): Point[] {
+	const samples: Point[] = [];
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const length = Math.hypot(b.x - a.x, b.y - a.y);
+		const count = Math.max(1, Math.floor(length / step));
+		for (let at = 0; at <= count; at += 1) {
+			const t = at / count;
+			samples.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+		}
+	}
+	return samples;
+}
+
+/** A polyline passes through the inside of a box. */
+function polylineEntersBox(points: readonly Point[], box: Box): boolean {
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const overlapsBounds =
+			Math.max(a.x, b.x) > box.x &&
+			Math.min(a.x, b.x) < box.x + box.width &&
+			Math.max(a.y, b.y) > box.y &&
+			Math.min(a.y, b.y) < box.y + box.height;
+		if (!overlapsBounds) continue;
+		// An orthogonal segment enters the box exactly when its bounds do;
+		// a diagonal one only when the segment itself crosses the box.
+		if (a.x === b.x || a.y === b.y || segmentIntersectsBox(a, b, box)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function boxesOverlap(a: Box, b: Box, gap: number): boolean {
+	return (
+		a.x < b.x + b.width + gap &&
+		b.x < a.x + a.width + gap &&
+		a.y < b.y + b.height + gap &&
+		b.y < a.y + a.height + gap
+	);
+}
+
+function shelfSideOf(box: Box, bounds: Box): ExternalLabelCallout["shelfSide"] {
+	if (box.x >= bounds.x + bounds.width) return "right";
+	if (box.x + box.width <= bounds.x) return "left";
+	if (box.y >= bounds.y + bounds.height) return "bottom";
+	if (box.y + box.height <= bounds.y) return "top";
+	return "right";
 }
 
 export function applyExternalLabelCallouts(
@@ -651,8 +1175,13 @@ export function reportTextAnnotationCollisions(
 ): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 
-	const relevantAnnotations = annotations.filter((annotation) =>
-		isExternallyPlacedText(annotation.surfaceKind),
+	// Shelf callouts and their keys are placed like port labels (#93): a
+	// key that found no clear spot is reported here, not delivered silently.
+	const relevantAnnotations = annotations.filter(
+		(annotation) =>
+			isExternallyPlacedText(annotation.surfaceKind) ||
+			annotation.placementDetail?.role === "callout" ||
+			annotation.placementDetail?.role === "key",
 	);
 
 	for (
@@ -1000,6 +1529,12 @@ export interface EdgeLabelAnchorResult {
 	externalized: boolean;
 }
 
+/**
+ * How far a route must stay from an edge label's text: the exporters'
+ * backdrop margin (3px / 1px) plus half a stroke.
+ */
+const LABEL_ROUTE_CLEARANCE = { x: 4, y: 2 } as const;
+
 export function edgeLabelAnchor(
 	edge: CoordinatedEdge,
 	layout: LabelLayout,
@@ -1031,12 +1566,17 @@ export function edgeLabelAnchor(
 				labelOverlapCount: number;
 		  }
 		| undefined;
-	const candidates = edgeLabelAnchorCandidates(
+	const searched = edgeLabelAnchorCandidates(
 		edge.points,
 		placement,
 		layout,
 		baseOffset,
 	);
+	// Short-orthogonal pages: slide along the line before drifting off it.
+	const candidates =
+		options.routeKind === "short-orthogonal-jumps"
+			? byDistanceFromRoute(searched, edge.points, baseOffset)
+			: searched;
 	// Extents of the other routes, computed once: a route can only touch a
 	// candidate box that its bounding box touches.
 	const otherRoutes = edges
@@ -1045,6 +1585,60 @@ export function edgeLabelAnchor(
 			points: other.points,
 			extent: pointsExtent(other.points),
 		}));
+	// First choice: a spot where the drawn backdrop (text plus margin, plus
+	// half a stroke) stays off every route, own included, so it hides no
+	// piece of a line. Tight pages without one fall back to the text box.
+	// Obstacle-avoiding pages keep the text-box rule their dense label
+	// gates are tuned against.
+	// It only takes spots near the requested offset from the line: a label
+	// drifting further off reads as another edge's label.
+	const backdropFirst = options.routeKind !== "obstacle-avoiding";
+	for (const candidate of backdropFirst ? candidates : []) {
+		if (
+			Math.abs(distanceToPolyline(candidate, edge.points) - baseOffset) >
+			LABEL_DRIFT_STEPS * EDGE_LABEL_CLEARANCE
+		) {
+			continue;
+		}
+		const labelBox = {
+			x: candidate.x - layout.box.width / 2,
+			y: candidate.y - layout.box.height / 2,
+			width: layout.box.width,
+			height: layout.box.height,
+		};
+		const backdrop = {
+			x: labelBox.x - LABEL_ROUTE_CLEARANCE.x,
+			y: labelBox.y - LABEL_ROUTE_CLEARANCE.y,
+			width: labelBox.width + 2 * LABEL_ROUTE_CLEARANCE.x,
+			height: labelBox.height + 2 * LABEL_ROUTE_CLEARANCE.y,
+		};
+		if (
+			routeIntersectsTextBox(edge.points, backdrop) ||
+			otherRoutes.some(
+				(other) =>
+					other.extent.minX <= backdrop.x + backdrop.width &&
+					other.extent.maxX >= backdrop.x &&
+					other.extent.minY <= backdrop.y + backdrop.height &&
+					other.extent.maxY >= backdrop.y &&
+					routeIntersectsTextBox(other.points, backdrop),
+			) ||
+			// The opaque backdrop may not paint over a node border or an
+			// earlier label either.
+			obstacleBoxes.some((box) => intersectsAabb(backdrop, box)) ||
+			placedLabelBoxes.some((box) => intersectsAabb(backdrop, box))
+		) {
+			continue;
+		}
+		return {
+			center: candidate,
+			candidateCount: candidates.length,
+			localConflictCount: 0,
+			routeConflictCount: 0,
+			nodeOverlapCount: 0,
+			labelOverlapCount: 0,
+			externalized: edgeLabelExternalizationPolicy(options) === "force",
+		};
+	}
 	for (const candidate of candidates) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
@@ -1288,6 +1882,61 @@ export function edgeLabelAnchorCandidates(
 	}
 
 	return candidates;
+}
+
+/** Distance from a point to the nearest segment of a polyline. */
+function distanceToPolyline(point: Point, points: readonly Point[]): number {
+	let best = Number.POSITIVE_INFINITY;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const lengthSquared = dx * dx + dy * dy;
+		const t =
+			lengthSquared === 0
+				? 0
+				: Math.max(
+						0,
+						Math.min(
+							1,
+							((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared,
+						),
+					);
+		best = Math.min(
+			best,
+			Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)),
+		);
+	}
+	return best;
+}
+
+/** Offset steps a label may drift from its line before sliding along it. */
+const LABEL_DRIFT_STEPS = 3;
+
+/**
+ * Candidates near the requested offset from their own route first, in
+ * search order: a label slides along its line before it drifts further
+ * away, where it would read as another edge's label (#98 render check).
+ */
+function byDistanceFromRoute(
+	candidates: readonly Point[],
+	points: readonly Point[],
+	baseOffset: number,
+): Point[] {
+	const distance = (candidate: Point): number => {
+		const best = distanceToPolyline(candidate, points);
+		// Within a few steps of the requested offset the search order stands;
+		// only candidates drifting further wait behind the along-route ones.
+		return Math.abs(best - baseOffset) <=
+			LABEL_DRIFT_STEPS * EDGE_LABEL_CLEARANCE
+			? 0
+			: 1;
+	};
+	return candidates
+		.map((candidate, index) => ({ candidate, index, key: distance(candidate) }))
+		.sort((left, right) => left.key - right.key || left.index - right.index)
+		.map((entry) => entry.candidate);
 }
 
 export function edgeLabelExternalizationPolicy(

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+	EDGE_CROSSING_END_CUTOFF,
+	hopGlyphs,
+} from "../geometry/edge-crossings.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { Box, Point, PreviousLayout } from "../ir/geometry.js";
 import type {
@@ -712,32 +716,35 @@ function pathWithJumps(
 		if (length > 1e-9) {
 			const ux = (b.x - a.x) / length;
 			const uy = (b.y - a.y) / length;
-			const onSegment = jumps
-				.map((jump) => ({
-					jump,
-					t: ((jump.x - a.x) * ux + (jump.y - a.y) * uy) / length,
-					off: Math.abs((jump.x - a.x) * uy - (jump.y - a.y) * ux),
-				}))
-				.filter(
-					(entry) => entry.off <= 0.75 && entry.t > 0.02 && entry.t < 0.98,
-				)
-				.sort((left, right) => left.t - right.t);
-			for (const { jump } of onSegment) {
-				const before = {
-					x: jump.x - ux * JUMP_RADIUS,
-					y: jump.y - uy * JUMP_RADIUS,
-				};
-				const after = {
-					x: jump.x + ux * JUMP_RADIUS,
-					y: jump.y + uy * JUMP_RADIUS,
-				};
-				commands.push({ op: "L", x: before.x, y: before.y });
-				if (jump.style === "gap") {
-					commands.push({ op: "M", x: after.x, y: after.y });
+			const glyphs = hopGlyphs(
+				jumps
+					.map((jump) => ({
+						jump,
+						t: ((jump.x - a.x) * ux + (jump.y - a.y) * uy) / length,
+						off: Math.abs((jump.x - a.x) * uy - (jump.y - a.y) * ux),
+					}))
+					.filter(
+						(entry) =>
+							entry.off <= 0.75 &&
+							entry.t > EDGE_CROSSING_END_CUTOFF &&
+							entry.t < 1 - EDGE_CROSSING_END_CUTOFF,
+					)
+					.sort((left, right) => left.t - right.t)
+					.map((entry) => entry.jump),
+				a,
+				b,
+				0,
+				(jump) => jump.style ?? "jump",
+			);
+			for (const glyph of glyphs) {
+				commands.push({ op: "L", x: glyph.before.x, y: glyph.before.y });
+				if ((glyph.hops[0] as EdgeCrossing).style === "gap") {
+					commands.push({ op: "M", x: glyph.after.x, y: glyph.after.y });
 				} else {
+					// A cluster of close crossings shares one wider, flat hop.
 					const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
 					const sweep = horizontal ? b.x < a.x : b.y >= a.y;
-					commands.push(arc(JUMP_RADIUS, JUMP_RADIUS, sweep, after));
+					commands.push(arc(glyph.halfLength, JUMP_RADIUS, sweep, glyph.after));
 				}
 			}
 		}

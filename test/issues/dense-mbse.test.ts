@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeDiagramDsl, parseDiagramDsl } from "../../src/dsl/index.js";
-import { exportSvg } from "../../src/exporters/index.js";
+import { exportDrawio, exportSvg } from "../../src/exporters/index.js";
 import type {
 	Box,
 	CoordinatedDiagram,
@@ -173,6 +173,251 @@ const overlap = (a: Box, b: Box) =>
 	a.y < b.y + b.height &&
 	b.y < a.y + a.height;
 
+interface Seg {
+	edgeId: string;
+	a: Point;
+	b: Point;
+	/** Horizontal (fixed y) or vertical (fixed x). */
+	horizontal: boolean;
+	at: number;
+	lo: number;
+	hi: number;
+}
+
+function segmentsOf(d: CoordinatedDiagram): Seg[] {
+	const segs: Seg[] = [];
+	for (const e of d.edges) {
+		for (let i = 0; i + 1 < e.points.length; i += 1) {
+			const a = e.points[i] as Point;
+			const b = e.points[i + 1] as Point;
+			const horizontal = Math.abs(a.y - b.y) < 0.01;
+			if (!horizontal && Math.abs(a.x - b.x) >= 0.01) continue;
+			segs.push({
+				edgeId: e.id,
+				a,
+				b,
+				horizontal,
+				at: horizontal ? a.y : a.x,
+				lo: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
+				hi: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y),
+			});
+		}
+	}
+	return segs;
+}
+
+/** Box sides as axis-aligned lines: [horizontal, at, lo, hi]. */
+function boxSides(b: Box): [boolean, number, number, number][] {
+	return [
+		[true, b.y, b.x, b.x + b.width],
+		[true, b.y + b.height, b.x, b.x + b.width],
+		[false, b.x, b.y, b.y + b.height],
+		[false, b.x + b.width, b.y, b.y + b.height],
+	];
+}
+
+/**
+ * Defects that only show once the page is drawn (render check on #98):
+ * lines 0.5–6px apart that read as one thick line, routes drawn on a node
+ * side / group frame / lane divider, ends entering along their own side,
+ * arrowheads on a stub shorter than the head, port labels struck through,
+ * and sub-2px jogs.
+ */
+/**
+ * Crossing records drawn under a hop in the SVG: a hop (an `A` arc) spans
+ * from the point before it to its end point, and one wide hop may bridge a
+ * cluster of close crossings.
+ */
+function crossingsUnderHops(
+	svg: string,
+	crossings: readonly { x: number; y: number }[],
+): number {
+	const covered = new Set<number>();
+	for (const [, d] of svg.matchAll(/class="edge"[^>]*? d="([^"]*)"/g)) {
+		const tokens = (d ?? "").trim().split(/\s+/);
+		let current: Point | undefined;
+		for (let i = 0; i < tokens.length; ) {
+			const op = tokens[i];
+			if (op === "M" || op === "L") {
+				current = { x: Number(tokens[i + 1]), y: Number(tokens[i + 2]) };
+				i += 3;
+			} else if (op === "A") {
+				const end = { x: Number(tokens[i + 6]), y: Number(tokens[i + 7]) };
+				const start = current;
+				if (start !== undefined) {
+					crossings.forEach((c, index) => {
+						const within =
+							c.x >= Math.min(start.x, end.x) - 0.75 &&
+							c.x <= Math.max(start.x, end.x) + 0.75 &&
+							c.y >= Math.min(start.y, end.y) - 0.75 &&
+							c.y <= Math.max(start.y, end.y) + 0.75;
+						if (within) covered.add(index);
+					});
+				}
+				current = end;
+				i += 8;
+			} else {
+				i += 1;
+			}
+		}
+	}
+	return covered.size;
+}
+
+function renderDefects(d: CoordinatedDiagram) {
+	const segs = segmentsOf(d);
+	let nearParallel = 0;
+	for (let i = 0; i < segs.length; i += 1) {
+		const s = segs[i] as Seg;
+		for (const t of segs.slice(i + 1)) {
+			if (t.edgeId === s.edgeId || t.horizontal !== s.horizontal) continue;
+			const gap = Math.abs(t.at - s.at);
+			if (gap < 0.5 || gap >= 6) continue;
+			nearParallel += Math.max(0, Math.min(s.hi, t.hi) - Math.max(s.lo, t.lo));
+		}
+	}
+	const lines: [boolean, number, number, number][] = [
+		...d.nodes.flatMap((n) => boxSides(n.box)),
+		...d.groups.flatMap((g) => boxSides(g.box)),
+		...(d.swimlanes ?? []).flatMap((sw) =>
+			sw.lanes.flatMap((lane) =>
+				lane.box === undefined ? [] : boxSides(lane.box),
+			),
+		),
+	];
+	let borderRun = 0;
+	for (const s of segs) {
+		let worst = 0;
+		for (const [horizontal, at, lo, hi] of lines) {
+			if (horizontal !== s.horizontal || Math.abs(at - s.at) > 3) continue;
+			worst = Math.max(worst, Math.min(s.hi, hi) - Math.max(s.lo, lo));
+		}
+		borderRun += worst > 1 ? worst : 0;
+	}
+	let alongBorderEnds = 0;
+	let shortArrowEnds = 0;
+	for (const e of d.edges) {
+		const ends: [Point, Point, string][] = [
+			[e.points[0] as Point, e.points[1] as Point, e.source.nodeId],
+			[e.points.at(-1) as Point, e.points.at(-2) as Point, e.target.nodeId],
+		];
+		for (const [end, next, nodeId] of ends) {
+			const box = d.nodes.find((n) => n.id === nodeId)?.box;
+			if (box === undefined || next === undefined) continue;
+			const onVertical =
+				Math.abs(end.x - box.x) < 1 || Math.abs(end.x - box.x - box.width) < 1;
+			const onHorizontal =
+				Math.abs(end.y - box.y) < 1 || Math.abs(end.y - box.y - box.height) < 1;
+			const vertical = Math.abs(end.x - next.x) < 0.01;
+			if (
+				(onVertical && !onHorizontal && vertical) ||
+				(onHorizontal && !onVertical && !vertical)
+			)
+				alongBorderEnds += 1;
+		}
+		const last = e.points.at(-1) as Point;
+		const prev = e.points.at(-2) as Point;
+		if (Math.abs(last.x - prev.x) + Math.abs(last.y - prev.y) < 12)
+			shortArrowEnds += 1;
+	}
+	let portLabelHits = 0;
+	for (const e of d.edges) {
+		for (const t of d.textAnnotations ?? []) {
+			if (t.surfaceKind !== "port-label") continue;
+			if (crosses(e.points, inset(t.box, 1))) portLabelHits += 1;
+		}
+	}
+	// Inline labels and callout keys more than 30px from their own line
+	// read as some other edge's label.
+	let strayLabels = 0;
+	for (const t of d.textAnnotations ?? []) {
+		if (t.surfaceKind !== "edge-label" || t.placementDetail?.role === "callout")
+			continue;
+		const own = d.edges.find((e) => e.id === t.ownerId);
+		if (own === undefined) continue;
+		let nearest = Number.POSITIVE_INFINITY;
+		for (let i = 0; i + 1 < own.points.length; i += 1) {
+			const a = own.points[i] as Point;
+			const b = own.points[i + 1] as Point;
+			const dx = Math.max(
+				0,
+				t.box.x - Math.max(a.x, b.x),
+				Math.min(a.x, b.x) - (t.box.x + t.box.width),
+			);
+			const dy = Math.max(
+				0,
+				t.box.y - Math.max(a.y, b.y),
+				Math.min(a.y, b.y) - (t.box.y + t.box.height),
+			);
+			nearest = Math.min(nearest, Math.hypot(dx, dy));
+		}
+		if (nearest > 30) strayLabels += 1;
+	}
+	// Swimlanes: every child inside its own lane's content, no node on a
+	// lane header, no edge label straddling a lane border.
+	let laneMisplaced = 0;
+	let headerCovered = 0;
+	let labelOnLaneBorder = 0;
+	for (const sw of d.swimlanes ?? []) {
+		for (const lane of sw.lanes) {
+			const content = lane.contentBox ?? lane.box;
+			for (const child of lane.children) {
+				const box = d.nodes.find((n) => n.id === child)?.box;
+				if (box === undefined || content === undefined) continue;
+				const inside =
+					box.x >= content.x - 0.5 &&
+					box.y >= content.y - 0.5 &&
+					box.x + box.width <= content.x + content.width + 0.5 &&
+					box.y + box.height <= content.y + content.height + 0.5;
+				if (!inside) laneMisplaced += 1;
+			}
+			if (lane.headerBox !== undefined) {
+				for (const n of d.nodes)
+					if (overlap(inset(n.box, 0.5), lane.headerBox)) headerCovered += 1;
+			}
+			if (lane.box !== undefined) {
+				for (const [horizontal, at, lo, hi] of boxSides(lane.box)) {
+					for (const t of d.textAnnotations ?? []) {
+						if (t.surfaceKind !== "edge-label") continue;
+						const b = t.box;
+						const across = horizontal
+							? b.y < at &&
+								b.y + b.height > at &&
+								b.x < hi &&
+								b.x + b.width > lo
+							: b.x < at &&
+								b.x + b.width > at &&
+								b.y < hi &&
+								b.y + b.height > lo;
+						if (across) labelOnLaneBorder += 1;
+					}
+				}
+			}
+		}
+	}
+	let microJogs = 0;
+	for (const e of d.edges) {
+		for (let i = 1; i + 2 < e.points.length; i += 1) {
+			const a = e.points[i] as Point;
+			const b = e.points[i + 1] as Point;
+			const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+			if (len > 0 && len < 2) microJogs += 1;
+		}
+	}
+	return {
+		nearParallel: Math.round(nearParallel),
+		borderRun: Math.round(borderRun),
+		alongBorderEnds,
+		shortArrowEnds,
+		portLabelHits,
+		microJogs,
+		strayLabels,
+		laneMisplaced,
+		headerCovered,
+		labelOnLaneBorder,
+	};
+}
+
 function evidence(d: CoordinatedDiagram) {
 	const texts = d.textAnnotations ?? [];
 	let nodePierce = 0;
@@ -302,7 +547,7 @@ function evidence(d: CoordinatedDiagram) {
 		.sort((x, y) => x - y);
 	const q = measureLayoutQuality(d);
 	const svg = exportSvg(d);
-	const hops = (svg.match(/ A /g) ?? []).length;
+	const hops = crossingsUnderHops(svg, d.edgeCrossings ?? []);
 	return {
 		nodePierce,
 		hardText,
@@ -327,6 +572,7 @@ function evidence(d: CoordinatedDiagram) {
 			),
 		].join(","),
 		ports: portFractions.join(" "),
+		...renderDefects(d),
 	};
 }
 
@@ -356,6 +602,165 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 			const found = evidence(solveDiagram(load(source), RSOP));
 			expect(found.edgeLabelHits, name).toBe(0);
 			expect(found.hardText, name).toBe(0);
+		}
+	});
+
+	it("#88/#92/#94: parallel routes and same-side ends never coincide", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const found = evidence(solveDiagram(load(source), RSOP));
+			expect(found.overlapLen, name).toBe(0);
+			expect(found.shared, name).toBe(0);
+			expect(found.slotCollisions, name).toBe(0);
+		}
+	});
+
+	it("#91: named ports dock at equal divisions of their side", () => {
+		const found = evidence(
+			solveDiagram(load(PAGES["SV-1 ports"] as string), RSOP),
+		);
+		expect(found.ports).toContain("hn900.CMD:0.25");
+		expect(found.ports).toContain("hn900.DAT:0.50");
+		expect(found.ports).toContain("hn900.SEN:0.75");
+	});
+
+	it("#95: accepted short-orthogonal geometry enters no foreign node, zone or hard text", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const solved = solveDiagram(load(source), RSOP);
+			const found = evidence(solved);
+			expect(found.nodePierce, name).toBe(0);
+			expect(found.hardText, name).toBe(0);
+			expect(found.groupPierce, name).toBe(0);
+			expect(
+				solved.diagnostics.map((diagnostic) => diagnostic.code),
+				name,
+			).not.toContain("routing.obstacle.unavoidable");
+		}
+	});
+
+	it("#93: shelf callouts on a small page never overlap each other or the diagram", () => {
+		for (const size of [
+			{ width: 760, height: 260 },
+			{ width: 500, height: 200 },
+		]) {
+			for (const [name, source] of Object.entries(PAGES)) {
+				const solved = solveDiagram(load(source), {
+					...RSOP,
+					pageBounds: size,
+				});
+				const callouts = (solved.textAnnotations ?? []).filter(
+					(text) => text.placementDetail?.role === "callout",
+				);
+				const obstacles = [
+					...solved.nodes.map((node) => node.box),
+					...solved.groups.map((group) => group.box),
+				];
+				callouts.forEach((callout, index) => {
+					for (const other of callouts.slice(index + 1)) {
+						expect(overlap(callout.box, other.box), name).toBe(false);
+					}
+					for (const box of obstacles) {
+						expect(overlap(callout.box, box), name).toBe(false);
+					}
+					expect(callout.box.x + callout.box.width).toBeLessThanOrEqual(
+						size.width,
+					);
+					expect(callout.box.y + callout.box.height).toBeLessThanOrEqual(
+						size.height,
+					);
+				});
+				const required = (solved.textAnnotations ?? []).filter(
+					(text) => text.placement === "external-callout-required",
+				);
+				if (required.length > 0) {
+					expect(
+						solved.diagnostics.map((diagnostic) => diagnostic.code),
+						name,
+					).toContain("routing.label-shelf.capacity_exhausted");
+				}
+			}
+		}
+	});
+
+	it("#93: a page with room for no callout still reports shelf capacity in the plan", () => {
+		const solved = solveDiagram(load(PAGES["AV-1 zones"] as string), {
+			...RSOP,
+			pageBounds: { width: 40, height: 40 },
+		});
+		expect(
+			(solved.textAnnotations ?? []).filter(
+				(text) => text.placementDetail?.role === "callout",
+			),
+		).toEqual([]);
+		const plan = (solved.deliverability?.remediationPlans ?? []).find(
+			(candidate) => candidate.type === "external-label",
+		);
+		expect(plan?.status).toBe("blocked");
+		expect(plan?.diagnosticCodes).toContain(
+			"routing.label-shelf.capacity_exhausted",
+		);
+		expect(
+			(plan?.detail as { unplacedCount?: number } | undefined)?.unplacedCount,
+		).toBeGreaterThan(0);
+	});
+
+	it("#98 render check: short-orthogonal pages draw nothing that only shows once rendered", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const defects = renderDefects(solveDiagram(load(source), RSOP));
+			expect(defects, name).toEqual({
+				nearParallel: 0,
+				borderRun: 0,
+				alongBorderEnds: 0,
+				shortArrowEnds: 0,
+				portLabelHits: 0,
+				microJogs: 0,
+				strayLabels: 0,
+				laneMisplaced: 0,
+				headerCovered: 0,
+				labelOnLaneBorder: 0,
+			});
+		}
+	});
+
+	it("#76: obstacle-avoiding routes stay orthogonal and short (no zigzag fallback)", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const solved = solveDiagram(load(source), LEGACY);
+			const found = evidence(solved);
+			expect(found.maxBends, name).toBeLessThanOrEqual(10);
+			expect(found.detourMax, name).toBeLessThanOrEqual(5);
+			for (const edge of solved.edges) {
+				for (let index = 1; index < edge.points.length; index += 1) {
+					const a = edge.points[index - 1] as Point;
+					const b = edge.points[index] as Point;
+					expect(
+						Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5,
+						`${name} ${edge.id}`,
+					).toBe(true);
+				}
+			}
+		}
+	});
+
+	it("#76: obstacle-avoiding ends do not share points and every crossing is drawn", () => {
+		for (const name of ["AV-1 zones", "OV-5b lanes"]) {
+			const found = evidence(solveDiagram(load(PAGES[name] as string), LEGACY));
+			expect(found.shared, name).toBe(0);
+			expect(found.slotCollisions, name).toBe(0);
+			expect(found.svgHops, name).toBe(found.edgeCrossings);
+		}
+	});
+
+	it("#89: draw.io export carries every crossing as a jump", () => {
+		for (const [name, source] of Object.entries(PAGES)) {
+			const solved = solveDiagram(load(source), RSOP);
+			const xml = exportDrawio(solved);
+			expect(xml, name).toContain(
+				(solved.edgeCrossings?.length ?? 0) > 0
+					? "jumpStyle=arc"
+					: "jumpStyle=none",
+			);
+			expect((xml.match(/as="dgeJump"/g) ?? []).length, name).toBe(
+				solved.edgeCrossings?.length ?? 0,
+			);
 		}
 	});
 });

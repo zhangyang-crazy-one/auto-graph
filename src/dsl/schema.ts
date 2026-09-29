@@ -12,7 +12,7 @@ const routeKindSchema = z.enum([
 ]);
 const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
 const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
-const outputFormatSchema = z.enum(["svg", "excalidraw", "geometry"]);
+const outputFormatSchema = z.enum(["svg", "excalidraw", "drawio", "geometry"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
 const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
 const primaryReadingDirectionSchema = z.enum([
@@ -116,6 +116,13 @@ const nodeSchema = z.object({
 	shape: nodeShapeSchema.optional(),
 	role: nodeRoleSchema.optional(),
 	position: pointSchema.optional(),
+	/** Minimum node size; the label fit can still grow the node past it. */
+	size: z
+		.object({
+			width: nonNegativeNumberSchema,
+			height: nonNegativeNumberSchema,
+		})
+		.optional(),
 	style: styleSchema.optional(),
 	ports: z.record(z.string(), portSchema).optional(),
 	compartments: compartmentsSchema.optional(),
@@ -429,6 +436,13 @@ export const diagramDslSchema = z
 						}),
 					])
 					.optional(),
+				/**
+				 * Short-orthogonal channel track pitch (default 10). Positive:
+				 * a zero pitch would stack every track on one coordinate.
+				 */
+				idealNudgingDistance: finiteNumberSchema.positive().optional(),
+				/** Opt-in Left-Edge channel nudge for short-orthogonal routes. */
+				rsopChannelNudge: z.boolean().optional(),
 				railRouting: z
 					.union([z.literal(false), z.literal("auto"), z.literal("dependency")])
 					.optional(),

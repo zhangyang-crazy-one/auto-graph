@@ -163,13 +163,16 @@ export const REMEDIATION_ENTRY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"routing.label-externalization.required",
 	"routing.route-label-loop.exhausted",
 	"routing.rail-capacity.exceeded",
+	"routing.channel.capacity_exhausted",
 	"routing.anchor-capacity.requires-resize",
+	"routing.port.capacity_exhausted",
 	"constraints.overlap.post-growth",
 	"routing.obstacle.unavoidable",
 	"routing.endpoint-interior.unavoidable",
 	"routing.label-hard-obstacle.unavoidable",
 	"routing.evidence.crossing_forbidden",
 	"route_obstacle_fallback",
+	"routing.short-orthogonal.bend_budget_exceeded",
 ]);
 
 export function flattenDiagnosticDetailStrings(
@@ -795,4 +798,21 @@ export function textAnnotationContentBox(
 		width,
 		height,
 	};
+}
+
+/**
+ * Solved text an external-label key must not cover: port labels (they often
+ * reach past their node) and group titles on their frames. Neither is in
+ * the later text-collision scan, so an overlap would go unreported.
+ */
+export function keyTextObstacles(
+	annotations: readonly SolvedTextAnnotation[],
+): Box[] {
+	return annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "port-label" ||
+				annotation.surfaceKind === "group-label",
+		)
+		.map((annotation) => annotation.box);
 }

@@ -3,11 +3,13 @@
 import {
 	type computeShapeGeometry,
 	createBoxSpatialIndex,
+	detectOrthogonalEdgeCrossings,
 	expandBox,
 	intersectsAabb,
 	queryBoxSpatialIndex,
 	shapeSideAttachRange,
 	shapeSidePoint,
+	sidePointAtFraction,
 } from "../geometry/index.js";
 import { getEdgePort } from "../geometry/shapes.js";
 import type { Diagnostic, RouteConflictClass } from "../ir/diagnostics.js";
@@ -20,17 +22,31 @@ import type {
 	CoordinatedEdge,
 	CoordinatedGroup,
 	CoordinatedNode,
+	CoordinatedPort,
 	NormalizedEdge,
 } from "../ir/elements.js";
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import {
+	collinearOverlapLength,
+	nudgeOrthogonalRoutes,
 	type RouteEdgeInput,
 	type RouteHardObstacleMetadata,
+	revertCoincidentMoves,
+	revertCrossingMoves,
 	routeEdge,
+	routeEndDirectionPenalty,
 	separateParallelSegments,
 	simplifyRoute,
+	trackPitch,
 } from "../routing/index.js";
+import {
+	assignSameSideSlots,
+	attachPointCap,
+	freeFractions,
+	MIN_ATTACH_SPACING,
+	slotFits,
+} from "../routing/same-side-slots.js";
 import {
 	ancestorGroupIds,
 	compactDetail,
@@ -47,7 +63,10 @@ import {
 } from "./helpers.js";
 import { isSameRankEdge } from "./initial-layout.js";
 import type { SolveDiagramOptions } from "./options.js";
-import { PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN } from "./page-policy.js";
+import {
+	isStrictDeliverability,
+	PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN,
+} from "./page-policy.js";
 import type { DistributedAnchor } from "./ports.js";
 import {
 	anchorSideForEndpoint,
@@ -201,6 +220,98 @@ export function coordinateEdges(
 		softObstacles,
 		options,
 	);
+	const shortPath =
+		(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
+	const sameSideSlots = shortPath
+		? assignSameSideSlots({
+				edges: allocationEdges,
+				nodes,
+				direction,
+				maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
+				occupied: occupiedPortFractions(coordinatedNodes, nodes),
+				portPoints: new Map(
+					coordinatedNodes.map(
+						(node) =>
+							[
+								node.id,
+								new Map(
+									(node.ports ?? []).map(
+										(port) => [port.id, port.anchor] as const,
+									),
+								),
+							] as const,
+					),
+				),
+			})
+		: undefined;
+	// Slot capacity reports are settled once routing is done: a relocated
+	// end frees its slot, so a side it leaves may no longer be crowded.
+	// They keep their place among the diagnostics.
+	const slotReportsAt = diagnostics.length;
+	const slotReports: Diagnostic[] = [...(sameSideSlots?.diagnostics ?? [])];
+	// Fractions taken per node side (ports and slots), for slot retries.
+	const slotOccupancy =
+		sameSideSlots === undefined
+			? undefined
+			: occupiedPortFractions(coordinatedNodes, nodes);
+	for (const slot of sameSideSlots?.assignments.values() ?? []) {
+		const key = `${slot.nodeId}:${slot.anchor}`;
+		slotOccupancy?.set(key, [...(slotOccupancy.get(key) ?? []), slot.fraction]);
+	}
+
+	// Pre-route label estimates guess each label on a straight or L-shaped
+	// path. On default orthogonal pages, once an edge is routed its label follows the real route, so later
+	// edges avoid one box at that route's midpoint instead of the guesses
+	// (#99: guesses walled off a fan-in edge's direct path). A sibling that
+	// shares an end node with the edge is not avoided before it is routed:
+	// its guesses sit on the approach both edges share.
+	const pendingById = new Map(edges.map((edge) => [edge.id, edge]));
+	const routedById = new Map<string, CoordinatedEdge>();
+	let routedCount = 0;
+	const onRouteEstimates = new Map<string, SolvedTextAnnotation | null>();
+	const withRoutedLabelEstimates = (
+		edge: NormalizedEdge,
+		annotations: readonly SolvedTextAnnotation[],
+	): SolvedTextAnnotation[] => {
+		for (; routedCount < coordinated.length; routedCount += 1) {
+			const routed = coordinated[routedCount] as CoordinatedEdge;
+			routedById.set(routed.id, routed);
+		}
+		if (!implicitAnchorDistribution(options)) return [...annotations];
+		const ends = new Set([edge.source.nodeId, edge.target.nodeId]);
+		return annotations.flatMap((annotation) => {
+			if (annotation.surfaceKind !== "edge-label") return [annotation];
+			const routed = routedById.get(annotation.ownerId);
+			if (routed === undefined) {
+				const sibling = pendingById.get(annotation.ownerId);
+				return sibling !== undefined &&
+					sibling.id !== edge.id &&
+					(ends.has(sibling.source.nodeId) || ends.has(sibling.target.nodeId))
+					? []
+					: [annotation];
+			}
+			if ((annotation.surfaceIndex ?? 0) !== 0) return [];
+			let moved = onRouteEstimates.get(routed.id);
+			if (moved === undefined) {
+				const center = labelPlacementOnPolyline(routed.points);
+				moved =
+					center === undefined
+						? null
+						: {
+								...annotation,
+								box: {
+									...annotation.box,
+									x: center.x - annotation.box.width / 2,
+									y: center.y - annotation.box.height / 2,
+								},
+								anchor: center,
+							};
+				onRouteEstimates.set(routed.id, moved);
+			}
+			return moved === null ? [] : [moved];
+		});
+	};
+
 	for (const edge of edges) {
 		railAllocations?.delete(edge.id);
 		const source = nodes.get(edge.source.nodeId);
@@ -209,7 +320,28 @@ export function coordinateEdges(
 			source === undefined || target === undefined
 				? undefined
 				: layeredCheck(edge, source.box, target.box);
-		if (layered !== undefined) {
+		// A same-side slot (#92) that moved off the layered end (a named
+		// port or another end holds that point) takes effect: the edge is
+		// routed instead of keeping the layered end.
+		const offSlot = (role: "source" | "target", point: Point | undefined) => {
+			const slot = sameSideSlots?.assignments.get(`${edge.id}:${role}`);
+			const end = role === "source" ? edge.source : edge.target;
+			const port = coordinatedNodeById
+				.get(end.nodeId)
+				?.ports?.find((entry) => entry.id === end.portId);
+			return (
+				slot !== undefined &&
+				point !== undefined &&
+				port === undefined &&
+				(end.anchor === undefined || end.anchor === slot.anchor) &&
+				Math.hypot(point.x - slot.point.x, point.y - slot.point.y) > 0.5
+			);
+		};
+		if (
+			layered !== undefined &&
+			!offSlot("source", layered[0]) &&
+			!offSlot("target", layered.at(-1))
+		) {
 			const points = layered.map((point) => ({ ...point }));
 			LAYERED_ROUTES.add(points);
 			coordinated.push({ ...edge, points });
@@ -235,12 +367,38 @@ export function coordinateEdges(
 		const targetPort = coordinatedNodeById
 			.get(edge.target.nodeId)
 			?.ports?.find((port) => port.id === edge.target.portId);
+		// Same-side slot (#92) for an end without a named port, whose
+		// authored anchor (if any) is the slot's own side. It takes the place
+		// of distributed / fan-out anchors, in the anchor and the point alike.
+		const slotFor = (
+			role: "source" | "target",
+			port: CoordinatedPort | undefined,
+		) => {
+			const slot = sameSideSlots?.assignments.get(`${edge.id}:${role}`);
+			const authored =
+				role === "source" ? edge.source.anchor : edge.target.anchor;
+			return slot !== undefined &&
+				port === undefined &&
+				(authored === undefined || authored === slot.anchor)
+				? slot
+				: undefined;
+		};
+		const sourceSlot = slotFor("source", sourcePort);
+		const targetSlot = slotFor("target", targetPort);
 		const sourceDistributedAnchor =
-			policyFanOutAnchors.get(endpointDistributionKey(edge.id, "source")) ??
-			distributedAnchors.get(endpointDistributionKey(edge.id, "source"));
+			sourceSlot !== undefined
+				? undefined
+				: (policyFanOutAnchors.get(
+						endpointDistributionKey(edge.id, "source"),
+					) ??
+					distributedAnchors.get(endpointDistributionKey(edge.id, "source")));
 		const targetDistributedAnchor =
-			policyFanOutAnchors.get(endpointDistributionKey(edge.id, "target")) ??
-			distributedAnchors.get(endpointDistributionKey(edge.id, "target"));
+			targetSlot !== undefined
+				? undefined
+				: (policyFanOutAnchors.get(
+						endpointDistributionKey(edge.id, "target"),
+					) ??
+					distributedAnchors.get(endpointDistributionKey(edge.id, "target")));
 		const sourceGeometry = withDistributedAnchor(
 			portGeometry(source, sourcePort),
 			sourceDistributedAnchor,
@@ -249,16 +407,42 @@ export function coordinateEdges(
 			portGeometry(target, targetPort),
 			targetDistributedAnchor,
 		);
+		// A named port's side is authoritative: the end is pinned to the
+		// port point, so another anchor would detach it or leave along the
+		// wrong normal.
 		const sourceAnchor =
-			edge.source.anchor ?? sourceDistributedAnchor?.anchor ?? sourcePort?.side;
+			sourcePort?.side ??
+			edge.source.anchor ??
+			sourceDistributedAnchor?.anchor ??
+			sourceSlot?.anchor;
 		const targetAnchor =
-			edge.target.anchor ?? targetDistributedAnchor?.anchor ?? targetPort?.side;
-		const routeTextObstacles = textObstacles
-			.filter(isLocalRouteClearanceText)
-			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
+			targetPort?.side ??
+			edge.target.anchor ??
+			targetDistributedAnchor?.anchor ??
+			targetSlot?.anchor;
+		const sourcePreassign =
+			sourcePort !== undefined
+				? { point: sourcePort.anchor, anchor: sourcePort.side }
+				: sourceSlot;
+		const targetPreassign =
+			targetPort !== undefined
+				? { point: targetPort.anchor, anchor: targetPort.side }
+				: targetSlot;
+		// A short route keeps off its own port labels too: the label sits
+		// beside the port, clear of the end stub, so only a bend can strike
+		// it (#98 render check).
+		const edgeTextObstacles = withRoutedLabelEstimates(
+			edge,
+			textObstacles.filter(isLocalRouteClearanceText),
+		);
+		const routeTextObstacles = edgeTextObstacles
+			.filter((annotation) =>
+				shortPath
+					? isRouteTextObstacleFor(edge, annotation)
+					: !isEdgeConnectedTextAnnotation(edge, annotation),
+			)
 			.map((annotation) => textObstacleBox(annotation, options));
-		const railTextObstacles = textObstacles
-			.filter(isLocalRouteClearanceText)
+		const railTextObstacles = edgeTextObstacles
 			.filter((annotation) => !isEdgeConnectedTextAnnotation(edge, annotation))
 			.map((annotation) => textObstacleBox(annotation, options));
 		const corridor = edgeCorridorBox(source.box, target.box, queryGutter);
@@ -304,6 +488,14 @@ export function coordinateEdges(
 				railBandObstacles: railTextObstacles,
 				hardObstacles,
 				occupancy: railOccupancy,
+				// The rail starts and ends at the slot or port points the
+				// other routes see as taken, not the sides' default points.
+				...(sourcePreassign === undefined
+					? {}
+					: { sourcePoint: sourcePreassign.point }),
+				...(targetPreassign === undefined
+					? {}
+					: { targetPoint: targetPreassign.point }),
 			});
 			if (acceptedRail !== undefined) {
 				railAllocations?.set(edge.id, acceptedRail.allocation);
@@ -327,6 +519,36 @@ export function coordinateEdges(
 			}
 		}
 
+		// RSOP (#86/#87): foreign nodes/groups are hard; text stays soft with
+		// finite cost so micro-clear can run without treating nodes as soft.
+		// Structural blocks (tables, evidence panels, title bars) are hard
+		// too: a short route through one is not a text-clearance problem that
+		// label remediation could repair.
+		const routeSoftObstacles = shortPath
+			? routeTextObstacles
+			: [
+					...routeNodeObstacles,
+					...softObstacles,
+					...routeGroupObstacles,
+					...routeTextObstacles,
+				];
+		const routeHardObstacles = shortPath
+			? [
+					...hardObstacles,
+					...routeNodeObstacles,
+					...routeGroupObstacles,
+					...softObstacles,
+				]
+			: hardObstacles;
+		const routeHardMetadata: readonly RouteHardObstacleMetadata[] = shortPath
+			? [
+					...routeHardObstacleMetadata,
+					...routeNodeObstacles.map(() => ({ kind: "node" as const })),
+					...routeGroupObstacles.map(() => ({ kind: "node" as const })),
+					...softObstacles.map(() => ({ kind: "evidence" as const })),
+				]
+			: routeHardObstacleMetadata;
+		const nudgePitch = trackPitch(options.idealNudgingDistance);
 		const routeInput: RouteEdgeInput = {
 			kind: options.routeKind ?? "orthogonal",
 			direction,
@@ -334,20 +556,33 @@ export function coordinateEdges(
 			target: targetGeometry,
 			...(sourceAnchor === undefined ? {} : { sourceAnchor }),
 			...(targetAnchor === undefined ? {} : { targetAnchor }),
-			obstacles: [
-				...routeNodeObstacles,
-				...softObstacles,
-				...routeGroupObstacles,
-				...routeTextObstacles,
-			],
+			...(sourcePreassign === undefined
+				? {}
+				: { sourcePoint: sourcePreassign.point }),
+			...(targetPreassign === undefined
+				? {}
+				: { targetPoint: targetPreassign.point }),
+			obstacles: routeSoftObstacles,
+			...(shortPath
+				? {
+						// Local outlines only (the corridor's nodes and the
+						// edge's own), so the cost stays cheap on large pages.
+						outlineBoxes: [
+							...groups.map((group) => group.box),
+							...routeNodeObstacles,
+							source.box,
+							target.box,
+						],
+					}
+				: {}),
 			blockingObstacles: nodeObstacles
 				.filter(
 					(entry) =>
 						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
 				)
 				.map((entry) => entry.box),
-			hardObstacles,
-			hardObstacleMetadata: routeHardObstacleMetadata,
+			hardObstacles: routeHardObstacles,
+			hardObstacleMetadata: routeHardMetadata,
 			corridorMargin,
 			...(options.maxCorners === undefined
 				? {}
@@ -359,9 +594,8 @@ export function coordinateEdges(
 			...(options.maxBacktrackingRatio === undefined
 				? {}
 				: { maxBacktrackingRatio: options.maxBacktrackingRatio }),
+			...(shortPath ? { softTextClearPitch: nudgePitch } : {}),
 			...(() => {
-				const shortPath =
-					(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps";
 				const densePolicy =
 					shortPath ||
 					options.deliverabilityMode === "strict" ||
@@ -396,8 +630,8 @@ export function coordinateEdges(
 			(sourceDistributedAnchor !== undefined ||
 				targetDistributedAnchor !== undefined)
 		) {
-			const freeSourceAnchor = edge.source.anchor ?? sourcePort?.side;
-			const freeTargetAnchor = edge.target.anchor ?? targetPort?.side;
+			const freeSourceAnchor = sourcePort?.side ?? edge.source.anchor;
+			const freeTargetAnchor = targetPort?.side ?? edge.target.anchor;
 			const {
 				sourceAnchor: _pinnedSource,
 				targetAnchor: _pinnedTarget,
@@ -426,19 +660,302 @@ export function coordinateEdges(
 				route = retry;
 			}
 		}
+		// Same-side slots (#92) are a preference: the facing side can be
+		// walled off by nodes between the two ends (a column of nodes) or by
+		// port labels. When the pinned route cannot clear a hard obstacle, or
+		// can only reach its slot along the node border, try the slotted end
+		// on the node's other sides (at a free fraction there) and keep the
+		// cleanest result.
+		// The input the final route was solved with (slots may relocate).
+		let effectiveInput: RouteEdgeInput = routeInput;
+		if (sameSideSlots !== undefined && slotOccupancy !== undefined) {
+			const misdirected = (points: readonly Point[]): number =>
+				routeEndDirectionPenalty(points, {
+					sourceAnchor: sideOfBox(points[0], source.box),
+					targetAnchor: sideOfBox(points.at(-1), target.box),
+				});
+			// A router fallback (no candidate cleared its hard set) ranks
+			// behind every accepted route, whatever its soft hits. An end
+			// entering along its own border reads as pointing nowhere, so it
+			// ranks right after hard hits, ahead of soft text hits.
+			const score = (candidate: typeof route) => {
+				const [hard = 0, ...rest] = routeSeverity(
+					candidate,
+					routeHardObstacles,
+					routeInput.obstacles ?? [],
+				);
+				return [
+					candidate.diagnostics.some(
+						(diagnostic) => diagnostic.code === "routing.obstacle.unavoidable",
+					)
+						? 1
+						: 0,
+					hard,
+					misdirected(candidate.points),
+					...rest,
+					shortArrowStub(candidate.points),
+					// Otherwise the shorter route wins, not the first side tried.
+					Math.round(polylineLength(candidate.points)),
+				];
+			};
+			// Soft hits (port labels, text) also trigger the side search;
+			// candidates are still ranked hard hits first.
+			const blocked = (candidate: typeof route) =>
+				routeObstacleHits(candidate.points, routeHardObstacles) > 0 ||
+				routeObstacleHits(candidate.points, routeInput.obstacles ?? []) > 0 ||
+				misdirected(candidate.points) > 0 ||
+				shortArrowStub(candidate.points) > 0;
+			// Each slotted end may take any side; the other end keeps its
+			// pinned point. Both ends move together, so a pair that only
+			// works jointly (both ends off their facing sides) is found.
+			type EndChoice = {
+				side: CoordinatedPort["side"];
+				fraction: number;
+				input: Partial<RouteEdgeInput>;
+				/** Whether the side had room (slot count and spacing). */
+				fits: boolean;
+			} | null;
+			// The end's choice on one side, at a free fraction there (with
+			// `extra` fractions taken too); a side without room (slot count
+			// or spacing, as the initial assignment checks) is reported if
+			// taken.
+			const choiceOn = (
+				endpoint: "source" | "target",
+				side: CoordinatedPort["side"],
+				extra: readonly number[] = [],
+			): NonNullable<EndChoice> => {
+				const nodeId =
+					endpoint === "source" ? edge.source.nodeId : edge.target.nodeId;
+				const geometry = endpoint === "source" ? source : target;
+				const occupied = [
+					...(slotOccupancy.get(`${nodeId}:${side}`) ?? []),
+					...extra,
+				];
+				const fraction = freeFractions(1, occupied)[0] ?? 0.5;
+				const length =
+					side === "left" || side === "right"
+						? geometry.box.height
+						: geometry.box.width;
+				const point = sidePointAtFraction(geometry.box, side, fraction);
+				return {
+					side,
+					fraction,
+					fits: slotFits(
+						fraction,
+						occupied,
+						length,
+						options.maxAttachPointsPerSide ?? 3,
+					),
+					input:
+						endpoint === "source"
+							? { sourceAnchor: side, sourcePoint: point }
+							: { targetAnchor: side, targetPoint: point },
+				};
+			};
+			// Every other side may be tried.
+			const choicesFor = (endpoint: "source" | "target"): EndChoice[] => {
+				const slot = endpoint === "source" ? sourceSlot : targetSlot;
+				if (slot === undefined) return [null];
+				return [
+					null,
+					...(["right", "bottom", "left", "top"] as const)
+						.filter((side) => side !== slot.anchor)
+						.map((side) => choiceOn(endpoint, side)),
+				];
+			};
+			// Both ends of a self-loop moving to one side: the target is
+			// placed beside the source's new fraction, not on it.
+			const pairedTarget = (
+				sourceChoice: EndChoice,
+				targetChoice: EndChoice,
+			): EndChoice =>
+				sourceChoice !== null &&
+				targetChoice !== null &&
+				edge.source.nodeId === edge.target.nodeId &&
+				sourceChoice.side === targetChoice.side
+					? choiceOn("target", targetChoice.side, [sourceChoice.fraction])
+					: targetChoice;
+			if (blocked(route)) {
+				let best: {
+					route: typeof route;
+					score: number[];
+					picks: [EndChoice, EndChoice];
+				} = {
+					route,
+					score: withCrowdedEnds(score(route), 0),
+					picks: [null, null],
+				};
+				for (const sourceChoice of choicesFor("source")) {
+					for (const candidateTarget of choicesFor("target")) {
+						if (sourceChoice === null && candidateTarget === null) continue;
+						const targetChoice = pairedTarget(sourceChoice, candidateTarget);
+						const candidate = routeEdge({
+							...routeInput,
+							...(sourceChoice?.input ?? {}),
+							...(targetChoice?.input ?? {}),
+						});
+						const candidateScore = withCrowdedEnds(
+							score(candidate),
+							[sourceChoice, targetChoice].filter(
+								(choice) => choice !== null && !choice.fits,
+							).length,
+						);
+						if (compareRouteSeverity(candidateScore, best.score) < 0) {
+							best = {
+								route: candidate,
+								score: candidateScore,
+								picks: [sourceChoice, targetChoice],
+							};
+						}
+					}
+				}
+				route = best.route;
+				effectiveInput = {
+					...routeInput,
+					...(best.picks[0]?.input ?? {}),
+					...(best.picks[1]?.input ?? {}),
+				};
+				best.picks.forEach((pick, index) => {
+					if (pick === null) return;
+					const nodeId = index === 0 ? edge.source.nodeId : edge.target.nodeId;
+					const key = `${nodeId}:${pick.side}`;
+					// The end leaves its assigned slot: free it for later ends.
+					const vacated = index === 0 ? sourceSlot : targetSlot;
+					if (vacated !== undefined) {
+						const vacatedKey = `${nodeId}:${vacated.anchor}`;
+						const remaining = [...(slotOccupancy.get(vacatedKey) ?? [])];
+						const at = remaining.indexOf(vacated.fraction);
+						if (at >= 0) remaining.splice(at, 1);
+						slotOccupancy.set(vacatedKey, remaining);
+					}
+					if (!pick.fits) {
+						slotReports.push({
+							severity: "warning",
+							code: "routing.channel.capacity_exhausted",
+							message: `Relocated end of ${edge.id} crowds ${nodeId}/${pick.side}: no slot left there, or under ${MIN_ATTACH_SPACING}px from its ports and ends.`,
+							detail: {
+								nodeId,
+								side: pick.side,
+								edgeIds: edge.id,
+								maxAttachPointsPerSide: options.maxAttachPointsPerSide ?? 3,
+								minSpacing: MIN_ATTACH_SPACING,
+								conflictClass: "fixed-geometry-block",
+								remediationType: "route-rail-or-page-split",
+							},
+						});
+					}
+					slotOccupancy.set(key, [
+						...(slotOccupancy.get(key) ?? []),
+						pick.fraction,
+					]);
+				});
+			}
+		}
+		// #95: a short-orthogonal route that still enters a hard obstacle
+		// (foreign node, group, hard text) is never delivered as the answer
+		// when the general obstacle-avoiding router finds a clean one within
+		// the detour and bend budget; otherwise the pierce stays reported
+		// (`routing.obstacle.unavoidable`).
+		// The gate checks every foreign node, not only the corridor's.
+		const gateObstacles = [
+			...routeHardObstacles,
+			...(routeInput.blockingObstacles ?? []),
+		];
+		// Strict pages (`strict: true` or `deliverabilityMode: "strict"`)
+		// keep the 0–2 bend contract (#84) and report unsat.
+		if (
+			shortPath &&
+			!isStrictDeliverability(options) &&
+			routeObstacleHits(route.points, gateObstacles) > 0
+		) {
+			const detour = effectiveInput.maxDetourRatio ?? 3;
+			const routed = routeEdge({
+				...effectiveInput,
+				kind: "obstacle-avoiding",
+			});
+			// Keep slot and port points: the fallback may slide an end along
+			// its side, onto another edge's slot. A fallback whose ends cannot
+			// be pinned back is rejected below.
+			const around = {
+				...routed,
+				points: pinRouteEnds(
+					routed.points,
+					effectiveInput.sourcePoint,
+					effectiveInput.targetPoint,
+				),
+			};
+			// Same detour measure as the short-route tournament (Euclidean).
+			if (
+				routeEndsAt(
+					around.points,
+					effectiveInput.sourcePoint,
+					effectiveInput.targetPoint,
+				) &&
+				routeObstacleHits(around.points, gateObstacles) === 0 &&
+				around.points.length - 2 <= SHORT_PATH_FALLBACK_MAX_BENDS &&
+				polylineLength(around.points) <=
+					detour * directDistance(around.points[0], around.points.at(-1))
+			) {
+				route = {
+					points: around.points,
+					diagnostics: [
+						...around.diagnostics.filter(
+							(diagnostic) => diagnostic.severity !== "error",
+						),
+						{
+							severity: "info",
+							code: "routing.short-orthogonal.obstacle-fallback",
+							message:
+								"No 0–2 bend short-orthogonal route clears the hard obstacles; used an obstacle-avoiding route within maxDetourRatio instead of piercing.",
+							detail: {
+								routingPolicy: "short-orthogonal-jumps",
+								bends: around.points.length - 2,
+							},
+						},
+					],
+				};
+			}
+		}
 		diagnostics.push(
 			...route.diagnostics.map((diagnostic) => ({
 				...diagnostic,
 				detail: { ...diagnostic.detail, edgeId: edge.id },
 			})),
 		);
+
 		coordinated.push({
 			...edge,
 			points: route.points,
 		});
 	}
 
-	const finalized = finalizeCoordinatedEdges(
+	// A slot report stands only while its side is still crowded in the
+	// final occupancy: over the slot count, or ends and port centres under
+	// the minimum spacing apart.
+	// The cap the slot assignment used (a NaN takes the default there too).
+	const maxSlots = attachPointCap(options.maxAttachPointsPerSide);
+	const stillCrowded = (diagnostic: Diagnostic): boolean => {
+		if (diagnostic.code !== "routing.channel.capacity_exhausted") return true;
+		const nodeId = diagnostic.detail?.nodeId;
+		const side = diagnostic.detail?.side;
+		const box = typeof nodeId === "string" ? nodes.get(nodeId)?.box : undefined;
+		if (box === undefined || typeof side !== "string") return true;
+		const fractions = [...(slotOccupancy?.get(`${nodeId}:${side}`) ?? [])].sort(
+			(left, right) => left - right,
+		);
+		if (fractions.length > maxSlots) return true;
+		const length = side === "left" || side === "right" ? box.height : box.width;
+		return fractions
+			.slice(1)
+			.some(
+				(fraction, index) =>
+					(fraction - (fractions[index] as number)) * length <
+					MIN_ATTACH_SPACING - 1e-6,
+			);
+	};
+	diagnostics.splice(slotReportsAt, 0, ...slotReports.filter(stillCrowded));
+
+	let finalized = finalizeCoordinatedEdges(
 		coordinated,
 		nodes,
 		nodeObstacles,
@@ -449,6 +966,98 @@ export function coordinateEdges(
 		options,
 		groups,
 	);
+	// Opt-in Left-Edge channel nudge (#88), before labels and bounds are
+	// derived from the routes.
+	if (shortPath && options.rsopChannelNudge === true) {
+		const nudged = nudgeOrthogonalRoutes(finalized, {
+			idealNudgingDistance: trackPitch(options.idealNudgingDistance),
+			hardObstacles: [
+				...hardObstacles,
+				...nodeObstacles.map((entry) => entry.box),
+			],
+			nodeOutlines: [...nodes.values()].map((geometry) => geometry.box),
+		});
+		// The edge's own obstacle set (soft, group, text, nodes, hard).
+		const obstaclesFor = (edge: CoordinatedEdge): Box[] => [
+			...hardObstacles,
+			...softObstacles,
+			...nodeObstacles
+				.filter(
+					(entry) =>
+						entry.id !== edge.source.nodeId && entry.id !== edge.target.nodeId,
+				)
+				.map((entry) => entry.box),
+			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+			...textObstacles
+				.filter(isLocalRouteClearanceText)
+				.filter((annotation) => isRouteTextObstacleFor(edge, annotation))
+				.map((annotation) => textObstacleBox(annotation, options)),
+		];
+		const before = finalized;
+		// Keep a nudged route only if it hits no more of its obstacle set than
+		// before, the same test the separator applies.
+		const accepted = finalized.map((edge, index) => {
+			const moved = nudged.edges[index];
+			if (moved === undefined || moved.points === edge.points) return edge;
+			const obstacles = obstaclesFor(edge);
+			// Nor may it trade one obstacle for another (text for a table).
+			return routeObstacleHits(moved.points, obstacles) >
+				routeObstacleHits(edge.points, obstacles) ||
+				gainsObstacle(edge.points, moved.points, obstacles)
+				? edge
+				: moved;
+		});
+		// Nor may a move cross more routes than the edge did in place.
+		const uncrossed = revertCrossingMoves(before, accepted);
+		// Those rollbacks are per edge: settle the channel as a group again.
+		const settled = revertCoincidentMoves(before, uncrossed);
+		finalized = settled.edges;
+		// A nudged route that now clears its text leaves no text-clearance
+		// diagnostic behind (it would start remediation on stale evidence).
+		// Only text counts here: other obstacles it still meets have their
+		// own diagnostics.
+		// The router's own rule: an edge's own port labels count, so an
+		// unresolved strike through one stays reported.
+		const textFor = (edge: CoordinatedEdge): Box[] =>
+			textObstacles
+				.filter(isLocalRouteClearanceText)
+				.filter((annotation) => isRouteTextObstacleFor(edge, annotation))
+				.map((annotation) => textObstacleBox(annotation, options));
+		const nudgedById = new Map(
+			finalized
+				.filter((edge, index) => edge.points !== before[index]?.points)
+				.map((edge) => [edge.id, edge]),
+		);
+		for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+			const diagnostic = diagnostics[index];
+			if (diagnostic?.code !== "routing.text-clearance.unresolved") continue;
+			const edgeId = diagnostic.detail?.edgeId;
+			const edge =
+				typeof edgeId === "string" ? nudgedById.get(edgeId) : undefined;
+			if (
+				edge !== undefined &&
+				routeObstacleHits(edge.points, textFor(edge)) === 0
+			) {
+				diagnostics.splice(index, 1);
+			}
+		}
+		if (nudged.tracks.capacityExhausted || settled.overlapping) {
+			diagnostics.push({
+				severity: "warning",
+				code: "routing.channel.capacity_exhausted",
+				message: nudged.tracks.capacityExhausted
+					? "Channel track capacity exhausted while spacing parallel short-orthogonal routes; bus or page-split remediation required."
+					: "Some parallel short-orthogonal routes could not leave their shared line (a track was blocked); bus or page-split remediation required.",
+				detail: {
+					conflictClass: "fixed-geometry-block",
+					remediationType: "route-rail-or-page-split",
+					maxTracksUsed: nudged.tracks.maxTracksUsed,
+					routingPolicy: "short-orthogonal-jumps",
+					...(settled.overlapping ? { coincidentRoutes: true } : {}),
+				},
+			});
+		}
+	}
 	pruneResolvedRouteDiagnostics(
 		diagnostics,
 		finalized,
@@ -482,6 +1091,19 @@ function routeSeverity(
 			.length,
 		route.diagnostics.length,
 	];
+}
+
+/**
+ * A relocation candidate's score with its crowded ends (moved onto a side
+ * without room: slot count or spacing) ranked just before length: of two
+ * equally clean candidates, one whose ends fit wins over one that crowds a
+ * side, whatever the order they were tried in.
+ */
+export function withCrowdedEnds(
+	score: readonly number[],
+	crowded: number,
+): number[] {
+	return [...score.slice(0, -1), crowded, ...score.slice(-1)];
 }
 
 function compareRouteSeverity(
@@ -532,11 +1154,11 @@ export function pruneResolvedRouteDiagnostics(
 			...hardObstacles,
 			...softObstacles,
 			...groupObstaclesForEdge(edge, groups, options.obstacleMargin ?? 0),
+			// The router's own text rule: a strike through the edge's own
+			// port label keeps the route unclean.
 			...textObstacles
 				.filter(isLocalRouteClearanceText)
-				.filter(
-					(annotation) => !isEdgeConnectedTextAnnotation(edge, annotation),
-				)
+				.filter((annotation) => isRouteTextObstacleFor(edge, annotation))
 				.map((annotation) => textObstacleBox(annotation, options)),
 		];
 		const result = routeObstacleHits(edge.points, obstacles) === 0;
@@ -618,6 +1240,7 @@ export function finalizeCoordinatedEdges(
 		...softObstacles.map((box) => ({ box })),
 		...textObstacles.filter(isLocalRouteClearanceText).map((annotation) => ({
 			box: textObstacleBox(annotation, options),
+			...(annotation.surfaceKind === "edge-label" ? { edgeLabel: true } : {}),
 			exemptEdgeIds: new Set(
 				edges
 					.filter(
@@ -641,10 +1264,11 @@ export function finalizeCoordinatedEdges(
 			),
 		})),
 	];
-	// Border detachment, endpoint spreading and outline snapping belong to
-	// implicit distribution. Obstacle-avoiding / explicit anchorCapacity
-	// pages keep the router's geometry: the strict dense label gate is tuned
-	// against it and extra stubs there create unresolved label crossings.
+	// Border detachment and outline snapping belong to implicit
+	// distribution. Obstacle-avoiding / explicit anchorCapacity pages keep
+	// the router's geometry: the strict dense label gate is tuned against it
+	// and extra stubs there create unresolved label crossings. Endpoint
+	// spreading also runs for obstacle-avoiding pages (#76).
 	// Detach first so every endpoint has its final side before coincident
 	// endpoints on that side are spread apart.
 	// Routes taken from the global layout are final: the post-passes route
@@ -660,14 +1284,17 @@ export function finalizeCoordinatedEdges(
 		: free;
 	const detachedById = new Map(detached.map((edge) => [edge.id, edge]));
 	// Layered ends stay put; the others move off them.
-	const spread = implicit
-		? spreadCollidingEndpoints(
-				edges.map((edge) => detachedById.get(edge.id) ?? edge),
-				nodes,
-				obstacles,
-				layered,
-			)
-		: detached;
+	// Coincident ends are spread for obstacle-avoiding pages too (#76):
+	// their tournament picks side slots per edge, so ends can share a point.
+	const spread =
+		implicit || (options.routeKind ?? "orthogonal") === "obstacle-avoiding"
+			? spreadCollidingEndpoints(
+					edges.map((edge) => detachedById.get(edge.id) ?? edge),
+					nodes,
+					obstacles,
+					layered,
+				)
+			: detached;
 	const byId = new Map(spread.map((edge) => [edge.id, edge]));
 	const separated = separateCoordinatedEdges(
 		edges.map((edge) => byId.get(edge.id) ?? edge),
@@ -676,15 +1303,698 @@ export function finalizeCoordinatedEdges(
 		options,
 		layered,
 	);
+	// Implicit, same-side-slot and obstacle-avoiding ends (tournament slots
+	// and spread ends) sit on the bounding box; move them onto a
+	// non-rectangular outline (the end segment keeps its normal). Elsewhere
+	// only layered routes' ends are snapped.
+	const routeKind = options.routeKind ?? "orthogonal";
 	const snapped = snapEndpointsToShapeOutline(
 		separated,
 		nodes,
-		implicit ? undefined : layered,
+		implicit ||
+			routeKind === "short-orthogonal-jumps" ||
+			routeKind === "obstacle-avoiding"
+			? undefined
+			: layered,
 	);
-	for (const edge of snapped) {
+	// Short routes: interior segments the post-passes left on a group frame
+	// or node side step clear of it (#98 render check).
+	const cleared =
+		(options.routeKind ?? "orthogonal") === "short-orthogonal-jumps"
+			? clearOutlineRuns(
+					snapped,
+					[
+						...groups.map((group) => group.box),
+						...[...nodes.values()].map((geometry) => geometry.box),
+					],
+					obstacles,
+					layered,
+				)
+			: snapped;
+	// Default orthogonal pages: straighten sub-2px jogs and give short end
+	// stubs room for the arrowhead (#99).
+	const tidied = implicit
+		? tidyRouteEnds(
+				uncrossBySliding(cleared, nodes, obstacles, layered),
+				nodes,
+				obstacles,
+				layered,
+			)
+		: cleared;
+	for (const edge of tidied) {
 		if (layered.has(edge.id)) LAYERED_ROUTES.add(edge.points);
 	}
-	return snapped;
+	return tidied;
+}
+
+/** A segment this close to a parallel outline side reads as part of it. */
+const OUTLINE_CLEARANCE = 4;
+/** Where a segment lands when it steps off an outline. */
+const OUTLINE_STEP = 8;
+/** Parallel segments of different edges closer than this read as one. */
+const NEAR_PARALLEL_GAP = 6;
+
+interface AxisSegment {
+	horizontal: boolean;
+	at: number;
+	lo: number;
+	hi: number;
+}
+
+function axisSegment(a: Point, b: Point): AxisSegment | undefined {
+	const horizontal = Math.abs(a.y - b.y) < 0.01;
+	if (!horizontal && Math.abs(a.x - b.x) >= 0.01) return undefined;
+	return {
+		horizontal,
+		at: horizontal ? a.y : a.x,
+		lo: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
+		hi: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y),
+	};
+}
+
+/** Outline sides parallel to `segment` within `clearance`, as coordinates. */
+function outlineSidesNear(
+	segment: AxisSegment,
+	outlines: readonly Box[],
+	clearance: number,
+): number[] {
+	const near: number[] = [];
+	for (const box of outlines) {
+		const from = segment.horizontal ? box.x : box.y;
+		const to = segment.horizontal ? box.x + box.width : box.y + box.height;
+		if (Math.min(segment.hi, to) - Math.max(segment.lo, from) <= 1) continue;
+		const sides = segment.horizontal
+			? [box.y, box.y + box.height]
+			: [box.x, box.x + box.width];
+		for (const side of sides) {
+			if (Math.abs(side - segment.at) <= clearance) near.push(side);
+		}
+	}
+	return near;
+}
+
+/**
+ * Step interior segments off group frames and node sides they run along
+ * (within {@link OUTLINE_CLEARANCE}): the segment moves to
+ * {@link OUTLINE_STEP} from the side, on the side's nearer free face.
+ * A move is kept only when the route gains no obstacle hit, its
+ * neighbouring segments keep their direction (and the end stubs their
+ * length), no other edge's parallel segment ends up next to it, and the
+ * route neither crosses more of the other routes nor overlaps them along
+ * more of its length than before.
+ */
+export function clearOutlineRuns(
+	edges: readonly CoordinatedEdge[],
+	outlines: readonly Box[],
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	const routes = edges.map((edge) =>
+		edge.points.map((point) => ({ ...point })),
+	);
+	const otherSegments = (skip: number): AxisSegment[] =>
+		routes.flatMap((points, index) =>
+			index === skip
+				? []
+				: points.slice(1).flatMap((point, at) => {
+						const segment = axisSegment(points[at] as Point, point);
+						return segment === undefined ? [] : [segment];
+					}),
+		);
+	edges.forEach((edge, edgeIndex) => {
+		if (fixed.has(edge.id)) return;
+		const points = routes[edgeIndex] as Point[];
+		const edgeObstacles = obstaclesForEdge(edge, obstacles);
+		for (let index = 1; index + 2 < points.length; index += 1) {
+			const segment = axisSegment(
+				points[index] as Point,
+				points[index + 1] as Point,
+			);
+			if (segment === undefined) continue;
+			const sides = outlineSidesNear(segment, outlines, OUTLINE_CLEARANCE);
+			if (sides.length === 0) continue;
+			const targets = sides
+				.flatMap((side) => [side - OUTLINE_STEP, side + OUTLINE_STEP])
+				.sort(
+					(left, right) =>
+						Math.abs(left - segment.at) - Math.abs(right - segment.at),
+				);
+			const before = routeObstacleHits(points, edgeObstacles);
+			const others = otherSegments(edgeIndex);
+			// The move stretches both neighbouring segments, which can carry
+			// the route across another connector as the routes stand now.
+			const otherEdges = edges.flatMap((other, at) =>
+				at === edgeIndex ? [] : [{ ...other, points: routes[at] as Point[] }],
+			);
+			const crossings = (route: Point[]) =>
+				detectOrthogonalEdgeCrossings([
+					{ ...edge, points: route },
+					...otherEdges,
+				]).filter(
+					(crossing) =>
+						crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
+				).length;
+			const crossingsBefore = crossings(points);
+			// The stretched neighbours can also land on a parallel segment of
+			// another connector, which the crossing count ignores.
+			const overlapBefore = collinearOverlapLength(points, otherEdges);
+			for (const target of targets) {
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [index, index + 1]) {
+					const point = moved[at] as Point;
+					if (segment.horizontal) point.y = target;
+					else point.x = target;
+				}
+				const candidate = axisSegment(
+					moved[index] as Point,
+					moved[index + 1] as Point,
+				);
+				if (candidate === undefined) continue;
+				if (outlineSidesNear(candidate, outlines, OUTLINE_CLEARANCE).length) {
+					continue;
+				}
+				if (!keepsNeighbours(points, moved, index)) continue;
+				if (routeObstacleHits(moved, edgeObstacles) > before) continue;
+				if (gainsObstacle(points, moved, edgeObstacles)) continue;
+				const crowded = others.some(
+					(other) =>
+						other.horizontal === candidate.horizontal &&
+						Math.abs(other.at - candidate.at) < NEAR_PARALLEL_GAP &&
+						Math.min(other.hi, candidate.hi) -
+							Math.max(other.lo, candidate.lo) >
+							0,
+				);
+				if (crowded) continue;
+				if (crossings(moved) > crossingsBefore) continue;
+				if (collinearOverlapLength(moved, otherEdges) > overlapBefore + 1e-6) {
+					continue;
+				}
+				routes[edgeIndex] = moved;
+				points.splice(0, points.length, ...moved);
+				break;
+			}
+		}
+	});
+	return edges.map((edge, index) => ({
+		...edge,
+		points: routes[index] ?? edge.points,
+	}));
+}
+
+/** Pitch between a slid segment and the segment it steps past. */
+const UNCROSS_PITCH = 12;
+/** Distance from a route end where a slid segment may turn. */
+const UNCROSS_STUB = 24;
+
+function axisSegments(points: readonly Point[]): AxisSegment[] {
+	const out: AxisSegment[] = [];
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const a = points[index] as Point;
+		const b = points[index + 1] as Point;
+		const horizontal = Math.abs(a.y - b.y) < 1e-6;
+		out.push(
+			horizontal
+				? {
+						horizontal,
+						at: a.y,
+						lo: Math.min(a.x, b.x),
+						hi: Math.max(a.x, b.x),
+					}
+				: {
+						horizontal,
+						at: a.x,
+						lo: Math.min(a.y, b.y),
+						hi: Math.max(a.y, b.y),
+					},
+		);
+	}
+	return out;
+}
+
+/** Proper crossings between two routes (touching ends do not count). */
+function routeCrossings(
+	left: readonly AxisSegment[],
+	right: readonly AxisSegment[],
+): number {
+	let count = 0;
+	for (const s of left) {
+		for (const t of right) {
+			if (s.horizontal === t.horizontal) continue;
+			if (t.at > s.lo && t.at < s.hi && s.at > t.lo && s.at < t.hi) {
+				count += 1;
+			}
+		}
+	}
+	return count;
+}
+
+/** Overlap length of parallel segments closer than NEAR_PARALLEL_GAP. */
+function nearParallelOverlap(
+	left: readonly AxisSegment[],
+	right: readonly AxisSegment[],
+): number {
+	let total = 0;
+	for (const s of left) {
+		for (const t of right) {
+			if (s.horizontal !== t.horizontal) continue;
+			if (Math.abs(s.at - t.at) >= NEAR_PARALLEL_GAP) continue;
+			total += Math.max(0, Math.min(s.hi, t.hi) - Math.max(s.lo, t.lo));
+		}
+	}
+	return total;
+}
+
+/** Length a route runs within OUTLINE_CLEARANCE of a parallel box side. */
+function outlineRunLength(
+	segments: readonly AxisSegment[],
+	boxes: readonly Box[],
+): number {
+	let total = 0;
+	for (const s of segments) {
+		for (const box of boxes) {
+			const sides: [number, number, number][] = s.horizontal
+				? [
+						[box.y, box.x, box.x + box.width],
+						[box.y + box.height, box.x, box.x + box.width],
+					]
+				: [
+						[box.x, box.y, box.y + box.height],
+						[box.x + box.width, box.y, box.y + box.height],
+					];
+			for (const [at, lo, hi] of sides) {
+				if (Math.abs(at - s.at) > OUTLINE_CLEARANCE) continue;
+				total += Math.max(0, Math.min(s.hi, hi) - Math.max(s.lo, lo));
+			}
+		}
+	}
+	return total;
+}
+
+type SlidRoute = { edge: CoordinatedEdge; segments: AxisSegment[] };
+
+/**
+ * Routes reachable from `entry` by sliding one interior segment: onto the
+ * next parallel segment of its own route (merging the two), one pitch past
+ * a parallel segment of a route it may cross, or one stub from either end.
+ * Each keeps both end segments' direction and arrowhead room, stays out of
+ * its own end nodes, and adds no obstacle hits, near-parallel overlap
+ * (against `others`) or outline runs.
+ */
+function slideCandidates(
+	entry: SlidRoute,
+	others: readonly SlidRoute[],
+	partners: readonly SlidRoute[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	nodeBoxes: readonly Box[],
+	obstacles: readonly PostPassObstacle[],
+): SlidRoute[] {
+	const { edge } = entry;
+	const points = edge.points;
+	const n = points.length;
+	if (n < 4) return [];
+	// Edge labels are placed after routing, around the final routes.
+	const edgeObstacles = obstaclesForEdge(
+		edge,
+		obstacles.filter((obstacle) => obstacle.edgeLabel !== true),
+	);
+	const ownBoxes = [edge.source.nodeId, edge.target.nodeId].flatMap(
+		(nodeId) => {
+			const box = nodes.get(nodeId)?.box;
+			return box === undefined ? [] : [insetBox(box, 1)];
+		},
+	);
+	const cost = (route: readonly Point[], segments: AxisSegment[]) => [
+		routeObstacleHits(route, edgeObstacles),
+		others.reduce(
+			(sum, other) => sum + nearParallelOverlap(segments, other.segments),
+			0,
+		),
+		outlineRunLength(segments, nodeBoxes),
+	];
+	const baseCost = cost(points, entry.segments);
+	const sameDirection = (a: Point, b: Point, c: Point, d: Point) =>
+		Math.sign(b.x - a.x) === Math.sign(d.x - c.x) &&
+		Math.sign(b.y - a.y) === Math.sign(d.y - c.y);
+	const firstBefore = entry.segments[0] as AxisSegment;
+	const lastBefore = entry.segments.at(-1) as AxisSegment;
+	const start = points[0] as Point;
+	const end = points[n - 1] as Point;
+	const out: SlidRoute[] = [];
+	for (let i = 1; i + 1 < n - 1; i += 1) {
+		const segment = entry.segments[i] as AxisSegment;
+		const targets = new Set<number>();
+		for (const own of [i - 2, i + 2]) {
+			const parallel = entry.segments[own];
+			if (parallel !== undefined) targets.add(parallel.at);
+		}
+		for (const partner of partners) {
+			for (const other of partner.segments) {
+				if (other.horizontal !== segment.horizontal) continue;
+				targets.add(other.at - UNCROSS_PITCH);
+				targets.add(other.at + UNCROSS_PITCH);
+			}
+		}
+		for (const point of [start, end]) {
+			const at = segment.horizontal ? point.y : point.x;
+			targets.add(at - UNCROSS_STUB);
+			targets.add(at + UNCROSS_STUB);
+		}
+		for (const at of [...targets].sort((a, b) => a - b)) {
+			if (Math.abs(at - segment.at) < 1e-6) continue;
+			const moved = points.map((point) => ({ ...point }));
+			for (const k of [i, i + 1]) {
+				const point = moved[k] as Point;
+				if (segment.horizontal) point.y = at;
+				else point.x = at;
+			}
+			const candidate = simplifyRoute(moved);
+			const m = candidate.length;
+			if (m < 2) continue;
+			if (
+				!sameDirection(
+					start,
+					points[1] as Point,
+					candidate[0] as Point,
+					candidate[1] as Point,
+				) ||
+				!sameDirection(
+					points[n - 2] as Point,
+					end,
+					candidate[m - 2] as Point,
+					candidate[m - 1] as Point,
+				)
+			) {
+				continue;
+			}
+			const segments = axisSegments(candidate);
+			const first = segments[0] as AxisSegment;
+			const last = segments.at(-1) as AxisSegment;
+			if (
+				first.hi - first.lo <
+					Math.min(END_STUB, firstBefore.hi - firstBefore.lo) ||
+				last.hi - last.lo < Math.min(END_STUB, lastBefore.hi - lastBefore.lo)
+			) {
+				continue;
+			}
+			if (m > 2 && routeObstacleHits(candidate.slice(1, -1), ownBoxes) > 0) {
+				continue;
+			}
+			const candidateCost = cost(candidate, segments);
+			if (
+				candidateCost.some(
+					(value, at) => value > (baseCost[at] as number) + 1e-6,
+				)
+			) {
+				continue;
+			}
+			if (gainsObstacle(points, candidate, edgeObstacles)) continue;
+			out.push({ edge: { ...edge, points: candidate }, segments });
+		}
+	}
+	return out;
+}
+
+/**
+ * Default orthogonal routes are solved one edge at a time, blind to each
+ * other, so a fan-in can cross itself (#99). Slide interior segments of a
+ * crossing edge (see {@link slideCandidates}) when that lowers its
+ * crossings; when no single slide does, try it together with a slide of
+ * an edge it crosses (two nested edges often only untangle jointly).
+ */
+function uncrossBySliding(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	const current: SlidRoute[] = edges.map((edge) => ({
+		edge,
+		segments: axisSegments(edge.points),
+	}));
+	const nodeBoxes = [...nodes.values()].map((geometry) => geometry.box);
+	const crossingsAgainst = (
+		route: SlidRoute,
+		others: readonly SlidRoute[],
+	): number =>
+		others.reduce(
+			(sum, other) => sum + routeCrossings(route.segments, other.segments),
+			0,
+		);
+	const length = (route: SlidRoute) => polylineLength(route.edge.points);
+	for (let round = 0; round < 3; round += 1) {
+		let changed = false;
+		for (const [index, entry] of current.entries()) {
+			if (fixed.has(entry.edge.id)) continue;
+			const others = current.filter((_, at) => at !== index);
+			const before = crossingsAgainst(entry, others);
+			if (before === 0) continue;
+			const partners = others.filter(
+				(other) =>
+					!fixed.has(other.edge.id) &&
+					routeCrossings(entry.segments, other.segments) > 0,
+			);
+			const candidates = slideCandidates(
+				entry,
+				others,
+				partners,
+				nodes,
+				nodeBoxes,
+				obstacles,
+			);
+			let best: { moves: [number, SlidRoute][]; score: number[] } | undefined;
+			for (const candidate of candidates) {
+				const after = crossingsAgainst(candidate, others);
+				if (after >= before) continue;
+				const score = [after, Math.round(length(candidate))];
+				if (best === undefined || compareRouteSeverity(score, best.score) < 0) {
+					best = { moves: [[index, candidate]], score };
+				}
+			}
+			if (best === undefined) {
+				for (const partner of partners) {
+					const partnerIndex = current.indexOf(partner);
+					const rest = others.filter((other) => other !== partner);
+					const pairBefore = before + crossingsAgainst(partner, rest);
+					for (const candidate of candidates) {
+						const partnerOthers = [...rest, candidate];
+						for (const moved of slideCandidates(
+							partner,
+							partnerOthers,
+							[candidate],
+							nodes,
+							nodeBoxes,
+							obstacles,
+						)) {
+							const after =
+								crossingsAgainst(candidate, rest) +
+								crossingsAgainst(moved, partnerOthers);
+							if (after >= pairBefore) continue;
+							const score = [
+								after,
+								Math.round(length(candidate) + length(moved)),
+							];
+							if (
+								best === undefined ||
+								compareRouteSeverity(score, best.score) < 0
+							) {
+								best = {
+									moves: [
+										[index, candidate],
+										[partnerIndex, moved],
+									],
+									score,
+								};
+							}
+						}
+					}
+				}
+			}
+			if (best !== undefined) {
+				for (const [at, route] of best.moves) current[at] = route;
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+	return current.map((entry) => entry.edge);
+}
+
+/** Jogs shorter than this are straightened. */
+const MICRO_JOG = 2;
+/** Final segment length that holds the arrowhead clear of the last bend. */
+const END_STUB = 16;
+
+/**
+ * Straighten sub-{@link MICRO_JOG} jogs and lengthen final segments shorter
+ * than {@link END_STUB} (#99). A jog is removed by moving one of the two
+ * parallel segments beside it onto the other; when that segment is an end
+ * segment the end slides along its node side (never a named port's end,
+ * and only within the side). A short final segment gets room by moving the
+ * segment before it outward. Every change keeps the route's obstacle hits
+ * and neighbouring segment directions, and adds no crossing or collinear
+ * overlap with the other routes.
+ */
+export function tidyRouteEnds(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	// Edges are tidied in turn against the others as they stand: a moved
+	// segment sweeps a strip that may hold another connector, so no move
+	// may make its route cross more of them.
+	const result = [...edges];
+	result.forEach((edge, edgeIndex) => {
+		if (fixed.has(edge.id) || edge.points.length < 3) return;
+		const edgeObstacles = obstaclesForEdge(edge, obstacles);
+		let points = edge.points.map((point) => ({ ...point }));
+		const hits = (route: readonly Point[]) =>
+			routeObstacleHits(route, edgeObstacles);
+		const others = result.filter((_, at) => at !== edgeIndex);
+		const crossings = (route: readonly Point[]) =>
+			detectOrthogonalEdgeCrossings([
+				{ ...edge, points: route as Point[] },
+				...others,
+			]).filter(
+				(crossing) =>
+					crossing.underEdgeId === edge.id || crossing.overEdgeId === edge.id,
+			).length;
+		// Crossings ignore collinear runs: a moved segment landing on a
+		// parallel segment of another connector is an overlap instead.
+		const overlap = (route: readonly Point[]) =>
+			collinearOverlapLength(route, others);
+		const gainsOverlap = (before: readonly Point[], after: readonly Point[]) =>
+			overlap(after) > overlap(before) + 1e-6;
+		// The border side an end sits on (clear of the corners), if any.
+		const sideAt = (
+			point: Point,
+			nodeId: string,
+		): CoordinatedPort["side"] | undefined => {
+			const box = nodes.get(nodeId)?.box;
+			if (box === undefined) return undefined;
+			const inset = 4;
+			const alongY =
+				point.y >= box.y + inset && point.y <= box.y + box.height - inset;
+			const alongX =
+				point.x >= box.x + inset && point.x <= box.x + box.width - inset;
+			if (alongY && Math.abs(point.x - box.x) < 0.5) return "left";
+			if (alongY && Math.abs(point.x - box.x - box.width) < 0.5) return "right";
+			if (alongX && Math.abs(point.y - box.y) < 0.5) return "top";
+			if (alongX && Math.abs(point.y - box.y - box.height) < 0.5) {
+				return "bottom";
+			}
+			return undefined;
+		};
+		// A moved end slides along the side it was on, never off it.
+		const onSide = (point: Point, nodeId: string, before: Point): boolean => {
+			const side = sideAt(point, nodeId);
+			return side !== undefined && side === sideAt(before, nodeId);
+		};
+		// Jogs: segment i tiny, segments i-1 and i+1 parallel.
+		for (let i = 1; i + 1 < points.length - 1; i += 1) {
+			const a = points[i] as Point;
+			const b = points[i + 1] as Point;
+			const jog = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+			if (jog === 0 || jog >= MICRO_JOG) continue;
+			const horizontalJog = Math.abs(a.y - b.y) < 1e-6;
+			const lastIndex = points.length - 1;
+			// Move the segment after the jog onto the one before it, or the
+			// one before onto the one after.
+			const attempts: [number, number, Point][] = [
+				[i + 1, i + 2, a],
+				[i - 1, i, b],
+			];
+			for (const [from, to, onto] of attempts) {
+				const endMoves =
+					(from === 0 && edge.source.portId !== undefined) ||
+					(to === lastIndex && edge.target.portId !== undefined);
+				if (endMoves) continue;
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [from, to]) {
+					const point = moved[at] as Point;
+					if (horizontalJog) point.x = onto.x;
+					else point.y = onto.y;
+				}
+				if (
+					from === 0 &&
+					!onSide(moved[0] as Point, edge.source.nodeId, points[0] as Point)
+				) {
+					continue;
+				}
+				if (
+					to === lastIndex &&
+					!onSide(
+						moved[lastIndex] as Point,
+						edge.target.nodeId,
+						points[lastIndex] as Point,
+					)
+				) {
+					continue;
+				}
+				const compacted = simplifyRoute(moved);
+				if (hits(compacted) > hits(points)) continue;
+				if (gainsObstacle(points, compacted, edgeObstacles)) continue;
+				if (crossings(compacted) > crossings(points)) continue;
+				if (gainsOverlap(points, compacted)) continue;
+				points = compacted;
+				i = 0;
+				break;
+			}
+		}
+		// Short final segment: move the segment before it outward.
+		if (points.length >= 4) {
+			const n = points.length;
+			const end = points[n - 1] as Point;
+			const bend = points[n - 2] as Point;
+			const length = Math.abs(end.x - bend.x) + Math.abs(end.y - bend.y);
+			if (length > 0 && length < END_STUB) {
+				const dx = Math.sign(end.x - bend.x);
+				const dy = Math.sign(end.y - bend.y);
+				const shift = END_STUB - length;
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [n - 3, n - 2]) {
+					const point = moved[at] as Point;
+					point.x -= dx * shift;
+					point.y -= dy * shift;
+				}
+				if (
+					keepsNeighbours(points, moved, n - 3) &&
+					hits(moved) <= hits(points) &&
+					!gainsObstacle(points, moved, edgeObstacles) &&
+					crossings(moved) <= crossings(points) &&
+					!gainsOverlap(points, moved)
+				) {
+					points = moved;
+				}
+			}
+		}
+		result[edgeIndex] = { ...edge, points };
+	});
+	return result;
+}
+
+/**
+ * Whether moving segment `index` kept the segments either side of it
+ * pointing the same way, with the end stubs no shorter than 16px (source)
+ * or long enough for the arrowhead (target).
+ */
+function keepsNeighbours(
+	before: readonly Point[],
+	after: readonly Point[],
+	index: number,
+): boolean {
+	for (const at of [index - 1, index + 1]) {
+		const a0 = before[at] as Point;
+		const b0 = before[at + 1] as Point;
+		const a1 = after[at] as Point;
+		const b1 = after[at + 1] as Point;
+		const d0 = b0.x - a0.x + (b0.y - a0.y);
+		const d1 = b1.x - a1.x + (b1.y - a1.y);
+		if (Math.sign(d0) !== Math.sign(d1) || d1 === 0) return false;
+		const isEnd = at === 0 || at + 1 === after.length - 1;
+		if (isEnd && Math.abs(d1) < 16) return false;
+	}
+	return true;
 }
 
 interface PostPassObstacle {
@@ -698,6 +2008,8 @@ interface PostPassObstacle {
 	 * edges a text surface belongs to (their label, their endpoint labels).
 	 */
 	exemptEdgeIds?: ReadonlySet<string>;
+	/** An edge label (placed, or estimated before placement). */
+	edgeLabel?: boolean;
 }
 
 /** Whether an edge must avoid the obstacle, mirroring the router's rules. */
@@ -723,6 +2035,22 @@ function obstaclesForEdge(
 	return obstacles
 		.filter((obstacle) => obstacleAppliesTo(obstacle, edge))
 		.map((obstacle) => obstacle.box);
+}
+
+/**
+ * Whether `after` enters an obstacle `before` did not: a move may trade
+ * nothing, not even one soft hit for a hard one.
+ */
+function gainsObstacle(
+	before: readonly Point[],
+	after: readonly Point[],
+	obstacles: readonly Box[],
+): boolean {
+	return obstacles.some(
+		(box) =>
+			routeObstacleHits(after, [box]) > 0 &&
+			routeObstacleHits(before, [box]) === 0,
+	);
 }
 
 /** Number of (segment, obstacle) pairs where a route enters an obstacle. */
@@ -852,7 +2180,12 @@ function detachBorderHuggingEnds(
 	allObstacles: readonly PostPassObstacle[],
 ): CoordinatedEdge[] {
 	return edges.map((edge) => {
-		const obstacles = obstaclesForEdge(edge, allObstacles);
+		// Edge labels are placed after routing (these are estimates): a route
+		// drawn along its node's border is worse than grazing one (#99).
+		const obstacles = obstaclesForEdge(
+			edge,
+			allObstacles.filter((obstacle) => obstacle.edgeLabel !== true),
+		);
 		let points = edge.points.map((point) => ({ ...point }));
 		let changed = false;
 		for (const role of ["source", "target"] as const) {
@@ -1025,6 +2358,8 @@ function spreadCollidingEndpoints(
 		side: EndpointSide;
 		/** Coordinate of the route's next turn along the side axis. */
 		heading: number;
+		/** Drawn at a named port: occupies its point but never moves. */
+		pinned: boolean;
 	}
 	const groups = new Map<string, EndpointRef[]>();
 	edges.forEach((edge, edgeIndex) => {
@@ -1050,7 +2385,8 @@ function spreadCollidingEndpoints(
 			const endpoint = role === "source" ? edge.source : edge.target;
 			// An explicit port is drawn at its anchor: several edges may share
 			// it on purpose, and moving them would detach them from the port.
-			if (endpoint.portId !== undefined) continue;
+			// It still occupies its point, so anonymous ends move off it.
+			const pinned = endpoint.portId !== undefined;
 			const nodeId = endpoint.nodeId;
 			const along = horizontal ? end.y : end.x;
 			const key = `${nodeId}|${side}|${Math.round(along)}`;
@@ -1061,13 +2397,15 @@ function spreadCollidingEndpoints(
 				nodeId,
 				side,
 				heading: horizontal ? next.y : next.x,
+				pinned,
 			});
 			groups.set(key, group);
 		}
 	});
 
 	for (const group of groups.values()) {
-		if (group.length < 2) continue;
+		// Only ported ends: they share their port on purpose.
+		if (group.length < 2 || group.every((ref) => ref.pinned)) continue;
 		const first = group[0];
 		if (first === undefined) continue;
 		const geometry = nodes.get(first.nodeId);
@@ -1082,14 +2420,39 @@ function spreadCollidingEndpoints(
 			geometry.box,
 			side,
 		);
-		const sorted = [...group].sort(
-			(a, b) =>
-				a.heading - b.heading ||
+		// Nest the routes (#99 D): ends whose route turns toward the side's
+		// start take the first slots and those turning toward its end the
+		// last; within each, the route whose bend lies farther out runs
+		// outside, so it takes the slot nearer the middle. A fan-in wrapping
+		// round the node then enters without crossing itself.
+		const nesting = (ref: EndpointRef): [number, number] => {
+			const route = routes[ref.edgeIndex] ?? [];
+			const at = ref.role === "source" ? 0 : route.length - 1;
+			const step = ref.role === "source" ? 1 : -1;
+			const end = route[at];
+			const bend = route[at + step];
+			if (end === undefined || bend === undefined) return [0, 0];
+			const along = alongY ? end.y : end.x;
+			const reach = alongY
+				? Math.abs(bend.x - end.x)
+				: Math.abs(bend.y - end.y);
+			return ref.heading < along ? [0, reach] : [1, -reach];
+		};
+		// Bends still on one channel (separation has not spread them yet):
+		// the route heading farther away runs outside.
+		const sorted = [...group].sort((a, b) => {
+			const [groupA, depthA] = nesting(a);
+			const [groupB, depthB] = nesting(b);
+			return (
+				groupA - groupB ||
+				depthA - depthB ||
+				(groupA === 0 ? b.heading - a.heading : a.heading - b.heading) ||
 				(edges[a.edgeIndex]?.id ?? "").localeCompare(
 					edges[b.edgeIndex]?.id ?? "",
 				) ||
-				a.role.localeCompare(b.role),
-		);
+				a.role.localeCompare(b.role)
+			);
+		});
 		const count = sorted.length;
 		const endpointOf = (ref: EndpointRef): Point | undefined => {
 			const route = routes[ref.edgeIndex] ?? [];
@@ -1108,6 +2471,7 @@ function spreadCollidingEndpoints(
 			Math.max(rangeStart, rangeEnd - 2 * halfSpan),
 		);
 		const tryMove = (ref: EndpointRef, t: number): boolean => {
+			if (ref.pinned) return false;
 			if (fixedEdgeIds.has(edges[ref.edgeIndex]?.id ?? "")) return false;
 			const route = routes[ref.edgeIndex] ?? [];
 			const at = ref.role === "source" ? 0 : route.length - 1;
@@ -1144,7 +2508,9 @@ function spreadCollidingEndpoints(
 				edge === undefined ? [] : obstaclesForEdge(edge, allObstacles);
 			if (
 				routeObstacleHits(shifted, obstacles) >
-				routeObstacleHits(route, obstacles)
+					routeObstacleHits(route, obstacles) ||
+				// Nor trade one obstacle for another.
+				gainsObstacle(route, shifted, obstacles)
 			) {
 				return false;
 			}
@@ -1167,6 +2533,7 @@ function spreadCollidingEndpoints(
 		const slotStep =
 			stepT > 0 ? stepT : COLLIDING_ENDPOINT_SPACING / sideLength;
 		for (const ref of sorted) {
+			if (ref.pinned) continue;
 			const taken = new Set(
 				sorted.filter((other) => other !== ref).map((other) => key(other)),
 			);
@@ -1201,6 +2568,161 @@ function spreadCollidingEndpoints(
 	});
 }
 
+/**
+ * 1 when the final segment is too short for the arrowhead (10px) to sit
+ * clear of the last bend: the slot's side is worth retrying.
+ */
+function shortArrowStub(points: readonly Point[]): number {
+	const last = points.at(-1);
+	const beforeLast = points.at(-2);
+	if (last === undefined || beforeLast === undefined || points.length < 3) {
+		return 0;
+	}
+	return Math.abs(last.x - beforeLast.x) + Math.abs(last.y - beforeLast.y) < 16
+		? 1
+		: 0;
+}
+
+/** Bends allowed on the obstacle-avoiding fallback of a short route (#95). */
+const SHORT_PATH_FALLBACK_MAX_BENDS = 6;
+
+/**
+ * Move a route's ends back onto pinned points by shifting the first/last
+ * segment across (it keeps its direction). A straight two-point route
+ * becomes a Z through its midpoint so both ends keep their normal. Ends
+ * that cannot be pinned that way are left as they are; callers check
+ * {@link routeEndsAt} before accepting the result.
+ * @internal Exported for tests.
+ */
+export function pinRouteEnds(
+	points: readonly Point[],
+	sourcePoint: Point | undefined,
+	targetPoint: Point | undefined,
+): Point[] {
+	if (points.length === 2) {
+		const [start, end] = points as [Point, Point];
+		const to0 = sourcePoint ?? start;
+		const to1 = targetPoint ?? end;
+		if (
+			Math.abs(start.y - end.y) < 0.5 &&
+			Math.abs(to0.x - start.x) < 0.5 &&
+			Math.abs(to1.x - end.x) < 0.5
+		) {
+			if (Math.abs(to0.y - to1.y) < 0.5) {
+				return [{ ...to0 }, { x: to1.x, y: to0.y }];
+			}
+			const midX = (to0.x + to1.x) / 2;
+			return [
+				{ ...to0 },
+				{ x: midX, y: to0.y },
+				{ x: midX, y: to1.y },
+				{ ...to1 },
+			];
+		}
+		if (
+			Math.abs(start.x - end.x) < 0.5 &&
+			Math.abs(to0.y - start.y) < 0.5 &&
+			Math.abs(to1.y - end.y) < 0.5
+		) {
+			if (Math.abs(to0.x - to1.x) < 0.5) {
+				return [{ ...to0 }, { x: to0.x, y: to1.y }];
+			}
+			const midY = (to0.y + to1.y) / 2;
+			return [
+				{ ...to0 },
+				{ x: to0.x, y: midY },
+				{ x: to1.x, y: midY },
+				{ ...to1 },
+			];
+		}
+		return points.map((point) => ({ ...point }));
+	}
+	const pinned = points.map((point) => ({ ...point }));
+	const pin = (endIndex: number, nextIndex: number, to: Point) => {
+		const end = pinned[endIndex];
+		const next = pinned[nextIndex];
+		if (end === undefined || next === undefined || pinned.length < 3) return;
+		if (Math.abs(end.y - next.y) < 0.5 && Math.abs(end.x - to.x) < 0.5) {
+			end.y = to.y;
+			next.y = to.y;
+		} else if (Math.abs(end.x - next.x) < 0.5 && Math.abs(end.y - to.y) < 0.5) {
+			end.x = to.x;
+			next.x = to.x;
+		}
+	};
+	if (sourcePoint !== undefined) pin(0, 1, sourcePoint);
+	if (targetPoint !== undefined) {
+		pin(pinned.length - 1, pinned.length - 2, targetPoint);
+	}
+	return pinned;
+}
+
+/**
+ * Whether a route starts and ends on the requested points (when set).
+ * @internal Exported for tests.
+ */
+export function routeEndsAt(
+	points: readonly Point[],
+	sourcePoint: Point | undefined,
+	targetPoint: Point | undefined,
+): boolean {
+	const near = (a: Point | undefined, b: Point | undefined) =>
+		b === undefined ||
+		(a !== undefined && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5);
+	return near(points[0], sourcePoint) && near(points.at(-1), targetPoint);
+}
+
+function polylineLength(points: readonly Point[]): number {
+	let length = 0;
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		length += Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+	}
+	return length;
+}
+
+function directDistance(a: Point | undefined, b: Point | undefined): number {
+	if (a === undefined || b === undefined) return 0;
+	return Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+}
+
+/** The side of `box` that `point` lies on (the nearest one). */
+function sideOfBox(point: Point | undefined, box: Box): AnchorName {
+	if (point === undefined) return "center";
+	const distances: [AnchorName, number][] = [
+		["left", Math.abs(point.x - box.x)],
+		["right", Math.abs(point.x - (box.x + box.width))],
+		["top", Math.abs(point.y - box.y)],
+		["bottom", Math.abs(point.y - (box.y + box.height))],
+	];
+	distances.sort((left, right) => left[1] - right[1]);
+	return (distances[0] as [AnchorName, number])[0];
+}
+
+/** Side fractions taken by named ports, keyed `${nodeId}:${side}`. */
+function occupiedPortFractions(
+	coordinatedNodes: readonly CoordinatedNode[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+): Map<string, number[]> {
+	const occupied = new Map<string, number[]>();
+	for (const node of coordinatedNodes) {
+		const box = nodes.get(node.id)?.box;
+		if (box === undefined) continue;
+		for (const port of node.ports ?? []) {
+			const horizontal = port.side === "top" || port.side === "bottom";
+			const span = horizontal ? box.width : box.height;
+			if (!(span > 0)) continue;
+			const fraction = horizontal
+				? (port.anchor.x - box.x) / span
+				: (port.anchor.y - box.y) / span;
+			const key = `${node.id}:${port.side}`;
+			occupied.set(key, [...(occupied.get(key) ?? []), fraction]);
+		}
+	}
+	return occupied;
+}
+
 function implicitAnchorDistribution(options: SolveDiagramOptions): boolean {
 	return (
 		options.anchorCapacity === undefined &&
@@ -1226,11 +2748,7 @@ function separateCoordinatedEdges(
 	}
 	// Track spreading can be switched off (or has nothing to spread); the
 	// obstacle-escape repair always runs on orthogonal routes.
-	const separate = !(
-		edges.length < 2 ||
-		options.edgeSeparation === false ||
-		routeKind === "short-orthogonal-jumps"
-	);
+	const separate = !(edges.length < 2 || options.edgeSeparation === false);
 	const spacing =
 		typeof options.edgeSeparation === "object"
 			? options.edgeSeparation.spacing
@@ -1255,8 +2773,15 @@ function separateCoordinatedEdges(
 			// End splitting belongs to implicit distribution, like border
 			// detachment: explicit rail/gutter pages keep their port segments.
 			splitEnds: implicitAnchorDistribution(options),
+			// Short-orthogonal and obstacle-avoiding end segments are long.
+			lockEnds:
+				routeKind === "short-orthogonal-jumps" ||
+				routeKind === "obstacle-avoiding",
 			// A node hit outweighs any number of label or group grazes.
 			obstacleWeights: obstacles.map((obstacle) => obstacle.weight ?? 1),
+			// Moving a bend must leave the end segment long enough for the
+			// arrowhead (10px) to sit clear of the corner.
+			...(routeKind === "short-orthogonal-jumps" ? { minStub: 16 } : {}),
 			...(spacing === undefined ? {} : { spacing }),
 		},
 	);
@@ -1375,6 +2900,9 @@ export function tryAcceptDependencyRail(input: {
 	railBandObstacles: readonly Box[];
 	hardObstacles: readonly Box[];
 	occupancy: RailOccupancyState;
+	/** Preassigned end points (same-side slots, named ports), if any. */
+	sourcePoint?: Point;
+	targetPoint?: Point;
 }):
 	| {
 			points: Point[];
@@ -1398,6 +2926,10 @@ export function tryAcceptDependencyRail(input: {
 		laneIndex,
 		side,
 		input.avoidFrameTitleRails,
+		{
+			...(input.sourcePoint === undefined ? {} : { source: input.sourcePoint }),
+			...(input.targetPoint === undefined ? {} : { target: input.targetPoint }),
+		},
 	);
 	if (railPoints === undefined) {
 		return undefined;
@@ -1547,6 +3079,8 @@ export function railRoutePoints(
 	laneIndex: number,
 	side: RoutingRailAllocation["side"],
 	avoidFrameTitleRails: boolean,
+	/** Preassigned end points (same-side slots, named ports), if any. */
+	ends: { source?: Point; target?: Point } = {},
 ): Point[] | undefined {
 	const gap = 18;
 	if (direction === "LR" || direction === "RL") {
@@ -1578,12 +3112,12 @@ export function railRoutePoints(
 		) {
 			return undefined;
 		}
-		const start = getEdgePort(
-			source,
-			target.center,
-			sourceAnchor ?? sourceSide,
-		);
-		const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
+		const start =
+			ends.source ??
+			getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
+		const end =
+			ends.target ??
+			getEdgePort(target, source.center, targetAnchor ?? targetSide);
 		const sourceOutward =
 			side === "bottom"
 				? sourceSide === "left"
@@ -1646,8 +3180,12 @@ export function railRoutePoints(
 	) {
 		return undefined;
 	}
-	const start = getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
-	const end = getEdgePort(target, source.center, targetAnchor ?? targetSide);
+	const start =
+		ends.source ??
+		getEdgePort(source, target.center, sourceAnchor ?? sourceSide);
+	const end =
+		ends.target ??
+		getEdgePort(target, source.center, targetAnchor ?? targetSide);
 	const sourceJogY =
 		side === "right"
 			? sourceSide === "top"
@@ -2248,4 +3786,21 @@ export function nonZeroSegments(points: readonly Point[]): Array<{
 		}
 	}
 	return segments;
+}
+
+/**
+ * Whether a text surface is an obstacle for a short-orthogonal route (and
+ * for the channel nudge that moves it): the edge's own label and its
+ * endpoints' node labels are not, but its own port labels are. They sit
+ * beside the port, clear of the end stub, so only a bend or a shifted
+ * track can strike one, and nothing reports it afterwards.
+ */
+export function isRouteTextObstacleFor(
+	edge: NormalizedEdge | CoordinatedEdge,
+	annotation: SolvedTextAnnotation,
+): boolean {
+	return (
+		annotation.surfaceKind === "port-label" ||
+		!isEdgeConnectedTextAnnotation(edge, annotation)
+	);
 }

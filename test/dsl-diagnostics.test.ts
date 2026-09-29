@@ -62,7 +62,7 @@ nodes:
     shape: unsupported
     position: { x: .nan, y: 0 }
 output:
-  format: drawio
+  format: pdf
 `);
 
 		expect(result.value).toBeUndefined();
@@ -337,7 +337,7 @@ nodes:
 	});
 
 	it("rejects unsupported output formats", () => {
-		for (const format of ["drawio", "mermaid", "ascii"]) {
+		for (const format of ["mermaid", "ascii"]) {
 			const result = resolveOutputFormat(format);
 
 			expect(result.format).toBeUndefined();
@@ -350,5 +350,9 @@ nodes:
 				}),
 			]);
 		}
+	});
+
+	it("accepts drawio output format", () => {
+		expect(resolveOutputFormat("drawio").format).toBe("drawio");
 	});
 });

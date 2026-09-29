@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { renderDiagramDsl } from "../src/dsl/index.js";
+import {
+	normalizeDiagramDsl,
+	parseDiagramDsl,
+	renderDiagramDsl,
+} from "../src/dsl/index.js";
 import { computeArrowhead } from "../src/exporters/arrow.js";
 import {
 	type Box,
@@ -10,6 +14,7 @@ import {
 	type LabelLayout,
 	type NormalizedDiagram,
 	type PageSplitRemediationDetail,
+	type Point,
 } from "../src/ir/index.js";
 import { DEFAULT_CJK_FONT_FAMILY } from "../src/solver/cjk-typography.js";
 import {
@@ -1043,6 +1048,41 @@ describe("solveDiagram", () => {
 		);
 	});
 
+	it("keeps an authored position when ports grow the node", () => {
+		const result = solveDiagram(
+			{
+				...sampleDiagram(),
+				direction: "TB",
+				nodes: [
+					{
+						...node("many-ports"),
+						size: { width: 100, height: 40 },
+						position: { x: 0, y: 0 },
+						ports: Array.from({ length: 6 }, (_, i) => ({
+							id: `p${i}`,
+							side: "right" as const,
+							kind: "flow" as const,
+						})),
+					},
+					{ ...node("fixed"), position: { x: 300, y: 0 } },
+				],
+				edges: [],
+				groups: [],
+				constraints: [],
+			},
+			{ initialLayout: "positions", portShifting: { spacing: 40 } },
+		);
+		const grown = result.nodes.find((entry) => entry.id === "many-ports");
+		// It keeps its authored top-left (and grows), and so does its
+		// neighbour: nothing is shifted to make room for the growth.
+		expect(grown?.box.height).toBeGreaterThan(40);
+		expect(grown?.box.x).toBe(0);
+		expect(grown?.box.y).toBe(0);
+		expect(
+			result.nodes.find((entry) => entry.id === "fixed")?.box,
+		).toMatchObject({ x: 300, y: 0 });
+	});
+
 	it("re-clamps containment after later constraints push a child outside", () => {
 		const result = solveDiagram({
 			...sampleDiagram(),
@@ -2056,37 +2096,69 @@ describe("solveDiagram", () => {
 	});
 
 	it("forwards maxRoutingAttempts to obstacle-avoiding route solving", () => {
-		const obstacles = routingAttemptObstaclePanels();
-		const diagram: NormalizedDiagram = {
-			id: "max-routing-forwarding",
-			direction: "LR",
-			nodes: [node("source", { x: 0, y: 0 }), node("target", { x: 500, y: 0 })],
-			edges: [
-				{
-					id: "source-target",
-					source: { nodeId: "source" },
-					target: { nodeId: "target" },
-				},
-			],
-			groups: [],
-			constraints: [],
-			diagnostics: [],
-			evidencePanels: obstacles,
-		};
+		// A port page where routes into the ported node only clear the other
+		// edges' labels through the greedy reroute: with 0 attempts that
+		// repair is off.
+		const parsed = parseDiagramDsl(`
+layout: { direction: LR, mode: positions }
+nodes:
+  hn900:
+    label: HN900 主控单元
+    position: { x: 420, y: 140 }
+    ports:
+      CMD: { side: left, kind: flow, label: CMD }
+      SEN: { side: left, kind: flow, label: SEN }
+      DAT: { side: left, kind: flow, label: DAT }
+      OUT: { side: right, kind: flow, label: OUT }
+  b055: { label: 055A 传感器, position: { x: 60, y: 40 }, ports: { S1: { side: right, kind: flow } } }
+  b056: { label: 056B 执行器, position: { x: 60, y: 160 }, ports: { S2: { side: right, kind: flow } } }
+  b057: { label: 057C 数据链, position: { x: 60, y: 280 }, ports: { S3: { side: right, kind: flow } } }
+  s1: { label: 雷达 A, position: { x: 60, y: 400 } }
+  s2: { label: 雷达 B, position: { x: 200, y: 420 } }
+  s3: { label: 光电 C, position: { x: 200, y: 20 } }
+  s4: { label: 通信 D, position: { x: 60, y: 520 } }
+  s5: { label: 导航 E, position: { x: 200, y: 520 } }
+  sink: { label: 显控台, position: { x: 700, y: 160 } }
+edges:
+  - { source: { node: b055, port: S1 }, target: { node: hn900, port: CMD }, label: 指令 }
+  - { source: { node: b056, port: S2 }, target: { node: hn900, port: SEN }, label: 传感 }
+  - { source: { node: b057, port: S3 }, target: { node: hn900, port: DAT }, label: 数据 }
+  - { source: s1, target: hn900, label: 回波 }
+  - { source: s2, target: hn900, label: 回波 }
+  - { source: s3, target: hn900, label: 图像 }
+  - { source: s4, target: hn900, label: 话音 }
+  - { source: s5, target: hn900, label: 定位 }
+  - { source: { node: hn900, port: OUT }, target: sink, label: 态势 }
+`);
+		const diagram = normalizeDiagramDsl(parsed.value as never, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		}).diagram as NormalizedDiagram;
+		const solve = (maxRoutingAttempts: number) =>
+			solveDiagram(diagram, {
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				railRouting: "auto",
+				externalLabels: true,
+				remediationPolicy: { externalLabels: "auto" },
+				distributeContainedChildren: false,
+				deliverabilityMode: "degraded-ok",
+				maxRoutingAttempts,
+				textMeasurer: new DeterministicTextMeasurer(),
+			});
 
-		const shallow = solveDiagram(diagram, {
-			routeKind: "obstacle-avoiding",
-			maxRoutingAttempts: 0,
-		});
-		const deeper = solveDiagram(diagram, {
-			routeKind: "obstacle-avoiding",
-			maxRoutingAttempts: 4,
-		});
-
-		expect(shallow.edges[0]?.points).not.toEqual(deeper.edges[0]?.points);
-		expect(shallow.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "routing.obstacle.unavoidable" }),
-		);
+		const shallow = solve(0);
+		const deeper = solve(5);
+		const route = (result: ReturnType<typeof solve>) =>
+			result.edges.find((edge) => edge.id === "b055-hn900")?.points;
+		expect(route(shallow)).not.toEqual(route(deeper));
+		// Either way the repair stays orthogonal (#76).
+		for (const points of [route(shallow), route(deeper)]) {
+			for (let index = 1; index < (points?.length ?? 0); index += 1) {
+				const a = points?.[index - 1] as Point;
+				const b = points?.[index] as Point;
+				expect(a.x === b.x || a.y === b.y).toBe(true);
+			}
+		}
 	});
 
 	it("routes around edge-label estimate corridors before final label placement", () => {
@@ -2744,6 +2816,124 @@ describe("solveDiagram", () => {
 				}),
 			}),
 		);
+	});
+
+	it("keeps auto external callouts off lane dividers", () => {
+		const lanesDiagram = {
+			...externalLabelAutoDiagram(),
+			id: "external-label-auto-lanes",
+			swimlanes: [
+				{
+					id: "pool",
+					orientation: "horizontal" as const,
+					headerHeight: 20,
+					lanes: [
+						{ id: "zeta-lane", children: ["zeta-source", "zeta-target"] },
+						{ id: "alpha-lane", children: ["alpha-source", "alpha-target"] },
+						{
+							id: "middle-lane",
+							children: ["middle-source", "middle-target"],
+						},
+					],
+				},
+			],
+		};
+		const result = solveDiagram(lanesDiagram, {
+			initialLayout: "positions",
+			routeKind: "straight",
+			externalLabels: true,
+			remediationPolicy: { externalLabels: "auto" },
+			textMeasurer: new DeterministicTextMeasurer(),
+			textIntersectionTolerance: 0,
+			pageBounds: { width: 520, height: 400 },
+		});
+		const lanes = (result.swimlanes ?? []).flatMap((swimlane) =>
+			swimlane.lanes.flatMap((lane) =>
+				lane.box === undefined ? [] : [lane.box],
+			),
+		);
+		const callouts = (result.textAnnotations ?? [])
+			.filter((annotation) => annotation.placement === "external-callout")
+			.map((annotation) => annotation.box);
+		expect(lanes.length).toBe(3);
+		expect(callouts.length).toBeGreaterThan(0);
+		const cutsDivider = (box: Box) =>
+			lanes.some(
+				(lane) =>
+					([lane.y, lane.y + lane.height].some(
+						(y) => box.y < y && y < box.y + box.height,
+					) &&
+						box.x < lane.x + lane.width &&
+						lane.x < box.x + box.width) ||
+					([lane.x, lane.x + lane.width].some(
+						(x) => box.x < x && x < box.x + box.width,
+					) &&
+						box.y < lane.y + lane.height &&
+						lane.y < box.y + box.height),
+			);
+		expect(callouts.filter(cutsDivider)).toEqual([]);
+	});
+
+	it("keeps external-label keys off group titles", () => {
+		// Four parallel labelled edges run through the group title: the keys
+		// that move along their routes must not land on it.
+		const labelled = (id: string, position: { x: number; y: number }) => ({
+			...node(id, position),
+			label: { text: id },
+		});
+		const result = solveDiagram(
+			{
+				id: "keys-off-group-title",
+				direction: "LR",
+				nodes: [
+					labelled("s2", { x: 0, y: 90 }),
+					labelled("t2", { x: 300, y: 90 }),
+				],
+				edges: Array.from({ length: 4 }, (_, index) => ({
+					id: `e${index}`,
+					source: { nodeId: "s2" },
+					target: { nodeId: "t2" },
+					label: { text: `external callout label number ${index}` },
+				})),
+				groups: [
+					{
+						id: "g",
+						label: { text: "Zone" },
+						nodeIds: ["s2", "t2"],
+						groupIds: [],
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						labelPosition: "top",
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			} as never,
+			{
+				initialLayout: "positions",
+				routeKind: "straight",
+				externalLabels: true,
+				remediationPolicy: { externalLabels: "auto" },
+				textMeasurer: new DeterministicTextMeasurer(),
+				textIntersectionTolerance: 0,
+			},
+		);
+		const annotations = result.textAnnotations ?? [];
+		const titles = annotations
+			.filter((annotation) => annotation.surfaceKind === "group-label")
+			.map((annotation) => annotation.box);
+		const keys = annotations
+			.filter((annotation) => annotation.placementDetail?.role === "key")
+			.map((annotation) => annotation.box);
+		expect(titles.length).toBe(1);
+		expect(keys.length).toBe(4);
+		const overlaps = (a: Box, b: Box) =>
+			a.x < b.x + b.width &&
+			b.x < a.x + a.width &&
+			a.y < b.y + b.height &&
+			b.y < a.y + a.height;
+		expect(
+			keys.filter((key) => titles.some((title) => overlaps(key, title))),
+		).toEqual([]);
 	});
 
 	it("applies deterministic keyed external callouts when remediation policy is auto", () => {
@@ -4023,12 +4213,156 @@ describe("solveDiagram", () => {
 			x: 300,
 			y: 120,
 		});
+		// Every child is fixed, so none can move into a slot: the lane is
+		// drawn around them instead, below its header.
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "swimlane.lanes-fitted-to-children" }),
+		);
+		const lane = result.swimlanes?.[0]?.lanes[0];
+		for (const child of result.nodes) {
+			expect(child.box.x).toBeGreaterThanOrEqual(lane?.box?.x ?? Infinity);
+			expect(child.box.x + child.box.width).toBeLessThanOrEqual(
+				(lane?.box?.x ?? 0) + (lane?.box?.width ?? 0),
+			);
+			expect(child.box.y).toBeGreaterThanOrEqual(
+				(lane?.headerBox?.y ?? 0) + (lane?.headerBox?.height ?? 0),
+			);
+		}
+	});
+
+	it("reports reduced padding between neighbouring fitted lanes", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-tight-lanes",
+			direction: "LR",
+			nodes: [
+				node("a", { x: 100, y: 80 }),
+				node("b", { x: 100 + 80 + 20, y: 80 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "cols",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "vertical",
+					lanes: [
+						{ id: "left", children: ["a"] },
+						{ id: "right", children: ["b"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
 		expect(result.diagnostics).toContainEqual(
 			expect.objectContaining({
-				code: "constraints.locked-target-not-moved",
-				detail: expect.objectContaining({ nodeId: "locked" }),
+				code: "swimlane.lane-padding.reduced",
+				detail: expect.objectContaining({ lanePairs: ["left|right"] }),
 			}),
 		);
+		// Each child still sits inside its own lane.
+		for (const lane of result.swimlanes?.[0]?.lanes ?? []) {
+			const child = result.nodes.find((entry) => entry.id === lane.children[0]);
+			expect(child?.box.x).toBeGreaterThanOrEqual(lane.box?.x ?? Infinity);
+			expect((child?.box.x ?? 0) + (child?.box.width ?? 0)).toBeLessThanOrEqual(
+				(lane.box?.x ?? 0) + (lane.box?.width ?? 0),
+			);
+		}
+	});
+
+	it("fits horizontal contract lanes around fixed children in lane order", () => {
+		const result = solveDiagram({
+			id: "contract-swimlane-fitted-rows",
+			direction: "LR",
+			nodes: [
+				node("a", { x: 100, y: 40 }),
+				node("b", { x: 300, y: 260 }),
+				node("c", { x: 500, y: 40 }),
+			],
+			edges: [],
+			groups: [],
+			swimlanes: [
+				{
+					id: "rows",
+					layout: "contract",
+					headerHeight: 24,
+					padding: 16,
+					orientation: "horizontal",
+					lanes: [
+						{ id: "top", children: ["a", "c"] },
+						{ id: "empty", children: [] },
+						{ id: "bottom", children: ["b"] },
+					],
+				},
+			],
+			constraints: [],
+			diagnostics: [],
+		});
+		const lanes = result.swimlanes?.[0]?.lanes ?? [];
+		expect(lanes.map((lane) => lane.id)).toEqual(["top", "empty", "bottom"]);
+		for (const lane of lanes) {
+			for (const child of lane.children) {
+				const box = result.nodes.find((n) => n.id === child)?.box;
+				const content = lane.contentBox;
+				expect(box).toBeDefined();
+				expect(content).toBeDefined();
+				if (box === undefined || content === undefined) continue;
+				expect(box.y).toBeGreaterThanOrEqual(content.y);
+				expect(box.y + box.height).toBeLessThanOrEqual(
+					content.y + content.height,
+				);
+				// The header band sits left of every child.
+				expect(box.x).toBeGreaterThanOrEqual(content.x);
+			}
+		}
+		// Rows stack without gaps or overlaps, the empty one between.
+		expect(lanes[1]?.box?.y).toBeCloseTo(
+			(lanes[0]?.box?.y ?? 0) + (lanes[0]?.box?.height ?? 0),
+		);
+		expect(lanes[2]?.box?.y).toBeCloseTo(
+			(lanes[1]?.box?.y ?? 0) + (lanes[1]?.box?.height ?? 0),
+		);
+	});
+
+	it("keeps the lane gutter between lanes fitted around fixed children", () => {
+		const result = solveDiagram(
+			{
+				id: "contract-swimlane-fitted-gutter",
+				direction: "TB",
+				nodes: [node("a", { x: 0, y: 40 }), node("b", { x: 300, y: 40 })],
+				edges: [],
+				groups: [],
+				swimlanes: [
+					{
+						id: "cols",
+						layout: "contract",
+						headerHeight: 24,
+						padding: 16,
+						orientation: "vertical",
+						lanes: [
+							{ id: "left", children: ["a"] },
+							{ id: "right", children: ["b"] },
+						],
+					},
+				],
+				constraints: [],
+				diagnostics: [],
+			},
+			{ minLaneGutter: 12 },
+		);
+		const [left, right] = result.swimlanes?.[0]?.lanes ?? [];
+		expect(
+			(right?.box?.x ?? 0) - ((left?.box?.x ?? 0) + (left?.box?.width ?? 0)),
+		).toBeCloseTo(12);
+		for (const lane of [left, right]) {
+			const child = result.nodes.find((n) => n.id === lane?.children[0]);
+			expect(child?.box.x ?? -1).toBeGreaterThanOrEqual(lane?.box?.x ?? 0);
+			expect((child?.box.x ?? 0) + (child?.box.width ?? 0)).toBeLessThanOrEqual(
+				(lane?.box?.x ?? 0) + (lane?.box?.width ?? 0),
+			);
+		}
 	});
 
 	it("preserves fixed-position locks in ranked contract lanes (flow edges present)", () => {
@@ -4575,6 +4909,7 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"layout.container-fixed-bounds-overflow",
 		"route_obstacle_fallback",
 		"routing.anchor-capacity.requires-resize",
+		"routing.channel.capacity_exhausted",
 		"routing.container-fixed-bounds-overflow",
 		"routing.deliverability.unsatisfiable",
 		"routing.endpoint-interior.unavoidable",
@@ -4583,10 +4918,54 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 		"routing.label-externalization.required",
 		"routing.label-hard-obstacle.unavoidable",
 		"routing.obstacle.unavoidable",
+		"routing.port.capacity_exhausted",
 		"routing.rail-capacity.exceeded",
 		"routing.route-label-loop.exhausted",
+		"routing.short-orthogonal.bend_budget_exceeded",
 		"routing.text-clearance.unresolved",
 	]);
+});
+
+it("runs auto remediation when only the bend budget is exceeded", () => {
+	const box = (id: string, x: number) => ({
+		id,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x, y: 0 },
+	});
+	const result = solveDiagram(
+		{
+			id: "bend-budget-remediation",
+			direction: "LR",
+			nodes: [box("a", 0), box("b", 200)],
+			edges: [{ id: "e", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			constraints: [],
+			diagnostics: [
+				{
+					severity: "warning",
+					code: "routing.short-orthogonal.bend_budget_exceeded",
+					message: "Seeded bend budget report.",
+					detail: {
+						edgeId: "e",
+						conflictClass: "node-label-strike",
+						remediationType: "external-label-or-split",
+					},
+				},
+			],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "short-orthogonal-jumps",
+			remediationPolicy: { routeRails: "auto" },
+		},
+	);
+	expect(
+		result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "route-rail",
+		)?.status,
+	).toBe("applied");
 });
 
 it("promotes every deliverability diagnostic code in strict mode", () => {
@@ -6644,25 +7023,6 @@ function createTestLabelLayout(
 		overflow: { horizontal: false, vertical: false, truncated: false },
 		diagnostics: [],
 	};
-}
-
-function routingAttemptObstaclePanels(): NonNullable<
-	NormalizedDiagram["evidencePanels"]
-> {
-	return [
-		{ x: 389, y: -90, width: 106, height: 88 },
-		{ x: 127, y: 70, width: 31, height: 100 },
-		{ x: 187, y: -134, width: 51, height: 120 },
-		{ x: 343, y: 103, width: 62, height: 123 },
-		{ x: 430, y: -12, width: 114, height: 141 },
-		{ x: 376, y: -1, width: 48, height: 113 },
-	].map((box, index) => ({
-		id: `routing-obstacle-${index}`,
-		kind: "legend" as const,
-		position: { x: box.x, y: box.y },
-		size: { width: box.width, height: box.height },
-		items: [],
-	}));
 }
 
 class WideGlyphTextMeasurer implements TextMeasurer {

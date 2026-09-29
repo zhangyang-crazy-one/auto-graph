@@ -5,6 +5,12 @@ import type { Point } from "../ir/geometry.js";
 export const EDGE_CROSSING_GLYPH_RADIUS = 6;
 
 /**
+ * Crossings within this fraction of a segment's length from either end
+ * get no glyph in the coordinate exporters (SVG, Excalidraw, geometry).
+ */
+export const EDGE_CROSSING_END_CUTOFF = 0.02;
+
+/**
  * Detect proper (non-endpoint) intersections between orthogonal edge
  * segments and emit deterministic jump records (#84).
  *
@@ -58,11 +64,17 @@ export function detectOrthogonalEdgeCrossings(
 					const key = `${underId}|${overId}|${point.x.toFixed(3)}|${point.y.toFixed(3)}`;
 					if (seen.has(key)) continue;
 					seen.add(key);
+					// The under edge draws the hop: when the crossing sits too
+					// close to a bend of its segment for the glyph, but not of
+					// the other one, the other edge jumps instead.
+					const swap =
+						!fitsGlyph(point, a0, a1, ai === underEdge.points.length - 2) &&
+						fitsGlyph(point, b0, b1, bi === overEdge.points.length - 2);
 					crossings.push({
 						x: point.x,
 						y: point.y,
-						underEdgeId: underId,
-						overEdgeId: overId,
+						underEdgeId: swap ? overId : underId,
+						overEdgeId: swap ? underId : overId,
 						style,
 					});
 				}
@@ -77,6 +89,136 @@ export function detectOrthogonalEdgeCrossings(
 		return a.x - b.x || a.y - b.y;
 	});
 	return crossings;
+}
+
+/** One hop glyph on a segment, bridging one crossing or a close cluster. */
+export interface HopGlyph<T extends Point> {
+	/** The crossings under this glyph, in order along the segment. */
+	hops: T[];
+	/** Where the glyph leaves and rejoins the segment. */
+	before: Point;
+	after: Point;
+	/** Half the glyph's length along the segment. */
+	halfLength: number;
+}
+
+/**
+ * Hop glyphs for one segment, from crossings already sorted along it.
+ * Crossings closer than a glyph (2 × radius) share one wider glyph, so
+ * every crossing stays under a hop and no two glyphs overlap. A crossing
+ * whose own glyph does not fit inside the segment (right at a bend) is
+ * drawn plainly (it stays recorded and counted) and never joins a cluster.
+ */
+export function hopGlyphs<T extends Point>(
+	sorted: readonly T[],
+	start: Point,
+	end: Point,
+	/** Extra room kept clear before `end` (an arrowhead on a final segment). */
+	endClearance = 0,
+	/**
+	 * Drawing style of a crossing (gap or jump). A cluster mixing styles is
+	 * split into same-style runs meeting halfway between neighbours, so each
+	 * crossing keeps its own style and no two glyphs overlap.
+	 */
+	styleOf?: (hop: T) => string,
+): HopGlyph<T>[] {
+	const length = Math.hypot(end.x - start.x, end.y - start.y);
+	if (length < 1e-9) return [];
+	const ux = (end.x - start.x) / length;
+	const uy = (end.y - start.y) / length;
+	const along = (point: Point) =>
+		(point.x - start.x) * ux + (point.y - start.y) * uy;
+	// A crossing whose own glyph cannot fit (right at an end of the
+	// segment) is drawn plainly; it must not pull a drawable neighbour
+	// into a cluster that no longer fits.
+	const drawable = sorted.filter(
+		(hop) =>
+			along(hop) >= EDGE_CROSSING_GLYPH_RADIUS - 1e-6 &&
+			length - along(hop) >= EDGE_CROSSING_GLYPH_RADIUS + endClearance - 1e-6,
+	);
+	const clusters: T[][] = [];
+	for (const hop of drawable) {
+		const current = clusters.at(-1);
+		const last = current?.at(-1);
+		if (
+			current !== undefined &&
+			last !== undefined &&
+			along(hop) - along(last) < 2 * EDGE_CROSSING_GLYPH_RADIUS - 1e-6
+		) {
+			current.push(hop);
+		} else {
+			clusters.push([hop]);
+		}
+	}
+	const glyphs: HopGlyph<T>[] = [];
+	for (const cluster of clusters) {
+		const runs: T[][] = [];
+		for (const hop of cluster) {
+			const run = runs.at(-1);
+			const previous = run?.at(-1);
+			if (
+				run !== undefined &&
+				previous !== undefined &&
+				styleOf?.(previous) === styleOf?.(hop)
+			) {
+				run.push(hop);
+			} else {
+				runs.push([hop]);
+			}
+		}
+		runs.forEach((hops, index) => {
+			// Every member fits on its own, so the cluster's glyph fits too;
+			// runs of one cluster split it halfway between their neighbours.
+			const first = along(hops[0] as T);
+			const last = along(hops.at(-1) as T);
+			const previous = runs[index - 1]?.at(-1);
+			const next = runs[index + 1]?.[0];
+			const from =
+				previous === undefined
+					? first - EDGE_CROSSING_GLYPH_RADIUS
+					: (along(previous) + first) / 2;
+			const to =
+				next === undefined
+					? last + EDGE_CROSSING_GLYPH_RADIUS
+					: (last + along(next)) / 2;
+			glyphs.push({
+				hops,
+				before: { x: start.x + ux * from, y: start.y + uy * from },
+				after: { x: start.x + ux * to, y: start.y + uy * to },
+				halfLength: (to - from) / 2,
+			});
+		});
+	}
+	return glyphs;
+}
+
+/**
+ * Length exporters cut off an edge's last segment for its arrowhead
+ * (`computeArrowhead`'s default); a hop cannot be drawn inside it.
+ */
+export const ARROWHEAD_LENGTH = 10;
+
+/**
+ * A hop glyph centred at `point` fits inside segment `a`–`b` (with the
+ * arrowhead cut off `b` when it is the edge's last segment).
+ */
+function fitsGlyph(
+	point: Point,
+	a: Point,
+	b: Point,
+	lastSegment: boolean,
+): boolean {
+	// The exporters' own cutoff too: a glyph that fits in pixels but sits
+	// within the end fraction of a long segment is never drawn.
+	const length = Math.hypot(b.x - a.x, b.y - a.y);
+	const t = length > 0 ? Math.hypot(point.x - a.x, point.y - a.y) / length : 0;
+	return (
+		t > EDGE_CROSSING_END_CUTOFF &&
+		t < 1 - EDGE_CROSSING_END_CUTOFF &&
+		Math.hypot(point.x - a.x, point.y - a.y) >= EDGE_CROSSING_GLYPH_RADIUS &&
+		Math.hypot(point.x - b.x, point.y - b.y) >=
+			EDGE_CROSSING_GLYPH_RADIUS + (lastSegment ? ARROWHEAD_LENGTH : 0)
+	);
 }
 
 function properSegmentIntersection(

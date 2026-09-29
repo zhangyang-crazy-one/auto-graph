@@ -16,7 +16,7 @@ export type RouteKind =
 	/** Short attach-to-attach orthogonal routes; edge×edge crossings use jumps (#84). */
 	| "short-orthogonal-jumps";
 
-export type RouteHardObstacleKind = "evidence" | "text";
+export type RouteHardObstacleKind = "evidence" | "text" | "node";
 
 export interface RouteHardObstacleMetadata {
 	kind: RouteHardObstacleKind;
@@ -40,6 +40,12 @@ export interface RouteEdgeInput {
 	 * and `obstacles` as a crossing cost.
 	 */
 	blockingObstacles?: readonly Box[];
+	/**
+	 * Outlines a short-orthogonal route should not be drawn along (group
+	 * frames, node sides): a segment within a few pixels of one, parallel
+	 * to it, reads as part of the outline.
+	 */
+	outlineBoxes?: readonly Box[];
 	hardObstacles?: readonly Box[];
 	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[];
 	obstacleIndex?: BoxSpatialIndex;
@@ -73,6 +79,22 @@ export interface RouteEdgeInput {
 	 * unless the solver dense policy sets it. Capped at 5.
 	 */
 	maxAttachPointsPerSide?: number;
+	/**
+	 * Soft-text micro-clear / escape-stub track pitch in px (#86 / #87 / #92).
+	 * Defaults to 10. Short-orthogonal requires escape stubs of at least this
+	 * length so channel nudge has a separable interior span.
+	 */
+	softTextClearPitch?: number;
+	/**
+	 * Pre-assigned attach point for the source endpoint (#92). When set,
+	 * short-orthogonal skips source-side slot tournament expansion.
+	 */
+	sourcePoint?: Point;
+	/**
+	 * Pre-assigned attach point for the target endpoint (#92). When set,
+	 * short-orthogonal skips target-side slot tournament expansion.
+	 */
+	targetPoint?: Point;
 	/**
 	 * Severity for fatal `route_obstacle_fallback` when expand still crosses
 	 * hard obstacles. Use `"warning"` under `deliverabilityMode: "degraded-ok"`.

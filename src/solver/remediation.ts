@@ -12,6 +12,7 @@ import {
 import type {
 	DeliverabilityReport,
 	ExternalLabelCallout,
+	ExternalLabelRemediationDetail,
 	NormalizedDiagram,
 	PagePolicy,
 	PageSplitPolicyMode,
@@ -43,6 +44,7 @@ import {
 	coordinateFrame,
 	coordinateGroups,
 	coordinateNodes,
+	frameInsets,
 } from "./coordinate.js";
 import {
 	measureEvidenceTextBlocks,
@@ -55,6 +57,7 @@ import {
 	compactDetail,
 	flattenDiagnosticDetailCsvStrings,
 	flattenDiagnosticDetailStrings,
+	keyTextObstacles,
 	recenterNodeLabelLayout,
 	reserveSideGutters,
 	sameBox,
@@ -94,6 +97,8 @@ import {
 import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	coordinateSwimlanes,
+	laneBorderLabelObstacles,
+	laneSoftCorridors,
 	reserveLaneCorridors,
 } from "./swimlane-contracts.js";
 
@@ -110,6 +115,10 @@ export function buildDeliverabilityReport(
 	);
 	const degraded = blocking.length > 0;
 	const strict = isStrictDeliverability(options);
+	const shelfCapacity = diagnostics.find(
+		(diagnostic) =>
+			diagnostic.code === "routing.label-shelf.capacity_exhausted",
+	);
 	return {
 		status: !degraded ? "clean" : strict ? "unsatisfiable" : "degraded",
 		strict,
@@ -123,6 +132,10 @@ export function buildDeliverabilityReport(
 			options,
 			appliedExternalLabelCallouts,
 			appliedRemediationPlans,
+		).map((plan) =>
+			plan.type === "external-label" && shelfCapacity !== undefined
+				? withShelfCapacity(plan, shelfCapacity)
+				: plan,
 		),
 	};
 }
@@ -227,6 +240,8 @@ export interface RemediationPassState {
 	remediationPassIterations: number;
 	/** Input-seeded diagnostics must survive regenerable routing refreshes. */
 	preservedDiagnosticKeys: ReadonlySet<string>;
+	/** Shelf packing failures of the last external-label pass (#93). */
+	shelfDiagnostics?: Diagnostic[];
 }
 
 export interface RemediationPassContext {
@@ -590,11 +605,68 @@ export function applyExternalLabelRemediation(
 	context: RemediationPassContext,
 ): RemediationPlan | undefined {
 	const edgePointBounds = edgeBounds(state.coordinatedEdges);
+	const shelfDiagnostics: Diagnostic[] = [];
 	const externalLabelCallouts = buildExternalLabelCallouts(
 		state.edgeTextAnnotations,
 		unionBoxes([state.contentBounds, ...edgePointBounds]),
 		context.options,
+		{
+			obstacles: [
+				...state.coordinatedNodes.map((node) => node.box),
+				...state.coordinatedGroups.map((group) => group.box),
+				...context.coordinatedMatrices.map((matrix) => matrix.box),
+				...context.coordinatedTables.map((table) => table.box),
+				...context.coordinatedEvidencePanels.map((panel) => panel.box),
+				...state.policyHardObstacles,
+				// Frame and lane title bars keep their titles readable, and an
+				// opaque callout must not cut a lane divider.
+				...state.titleBarObstacles,
+				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
+				// Port labels often reach past their node.
+				...state.baseTextAnnotations
+					.filter((annotation) => annotation.surfaceKind === "port-label")
+					.map((annotation) => annotation.box),
+			],
+			diagnostics: shelfDiagnostics,
+			routes: new Map(
+				state.coordinatedEdges.map((edge) => [edge.id, edge.points]),
+			),
+			keyObstacles: [
+				...state.coordinatedNodes.map((node) => node.box),
+				...context.coordinatedMatrices.map((matrix) => matrix.box),
+				...context.coordinatedTables.map((table) => table.box),
+				...context.coordinatedEvidencePanels.map((panel) => panel.box),
+				// A key must not cover a title bar, a lane divider, a port
+				// label or a group title either.
+				...state.titleBarObstacles,
+				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
+				...keyTextObstacles(state.baseTextAnnotations),
+			],
+			// Every callout sits inside the frame, which must fit the page too.
+			...(state.frame === undefined
+				? {}
+				: { pageInsets: frameInsets(state.frame) }),
+		},
 	);
+	state.shelfDiagnostics = shelfDiagnostics;
+	const shelfCapacity = shelfDiagnostics.find(
+		(diagnostic) =>
+			diagnostic.code === "routing.label-shelf.capacity_exhausted",
+	);
+	const keyBlocked = shelfDiagnostics.find(
+		(diagnostic) => diagnostic.code === "routing.label-shelf.key_blocked",
+	);
+	const withShelfDiagnostics = <T extends Omit<RemediationPlan, "id">>(
+		plan: T,
+	): T => {
+		const capped =
+			shelfCapacity === undefined
+				? plan
+				: withShelfCapacity(plan, shelfCapacity);
+		return keyBlocked === undefined
+			? capped
+			: withKeyBlocked(capped, keyBlocked);
+	};
 	if (externalLabelCallouts.length === 0) {
 		const candidate = buildRemediationPlans(
 			blockingRemediationDiagnostics(state.diagnostics),
@@ -604,6 +676,11 @@ export function applyExternalLabelRemediation(
 		).find((plan) => plan.type === "external-label");
 		if (candidate === undefined) {
 			return undefined;
+		}
+		if (shelfCapacity !== undefined || keyBlocked !== undefined) {
+			// Labels needed callouts but none fit on the page (#93), or no
+			// key found a clear spot on its edge.
+			return withShelfDiagnostics({ ...candidate, status: "blocked" });
 		}
 		return {
 			...candidate,
@@ -620,13 +697,65 @@ export function applyExternalLabelRemediation(
 		(callout) => callout.callout,
 	);
 	const policy = resolveRemediationPolicy(context.options.remediationPolicy);
-	return {
+	const applied = buildAppliedExternalLabelRemediationPlan(
+		blockingRemediationDiagnostics(state.diagnostics),
+		policy,
+		state.appliedExternalLabelCallouts,
+	);
+	const plan: RemediationPlan = {
 		id: "remediation-external-label",
-		...buildAppliedExternalLabelRemediationPlan(
-			blockingRemediationDiagnostics(state.diagnostics),
-			policy,
-			state.appliedExternalLabelCallouts,
-		),
+		...applied,
+	};
+	// Only part of the labels fit on the page, or some keys were blocked:
+	// say so (#93).
+	return withShelfDiagnostics(plan);
+}
+
+/**
+ * Fold a `routing.label-shelf.capacity_exhausted` diagnostic into the
+ * external-label plan: its reason, code and the unplaced label count (#93).
+ */
+export function withShelfCapacity<T extends Omit<RemediationPlan, "id">>(
+	plan: T,
+	capacity: Diagnostic,
+): T {
+	if (plan.diagnosticCodes.includes(capacity.code)) {
+		return plan;
+	}
+	return {
+		...plan,
+		reason: `${plan.reason} ${capacity.message}`,
+		diagnosticCodes: [...plan.diagnosticCodes, capacity.code].sort(),
+		detail: {
+			...(plan.detail as ExternalLabelRemediationDetail),
+			unplacedCount:
+				(capacity.detail?.labelCount as number) -
+				(capacity.detail?.placed as number),
+		},
+	};
+}
+
+/**
+ * Fold a `routing.label-shelf.key_blocked` diagnostic into the
+ * external-label plan: its reason, code and the edges that stayed inline.
+ */
+export function withKeyBlocked<T extends Omit<RemediationPlan, "id">>(
+	plan: T,
+	blocked: Diagnostic,
+): T {
+	if (plan.diagnosticCodes.includes(blocked.code)) {
+		return plan;
+	}
+	return {
+		...plan,
+		reason: `${plan.reason} ${blocked.message}`,
+		diagnosticCodes: [...plan.diagnosticCodes, blocked.code].sort(),
+		detail: {
+			...(plan.detail as ExternalLabelRemediationDetail),
+			blockedKeyEdgeIds: [
+				...((blocked.detail?.edgeIds as string[] | undefined) ?? []),
+			],
+		},
 	};
 }
 
@@ -654,6 +783,7 @@ export function railRemediationSnapshot(state: RemediationPassState): {
 			"routing.text-clearance.unresolved",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
+			"routing.channel.capacity_exhausted",
 			"routing.label-congestion.unresolved",
 			"route_obstacle_fallback",
 			"routing.endpoint-interior.unavoidable",
@@ -883,7 +1013,7 @@ export function rebuildRemediationGeometry(
 		...(context.resolvedPagePolicy === "lane-behavior"
 			? []
 			: state.titleBarObstacles),
-		...state.laneReservations.softCorridors,
+		...laneSoftCorridors(state.laneReservations, context.options),
 	];
 	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
 		state.baseTextAnnotations,
@@ -947,6 +1077,7 @@ export function rerouteRemediationEdges(
 			...state.coordinatedNodes.map((node) => node.box),
 			...state.baseTextAnnotations.map(textAnnotationContentBox),
 			...state.frameTextAnnotation.map((annotation) => annotation.box),
+			...laneBorderLabelObstacles(state.coordinatedSwimlanes),
 		],
 		options,
 	);
@@ -965,6 +1096,7 @@ export function refreshRemediationDiagnostics(
 			"routing.route-label-loop.exhausted",
 			"routing.obstacle.unavoidable",
 			"routing.rail-capacity.exceeded",
+			"routing.channel.capacity_exhausted",
 			"routing.endpoint-interior.unavoidable",
 			"route_obstacle_fallback",
 			"routing.label-hard-obstacle.unavoidable",
@@ -1315,11 +1447,13 @@ export function remediationTypeForDiagnostic(diagnostic: Diagnostic): string {
 		case "routing.obstacle.unavoidable":
 		case "routing.endpoint-interior.unavoidable":
 		case "routing.evidence.crossing_forbidden":
+		case "routing.channel.capacity_exhausted":
 		case "route_obstacle_fallback":
 			return "route-rail-or-page-split";
 		case "routing.rail-capacity.exceeded":
 			return "increase-rails-or-split";
 		case "routing.anchor-capacity.requires-resize":
+		case "routing.port.capacity_exhausted":
 			return "grow-node-anchor-capacity";
 		case "constraints.overlap.locked-conflict":
 		case "constraints.overlap.post-growth":

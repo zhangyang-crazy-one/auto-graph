@@ -33,6 +33,47 @@ describe("exporters", () => {
 		expect(arrowhead.right).toEqual({ x: 14, y: 10 });
 	});
 
+	it("drops code points XML forbids from SVG text and attributes", () => {
+		const svg = exportSvg({
+			id: "d\u0000",
+			direction: "LR",
+			nodes: [
+				{
+					id: "a\u0001",
+					shape: "rectangle",
+					box: { x: 0, y: 0, width: 80, height: 40 },
+					label: { text: "A\u0000B\uFFFE" },
+				},
+			],
+			edges: [],
+			groups: [],
+			constraints: [],
+			diagnostics: [],
+			bounds: { x: 0, y: 0, width: 80, height: 40 },
+		} as unknown as CoordinatedDiagram);
+		// C0 controls other than tab and line breaks, and U+FFFE.
+		const forbidden = [...svg].filter((char) => {
+			const code = char.codePointAt(0) ?? 0;
+			return (
+				(code < 0x20 && ![0x09, 0x0a, 0x0d].includes(code)) || code === 0xfffe
+			);
+		});
+		expect(forbidden).toEqual([]);
+		expect(svg).toContain('data-id="a"');
+	});
+
+	it("ignores an SVG page it cannot lay out", () => {
+		const diagram = createCoordinatedDiagram();
+		const plain = exportSvg(diagram);
+		for (const page of [
+			{ width: 800, height: 600, scale: 0 },
+			{ width: 800, height: 600, scale: Number.NaN },
+			{ width: -1, height: 600, scale: 1 },
+		]) {
+			expect(exportSvg(diagram, { page }), JSON.stringify(page)).toBe(plain);
+		}
+	});
+
 	it("throws when no non-zero segment exists", () => {
 		expect(() =>
 			computeArrowhead([

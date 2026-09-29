@@ -13,8 +13,33 @@ import {
 	renderDiagramDsl,
 	resolveOutputFormat,
 } from "../src/dsl/index.js";
+import { cylinderLabelOffset } from "../src/labels/index.js";
 import { stringifyCanonical } from "../src/serialization/index.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
+
+describe("authored node size", () => {
+	it("is a minimum size and keeps a cylinder label clear of its caps", () => {
+		const parsed = parseDiagramDsl(`
+nodes:
+  db: { label: Orders DB, shape: cylinder, size: { width: 240, height: 160 } }
+`);
+		const node = normalizeDiagramDsl(parsed.value as never, {
+			textMeasurer: new DeterministicTextMeasurer(),
+		}).diagram?.nodes[0];
+		expect(node?.size).toEqual({ width: 240, height: 160 });
+		const layout = node?.labelLayout;
+		expect(layout).toBeDefined();
+		if (node === undefined || layout === undefined) return;
+		const expected = cylinderLabelOffset(
+			{ width: layout.contentBox.width, height: layout.contentBox.height },
+			node.size,
+		);
+		expect(expected).toBeGreaterThan(0);
+		// The label sits below plain centring by the cylinder cap offset.
+		const centred = (node.size.height - layout.box.height) / 2;
+		expect(layout.box.y - centred).toBeCloseTo(expected, 6);
+	});
+});
 
 describe("DSL parser contract", () => {
 	it("names the planned public DSL APIs", () => {

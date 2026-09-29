@@ -1,9 +1,11 @@
 /** Extracted from solve.ts — behavior-preserving #77 split. */
 
 import {
+	attachSlotFractions,
 	type computeShapeGeometry,
 	shapeSideAttachRange,
 	shapeSidePoint,
+	sidePointAtFraction,
 } from "../geometry/index.js";
 import type { Diagnostic } from "../ir/diagnostics.js";
 import type {
@@ -25,6 +27,7 @@ import type {
 } from "../ir/label-layout.js";
 import { labelLinesRelativeToBox } from "../labels/fit.js";
 import { computeFanOutPorts } from "../routing/bus-router.js";
+import { nestedSlotKey } from "../routing/same-side-slots.js";
 import type { TextStyleOptions } from "../text/types.js";
 import type { CjkTypography } from "./cjk-typography.js";
 import {
@@ -38,6 +41,11 @@ import type { PortShiftingOptions, SolveDiagramOptions } from "./options.js";
 
 /** Minimum anchor gap used when distribution is implicit (no growth). */
 const IMPLICIT_ANCHOR_MIN_SPACING = 8;
+
+/** #91 equal-division fractions for named ports (same contract as attach slots). */
+export function equalDivisionFractions(count: number): number[] {
+	return attachSlotFractions(count);
+}
 
 export function buildRoutingAllocationReport(
 	acceptedRails: readonly RoutingRailAllocation[],
@@ -281,7 +289,18 @@ export function expandNodeBoxesForPorts(
 			if (count <= 1) continue;
 			const isVertical = side === "left" || side === "right";
 			const availableSpan = isVertical ? box.height : box.width;
-			const requiredSpan = (count - 1) * minSpacing + PORT_BOX_SIZE;
+			const fractions = equalDivisionFractions(count);
+			let minFractionGap = 1;
+			for (let i = 0; i < fractions.length - 1; i += 1) {
+				const left = fractions[i];
+				const right = fractions[i + 1];
+				if (left === undefined || right === undefined) continue;
+				minFractionGap = Math.min(minFractionGap, right - left);
+			}
+			const requiredSpan =
+				minFractionGap > 0
+					? minSpacing / minFractionGap
+					: (count - 1) * minSpacing + PORT_BOX_SIZE;
 			if (requiredSpan > availableSpan) {
 				const expansion = requiredSpan - availableSpan;
 				if (isVertical) {
@@ -746,11 +765,18 @@ export function distributedAnchorPointsByEndpoint(
 		// the node boundary. Explicit modes keep stable edge id / role order.
 		const alongY =
 			endpoints[0]?.side === "left" || endpoints[0]?.side === "right";
+		// Ends whose route wraps around the node (other node behind the
+		// side) nest in reverse so they do not cross at the node (#99 D).
+		const ownBox = boxes.get(endpoints[0]?.nodeId ?? "")?.box;
+		const key = (endpoint: (typeof endpoints)[number]) =>
+			ownBox === undefined
+				? alongY
+					? endpoint.other.y
+					: endpoint.other.x
+				: nestedSlotKey(endpoint.side, ownBox, endpoint.other);
 		const sorted = [...endpoints].sort((a, b) => {
 			if (implicitCompact) {
-				const byPosition = alongY
-					? a.other.y - b.other.y
-					: a.other.x - b.other.x;
+				const byPosition = key(a) - key(b);
 				if (Math.abs(byPosition) > 0.5) return byPosition;
 			}
 			const byEdge = a.edgeId.localeCompare(b.edgeId);
@@ -1004,50 +1030,15 @@ export function portAnchor(
 	count: number,
 	portShifting: PortShiftingOptions | undefined,
 ): Point {
-	const shiftingEnabled = portShifting?.enabled ?? true;
-	const requestedSpacing = portShifting?.spacing ?? 24;
-	const maxOffset =
-		side === "left" || side === "right"
-			? nodeBox.height / 2
-			: nodeBox.width / 2;
-	// When (count - 1) * spacing would overflow the node edge, compress the
-	// spacing so every port still gets a distinct anchor evenly distributed
-	// within the available extent, instead of clamping several ports onto the
-	// same endpoint.
-	const availableSpan = 2 * maxOffset;
-	const minSpacing = PORT_BOX_SIZE + MIN_PORT_EDGE_GAP;
-	const spacing =
-		shiftingEnabled && count > 1
-			? Math.max(
-					Math.min(requestedSpacing, availableSpan / (count - 1)),
-					minSpacing,
-				)
-			: requestedSpacing;
-	const centeredOffset = shiftingEnabled
-		? (index - (count - 1) / 2) * spacing
-		: 0;
-	switch (side) {
-		case "left":
-			return {
-				x: nodeBox.x,
-				y: nodeBox.y + nodeBox.height / 2 + centeredOffset,
-			};
-		case "right":
-			return {
-				x: nodeBox.x + nodeBox.width,
-				y: nodeBox.y + nodeBox.height / 2 + centeredOffset,
-			};
-		case "top":
-			return {
-				x: nodeBox.x + nodeBox.width / 2 + centeredOffset,
-				y: nodeBox.y,
-			};
-		case "bottom":
-			return {
-				x: nodeBox.x + nodeBox.width / 2 + centeredOffset,
-				y: nodeBox.y + nodeBox.height,
-			};
+	// Port shifting switched off keeps every port at the side's middle.
+	if (portShifting?.enabled === false) {
+		return sidePointAtFraction(nodeBox, side, 0.5);
 	}
+	// #91: named ports use equal-division fractions (25/50/75 contract),
+	// not mid-centered even spacing that ignores quarter slots.
+	const fractions = equalDivisionFractions(count);
+	const fraction = fractions[Math.min(index, fractions.length - 1)] ?? 0.5;
+	return sidePointAtFraction(nodeBox, side, fraction);
 }
 
 export function portBox(anchor: Point): Box {
@@ -1132,15 +1123,17 @@ export function portGeometry(
 	if (port === undefined) {
 		return nodeGeometry;
 	}
+	// #91: pin only the port's own side (and center) to the port anchor.
+	// Sibling free edges must still see normal cardinal side slots.
 	return {
 		...nodeGeometry,
-		box: port.box,
 		center: port.anchor,
-		anchors: nodeGeometry.anchors.map((anchor) => ({
-			name: anchor.name,
-			point: port.anchor,
-		})),
-		obstacleBox: port.box,
+		anchors: nodeGeometry.anchors.map((anchor) =>
+			anchor.name === port.side || anchor.name === "center"
+				? { name: anchor.name, point: port.anchor }
+				: { ...anchor, point: { ...anchor.point } },
+		),
+		obstacleBox: nodeGeometry.obstacleBox,
 	};
 }
 

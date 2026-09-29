@@ -14,7 +14,7 @@ import type {
 	NormalizedGroup,
 	NormalizedNode,
 } from "../ir/elements.js";
-import type { Box } from "../ir/geometry.js";
+import type { Box, Insets } from "../ir/geometry.js";
 import { groupReferenceMissing } from "./helpers.js";
 import { framePadding } from "./initial-layout.js";
 import type { SolveDiagramOptions } from "./options.js";
@@ -76,18 +76,32 @@ export function coordinateNodes(
 	return coordinated;
 }
 
+/**
+ * How far a diagram frame reaches past the content it wraps on each side:
+ * its padding, plus the title bar on top.
+ */
+export function frameInsets(
+	frame: Pick<
+		NonNullable<NormalizedDiagram["frame"]>,
+		"padding" | "headerHeight"
+	>,
+): Insets {
+	const padding = framePadding(frame.padding);
+	return { ...padding, top: padding.top + (frame.headerHeight ?? 28) };
+}
+
 export function coordinateFrame(
 	frame: NonNullable<NormalizedDiagram["frame"]>,
 	contentBounds: Box,
 ): CoordinatedFrame {
-	const padding = framePadding(frame.padding);
+	const insets = frameInsets(frame);
 	const titleHeight = frame.headerHeight ?? 28;
 	const titleWidth = Math.max(180, frame.titleTab.length * 7);
 	const box = {
-		x: contentBounds.x - padding.left,
-		y: contentBounds.y - padding.top - titleHeight,
-		width: contentBounds.width + padding.left + padding.right,
-		height: contentBounds.height + padding.top + padding.bottom + titleHeight,
+		x: contentBounds.x - insets.left,
+		y: contentBounds.y - insets.top,
+		width: contentBounds.width + insets.left + insets.right,
+		height: contentBounds.height + insets.top + insets.bottom,
 	};
 	return {
 		...frame,

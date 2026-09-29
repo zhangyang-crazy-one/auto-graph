@@ -688,6 +688,56 @@ describe("collinear end segments", () => {
 		expect(split[1]?.[0]).toEqual({ x: 60, y: 100 });
 		expect(split[1]?.[1]?.y).toBe(100);
 	});
+
+	it("keeps tracks off an end segment a vertical move stretched (lockEnds)", () => {
+		// c's trunk at x=60 moves off b's end segment, stretching c's last
+		// segment along y=160 under b's horizontal trunk; the horizontal
+		// pass must see that end segment at its new span.
+		const routes = [
+			{
+				id: "a",
+				points: [
+					{ x: 120, y: 140 },
+					{ x: 120, y: 80 },
+					{ x: 80, y: 80 },
+					{ x: 80, y: 100 },
+					{ x: 60, y: 100 },
+				],
+			},
+			{
+				id: "b",
+				points: [
+					{ x: 140, y: 60 },
+					{ x: 140, y: 160 },
+					{ x: 60, y: 160 },
+					{ x: 60, y: 60 },
+				],
+			},
+			{
+				id: "c",
+				points: [
+					{ x: 160, y: 60 },
+					{ x: 160, y: 140 },
+					{ x: 60, y: 140 },
+					{ x: 60, y: 160 },
+					{ x: 40, y: 160 },
+				],
+			},
+		];
+		const [, b, c] = separateParallelSegments(routes, [], { lockEnds: true });
+		const trunkY = b?.[1]?.y ?? 0;
+		const last = c?.slice(-2) ?? [];
+		const endY = last[0]?.y ?? 0;
+		const endLeft = Math.min(...last.map((point) => point.x));
+		const endRight = Math.max(...last.map((point) => point.x));
+		const trunkLeft = Math.min(b?.[1]?.x ?? 0, b?.[2]?.x ?? 0);
+		const trunkRight = Math.max(b?.[1]?.x ?? 0, b?.[2]?.x ?? 0);
+		const overlap =
+			Math.min(endRight, trunkRight) - Math.max(endLeft, trunkLeft);
+		if (overlap > 0.5) {
+			expect(Math.abs(trunkY - endY)).toBeGreaterThanOrEqual(12 - 0.5);
+		}
+	});
 });
 
 describe("review follow-ups (Codex #96, round 5)", () => {
@@ -921,5 +971,59 @@ describe("backward edges across rows", () => {
 		const c = { x: 0, y: 0, width: 120, height: 40 };
 		const d = { x: 160, y: 300, width: 120, height: 40 };
 		expect(flowAwareAnchorSide(d, c, "LR", "source")).toBe("left");
+	});
+});
+
+describe("obstacle-avoiding ends on non-rectangular nodes", () => {
+	it("snaps tournament and spread ends onto an ellipse outline", () => {
+		const ys = [0, 40, 80, 120];
+		const solved = solveDiagram(
+			{
+				id: "ellipse-fan-in",
+				direction: "LR",
+				nodes: [
+					...ys.map((y, index) => ({
+						id: `s${index}`,
+						shape: "rectangle" as const,
+						size: { width: 80, height: 30 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 0, y },
+					})),
+					{
+						id: "e",
+						shape: "ellipse" as const,
+						size: { width: 100, height: 60 },
+						padding: { top: 0, right: 0, bottom: 0, left: 0 },
+						position: { x: 300, y: 40 },
+					},
+				],
+				edges: ys.map((_, index) => ({
+					id: `x${index}`,
+					source: { nodeId: `s${index}` },
+					target: { nodeId: "e" },
+				})),
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			} as never,
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				textMeasurer: new DeterministicTextMeasurer(),
+			},
+		);
+		const box = solved.nodes.find((node) => node.id === "e")?.box;
+		expect(box).toBeDefined();
+		if (box === undefined) return;
+		const cx = box.x + box.width / 2;
+		const cy = box.y + box.height / 2;
+		for (const edge of solved.edges) {
+			const end = edge.points.at(-1);
+			if (end === undefined) continue;
+			const k =
+				((end.x - cx) / (box.width / 2)) ** 2 +
+				((end.y - cy) / (box.height / 2)) ** 2;
+			expect(k, edge.id).toBeCloseTo(1, 3);
+		}
 	});
 });

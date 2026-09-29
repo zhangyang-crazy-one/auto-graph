@@ -1,4 +1,8 @@
-import { EDGE_CROSSING_GLYPH_RADIUS } from "../geometry/edge-crossings.js";
+import {
+	EDGE_CROSSING_END_CUTOFF,
+	EDGE_CROSSING_GLYPH_RADIUS,
+	hopGlyphs,
+} from "../geometry/edge-crossings.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
@@ -17,7 +21,9 @@ import type {
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
+import { compartmentSeparatorRows } from "./compartments.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
+import { usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
 const NODE_FILL = "#f8fafc";
@@ -47,7 +53,7 @@ export function exportSvg(
 		crossings.length === 0
 			? diagram.bounds
 			: expandBox(diagram.bounds, EDGE_CROSSING_GLYPH_RADIUS);
-	const page = options.page;
+	const page = usablePage(options.page);
 	// On a page the view box is the page in diagram units, centred on the
 	// content, so the drawing appears at `scale` in the middle of the page.
 	const viewBox =
@@ -505,13 +511,15 @@ function renderCompartments(
 	const lines = [
 		`  <g class="compartment" data-for="${escapeAttribute(node.id)}">`,
 	];
+	// A separator where the property and constraint sections start.
+	const separators = compartmentSeparatorRows(compartments);
 	for (let index = 0; index < rows.length; index += 1) {
 		const row = rows[index];
 		if (row === undefined) {
 			continue;
 		}
 		const y = node.box.y + 18 + index * 16;
-		if (index > 1) {
+		if (separators.has(index)) {
 			lines.push(
 				`    <line class="compartment-separator" x1="${formatNumber(node.box.x)}" y1="${formatNumber(y - 12)}" x2="${formatNumber(node.box.x + node.box.width)}" y2="${formatNumber(y - 12)}" stroke="${STROKE}"/>`,
 			);
@@ -684,32 +692,27 @@ function formatPathWithJumps(
 		const end = points[i + 1];
 		if (start === undefined || end === undefined) continue;
 		moveOrLine(start);
-		const segmentJumps = jumps
-			.filter((jump) => pointOnSegment(jump, start, end))
-			.sort(
-				(left, right) =>
-					squaredDistance(start, left) - squaredDistance(start, right),
-			);
-		for (const jump of segmentJumps) {
-			const before = pointAlongSegment(
-				start,
-				end,
-				jump,
-				-EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			const after = pointAlongSegment(
-				start,
-				end,
-				jump,
-				EDGE_CROSSING_GLYPH_RADIUS,
-			);
-			moveOrLine(before);
-			if (jump.style === "gap") {
-				moveOnly(after);
+		const glyphs = hopGlyphs(
+			jumps
+				.filter((jump) => pointOnSegment(jump, start, end))
+				.sort(
+					(left, right) =>
+						squaredDistance(start, left) - squaredDistance(start, right),
+				),
+			start,
+			end,
+			0,
+			(jump) => jump.style ?? "jump",
+		);
+		for (const glyph of glyphs) {
+			moveOrLine(glyph.before);
+			if ((glyph.hops[0] as EdgeCrossing).style === "gap") {
+				moveOnly(glyph.after);
 			} else {
+				// A cluster of close crossings shares one wider, flat hop.
 				const sweep = hopSweep(start, end);
 				parts.push(
-					`A ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} 0 0 ${sweep} ${formatNumber(after.x)} ${formatNumber(after.y)}`,
+					`A ${formatNumber(glyph.halfLength)} ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} 0 0 ${sweep} ${formatNumber(glyph.after.x)} ${formatNumber(glyph.after.y)}`,
 				);
 			}
 		}
@@ -731,7 +734,7 @@ function pointOnSegment(
 		return squaredDistance(start, point) <= tolerance * tolerance;
 	}
 	const t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq;
-	if (t <= 0.02 || t >= 0.98) {
+	if (t <= EDGE_CROSSING_END_CUTOFF || t >= 1 - EDGE_CROSSING_END_CUTOFF) {
 		return false;
 	}
 	const proj = { x: start.x + t * dx, y: start.y + t * dy };
@@ -1105,8 +1108,17 @@ function formatNumber(value: number): string {
 		: value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/**
+ * Code points XML 1.0 forbids even as character references (C0 controls
+ * other than tab and line breaks, lone surrogates, U+FFFE/U+FFFF): dropped,
+ * or the document is not well-formed.
+ */
+const XML_FORBIDDEN =
+	/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
 function escapeXml(value: string): string {
 	return value
+		.replace(XML_FORBIDDEN, "")
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;");

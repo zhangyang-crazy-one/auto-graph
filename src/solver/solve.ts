@@ -63,12 +63,14 @@ import {
 	coordinateFrame,
 	coordinateGroups,
 	coordinateNodes,
+	frameInsets,
 } from "./coordinate.js";
 import {
 	cloneBoxMap,
 	cloneNormalizedNodeForSolver,
 	DEFAULT_MAX_REMEDIATION_ITERATIONS,
 	isTopToBottomReadingDirection,
+	keyTextObstacles,
 	REMEDIATION_ENTRY_DIAGNOSTIC_CODES,
 	removeResolvedOverlapDiagnostics,
 	reportPageOverflow,
@@ -138,6 +140,8 @@ import {
 	applySwimlaneLayoutContracts,
 	coordinateSwimlanes,
 	hasFixedSwimlaneGeometry,
+	laneBorderLabelObstacles,
+	laneSoftCorridors,
 	reserveLaneCorridors,
 } from "./swimlane-contracts.js";
 
@@ -648,7 +652,7 @@ export function solveDiagram(
 	let policySoftObstacles = [
 		...softObstacles,
 		...(resolvedPagePolicy === "lane-behavior" ? [] : titleBarObstacles),
-		...laneReservations.softCorridors,
+		...laneSoftCorridors(laneReservations, options),
 	];
 	const policyLabelHardObstacles = resourceFlowLabelHardObstacles(
 		baseTextAnnotations,
@@ -701,6 +705,7 @@ export function solveDiagram(
 			...coordinatedNodes.map((node) => node.box),
 			...baseTextAnnotations.map(textAnnotationContentBox),
 			...frameTextAnnotation.map((annotation) => annotation.box),
+			...laneBorderLabelObstacles(coordinatedSwimlanes),
 		],
 		options,
 	);
@@ -827,6 +832,7 @@ export function solveDiagram(
 					...coordinatedNodes.map((node) => node.box),
 					...baseTextAnnotations.map(textAnnotationContentBox),
 					...frameTextAnnotation.map((annotation) => annotation.box),
+					...laneBorderLabelObstacles(coordinatedSwimlanes),
 				],
 				options,
 			);
@@ -917,6 +923,7 @@ export function solveDiagram(
 				...coordinatedNodes.map((node) => node.box),
 				...baseTextAnnotations.map(textAnnotationContentBox),
 				...frameTextAnnotation.map((annotation) => annotation.box),
+				...laneBorderLabelObstacles(coordinatedSwimlanes),
 			],
 			options,
 		);
@@ -1047,12 +1054,46 @@ export function solveDiagram(
 			remediationState.appliedExternalLabelCallouts;
 		appliedRemediationPlans = remediationState.appliedRemediationPlans;
 		remediationPassIterations = remediationState.remediationPassIterations;
+		diagnostics.push(...(remediationState.shelfDiagnostics ?? []));
 	} else if (externalLabelExecutionMode(options) === "auto") {
 		const edgePointBounds = edgeBounds(coordinatedEdges);
 		const externalLabelCallouts = buildExternalLabelCallouts(
 			edgeTextAnnotations,
 			unionBoxes([contentBounds, ...edgePointBounds]),
 			options,
+			{
+				obstacles: [
+					...coordinatedNodes.map((node) => node.box),
+					...coordinatedGroups.map((group) => group.box),
+					...coordinatedMatrices.map((matrix) => matrix.box),
+					...coordinatedTables.map((table) => table.box),
+					...coordinatedEvidencePanels.map((panel) => panel.box),
+					...policyHardObstacles,
+					// Frame and lane title bars keep their titles readable, and an
+					// opaque callout must not cut a lane divider.
+					...titleBarObstacles,
+					...laneBorderLabelObstacles(coordinatedSwimlanes),
+					// Port labels often reach past their node.
+					...baseTextAnnotations
+						.filter((annotation) => annotation.surfaceKind === "port-label")
+						.map((annotation) => annotation.box),
+				],
+				diagnostics,
+				routes: new Map(coordinatedEdges.map((edge) => [edge.id, edge.points])),
+				keyObstacles: [
+					...coordinatedNodes.map((node) => node.box),
+					...coordinatedMatrices.map((matrix) => matrix.box),
+					...coordinatedTables.map((table) => table.box),
+					...coordinatedEvidencePanels.map((panel) => panel.box),
+					// A key must not cover a title bar, a lane divider, a port
+					// label or a group title either.
+					...titleBarObstacles,
+					...laneBorderLabelObstacles(coordinatedSwimlanes),
+					...keyTextObstacles(baseTextAnnotations),
+				],
+				// Every callout sits inside the frame, which must fit the page too.
+				...(frame === undefined ? {} : { pageInsets: frameInsets(frame) }),
+			},
 		);
 		if (externalLabelCallouts.length > 0) {
 			edgeTextAnnotations = applyExternalLabelCallouts(
