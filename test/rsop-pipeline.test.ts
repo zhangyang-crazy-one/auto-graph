@@ -227,6 +227,48 @@ edges: [a -> b]
 	});
 });
 
+describe("channel track pitch and blockers", () => {
+	// Three routes whose vertical runs share x=100 (spans overlapping).
+	const gutter = () =>
+		[10, 12, 14].map((y, index) => ({
+			id: `e${index}`,
+			source: { nodeId: `s${index}` },
+			target: { nodeId: `t${index}` },
+			points: [
+				{ x: 0, y },
+				{ x: 100, y },
+				{ x: 100, y: 80 + index * 40 },
+				{ x: 200, y: 80 + index * 40 },
+			],
+		}));
+	const verticalCoords = (
+		result: ReturnType<typeof assignChannelTracks>,
+	): number[] =>
+		result.assignments
+			.filter((assignment) => assignment.axis === "v")
+			.map((assignment) => assignment.coord)
+			.sort((left, right) => left - right);
+
+	it("spaces tracks at the default pitch when given zero", () => {
+		expect(
+			verticalCoords(
+				assignChannelTracks(gutter(), { idealNudgingDistance: 0 }),
+			),
+		).toEqual([90, 100, 110]);
+	});
+
+	it("shifts the bank off a blocker on one side", () => {
+		// A blocker over x=85..95 takes the centred bank's left track (x=90).
+		const coords = verticalCoords(
+			assignChannelTracks(gutter(), {
+				idealNudgingDistance: 10,
+				hardObstacles: [{ x: 85, y: 0, width: 10, height: 200 }],
+			}),
+		);
+		expect(coords).toEqual([100, 110, 120]);
+	});
+});
+
 describe("RSOP Phase-5 draw.io jump parity (#89)", () => {
 	it("exports jumpStyle and crossing metadata for orthogonal hops", () => {
 		const diagram: CoordinatedDiagram = {

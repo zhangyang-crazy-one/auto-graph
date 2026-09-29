@@ -475,6 +475,21 @@ describe("draw.io export", () => {
 		expect(xml).toContain('pageHeight="48"');
 	});
 
+	it("keeps the line breaks of an authored edge label without solved text", () => {
+		const base = diagram();
+		const edge = base.edges[0];
+		if (edge === undefined) throw new Error("fixture");
+		edge.points = [
+			{ x: 600, y: 100 },
+			{ x: 800, y: 100 },
+		];
+		edge.label = { text: "first\nsecond" };
+		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
+		expect(xml).toContain('value="first&lt;br&gt;second"');
+		// Two 16px rows centred on y=100: the page starts at y=84.
+		expect(xml).toContain('pageHeight="56"');
+	});
+
 	it("covers an authored edge label whose only annotation is a callout", () => {
 		const base = diagram();
 		const edge = base.edges[0];
@@ -503,6 +518,33 @@ describe("draw.io export", () => {
 			],
 		} as never);
 		expect(xml).toContain('pageHeight="48"');
+	});
+
+	it("draws a group title from its label layout without solved text", () => {
+		const xml = exportDrawio(
+			diagram({
+				groups: [
+					{
+						id: "g",
+						label: { text: "Zone East" },
+						nodeIds: ["a"],
+						box: { x: 490, y: 90, width: 120, height: 60 },
+						// Relative to the group: two solved lines at its top left.
+						labelLayout: {
+							text: "Zone East",
+							box: { x: 6, y: 2, width: 40, height: 28 },
+							font: { fontFamily: "Arial", fontSize: 12 },
+							lines: [{ text: "Zone" }, { text: "East" }],
+						},
+					},
+				],
+			} as never),
+		);
+		// The group cell stays blank; the title is its own text cell.
+		expect(xml).not.toMatch(/value="Zone East"/);
+		expect(xml).toMatch(
+			/value="Zone&lt;br&gt;East" style="text;[^"]*fontFamily=Arial;fontSize=12;"[^>]*><mxGeometry x="6" y="2" width="40" height="28"/,
+		);
 	});
 
 	it("exports groups, swimlanes, evidence and callouts", () => {
@@ -1191,6 +1233,18 @@ describe("draw.io export", () => {
 		// Bounds 400×40 at (500,100) → page 448×88, node "a" at (24,24).
 		expect(xml).toContain('pageWidth="448" pageHeight="88"');
 		expect(xml).toContain('x="24" y="24" width="100" height="40"');
+	});
+
+	it("treats a non-finite viewport padding as none", () => {
+		for (const viewportPadding of [
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			Number.NEGATIVE_INFINITY,
+		]) {
+			const xml = exportDrawio(diagram(), { viewportPadding });
+			expect(xml).toContain('pageWidth="400" pageHeight="40"');
+			expect(xml).toContain('x="0" y="0" width="100" height="40"');
+		}
 	});
 
 	it("draws solved compartment rows at their own boxes", () => {

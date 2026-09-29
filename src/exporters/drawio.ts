@@ -51,7 +51,10 @@ export function exportDrawio(
 				height: 2 * EDGE_CROSSING_GLYPH_RADIUS,
 			})),
 		]),
-		Math.max(0, options.viewportPadding ?? 0),
+		// As in the SVG and Excalidraw viewports: a non-finite padding is none.
+		Number.isFinite(options.viewportPadding)
+			? Math.max(0, options.viewportPadding ?? 0)
+			: 0,
 	);
 	// On a requested page (paper size and fit scale), the paper is drawn
 	// at `1 / scale` in diagram units with the content centred, as the SVG
@@ -280,20 +283,49 @@ export function exportDrawio(
 				annotation.surfaceKind === "group-label" &&
 				annotation.ownerId === group.id,
 		);
+		// Without a solved annotation, the group's label layout (a box
+		// relative to the group) places the title the same way.
+		const layout = group.labelLayout;
+		const titleCell =
+			title !== undefined
+				? { value: calloutText(title), font: title, box: title.box }
+				: layout?.box !== undefined
+					? {
+							value:
+								(layout.lines ?? []).length > 0
+									? layout.lines
+											.map((line) => escapeHtml(line.text))
+											.join("<br>")
+									: multilineHtml(group.label?.text ?? ""),
+							font: {
+								...(layout.font?.fontFamily === undefined
+									? {}
+									: { fontFamily: layout.font.fontFamily }),
+								...(layout.font?.fontSize === undefined
+									? {}
+									: { fontSize: layout.font.fontSize }),
+							},
+							box: {
+								...layout.box,
+								x: group.box.x + layout.box.x,
+								y: group.box.y + layout.box.y,
+							},
+						}
+					: undefined;
 		const groupId = vertex(
-			title === undefined ? escapeHtml(group.label?.text ?? "") : "",
+			titleCell === undefined ? escapeHtml(group.label?.text ?? "") : "",
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
 			parentGroup(outerGroup(group)) ?? laneOf(group.id, group.box),
 		);
 		groupCells.set(group.id, { id: groupId, box: group.box });
-		if (title !== undefined) {
+		if (titleCell !== undefined) {
 			vertex(
-				calloutText(title),
-				`${GROUP_LABEL_STYLE}${labelFontStyle(title)
+				titleCell.value,
+				`${GROUP_LABEL_STYLE}${labelFontStyle(titleCell.font)
 					.map((entry) => `${entry};`)
 					.join("")}`,
-				title.box,
+				titleCell.box,
 				{ id: groupId, box: group.box },
 			);
 		}
@@ -1255,10 +1287,22 @@ function edgeLabelHtml(
 	annotation: SolvedTextAnnotation | undefined,
 	fallback: string | undefined,
 ): string {
-	if (annotation === undefined) return escapeHtml(fallback ?? "");
+	if (annotation === undefined) return multilineHtml(fallback ?? "");
 	return annotation.lines.length > 1
 		? annotation.lines.map((line) => escapeHtml(line.text)).join("<br>")
 		: escapeHtml(annotation.text);
+}
+
+/**
+ * Authored text as draw.io HTML: a raw line break in an XML attribute is
+ * normalised to a space, so each becomes `<br>`.
+ */
+function multilineHtml(text: string): string {
+	return textLines(text).map(escapeHtml).join("<br>");
+}
+
+function textLines(text: string): string[] {
+	return text.split(/\r\n|\r|\n/);
 }
 
 function pointAtHalfLength(points: readonly Point[]): Point | undefined {
@@ -1652,8 +1696,11 @@ function fallbackEdgeLabelBoxes(diagram: CoordinatedDiagram): Box[] {
 		const middle = pointAtHalfLength(edge.points);
 		if (text === undefined || text === "" || solved.has(edge.id)) return [];
 		if (middle === undefined) return [];
-		const width = fallbackTextWidth(text, 11) + 4;
-		const height = 16;
+		// One 16px row per authored line, as wide as the widest.
+		const lines = textLines(text);
+		const width =
+			Math.max(...lines.map((line) => fallbackTextWidth(line, 11))) + 4;
+		const height = 16 * lines.length;
 		return [
 			{
 				x: middle.x - width / 2,

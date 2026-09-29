@@ -30,6 +30,8 @@ export interface AssignChannelTracksResult {
 }
 
 const DEFAULT_MAX_TRACKS = 8;
+/** Track pitch when none (or no usable one) is given. */
+const DEFAULT_PITCH = 10;
 
 /**
  * Extract axis-aligned interior segments and assign VLSI-style tracks via
@@ -44,8 +46,15 @@ export function assignChannelTracks(
 		hardObstacles?: readonly Box[];
 	} = {},
 ): AssignChannelTracksResult {
-	const pitch = options.idealNudgingDistance ?? 10;
+	// A zero, negative or non-finite pitch would stack every track on one
+	// coordinate: library callers get the default instead.
+	const requested = options.idealNudgingDistance;
+	const pitch =
+		requested !== undefined && Number.isFinite(requested) && requested > 0
+			? requested
+			: DEFAULT_PITCH;
 	const maxTracks = options.maxTracks ?? DEFAULT_MAX_TRACKS;
+	const hardObstacles = options.hardObstacles ?? [];
 	const segments = extractChannelSegments(edges);
 	const groups = groupOverlappingSegments(segments);
 	const assignments: ChannelTrackAssignment[] = [];
@@ -81,6 +90,38 @@ export function assignChannelTracks(
 		maxTracksUsed = Math.max(maxTracksUsed, used);
 		const center =
 			group.reduce((sum, item) => sum + item.coord, 0) / group.length;
+		const coordOf = (index: number, shift: number) =>
+			center + ((tracks[index] ?? 0) - (used - 1) / 2 + shift) * pitch;
+		// A bank centred beside a one-sided blocker pushes a track into it
+		// (and that route back onto the channel): shift the whole bank by
+		// whole pitches, up to its own width, to the offset with the fewest
+		// tracks on a hard obstacle, the centred one on a tie.
+		const blocked = (shift: number) =>
+			ordered.filter((segment, index) => {
+				const at = coordOf(index, shift);
+				const a =
+					segment.axis === "h"
+						? { x: segment.start, y: at }
+						: { x: at, y: segment.start };
+				const b =
+					segment.axis === "h"
+						? { x: segment.end, y: at }
+						: { x: at, y: segment.end };
+				return hardObstacles.some((box) => segmentHitsBox(a, b, box));
+			}).length;
+		let shift = 0;
+		if (hardObstacles.length > 0) {
+			let fewest = blocked(0);
+			for (let step = 1; step <= used && fewest > 0; step += 1) {
+				for (const candidate of [-step, step]) {
+					const count = blocked(candidate);
+					if (count < fewest) {
+						fewest = count;
+						shift = candidate;
+					}
+				}
+			}
+		}
 		ordered.forEach((segment, index) => {
 			const track = tracks[index] ?? 0;
 			assignments.push({
@@ -88,7 +129,7 @@ export function assignChannelTracks(
 				segmentIndex: segment.segmentIndex,
 				axis: segment.axis,
 				track,
-				coord: center + (track - (used - 1) / 2) * pitch,
+				coord: coordOf(index, shift),
 			});
 		});
 	}
