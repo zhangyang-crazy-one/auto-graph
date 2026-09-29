@@ -1302,7 +1302,14 @@ describe("draw.io export", () => {
 		if (a === undefined) throw new Error("fixture");
 		a.label = { text: "A\u0000B\u000bC\uFFFE" };
 		const xml = exportDrawio(base);
-		expect(xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\uFFFE]/);
+		// C0 controls other than tab and line breaks, and U+FFFE.
+		const forbidden = [...xml].filter((char) => {
+			const code = char.codePointAt(0) ?? 0;
+			return (
+				(code < 0x20 && ![0x09, 0x0a, 0x0d].includes(code)) || code === 0xfffe
+			);
+		});
+		expect(forbidden).toEqual([]);
 		expect(xml).toContain('value="ABC"');
 		expect(xml).toContain('name="Title"');
 	});

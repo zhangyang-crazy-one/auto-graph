@@ -51,7 +51,14 @@ describe("exporters", () => {
 			diagnostics: [],
 			bounds: { x: 0, y: 0, width: 80, height: 40 },
 		} as unknown as CoordinatedDiagram);
-		expect(svg).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\uFFFE]/);
+		// C0 controls other than tab and line breaks, and U+FFFE.
+		const forbidden = [...svg].filter((char) => {
+			const code = char.codePointAt(0) ?? 0;
+			return (
+				(code < 0x20 && ![0x09, 0x0a, 0x0d].includes(code)) || code === 0xfffe
+			);
+		});
+		expect(forbidden).toEqual([]);
 		expect(svg).toContain('data-id="a"');
 	});
 
