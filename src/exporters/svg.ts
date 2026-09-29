@@ -898,13 +898,21 @@ function formatPathWithJumps(
 			} else {
 				// A cluster of close crossings shares one wider, flat hop.
 				// Radii along and across the segment: on a vertical segment
-				// the along-radius is the y radius, or SVG scales the arc up.
+				// the along-radius is the y radius, and on a diagonal one the
+				// ellipse turns with the segment, or SVG scales the arc up.
 				const sweep = hopSweep(start, end);
 				const along = formatNumber(glyph.halfLength);
 				const across = formatNumber(EDGE_CROSSING_GLYPH_RADIUS);
-				const vertical = Math.abs(end.y - start.y) > Math.abs(end.x - start.x);
+				const dx = end.x - start.x;
+				const dy = end.y - start.y;
+				const radii =
+					Math.abs(dy) < 1e-6
+						? `${along} ${across} 0`
+						: Math.abs(dx) < 1e-6
+							? `${across} ${along} 0`
+							: `${along} ${across} ${formatNumber((Math.atan2(dy, dx) * 180) / Math.PI)}`;
 				parts.push(
-					`A ${vertical ? `${across} ${along}` : `${along} ${across}`} 0 0 ${sweep} ${formatNumber(glyph.after.x)} ${formatNumber(glyph.after.y)}`,
+					`A ${radii} 0 ${sweep} ${formatNumber(glyph.after.x)} ${formatNumber(glyph.after.y)}`,
 				);
 			}
 		}

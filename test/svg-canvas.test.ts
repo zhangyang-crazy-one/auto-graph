@@ -319,6 +319,9 @@ describe("SVG canvas", () => {
 			["&", 0.667],
 			["%", 0.889],
 			["\u4e2d", 1],
+			// DejaVu Sans, the usual fallback: per-mille 1.34, per-ten-thousand 1.74.
+			["\u2030", 1.34],
+			["\u2031", 1.74],
 		];
 		for (const [glyph, em] of advances) {
 			expect(fallbackTextWidth(glyph, 100), glyph).toBeGreaterThanOrEqual(
@@ -348,5 +351,36 @@ describe("SVG canvas", () => {
 		expect(padded.page?.fontPx).toBeLessThan(plain.page?.fontPx ?? 0);
 		const [, , width] = viewBoxOf(padded.content ?? "");
 		expect(width).toBeCloseTo(400 / scale, 2);
+	});
+
+	it("turns a diagonal hop cluster's ellipse with its segment", () => {
+		// Two jumps 8px apart on a 45° segment share one glyph: its
+		// ellipse is turned 45°, so SVG does not scale it up.
+		const svg = exportSvg(
+			bare({
+				edges: [
+					{
+						id: "e",
+						source: { nodeId: "a" },
+						target: { nodeId: "b" },
+						points: [
+							{ x: 0, y: 0 },
+							{ x: 100, y: 100 },
+						],
+					},
+				] as never,
+				edgeCrossings: [
+					{ x: 40, y: 40, underEdgeId: "e", overEdgeId: "o", style: "jump" },
+					{
+						x: 45.657,
+						y: 45.657,
+						underEdgeId: "e",
+						overEdgeId: "o",
+						style: "jump",
+					},
+				] as never,
+			}),
+		);
+		expect(svg).toMatch(/A 10 6 45 0 [01] /);
 	});
 });
