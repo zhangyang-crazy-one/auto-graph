@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
+import { fallbackTextWidth } from "../src/exporters/fallback-text.js";
 import { exportSvg } from "../src/exporters/index.js";
 import type { CoordinatedDiagram } from "../src/ir/index.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
@@ -267,5 +268,60 @@ describe("SVG canvas", () => {
 		// property row (15 characters at 11px) on x=80.
 		expect(x).toBeLessThan(20 - 60);
 		expect(x + width).toBeGreaterThan(80 + 40);
+	});
+
+	it("turns the extent of a solved lane label with its text", () => {
+		// A wrapped lane label 20 wide and 60 tall, turned -90° about its
+		// centre (10, 50) in a horizontal swimlane, spans x = -20..40.
+		const svg = exportSvg(
+			bare({
+				swimlanes: [
+					{
+						id: "s",
+						orientation: "horizontal",
+						box: { x: 0, y: 0, width: 100, height: 100 },
+						lanes: [
+							{
+								id: "l",
+								label: { text: "A long lane" },
+								box: { x: 0, y: 0, width: 100, height: 100 },
+								headerBox: { x: 0, y: 0, width: 20, height: 100 },
+							},
+						],
+					},
+				] as never,
+				textAnnotations: [
+					{
+						text: "A long lane",
+						ownerId: "s.l",
+						surfaceKind: "swimlane-label",
+						box: { x: 0, y: 20, width: 20, height: 60 },
+						paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+						lines: [],
+						fontFamily: "Arial",
+						fontSize: 12,
+					},
+				] as never,
+			}),
+			{ viewportPadding: 0 },
+		);
+		expect(viewBoxOf(svg)[0]).toBeLessThanOrEqual(-20);
+	});
+
+	it("sizes fallback glyphs at least at their Arial advance", () => {
+		// Arial advances in em: em dash 1, O 0.778, @ 1.015, W 0.944, o 0.556.
+		const advances: [string, number][] = [
+			["\u2014", 1],
+			["O", 0.778],
+			["@", 1.015],
+			["W", 0.944],
+			["o", 0.556],
+			["\u4e2d", 1],
+		];
+		for (const [glyph, em] of advances) {
+			expect(fallbackTextWidth(glyph, 100), glyph).toBeGreaterThanOrEqual(
+				em * 100,
+			);
+		}
 	});
 });

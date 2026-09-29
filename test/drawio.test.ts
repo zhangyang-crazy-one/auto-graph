@@ -492,9 +492,9 @@ describe("draw.io export", () => {
 			},
 		];
 		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
-		// The label starts 8px out and runs 9 capitals at 7.5px: the page
-		// reaches x=975.5.
-		expect(xml).toContain('pageWidth="475.5"');
+		// The label starts 8px out and runs 9 capitals at 8px: the page
+		// reaches x=980.
+		expect(xml).toContain('pageWidth="480"');
 	});
 
 	it("sizes wide-glyph fallback port labels at a full em", () => {

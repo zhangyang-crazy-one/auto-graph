@@ -147,6 +147,27 @@ export function exportSvg(
  */
 function drawnExtent(diagram: CoordinatedDiagram, texts: readonly Box[]): Box {
 	const annotations = diagram.textAnnotations ?? [];
+	// Lane labels of horizontal swimlanes are drawn turned -90° about their
+	// box centre (`renderSwimlane`): their extent turns with them.
+	const turned = new Set(
+		(diagram.swimlanes ?? [])
+			.filter((swimlane) => swimlane.orientation === "horizontal")
+			.flatMap((swimlane) =>
+				swimlane.lanes.map((lane) => `${swimlane.id}.${lane.id}`),
+			),
+	);
+	const turnedLabels = annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "swimlane-label" &&
+				turned.has(annotation.ownerId),
+		)
+		.map(({ box }) => ({
+			x: box.x + box.width / 2 - box.height / 2,
+			y: box.y + box.height / 2 - box.width / 2,
+			width: box.height,
+			height: box.width,
+		}));
 	const arrowheads = diagram.edges.flatMap((edge) => {
 		try {
 			const { tip, left, right } = computeArrowhead(edge.points);
@@ -166,6 +187,7 @@ function drawnExtent(diagram: CoordinatedDiagram, texts: readonly Box[]): Box {
 		unionBoxes([
 			diagram.bounds,
 			...annotations.map(labelBackdropBox),
+			...turnedLabels,
 			...texts,
 			...diagram.nodes.flatMap((node) =>
 				(node.ports ?? []).map((port) => port.box),
