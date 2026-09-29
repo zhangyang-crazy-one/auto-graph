@@ -584,13 +584,22 @@ function routeShortOrthogonalJumps(
 		}
 		return result;
 	};
-	if (feasibleTournament.length > 0) {
-		feasibleTournament.sort(
+	// A candidate through a node outside the corridor (the global blockers)
+	// is never accepted: rank only the ones clear of them, so the best
+	// remaining 0–2 bend route is tried rather than none.
+	const blockers = input.blockingObstacles ?? [];
+	const clearOfBlockers = feasibleTournament.filter(
+		(candidate) =>
+			blockers.length === 0 ||
+			!routeIntersectsObstacles(candidate.points, blockers),
+	);
+	if (clearOfBlockers.length > 0) {
+		clearOfBlockers.sort(
 			(left, right) =>
 				left.layeredCost - right.layeredCost ||
 				compareRouteQuality(left.quality, right.quality),
 		);
-		const best = feasibleTournament[0];
+		const best = clearOfBlockers[0];
 		if (best !== undefined) {
 			if (best.quality.softCrossings === 0) {
 				const accepted = acceptCleanRoute(
@@ -646,8 +655,14 @@ function routeShortOrthogonalJumps(
 		},
 	});
 
+	// The best rejected path stands in only if it keeps off the global
+	// blockers too.
 	const rejected = getBestRejectedPath();
-	if (rejected !== undefined && rejected.length >= 2) {
+	if (
+		rejected !== undefined &&
+		rejected.length >= 2 &&
+		(blockers.length === 0 || !routeIntersectsObstacles(rejected, blockers))
+	) {
 		return { points: simplifyRoute(rejected), diagnostics };
 	}
 

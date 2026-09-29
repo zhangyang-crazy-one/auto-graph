@@ -227,6 +227,40 @@ describe("short-orthogonal hard-obstacle gate (#95)", () => {
 	});
 });
 
+describe("short-orthogonal global blockers", () => {
+	it("tries the next candidate when the best one crosses a global blocker", () => {
+		const box = (x: number, y: number) =>
+			computeShapeGeometry({
+				shape: "rectangle",
+				box: { x, y, width: 40, height: 40 },
+			});
+		// The best candidate runs down x=120, through a node outside the
+		// corridor; another 0–2 bend candidate clears it.
+		const blocker = { x: 110, y: 80, width: 20, height: 60 };
+		const result = routeEdge({
+			kind: "short-orthogonal-jumps",
+			direction: "LR",
+			source: box(0, 0),
+			target: box(200, 200),
+			blockingObstacles: [blocker],
+		});
+		expect(result.diagnostics.map((entry) => entry.code)).not.toContain(
+			"routing.obstacle.unavoidable",
+		);
+		const crosses = result.points.slice(1).some((end, index) => {
+			const start = result.points[index];
+			if (start === undefined) return false;
+			return (
+				Math.max(start.x, end.x) > blocker.x &&
+				Math.min(start.x, end.x) < blocker.x + blocker.width &&
+				Math.max(start.y, end.y) > blocker.y &&
+				Math.min(start.y, end.y) < blocker.y + blocker.height
+			);
+		});
+		expect(crosses).toBe(false);
+	});
+});
+
 describe("edge crossings / jumps (#84)", () => {
 	it("lets the other edge jump when the crossing is within a long segment's end cutoff", () => {
 		// "a" is the under edge, but its crossing sits 10px into a 1000px

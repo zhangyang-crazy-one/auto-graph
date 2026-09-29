@@ -262,6 +262,60 @@ describe("draw.io export", () => {
 		);
 	});
 
+	it("lays a requested page out at its size and scale", () => {
+		const xml = exportDrawio(diagram(), {
+			page: { width: 800, height: 600, scale: 0.5 },
+		});
+		expect(xml).toContain('pageScale="2"');
+		expect(xml).toContain('pageWidth="800" pageHeight="600"');
+		// The 400×40 content is centred on the 1600×1200 page: node "a"
+		// (the content's left end) sits 600px in and 580px down.
+		expect(xml).toContain('x="600" y="580" width="100" height="40"');
+	});
+
+	it("keeps authored labels of dotted port ids apart", () => {
+		const base = diagram();
+		const [first, second] = base.nodes;
+		if (first === undefined || second === undefined) throw new Error("fixture");
+		const port = (id: string, text: string, node: typeof first) => ({
+			id,
+			side: "right" as const,
+			kind: "flow" as const,
+			label: { text },
+			anchor: { x: node.box.x + node.box.width, y: node.box.y + 20 },
+			box: {
+				x: node.box.x + node.box.width - 5,
+				y: node.box.y + 15,
+				width: 10,
+				height: 10,
+			},
+		});
+		// "a"."b.c" and "a.b"."c" share the joined owner id "a.b.c".
+		first.id = "a";
+		second.id = "a.b";
+		first.ports = [port("b.c", "SOLVED", first)];
+		second.ports = [port("c", "AUTHORED", second)];
+		const solvedBox = { x: 605, y: 105, width: 40, height: 12 };
+		const xml = exportDrawio({
+			...base,
+			edges: [],
+			textAnnotations: [
+				{
+					text: "SOLVED",
+					ownerId: "a.b.c",
+					surfaceKind: "port-label",
+					box: solvedBox,
+					anchor: { x: solvedBox.x, y: solvedBox.y },
+					paddings: { top: 0, right: 0, bottom: 0, left: 0 },
+					lines: [],
+					fontFamily: "Arial",
+					fontSize: 10,
+				},
+			],
+		} as never);
+		expect(xml).toContain('value="AUTHORED"');
+	});
+
 	it("exports groups, swimlanes, evidence and callouts", () => {
 		const xml = exportDrawio(
 			diagram({

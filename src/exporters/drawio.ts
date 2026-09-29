@@ -50,7 +50,21 @@ export function exportDrawio(
 		]),
 		Math.max(0, options.viewportPadding ?? 0),
 	);
-	const origin = { x: page.x, y: page.y };
+	// On a requested page (paper size and fit scale), the paper is drawn
+	// at `1 / scale` in diagram units with the content centred, as the SVG
+	// lays it out; printing at the page scale restores the paper size.
+	const paper = options.page;
+	const origin =
+		paper === undefined
+			? { x: page.x, y: page.y }
+			: {
+					x: page.x + page.width / 2 - paper.width / paper.scale / 2,
+					y: page.y + page.height / 2 - paper.height / paper.scale / 2,
+				};
+	const pageAttributes =
+		paper === undefined
+			? `pageScale="1" pageWidth="${formatNumber(Math.max(page.width, 1))}" pageHeight="${formatNumber(Math.max(page.height, 1))}"`
+			: `pageScale="${formatNumber(1 / paper.scale)}" pageWidth="${formatNumber(Math.max(paper.width, 1))}" pageHeight="${formatNumber(Math.max(paper.height, 1))}"`;
 	const shift = (box: Box): Box => ({
 		x: box.x - origin.x,
 		y: box.y - origin.y,
@@ -404,18 +418,43 @@ export function exportDrawio(
 			);
 		}
 	}
+	// Port cells that received a solved label (the joined owner id is
+	// ambiguous when ids contain dots, so the cell is what counts).
+	const labelledPorts = new Set<string>();
+	for (const portLabel of annotations.filter(
+		(annotation) => annotation.surfaceKind === "port-label",
+	)) {
+		// The label box was measured from its lines and typography.
+		const font = labelFontStyle(portLabel);
+		// The nearest candidate port: a label sits beside its port.
+		const port = nearestBox(
+			portParents.get(portLabel.ownerId) ?? [],
+			portLabel.box,
+		);
+		if (port !== undefined) labelledPorts.add(port.id);
+		vertex(
+			calloutText(portLabel),
+			`${PORT_LABEL_STYLE}${
+				font.some((entry) => entry.startsWith("fontSize="))
+					? ""
+					: "fontSize=10;"
+			}${font.map((entry) => `${entry};`).join("")}`,
+			portLabel.box,
+			port,
+		);
+	}
+
 	// A port with an authored label but no solved one (a diagram built
 	// without text annotations) still gets its label, placed as the SVG
 	// places it: beside the port, 8px out and just above its anchor.
-	const solvedPortLabels = new Set(
-		annotations
-			.filter((annotation) => annotation.surfaceKind === "port-label")
-			.map((annotation) => annotation.ownerId),
-	);
 	for (const node of diagram.nodes) {
 		for (const port of node.ports ?? []) {
 			const text = port.label?.text;
-			if (text === undefined || solvedPortLabels.has(`${node.id}.${port.id}`)) {
+			const cell = portCells.get(node.id)?.get(port.id);
+			if (
+				text === undefined ||
+				(cell !== undefined && labelledPorts.has(cell.id))
+			) {
 				continue;
 			}
 			const width = Math.max(10, text.length * 6);
@@ -429,28 +468,10 @@ export function exportDrawio(
 					width,
 					height: 14,
 				},
-				portCells.get(node.id)?.get(port.id),
+				cell,
 			);
 		}
 	}
-	for (const portLabel of annotations.filter(
-		(annotation) => annotation.surfaceKind === "port-label",
-	)) {
-		// The label box was measured from its lines and typography.
-		const font = labelFontStyle(portLabel);
-		vertex(
-			calloutText(portLabel),
-			`${PORT_LABEL_STYLE}${
-				font.some((entry) => entry.startsWith("fontSize="))
-					? ""
-					: "fontSize=10;"
-			}${font.map((entry) => `${entry};`).join("")}`,
-			portLabel.box,
-			// The nearest candidate port: a label sits beside its port.
-			nearestBox(portParents.get(portLabel.ownerId) ?? [], portLabel.box),
-		);
-	}
-
 	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
 	const boxOf = (node: CoordinatedNode | undefined) =>
 		node === undefined ? undefined : shift(node.box);
@@ -596,7 +617,7 @@ export function exportDrawio(
 		`<?xml version="1.0" encoding="UTF-8"?>`,
 		`<mxfile host="auto-graph" type="device">`,
 		`  <diagram id="${escapeXml(diagram.id)}" name="${escapeXml(title)}">`,
-		`    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="${formatNumber(Math.max(page.width, 1))}" pageHeight="${formatNumber(Math.max(page.height, 1))}">`,
+		`    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" ${pageAttributes}>`,
 		`      <root>`,
 		...[...cells, ...edgeLayer, ...foreground].map((cell) => `        ${cell}`),
 		`      </root>`,
