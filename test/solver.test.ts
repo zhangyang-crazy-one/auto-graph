@@ -4864,6 +4864,48 @@ it("certifies the deliverability diagnostics strict mode gates on", () => {
 	]);
 });
 
+it("runs auto remediation when only the bend budget is exceeded", () => {
+	const box = (id: string, x: number) => ({
+		id,
+		shape: "rectangle" as const,
+		size: { width: 80, height: 40 },
+		padding: { top: 0, right: 0, bottom: 0, left: 0 },
+		position: { x, y: 0 },
+	});
+	const result = solveDiagram(
+		{
+			id: "bend-budget-remediation",
+			direction: "LR",
+			nodes: [box("a", 0), box("b", 200)],
+			edges: [{ id: "e", source: { nodeId: "a" }, target: { nodeId: "b" } }],
+			groups: [],
+			constraints: [],
+			diagnostics: [
+				{
+					severity: "warning",
+					code: "routing.short-orthogonal.bend_budget_exceeded",
+					message: "Seeded bend budget report.",
+					detail: {
+						edgeId: "e",
+						conflictClass: "node-label-strike",
+						remediationType: "external-label-or-split",
+					},
+				},
+			],
+		},
+		{
+			initialLayout: "positions",
+			routeKind: "short-orthogonal-jumps",
+			remediationPolicy: { routeRails: "auto" },
+		},
+	);
+	expect(
+		result.deliverability?.remediationPlans.find(
+			(plan) => plan.type === "route-rail",
+		)?.status,
+	).toBe("applied");
+});
+
 it("promotes every deliverability diagnostic code in strict mode", () => {
 	for (const code of DELIVERABILITY_DIAGNOSTIC_CODES) {
 		const result = solveDiagram(

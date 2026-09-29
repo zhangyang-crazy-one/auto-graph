@@ -263,9 +263,9 @@ export function applyChannelTrackAssignments(
  * Channel tracks are assigned as a group, but a nudged route can still be
  * rolled back on its own (a hard obstacle, or a new obstacle hit), onto the
  * coordinate another route was just moved to. Undo every move that leaves
- * its route more coincident (interior segments on one line, spans
- * overlapping) with the other routes than before, until none does, and
- * say whether coincident interior segments remain.
+ * its route more coincident (its interior segments on one line with any
+ * segment of another route, spans overlapping) than before, until none
+ * does, and say whether such coincident segments remain.
  */
 export function revertCoincidentMoves(
 	original: readonly CoordinatedEdge[],
@@ -283,8 +283,12 @@ export function revertCoincidentMoves(
 		const own = interior(edge);
 		result.forEach((other, index) => {
 			if (index === skip || other === undefined) return;
+			// The moved edge's interior against every segment of the others,
+			// end stubs included: a track moved onto another route's stub
+			// overlaps it just the same.
+			const others = channelSegmentsOf(other);
 			for (const segment of own) {
-				for (const theirs of interior(other)) {
+				for (const theirs of others) {
 					if (theirs.axis !== segment.axis) continue;
 					if (Math.abs(theirs.coord - segment.coord) >= 0.5) continue;
 					total += Math.max(

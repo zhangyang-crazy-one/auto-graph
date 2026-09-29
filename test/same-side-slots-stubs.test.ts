@@ -52,6 +52,26 @@ describe("channel nudge rollback", () => {
 		expect(settled.overlapping).toBe(false);
 	});
 
+	it("undoes a move onto another route's end segment", () => {
+		// "b" leaves its node along y=60 (its first segment); "a"'s middle
+		// track moved from y=50 onto that line.
+		const b = {
+			id: "b",
+			source: { nodeId: "b-s" },
+			target: { nodeId: "b-t" },
+			points: [
+				{ x: 20, y: 60 },
+				{ x: 80, y: 60 },
+				{ x: 80, y: 200 },
+			],
+		};
+		const original = [edge("a", 50), b];
+		const moved = [edge("a", 60), b];
+		const settled = revertCoincidentMoves(original as never, moved as never);
+		expect(settled.edges[0]).toBe(original[0]);
+		expect(settled.overlapping).toBe(false);
+	});
+
 	it("reports routes left on one line after a rollback", () => {
 		const original = [edge("a", 50), edge("b", 50), edge("c", 50)];
 		// "a" was rolled back (hard obstacle), "b" took the centre track,

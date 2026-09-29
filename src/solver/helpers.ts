@@ -172,6 +172,7 @@ export const REMEDIATION_ENTRY_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 	"routing.label-hard-obstacle.unavoidable",
 	"routing.evidence.crossing_forbidden",
 	"route_obstacle_fallback",
+	"routing.short-orthogonal.bend_budget_exceeded",
 ]);
 
 export function flattenDiagnosticDetailStrings(
