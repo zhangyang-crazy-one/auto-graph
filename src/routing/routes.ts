@@ -2648,6 +2648,9 @@ function pushRouteAwayFromObstacles(
 							) + margin;
 			}
 		}
+		// A detour that meets as many obstacles as the segment itself (both
+		// sides walled off) is no improvement: keep the segment.
+		if (best.hits >= intersectors.length) continue;
 		const { side, range } = best;
 		const detour = [
 			at(range.enter, cross),

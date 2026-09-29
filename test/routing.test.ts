@@ -689,6 +689,25 @@ it("greedy reroute honors the attempt cap and detours orthogonally (#76)", () =>
 	}
 });
 
+it("greedy reroute keeps a segment no detour improves on", () => {
+	// One blocker on the segment; above and below, full-width walls deeper
+	// than the outward-step limit, so every detour meets one wall.
+	const obstacles = [{ x: 200, y: 0, width: 40, height: 40 }];
+	for (let k = 1; k <= 12; k += 1) {
+		obstacles.push(
+			{ x: 60, y: -k * 24, width: 460, height: 20 },
+			{ x: 60, y: 44 + (k - 1) * 24, width: 460, height: 20 },
+		);
+	}
+	const straight = [
+		{ x: 80, y: 20 },
+		{ x: 500, y: 20 },
+	];
+	expect(greedyRerouteAroundObstacles(straight, obstacles, 1)).toEqual(
+		straight,
+	);
+});
+
 it("dodges obstacles in obstacle-avoiding straight mode", () => {
 	const obstacle = { x: 140, y: 20, width: 40, height: 20 };
 	const result = routeEdge({

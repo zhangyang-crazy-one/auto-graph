@@ -487,11 +487,21 @@ function swimlaneCells(
 			header === undefined ? 0 : leftHeader ? header.width : header.height;
 		// The solved label (its lines, typography and box) is a text cell of
 		// its own, so draw.io does not reflow it inside the header.
-		const title = annotations.find(
-			(annotation) =>
-				annotation.surfaceKind === "swimlane-label" &&
-				annotation.ownerId === `${swimlane.id}.${lane.id}`,
-		);
+		// The owner id joins swimlane and lane ids with a dot, ambiguous when
+		// ids contain dots: of the matching labels, take the one centred on
+		// this lane's header.
+		const titleArea = header ?? lane.box;
+		const title =
+			lane.label?.text === undefined
+				? undefined
+				: nearestBox(
+						annotations.filter(
+							(annotation) =>
+								annotation.surfaceKind === "swimlane-label" &&
+								annotation.ownerId === `${swimlane.id}.${lane.id}`,
+						),
+						titleArea,
+					);
 		cells.push({
 			// A lane without a label stays blank, as in the SVG.
 			value: title === undefined ? escapeHtml(lane.label?.text ?? "") : "",
@@ -927,6 +937,20 @@ function labelFontStyle(
 		entries.push(`fontSize=${formatNumber(font.fontSize)}`);
 	}
 	return entries;
+}
+
+/** The annotation whose box centre is nearest to `target`'s centre. */
+function nearestBox<T extends { box: Box }>(
+	candidates: readonly T[],
+	target: Box,
+): T | undefined {
+	const cx = target.x + target.width / 2;
+	const cy = target.y + target.height / 2;
+	const distance = (box: Box) =>
+		Math.hypot(box.x + box.width / 2 - cx, box.y + box.height / 2 - cy);
+	return [...candidates].sort(
+		(left, right) => distance(left.box) - distance(right.box),
+	)[0];
 }
 
 /** The candidate port nearest to a port label (it sits beside its port). */

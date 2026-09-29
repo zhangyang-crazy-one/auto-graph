@@ -714,6 +714,69 @@ describe("draw.io export", () => {
 		expect(xml).toContain(`source="${sourcePort}" target="${targetPort}"`);
 	});
 
+	it("gives each lane its own label when swimlane and lane ids contain dots", () => {
+		const xml = exportDrawio(
+			diagram({
+				swimlanes: [
+					{
+						id: "a",
+						orientation: "vertical",
+						lanes: [
+							{
+								id: "b.c",
+								label: { text: "First" },
+								children: [],
+								box: { x: 500, y: 100, width: 100, height: 40 },
+								headerBox: { x: 500, y: 100, width: 100, height: 20 },
+							},
+						],
+					},
+					{
+						id: "a.b",
+						orientation: "vertical",
+						lanes: [
+							{
+								id: "c",
+								label: { text: "Second" },
+								children: [],
+								box: { x: 700, y: 100, width: 100, height: 40 },
+								headerBox: { x: 700, y: 100, width: 100, height: 20 },
+							},
+						],
+					},
+				],
+				// Both labels carry the joined owner id "a.b.c".
+				textAnnotations: [
+					{
+						text: "First",
+						ownerId: "a.b.c",
+						surfaceKind: "swimlane-label",
+						box: { x: 530, y: 103, width: 40, height: 14 },
+						lines: [{ text: "First", width: 40 }],
+						fontFamily: "Arial",
+						fontSize: 12,
+					},
+					{
+						text: "Second",
+						ownerId: "a.b.c",
+						surfaceKind: "swimlane-label",
+						box: { x: 730, y: 103, width: 40, height: 14 },
+						lines: [{ text: "Second", width: 40 }],
+						fontFamily: "Arial",
+						fontSize: 12,
+					},
+				],
+			} as unknown as Partial<CoordinatedDiagram>),
+		);
+		// Page-relative: bounds origin (500,100).
+		expect(xml).toMatch(
+			/value="First" style="text;[^"]*"[^>]*><mxGeometry x="30" y="3"/,
+		);
+		expect(xml).toMatch(
+			/value="Second" style="text;[^"]*"[^>]*><mxGeometry x="230" y="3"/,
+		);
+	});
+
 	it("keeps the authored frame fill and stroke", () => {
 		const xml = exportDrawio(
 			diagram({

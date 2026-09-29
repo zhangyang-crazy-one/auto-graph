@@ -1081,7 +1081,8 @@ export function solveDiagram(
 					...coordinatedMatrices.map((matrix) => matrix.box),
 					...coordinatedTables.map((table) => table.box),
 					...coordinatedEvidencePanels.map((panel) => panel.box),
-					// A key must not cover a port label either.
+					// A key must not cover a title bar or a port label either.
+					...titleBarObstacles,
 					...baseTextAnnotations
 						.filter((annotation) => annotation.surfaceKind === "port-label")
 						.map((annotation) => annotation.box),
