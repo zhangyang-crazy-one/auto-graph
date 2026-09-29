@@ -424,6 +424,15 @@ describe("draw.io export", () => {
 		expect(xml).toContain('value="bdd&lt;br&gt;Plant" style="shape=umlFrame;');
 	});
 
+	it("keeps the line breaks of a node label without solved text", () => {
+		const base = diagram();
+		const [a] = base.nodes;
+		if (a === undefined) throw new Error("fixture");
+		a.label = { text: "Order\nService" };
+		const xml = exportDrawio(base);
+		expect(xml).toContain('value="Order&lt;br&gt;Service"');
+	});
+
 	it("keeps the line breaks of a lane label without solved text", () => {
 		const xml = exportDrawio(
 			diagram({

@@ -294,7 +294,7 @@ export function exportDrawio(
 						}
 					: undefined;
 		const groupId = vertex(
-			titleCell === undefined ? escapeHtml(group.label?.text ?? "") : "",
+			titleCell === undefined ? multilineHtml(group.label?.text ?? "") : "",
 			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
 			parentGroup(outerGroup(group)) ?? laneOf(group.id, group.box),
@@ -769,8 +769,9 @@ function nodeLabelHtml(node: CoordinatedNode): string {
 	const lines = node.labelLayout?.lines ?? [];
 	return lines.length > 1
 		? lines.map((line) => escapeHtml(line.text)).join("<br>")
-		: // A node without a label stays blank, as in the SVG.
-			escapeHtml(node.label?.text ?? "");
+		: // A node without a label stays blank, as in the SVG; authored
+			// line breaks become <br> (an attribute would flatten them).
+			multilineHtml(node.label?.text ?? "");
 }
 
 /** SysML compartments as the SVG draws them: header, properties, constraints. */
