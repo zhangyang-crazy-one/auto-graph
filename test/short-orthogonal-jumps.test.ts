@@ -252,6 +252,59 @@ describe("short-orthogonal hard-obstacle gate (#95)", () => {
 	});
 });
 
+describe("short-orthogonal hard-obstacle gate under strict: true", () => {
+	it("keeps the 0–2 bend contract instead of the obstacle fallback", () => {
+		const blocker = { x: 100, y: -40, width: 40, height: 200 };
+		// \`strict: true\` alone is strict deliverability, as with
+		// \`deliverabilityMode: "strict"\`.
+		const solved = solveDiagram(
+			{
+				id: "short-path-blocked-strict",
+				direction: "LR",
+				nodes: [
+					{
+						id: "a",
+						shape: "rectangle",
+						size: { width: 80, height: 40 },
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						position: { x: 0, y: 40 },
+					},
+					{
+						id: "blocker",
+						shape: "rectangle",
+						size: { width: blocker.width, height: blocker.height },
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						position: { x: blocker.x, y: blocker.y },
+					},
+					{
+						id: "b",
+						shape: "rectangle",
+						size: { width: 80, height: 40 },
+						padding: { top: 8, right: 8, bottom: 8, left: 8 },
+						position: { x: 200, y: 40 },
+					},
+				],
+				edges: [
+					{ id: "a-b", source: { nodeId: "a" }, target: { nodeId: "b" } },
+				],
+				groups: [],
+				constraints: [],
+				diagnostics: [],
+			},
+			{
+				initialLayout: "positions",
+				routeKind: "short-orthogonal-jumps",
+				strict: true,
+				maxAttachPointsPerSide: 3,
+				maxDetourRatio: 3,
+			},
+		);
+		expect(
+			solved.diagnostics.map((diagnostic) => diagnostic.code),
+		).not.toContain("routing.short-orthogonal.obstacle-fallback");
+	});
+});
+
 describe("short-orthogonal global blockers", () => {
 	it("tries the next candidate when the best one crosses a global blocker", () => {
 		const box = (x: number, y: number) =>

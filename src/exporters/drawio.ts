@@ -651,6 +651,9 @@ function renderNodeCell(
 ): string {
 	const visual = node.style;
 	const labelled = node.compartments === undefined ? solvedLabel : undefined;
+	// As for the size below: the solved label's, else the label layout's.
+	const measuredFamily =
+		labelled?.fontFamily ?? node.labelLayout?.font?.fontFamily;
 	const style = [
 		nodeShapeStyle(node.shape),
 		...(node.compartments === undefined ? [] : ["verticalAlign=top;"]),
@@ -660,10 +663,11 @@ function renderNodeCell(
 		...(visual?.stroke === undefined
 			? []
 			: [`strokeColor=${styleValue(visual.stroke)};`]),
+		// The solver measured and wrapped the label in this family.
 		...(visual?.fontFamily === undefined
-			? labelled === undefined
+			? measuredFamily === undefined
 				? []
-				: labelFontStyle({ fontFamily: labelled.fontFamily }).map(
+				: labelFontStyle({ fontFamily: measuredFamily }).map(
 						(entry) => `${entry};`,
 					)
 			: [`fontFamily=${styleValue(visual.fontFamily)};`]),

@@ -61,7 +61,10 @@ import {
 } from "./helpers.js";
 import { isSameRankEdge } from "./initial-layout.js";
 import type { SolveDiagramOptions } from "./options.js";
-import { PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN } from "./page-policy.js";
+import {
+	isStrictDeliverability,
+	PAGE_POLICY_SAME_RANK_DEPENDENCY_MIN,
+} from "./page-policy.js";
 import type { DistributedAnchor } from "./ports.js";
 import {
 	anchorSideForEndpoint,
@@ -856,10 +859,11 @@ export function coordinateEdges(
 			...routeHardObstacles,
 			...(routeInput.blockingObstacles ?? []),
 		];
-		// Strict pages keep the 0–2 bend contract (#84) and report unsat.
+		// Strict pages (`strict: true` or `deliverabilityMode: "strict"`)
+		// keep the 0–2 bend contract (#84) and report unsat.
 		if (
 			shortPath &&
-			options.deliverabilityMode !== "strict" &&
+			!isStrictDeliverability(options) &&
 			routeObstacleHits(route.points, gateObstacles) > 0
 		) {
 			const detour = effectiveInput.maxDetourRatio ?? 3;

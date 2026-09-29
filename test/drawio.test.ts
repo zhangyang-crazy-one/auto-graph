@@ -1581,5 +1581,7 @@ describe("draw.io export", () => {
 		const xml = exportDrawio(wrapped);
 		expect(xml).toContain('value="Mission&lt;br&gt;planning"');
 		expect(xml).toContain("fontSize=13;");
+		// The family the lines were measured and broken in.
+		expect(xml).toContain("fontFamily=Arial;");
 	});
 });
