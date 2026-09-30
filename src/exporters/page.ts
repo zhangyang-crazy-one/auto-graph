@@ -1,3 +1,4 @@
+import type { Box } from "../ir/geometry.js";
 import type { ExportOptions } from "./types.js";
 
 /**
@@ -14,4 +15,21 @@ export function usablePage(
 	return positive(page.width) && positive(page.height) && positive(page.scale)
 		? page
 		: undefined;
+}
+
+/**
+ * The scale `content` is drawn at on `page`: the page's own scale, smaller
+ * when the content (margin included) would not fit the paper at it.
+ */
+export function fittedPageScale(
+	content: Box,
+	page: NonNullable<ExportOptions["page"]>,
+): number {
+	return Math.min(
+		page.scale,
+		content.width > 0 ? page.width / content.width : Number.POSITIVE_INFINITY,
+		content.height > 0
+			? page.height / content.height
+			: Number.POSITIVE_INFINITY,
+	);
 }

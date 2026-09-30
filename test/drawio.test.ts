@@ -338,6 +338,17 @@ describe("draw.io export", () => {
 		expect(xml).toContain('x="600" y="580" width="100" height="40"');
 	});
 
+	it("keeps the padding on a requested page", () => {
+		// The 400×40 content with 800px of padding (2000×1640) does not fit
+		// the 800×600 paper at scale 0.5: it is drawn at 600/1640 instead.
+		const xml = exportDrawio(diagram(), {
+			page: { width: 800, height: 600, scale: 0.5 },
+			viewportPadding: 800,
+		});
+		expect(xml).toContain('pageScale="2.733"');
+		expect(xml).toContain('pageWidth="800" pageHeight="600"');
+	});
+
 	it("ignores a page it cannot lay out", () => {
 		const plain = exportDrawio(diagram());
 		for (const page of [
@@ -581,9 +592,9 @@ describe("draw.io export", () => {
 			},
 		];
 		const xml = exportDrawio({ ...base, textAnnotations: undefined } as never);
-		// The label starts 8px out and runs 9 capitals at 7.5px: the page
-		// reaches x=975.5.
-		expect(xml).toContain('pageWidth="475.5"');
+		// The label starts 8px out and runs 9 capitals at 8px: the page
+		// reaches x=980.
+		expect(xml).toContain('pageWidth="480"');
 	});
 
 	it("sizes wide-glyph fallback port labels at a full em", () => {

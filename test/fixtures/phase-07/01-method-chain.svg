@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="-180 80 1280 614">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="-187 73 1294 628">
   <title>Method Chain Evidence Blocks</title>
-  <rect class="background" x="-180" y="80" width="1280" height="614" fill="#ffffff"/>
+  <rect class="background" x="-187" y="73" width="1294" height="628" fill="#ffffff"/>
   <g class="evidence-panel evidence-panel--legend" data-id="left-classification-legend" data-kind="legend" data-item-count="5">
     <rect class="evidence-panel-frame" x="-180" y="80" width="320" height="140" fill="#ecfdf5" stroke="#374151"/>
     <g class="evidence-panel-title-cell">

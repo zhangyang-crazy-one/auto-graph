@@ -89,7 +89,13 @@ describe("exporters", () => {
 
 		expect(svg).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
 		expect(svg).toContain('role="img"');
-		expect(svg).toContain('viewBox="0 0 520 360"');
+		// Bounds 520×360 at the origin, plus the 3px stroke overhang (half
+		// the 1.5px edge stroke, up to the miter limit) and the default 4px
+		// margin on every side.
+		expect(svg).toContain('viewBox="-7 -7 534 374"');
+		expect(svg).toContain(
+			'<rect class="background" x="-7" y="-7" width="534" height="374"',
+		);
 		expect(svg).toContain("<title>Export &lt;Check&gt;</title>");
 		expect(svg).toContain('class="group"');
 		expect(svg).toContain('class="node node-rectangle"');
@@ -144,13 +150,21 @@ describe("exporters", () => {
 		expect(svg).toContain('<tspan x="-84" y="-23">Negative Text</tspan>');
 	});
 
-	it("emits opt-in SVG viewport metadata without changing solved coordinates", () => {
+	it("pads the SVG canvas by viewportPadding without changing solved coordinates", () => {
 		const diagram = createCoordinatedDiagram();
 		diagram.bounds = { x: -320, y: -160, width: 1_040, height: 302 };
 
 		const svg = exportSvg(diagram, { viewportPadding: 24 });
 
-		expect(svg).toContain('viewBox="-320 -160 1040 302"');
+		// The padding replaces the default 4px margin around the drawn
+		// extent (bounds plus the 3px stroke overhang). These bounds stop
+		// above the lower node labels, which the canvas still covers.
+		const [x, y, width, height] = (svg.match(/viewBox="([^"]*)"/)?.[1] ?? "")
+			.split(" ")
+			.map(Number);
+		expect([x, y, width]).toEqual([-347, -187, 1094]);
+		expect(height).toBeGreaterThan(356);
+		expect(svg).toContain('d="M 80 60 L 180 60 L 180 120"');
 		expect(svg).toContain("data-dge-viewport=");
 		expect(svg).toContain("&quot;x&quot;:-344");
 		expect(svg).toContain("&quot;y&quot;:-184");

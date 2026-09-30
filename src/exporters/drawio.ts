@@ -15,7 +15,8 @@ import type {
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { compartmentSeparatorRows } from "./compartments.js";
-import { usablePage } from "./page.js";
+import { fallbackTextWidth } from "./fallback-text.js";
+import { fittedPageScale, usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
 /**
@@ -33,46 +34,24 @@ export function exportDrawio(
 ): string {
 	const title = options.title ?? diagram.title ?? diagram.id;
 	const fallbackLabels = fallbackPortLabels(diagram);
-	// The page is the solved bounds plus the requested viewport padding.
-	// Boundary ports and text drawn outside a node (port labels, for one)
-	// can reach past the solved bounds: the page covers them too.
-	const page = expandBoxForDrawio(
-		unionBoxes([
-			diagram.bounds,
-			...diagram.nodes.flatMap((node) =>
-				(node.ports ?? []).map((port) => port.box),
-			),
-			...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
-			...fallbackLabels.map((fallback) => fallback.box),
-			...fallbackEdgeLabelBoxes(diagram),
-			// A native hop arc reaches its glyph radius past the crossing.
-			...(diagram.edgeCrossings ?? []).map((crossing) => ({
-				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
-				y: crossing.y - EDGE_CROSSING_GLYPH_RADIUS,
-				width: 2 * EDGE_CROSSING_GLYPH_RADIUS,
-				height: 2 * EDGE_CROSSING_GLYPH_RADIUS,
-			})),
-		]),
-		// As in the SVG and Excalidraw viewports: a non-finite padding is none.
-		Number.isFinite(options.viewportPadding)
-			? Math.max(0, options.viewportPadding ?? 0)
-			: 0,
-	);
+	const page = drawioPageBox(diagram, options);
 	// On a requested page (paper size and fit scale), the paper is drawn
 	// at `1 / scale` in diagram units with the content centred, as the SVG
 	// lays it out; printing at the page scale restores the paper size.
+	// The scale shrinks when the content with its padding would not fit.
 	const paper = usablePage(options.page);
+	const scale = paper === undefined ? 1 : fittedPageScale(page, paper);
 	const origin =
 		paper === undefined
 			? { x: page.x, y: page.y }
 			: {
-					x: page.x + page.width / 2 - paper.width / paper.scale / 2,
-					y: page.y + page.height / 2 - paper.height / paper.scale / 2,
+					x: page.x + page.width / 2 - paper.width / scale / 2,
+					y: page.y + page.height / 2 - paper.height / scale / 2,
 				};
 	const pageAttributes =
 		paper === undefined
 			? `pageScale="1" pageWidth="${formatNumber(Math.max(page.width, 1))}" pageHeight="${formatNumber(Math.max(page.height, 1))}"`
-			: `pageScale="${formatNumber(1 / paper.scale)}" pageWidth="${formatNumber(Math.max(paper.width, 1))}" pageHeight="${formatNumber(Math.max(paper.height, 1))}"`;
+			: `pageScale="${formatNumber(1 / scale)}" pageWidth="${formatNumber(Math.max(paper.width, 1))}" pageHeight="${formatNumber(Math.max(paper.height, 1))}"`;
 	const shift = (box: Box): Box => ({
 		x: box.x - origin.x,
 		y: box.y - origin.y,
@@ -1700,34 +1679,6 @@ function fallbackPortLabels(diagram: CoordinatedDiagram): {
 }
 
 /**
- * A conservative width for text drawn without a solved measurement:
- * wide glyphs (CJK, Hangul, fullwidth forms) and the broadest Latin ones
- * (M, W, m, w, @, %, &) take a full em, other capitals 0.75, the rest 0.6.
- */
-function fallbackTextWidth(text: string, fontSize: number): number {
-	let width = 0;
-	for (const char of text) {
-		const code = char.codePointAt(0) ?? 0;
-		const wide =
-			(code >= 0x1100 && code <= 0x115f) ||
-			(code >= 0x2e80 && code <= 0xa4cf) ||
-			(code >= 0xac00 && code <= 0xd7a3) ||
-			(code >= 0xf900 && code <= 0xfaff) ||
-			(code >= 0xfe30 && code <= 0xfe4f) ||
-			(code >= 0xff00 && code <= 0xff60) ||
-			(code >= 0xffe0 && code <= 0xffe6) ||
-			code >= 0x1f300;
-		// Latin capitals run up to ~0.9 em in Arial/Helvetica (W, M), and a
-		// few other glyphs reach a full em: size those up too.
-		const broad = "MWmw@%&".includes(char);
-		const capital = char >= "A" && char <= "Z";
-		width +=
-			wide || broad ? fontSize : capital ? fontSize * 0.75 : fontSize * 0.6;
-	}
-	return width;
-}
-
-/**
  * Boxes of authored edge labels that no solved edge label covers: draw.io
  * draws them at the route's middle, at its default 11px font.
  */
@@ -1811,6 +1762,41 @@ function escapeXml(value: string): string {
 		.replaceAll(">", "&gt;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&apos;");
+}
+
+/**
+ * The draw.io page around a diagram: the solved bounds plus the requested
+ * viewport padding. Boundary ports and text drawn outside a node (port
+ * labels, for one) can reach past the solved bounds: the page covers them
+ * too.
+ */
+export function drawioPageBox(
+	diagram: CoordinatedDiagram,
+	options: ExportOptions = {},
+): Box {
+	const fallbackLabels = fallbackPortLabels(diagram);
+	return expandBoxForDrawio(
+		unionBoxes([
+			diagram.bounds,
+			...diagram.nodes.flatMap((node) =>
+				(node.ports ?? []).map((port) => port.box),
+			),
+			...(diagram.textAnnotations ?? []).map((annotation) => annotation.box),
+			...fallbackLabels.map((fallback) => fallback.box),
+			...fallbackEdgeLabelBoxes(diagram),
+			// A native hop arc reaches its glyph radius past the crossing.
+			...(diagram.edgeCrossings ?? []).map((crossing) => ({
+				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
+				y: crossing.y - EDGE_CROSSING_GLYPH_RADIUS,
+				width: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+				height: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+			})),
+		]),
+		// As in the SVG and Excalidraw viewports: a non-finite padding is none.
+		Number.isFinite(options.viewportPadding)
+			? Math.max(0, options.viewportPadding ?? 0)
+			: 0,
+	);
 }
 
 export function expandBoxForDrawio(bounds: Box, padding: number): Box {

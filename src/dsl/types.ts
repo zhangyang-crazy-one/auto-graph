@@ -61,6 +61,12 @@ export interface RenderDiagramDslOptions {
 	 * overrides the document's `page`.
 	 */
 	page?: string | PageInput;
+	/**
+	 * Margin around the drawn content, in pixels (`ExportOptions.viewportPadding`):
+	 * the SVG canvas and the draw.io page grow by it. Default: 4 for SVG, 0
+	 * for draw.io.
+	 */
+	padding?: number;
 }
 
 export interface RenderDiagramDslResult {

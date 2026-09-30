@@ -1,3 +1,4 @@
+import { unionBoxes } from "../geometry/boxes.js";
 import {
 	EDGE_CROSSING_END_CUTOFF,
 	EDGE_CROSSING_GLYPH_RADIUS,
@@ -22,10 +23,18 @@ import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
 import { compartmentSeparatorRows } from "./compartments.js";
+import { fallbackTextWidth } from "./fallback-text.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
-import { usablePage } from "./page.js";
+import { fittedPageScale, usablePage } from "./page.js";
 import type { ExportOptions } from "./types.js";
 
+/** Default margin between the drawn content and the canvas edge. */
+export const SVG_CANVAS_MARGIN = 4;
+/**
+ * How far a stroke can paint past its outline: half the widest stroke
+ * (1.5px edges), up to the default miter limit (4) at a sharp corner.
+ */
+const STROKE_OVERHANG = 4 * (1.5 / 2);
 const NODE_FILL = "#f8fafc";
 const GROUP_FILL = "#f9fafb";
 const STROKE = "#374151";
@@ -47,25 +56,24 @@ export function exportSvg(
 	options: ExportOptions = {},
 ): string {
 	const title = options.title ?? diagram.title;
-	const annotations = diagram.textAnnotations ?? [];
-	const crossings = diagram.edgeCrossings ?? [];
-	const content =
-		crossings.length === 0
-			? diagram.bounds
-			: expandBox(diagram.bounds, EDGE_CROSSING_GLYPH_RADIUS);
+	const body = renderBody(diagram);
+	const content = canvasContent(diagram, body, options);
 	const page = usablePage(options.page);
 	// On a page the view box is the page in diagram units, centred on the
 	// content, so the drawing appears at `scale` in the middle of the page.
+	// The scale shrinks when the content with its margin would not fit.
+	const scale = page === undefined ? 1 : fittedPageScale(content, page);
 	const viewBox =
 		page === undefined
 			? content
 			: {
-					x: content.x + content.width / 2 - page.width / page.scale / 2,
-					y: content.y + content.height / 2 - page.height / page.scale / 2,
-					width: page.width / page.scale,
-					height: page.height / page.scale,
+					x: content.x + content.width / 2 - page.width / scale / 2,
+					y: content.y + content.height / 2 - page.height / scale / 2,
+					width: page.width / scale,
+					height: page.height / scale,
 				};
-	const background = page === undefined ? diagram.bounds : viewBox;
+	// The background fills the whole canvas, margin included.
+	const background = viewBox;
 	return `${[
 		`<svg xmlns="http://www.w3.org/2000/svg" role="img"${page === undefined ? "" : ` width="${formatNumber(page.width)}" height="${formatNumber(page.height)}"`} viewBox="${formatBoxViewBox(viewBox)}">`,
 		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
@@ -75,6 +83,16 @@ export function exportSvg(
 					`  <metadata data-dge-viewport="${escapeAttribute(viewportMetadata(diagram.bounds, options.viewportPadding))}"></metadata>`,
 				]),
 		`  <rect class="background" x="${formatNumber(background.x)}" y="${formatNumber(background.y)}" width="${formatNumber(background.width)}" height="${formatNumber(background.height)}" fill="#ffffff"/>`,
+		...body,
+		"</svg>",
+	].join("\n")}\n`;
+}
+
+/** Everything below the background, in paint order. */
+function renderBody(diagram: CoordinatedDiagram): string[] {
+	const annotations = diagram.textAnnotations ?? [];
+	const crossings = diagram.edgeCrossings ?? [];
+	return [
 		...(diagram.frame === undefined
 			? []
 			: [indent(renderFrame(diagram.frame, annotations))]),
@@ -109,8 +127,177 @@ export function exportSvg(
 				: [],
 		),
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
-		"</svg>",
-	].join("\n")}\n`;
+	];
+}
+
+/**
+ * The SVG canvas content: everything drawn (see `drawnExtent`) plus a
+ * margin (`viewportPadding`, else SVG_CANVAS_MARGIN).
+ */
+function canvasContent(
+	diagram: CoordinatedDiagram,
+	body: readonly string[],
+	options: ExportOptions,
+): Box {
+	const padding = options.viewportPadding;
+	return expandBox(
+		drawnExtent(diagram, unsolvedTextExtents(body.join("\n"))),
+		padding !== undefined && Number.isFinite(padding)
+			? Math.max(0, padding)
+			: SVG_CANVAS_MARGIN,
+	);
+}
+
+/**
+ * The box `exportSvg` fits to a page: what it draws plus its margin, so
+ * callers can tell the scale the page will really show it at
+ * (`fittedPageScale`).
+ */
+export function svgCanvasContent(
+	diagram: CoordinatedDiagram,
+	options: ExportOptions = {},
+): Box {
+	return canvasContent(diagram, renderBody(diagram), options);
+}
+
+/**
+ * Everything the SVG draws: the solved bounds, label backdrops (wider than
+ * their text), port boxes, text drawn without a solved box (`texts`),
+ * crossing hop glyphs and arrowheads, grown by the stroke that straddles
+ * each outline.
+ */
+function drawnExtent(diagram: CoordinatedDiagram, texts: readonly Box[]): Box {
+	const annotations = diagram.textAnnotations ?? [];
+	// Lane labels of horizontal swimlanes are drawn turned -90° about their
+	// box centre (`renderSwimlane`): their extent turns with them.
+	const turned = new Set(
+		(diagram.swimlanes ?? [])
+			.filter((swimlane) => swimlane.orientation === "horizontal")
+			.flatMap((swimlane) =>
+				swimlane.lanes.map((lane) => `${swimlane.id}.${lane.id}`),
+			),
+	);
+	const turnedLabels = annotations
+		.filter(
+			(annotation) =>
+				annotation.surfaceKind === "swimlane-label" &&
+				turned.has(annotation.ownerId),
+		)
+		.map(({ box }) => ({
+			x: box.x + box.width / 2 - box.height / 2,
+			y: box.y + box.height / 2 - box.width / 2,
+			width: box.height,
+			height: box.width,
+		}));
+	const arrowheads = diagram.edges.flatMap((edge) => {
+		try {
+			const { tip, left, right } = computeArrowhead(edge.points);
+			const xs = [tip.x, left.x, right.x];
+			const ys = [tip.y, left.y, right.y];
+			const x = Math.min(...xs);
+			const y = Math.min(...ys);
+			return [
+				{ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y },
+			];
+		} catch {
+			// No drawable segment: no arrowhead is drawn either.
+			return [];
+		}
+	});
+	return expandBox(
+		unionBoxes([
+			diagram.bounds,
+			...annotations.map(labelBackdropBox),
+			...turnedLabels,
+			...texts,
+			...diagram.nodes.flatMap((node) =>
+				(node.ports ?? []).map((port) => port.box),
+			),
+			...(diagram.edgeCrossings ?? []).map((crossing) => ({
+				x: crossing.x - EDGE_CROSSING_GLYPH_RADIUS,
+				y: crossing.y - EDGE_CROSSING_GLYPH_RADIUS,
+				width: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+				height: 2 * EDGE_CROSSING_GLYPH_RADIUS,
+			})),
+			...arrowheads,
+		]),
+		STROKE_OVERHANG,
+	);
+}
+
+/**
+ * Conservative boxes of the text elements in `svg` that no solved
+ * annotation measured (solved ones carry `data-text-surface` and are
+ * covered by their boxes): fallback labels, compartment rows, frame and
+ * lane titles, evidence text. Widths use `fallbackTextWidth`; the box
+ * follows the element's anchor, baseline and -90° rotation.
+ */
+function unsolvedTextExtents(svg: string): Box[] {
+	const boxes: Box[] = [];
+	const number = (source: string, name: string) => {
+		const match = source.match(new RegExp(`\\s${name}="([^"]*)"`));
+		return match === null ? undefined : Number(match[1]);
+	};
+	const decodeEntities = (text: string) =>
+		text
+			.replaceAll("&lt;", "<")
+			.replaceAll("&gt;", ">")
+			.replaceAll("&quot;", '"')
+			.replaceAll("&apos;", "'")
+			.replaceAll("&amp;", "&");
+	for (const match of svg.matchAll(/<text\s([^>]*)>([\s\S]*?)<\/text>/g)) {
+		const attributes = match[1] ?? "";
+		const content = match[2] ?? "";
+		if (attributes.includes("data-text-surface=")) continue;
+		const fontSize = number(attributes, "font-size") ?? 12;
+		const anchor = attributes.match(/\stext-anchor="([^"]*)"/)?.[1] ?? "start";
+		const middle = attributes.includes('dominant-baseline="middle"');
+		const rotation = attributes.match(
+			/\stransform="rotate\(-90 ([^ ]+) ([^)]+)\)"/,
+		);
+		const spans = [...content.matchAll(/<tspan\s([^>]*)>([^<]*)<\/tspan>/g)];
+		const runs =
+			spans.length > 0
+				? spans.map((span) => ({
+						x: number(span[1] ?? "", "x") ?? number(attributes, "x") ?? 0,
+						y: number(span[1] ?? "", "y") ?? number(attributes, "y") ?? 0,
+						text: span[2] ?? "",
+					}))
+				: [
+						{
+							x: number(attributes, "x") ?? 0,
+							y: number(attributes, "y") ?? 0,
+							text: content,
+						},
+					];
+		for (const run of runs) {
+			const width = fallbackTextWidth(decodeEntities(run.text), fontSize);
+			const x0 =
+				anchor === "middle"
+					? run.x - width / 2
+					: anchor === "end"
+						? run.x - width
+						: run.x;
+			// Centred text spans ±0.6em; baseline text an ascent of 1em and a
+			// descent of 0.3em.
+			const y0 = middle ? run.y - 0.6 * fontSize : run.y - fontSize;
+			const y1 = middle ? run.y + 0.6 * fontSize : run.y + 0.3 * fontSize;
+			let box: Box = { x: x0, y: y0, width, height: y1 - y0 };
+			if (rotation !== null) {
+				// rotate(-90 cx cy): (x, y) → (cx + y - cy, cy - x + cx).
+				const cx = Number(rotation[1]);
+				const cy = Number(rotation[2]);
+				box = {
+					x: cx + box.y - cy,
+					y: cy - (box.x + box.width) + cx,
+					width: box.height,
+					height: box.width,
+				};
+			}
+			boxes.push(box);
+		}
+	}
+	return boxes;
 }
 
 function viewportMetadata(bounds: Box, padding: number): string {
@@ -710,9 +897,22 @@ function formatPathWithJumps(
 				moveOnly(glyph.after);
 			} else {
 				// A cluster of close crossings shares one wider, flat hop.
+				// Radii along and across the segment: on a vertical segment
+				// the along-radius is the y radius, and on a diagonal one the
+				// ellipse turns with the segment, or SVG scales the arc up.
 				const sweep = hopSweep(start, end);
+				const along = formatNumber(glyph.halfLength);
+				const across = formatNumber(EDGE_CROSSING_GLYPH_RADIUS);
+				const dx = end.x - start.x;
+				const dy = end.y - start.y;
+				const radii =
+					Math.abs(dy) < 1e-6
+						? `${along} ${across} 0`
+						: Math.abs(dx) < 1e-6
+							? `${across} ${along} 0`
+							: `${along} ${across} ${formatNumber((Math.atan2(dy, dx) * 180) / Math.PI)}`;
 				parts.push(
-					`A ${formatNumber(glyph.halfLength)} ${formatNumber(EDGE_CROSSING_GLYPH_RADIUS)} 0 0 ${sweep} ${formatNumber(glyph.after.x)} ${formatNumber(glyph.after.y)}`,
+					`A ${radii} 0 ${sweep} ${formatNumber(glyph.after.x)} ${formatNumber(glyph.after.y)}`,
 				);
 			}
 		}

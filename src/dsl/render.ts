@@ -1,9 +1,12 @@
 import {
+	drawioPageBox,
 	exportDrawio,
 	exportExcalidraw,
 	exportGeometry,
 	exportSvg,
+	svgCanvasContent,
 } from "../exporters/index.js";
+import { fittedPageScale } from "../exporters/page.js";
 import type { ExportOptions, ExportResult } from "../exporters/types.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type { JsonObject } from "../ir/geometry.js";
@@ -13,6 +16,9 @@ import type {
 	SolveDiagramOptions,
 } from "../solver/index.js";
 import {
+	COMFORTABLE_FONT_PX,
+	MIN_READABLE_FONT_PX,
+	type PageFit,
 	type PageInput,
 	resolvePage,
 	solveDiagram,
@@ -73,6 +79,37 @@ export function exportDiagram(
 					: exportExcalidraw(diagram);
 
 	return { format, content, diagnostics: [] };
+}
+
+/**
+ * The page fit as the exporter will draw it: the fit's scale was chosen
+ * for the solved bounds, but the SVG canvas and draw.io page also hold the
+ * rest of the drawing and the margin, and shrink to fit them. The reported
+ * scale, label size and readability follow.
+ */
+function withDrawnMargin(
+	fit: PageFit,
+	format: DslOutputFormat,
+	diagram: CoordinatedDiagram,
+	options: ExportOptions,
+): PageFit {
+	const content =
+		format === "svg"
+			? svgCanvasContent(diagram, options)
+			: format === "drawio"
+				? drawioPageBox(diagram, options)
+				: undefined;
+	if (content === undefined) return fit;
+	const scale = fittedPageScale(content, fit);
+	if (!(scale < fit.scale)) return fit;
+	const fontPx = Math.round((fit.fontPx * scale * 1000) / fit.scale) / 1000;
+	return {
+		...fit,
+		scale,
+		fontPx,
+		readable: fontPx >= MIN_READABLE_FONT_PX,
+		comfortable: fontPx >= COMFORTABLE_FONT_PX,
+	};
 }
 
 export function renderDiagramDsl(
@@ -171,7 +208,12 @@ export function renderDiagramDsl(
 			: solveForPage(normalized.diagram, solveOptions, resolvedPage.page);
 	const solved =
 		fitted?.solved ?? solveDiagram(normalized.diagram, solveOptions);
-	const page = fitted?.fit;
+	const padding =
+		options.padding === undefined ? {} : { viewportPadding: options.padding };
+	const page =
+		fitted === undefined
+			? undefined
+			: withDrawnMargin(fitted.fit, format.format, solved, padding);
 	const solveDiagnostics = solved.diagnostics.map(toSolveDiagnostic);
 	if (hasErrorDiagnostics(solveDiagnostics)) {
 		return {
@@ -181,15 +223,18 @@ export function renderDiagramDsl(
 	}
 
 	try {
-		const exported = exportDiagram(
-			format.format,
-			solved,
-			page === undefined
+		const exported = exportDiagram(format.format, solved, {
+			...(page === undefined
 				? {}
 				: {
-						page: { width: page.width, height: page.height, scale: page.scale },
-					},
-		);
+						page: {
+							width: page.width,
+							height: page.height,
+							scale: page.scale,
+						},
+					}),
+			...padding,
+		});
 		return {
 			format: exported.format,
 			content: exported.content,
