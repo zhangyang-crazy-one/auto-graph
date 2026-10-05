@@ -1,6 +1,6 @@
 {
 	"name": "@crazyhappyone/auto-graph",
-	"version": "0.2.26",
+	"version": "0.2.27",
 	"description": "Deterministic geometry computation engine for diagrams",
 	"license": "MIT",
 	"type": "module",
