@@ -8,6 +8,7 @@ import {
 	exportSvg,
 	geometryDocumentSchema,
 } from "../src/exporters/index.js";
+import { ACTOR_FIGURE_WIDTH } from "../src/geometry/index.js";
 import { expandViewSource } from "../src/index.js";
 import type {
 	Box,
@@ -498,6 +499,92 @@ describe("sequence exporters", () => {
 		expect(xml).toContain("shape=umlDestroy");
 		expect(xml).toContain("participant=umlActor");
 		expect(xml).toContain("endArrow=open");
+	});
+
+	// Found by loading the export into mxGraph (draw.io's engine) in Chromium.
+	it("draw.io paints fragments over lifelines and bars, below messages", () => {
+		const xml = exportDrawio(diagram);
+		const cells = [...xml.matchAll(/<mxCell [^>]*>/g)].map((match) => match[0]);
+		const position = (test: (cell: string) => boolean) =>
+			cells
+				.map((cell, index) => (test(cell) ? index : -1))
+				.filter((i) => i >= 0);
+		const frames = position(
+			(cell) =>
+				cell.includes("shape=umlFrame") && cell.includes("pointerEvents=0"),
+		);
+		const lifelinesAndBars = position(
+			(cell) =>
+				cell.includes("shape=umlLifeline") ||
+				cell.includes("perimeter=orthogonalPerimeter"),
+		);
+		const messages = position((cell) => cell.includes('edge="1"'));
+		expect(frames).toHaveLength(sequence.fragments.length);
+		expect(Math.min(...frames)).toBeGreaterThan(Math.max(...lifelinesAndBars));
+		expect(Math.max(...frames)).toBeLessThan(Math.min(...messages));
+		// umlFrame fills its tag with fillColor, its body with
+		// swimlaneFillColor: tags are opaque, only a ref covers its body.
+		// Frames are written in fragment order.
+		frames.forEach((index, order) => {
+			const cell = cells[index] as string;
+			expect(cell).toContain("fillColor=#ffffff;");
+			const ref = sequence.fragments[order]?.kind === "ref";
+			expect(cell).toContain(
+				ref ? "swimlaneFillColor=#ffffff;" : "swimlaneFillColor=none;",
+			);
+		});
+		expect(sequence.fragments.some((fragment) => fragment.kind === "ref")).toBe(
+			true,
+		);
+	});
+
+	it("draw.io pins message ends exactly and keeps the actor figure upright", () => {
+		const xml = exportDrawio(diagram);
+		const cells = [
+			...xml.matchAll(/<mxCell [^>]*[^/]>[\s\S]*?<\/mxCell>/g),
+		].map((match) => match[0]);
+		const attribute = (cell: string, name: string) =>
+			new RegExp(`\\b${name}="([^"]*)"`).exec(cell)?.[1];
+		const style = (cell: string, name: string) =>
+			Number(new RegExp(`${name}=([-\\d.]+)`).exec(cell)?.[1]);
+		const geometry = (cell: string) => {
+			const tag = /<mxGeometry [^>]*>/.exec(cell)?.[0] ?? "";
+			return {
+				x: Number(attribute(tag, "x") ?? 0),
+				y: Number(attribute(tag, "y") ?? 0),
+				width: Number(attribute(tag, "width") ?? 0),
+				height: Number(attribute(tag, "height") ?? 0),
+			};
+		};
+		const byId = new Map(cells.map((cell) => [attribute(cell, "id"), cell]));
+		for (const cell of cells.filter((item) => item.includes('edge="1"'))) {
+			// The relative exit/entry point must land on the solved end: a
+			// rounded fraction moves it on a tall lifeline, and draw.io then
+			// routes a step into a horizontal message.
+			for (const [end, terminal, point] of [
+				["exit", "source", "sourcePoint"],
+				["entry", "target", "targetPoint"],
+			] as const) {
+				const box = geometry(byId.get(attribute(cell, terminal)) ?? "");
+				const solved = new RegExp(
+					`<mxPoint as="${point}" x="([-\\d.]+)" y="([-\\d.]+)"`,
+				).exec(cell);
+				// Edge points are relative to the edge's parent (a self call's
+				// is its lifeline).
+				const parent = attribute(cell, "parent");
+				const origin =
+					parent === "1" ? { x: 0, y: 0 } : geometry(byId.get(parent) ?? "");
+				const x = box.x + style(cell, `${end}X`) * box.width;
+				const y = box.y + style(cell, `${end}Y`) * box.height;
+				expect(Math.abs(x - origin.x - Number(solved?.[1]))).toBeLessThan(0.01);
+				expect(Math.abs(y - origin.y - Number(solved?.[2]))).toBeLessThan(0.01);
+			}
+		}
+		// draw.io stretches an actor figure across its cell.
+		const actor = cells.find((cell) => cell.includes("participant=umlActor"));
+		expect(geometry(actor ?? "").width).toBe(ACTOR_FIGURE_WIDTH);
+		expect(actor).toContain("whiteSpace=nowrap;");
+		expect(actor).toContain("labelBackgroundColor=#ffffff;");
 	});
 
 	it("Excalidraw draws lines and leaves messages unbound", () => {

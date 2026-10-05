@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### draw.io export checked in draw.io's engine
+
+- The draw.io export was loaded into mxGraph (draw.io's engine) with draw.io's own shapes and default theme, in headless Chromium. For every example, the dense SV-1 / AV-1 / OV-5b pages and a split three-page diagram, the routes draw.io computes were compared with the solved ones: 205 edges, all within 0.06px.
+- **Fragments over bars**: sequence fragments are written after lifelines and activation bars, still below messages. Before, bars covered the `opt` / `par` / `ref` tags and showed through a `ref` box. Tags are filled white; a `ref` body is filled too (`swimlaneFillColor`; `fillColor` only fills a umlFrame's tag).
+- **Exact message ends**: relative exit/entry points keep six decimals. Three decimals moved an end up to half a pixel on a tall lifeline, and draw.io's orthogonal router then drew a step into the horizontal message.
+- **Upright actors**: draw.io stretches the actor figure across its lifeline cell, so an actor's cell is as wide as the figure (20px). Its name is unwrapped and has a white backdrop over the dashed line.
+
 ### Sequence diagrams
 
 - **New diagram kind with its own solver**: a `sequence` block (participants are nodes, messages are edges) and a compact `view: sequence`. Rows get their y from their measured text in time order; lifelines are spaced so every message label, self-call loop, note and fragment border fits, shortest constraints first. Messages are horizontal and ordered, sync calls activate their receiver until the reply, self calls loop with a nested bar, `create` places the new head at its message, `destroy` ends the lifeline at an X. Combined fragments (`alt`, `opt`, `loop`, `par`, `break`, `critical`, `neg`, …) nest with padding and stay clear of outside activation bars; guards move past bars; `ref`, notes (left / right / over one or two), dividers and autonumbering are supported. A label never sits on an activation bar, a head or a note: a long message keeps its label between the sender and the first busy lifeline it passes.
