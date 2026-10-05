@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Obstacle-avoiding routes centred in their channels; nested group frames
+
+- **Channel centring**: the obstacle-avoiding router finds shortest paths through obstacle corners, so its segments ran 2px beside node sides and group frames and its end stubs were as short as that left them. Interior segments now move to the middle of their free channel: the space between the nearest node, obstacle, group-frame or lane-divider sides over the segment's span. A frame the segment runs inside bounds it by its own sides. Segments of different routes sharing a channel are spaced evenly in their current order. A moved route is kept only if it hits no more obstacles, runs no further along an outline, leaves no more short end stubs, overlaps no more routes and crosses no more of them.
+- Dense pages (obstacle-avoiding):
+
+  | Page | Metric | Before | After |
+  |---|---|---|---|
+  | SV-1 | border runs | 42 px | 0 |
+  | AV-1 | overlapping parallels | 26 px | 0 |
+  | AV-1 | near-parallel runs | 338 px | 162 px |
+  | AV-1 | stray labels | 1 | 0 |
+  | AV-1 | border runs | 326 px | 444 px |
+  | OV-5b | border runs | 120 px | 21 px |
+  | OV-5b | short arrow ends | 4 | 0 |
+
+  AV-1's border runs grow: edge separation later pushes one route next to a group frame. Pages with other routing kinds are unchanged.
+- **Nested group frames**: SVG and the geometry contract painted groups in input order, so an outer group listed after a nested one covered it with its filled frame (an architecture diagram showed its layer labels with no layer boxes). Outer frames now paint first, as draw.io's export already did.
+
+
 ### draw.io export checked in draw.io's engine
 
 - The draw.io export was loaded into mxGraph (draw.io's engine) with draw.io's own shapes and default theme, in headless Chromium. For every example, the dense SV-1 / AV-1 / OV-5b pages and a split three-page diagram, the routes draw.io computes were compared with the solved ones: 205 edges, all within 0.06px.

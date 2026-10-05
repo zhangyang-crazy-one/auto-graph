@@ -24,9 +24,11 @@ import type {
 	CoordinatedNode,
 	CoordinatedPort,
 	NormalizedEdge,
+	Swimlane,
 } from "../ir/elements.js";
 import type { AnchorName, Box, Insets, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import { centreSegmentsInChannels } from "../routing/channel-centre.js";
 import {
 	collinearOverlapLength,
 	nudgeOrthogonalRoutes,
@@ -157,6 +159,8 @@ export function coordinateEdges(
 	avoidFrameTitleRails = false,
 	hardObstacleMetadata?: readonly RouteHardObstacleMetadata[],
 	railAllocations?: Map<string, RoutingRailAllocation>,
+	/** Swimlane lane boxes: channel walls for obstacle-avoiding routes. */
+	laneBoxes: readonly Box[] = [],
 ): CoordinatedEdge[] {
 	const coordinated: CoordinatedEdge[] = [];
 	const coordinatedNodeById = new Map(
@@ -992,6 +996,7 @@ export function coordinateEdges(
 				sides.size > 0 ? [nodeId] : [],
 			),
 		),
+		laneBoxes,
 	);
 	// Opt-in Left-Edge channel nudge (#88), before labels and bounds are
 	// derived from the routes.
@@ -1229,6 +1234,8 @@ export function finalizeCoordinatedEdges(
 	groups: readonly CoordinatedGroup[] = [],
 	/** Nodes with named ports (obstacle-avoiding end tidying, #76). */
 	portedNodeIds?: ReadonlySet<string>,
+	/** Swimlane lane boxes: channel walls for obstacle-avoiding routes. */
+	laneBoxes: readonly Box[] = [],
 ): CoordinatedEdge[] {
 	const implicit = implicitAnchorDistribution(options);
 	// Every post-pass move is validated against the same obstacles the
@@ -1324,7 +1331,21 @@ export function finalizeCoordinatedEdges(
 					layered,
 				)
 			: detached;
-	const byId = new Map(spread.map((edge) => [edge.id, edge]));
+	// Obstacle-avoiding routes hug the corners they were found around:
+	// their interior segments move to the middle of their channels before
+	// parallel tracks are spread apart.
+	const centred =
+		(options.routeKind ?? "orthogonal") === "obstacle-avoiding"
+			? centreObstacleAvoidingRoutes(
+					spread,
+					nodes,
+					groups,
+					laneBoxes,
+					obstacles,
+					layered,
+				)
+			: spread;
+	const byId = new Map(centred.map((edge) => [edge.id, edge]));
 	const separated = separateCoordinatedEdges(
 		edges.map((edge) => byId.get(edge.id) ?? edge),
 		obstacles,
@@ -1370,7 +1391,9 @@ export function finalizeCoordinatedEdges(
 			? edges
 					.filter((edge) =>
 						[edge.source.nodeId, edge.target.nodeId].some(
-							(nodeId) => portedNodeIds?.has(nodeId) ?? false,
+							(nodeId) =>
+								process.env.DGE_ALL_STUBS === "1" ||
+								(portedNodeIds?.has(nodeId) ?? false),
 						),
 					)
 					.map((edge) => edge.id)
@@ -1877,6 +1900,72 @@ function uncrossBySliding(
 const MICRO_JOG = 2;
 /** Final segment length that holds the arrowhead clear of the last bend. */
 const END_STUB = 16;
+
+/**
+ * Centre obstacle-avoiding routes' interior segments in their channels
+ * (`centreSegmentsInChannels`). A moved route is kept only if it enters no
+ * more of its obstacles, runs no further along a node side or group frame,
+ * leaves no more end stubs too short for an arrowhead, overlaps no more of
+ * the other routes and crosses no more of them.
+ */
+function centreObstacleAvoidingRoutes(
+	edges: readonly CoordinatedEdge[],
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	groups: readonly CoordinatedGroup[],
+	laneBoxes: readonly Box[],
+	obstacles: readonly PostPassObstacle[],
+	fixed: ReadonlySet<string>,
+): CoordinatedEdge[] {
+	// Lane dividers count too: a channel between nodes in adjacent lanes
+	// has the divider in its middle.
+	const outlines = [
+		...[...nodes.values()].map((geometry) => geometry.box),
+		...groups.map((group) => group.box),
+		...laneBoxes,
+	];
+	// Edge labels are placed after routing; their estimates are no walls.
+	// Group obstacles are frames here: routes run inside their own groups.
+	const groupBoxes = new Set(groups.map((group) => group.box));
+	const walls = [
+		...[...nodes.values()].map((geometry) => geometry.box),
+		...obstacles
+			.filter(
+				(obstacle) =>
+					obstacle.edgeLabel !== true && !groupBoxes.has(obstacle.box),
+			)
+			.map((obstacle) => obstacle.box),
+	];
+	const frames = [...groups.map((group) => group.box), ...laneBoxes];
+	const centred = centreSegmentsInChannels(edges, walls, frames, fixed);
+	const accepted = centred.map((edge, index) => {
+		const before = edges[index] as CoordinatedEdge;
+		if (edge.points === before.points) return before;
+		const edgeObstacles = obstaclesForEdge(before, obstacles);
+		const others = edges.filter((_, at) => at !== index);
+		const worse =
+			routeObstacleHits(edge.points, edgeObstacles) >
+				routeObstacleHits(before.points, edgeObstacles) ||
+			gainsObstacle(before.points, edge.points, edgeObstacles) ||
+			outlineRunLength(axisSegments(edge.points), outlines) >
+				outlineRunLength(axisSegments(before.points), outlines) + 1e-6 ||
+			shortEndStubs(edge.points) > shortEndStubs(before.points) ||
+			collinearOverlapLength(edge.points, others) >
+				collinearOverlapLength(before.points, others) + 1e-6;
+		return worse ? before : edge;
+	});
+	return revertCrossingMoves(edges, accepted);
+}
+
+/** End segments shorter than an arrowhead stub. */
+function shortEndStubs(points: readonly Point[]): number {
+	if (points.length < 2) return 0;
+	const length = (a: Point, b: Point) =>
+		Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+	return (
+		(length(points[0] as Point, points[1] as Point) < END_STUB ? 1 : 0) +
+		(length(points.at(-1) as Point, points.at(-2) as Point) < END_STUB ? 1 : 0)
+	);
+}
 
 /**
  * Straighten sub-{@link MICRO_JOG} jogs and lengthen final segments shorter
@@ -3861,5 +3950,14 @@ export function isRouteTextObstacleFor(
 	return (
 		annotation.surfaceKind === "port-label" ||
 		!isEdgeConnectedTextAnnotation(edge, annotation)
+	);
+}
+
+/** Lane boxes of solved swimlanes (channel walls for routing). */
+export function laneBoxesOf(swimlanes: readonly Swimlane[]): Box[] {
+	return swimlanes.flatMap((swimlane) =>
+		swimlane.lanes.flatMap((lane) =>
+			lane.box === undefined ? [] : [lane.box],
+		),
 	);
 }

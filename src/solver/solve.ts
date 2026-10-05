@@ -133,6 +133,7 @@ import {
 	edgeLabelRerouteIterations,
 	finalizeCoordinatedEdges,
 	isPreRouteTextObstacle,
+	laneBoxesOf,
 	pruneResolvedRouteDiagnostics,
 	replaceRouteDiagnosticsForEdge,
 	reportRouteTextClearance,
@@ -725,6 +726,7 @@ function solveOnePage(
 		frame !== undefined,
 		policyHardObstacleMetadata,
 		acceptedRailAllocations,
+		laneBoxesOf(coordinatedSwimlanes),
 	);
 	let edgeTextAnnotations = coordinateEdgeTextAnnotations(
 		coordinatedEdges,
@@ -842,6 +844,7 @@ function solveOnePage(
 				frame !== undefined,
 				rerouteHardObstacleMetadata,
 				candidateRailAllocations,
+				laneBoxesOf(coordinatedSwimlanes),
 			).find((edge) => edge.id === edgeId);
 			if (reroutedEdge === undefined) {
 				iterationState = {
@@ -943,6 +946,8 @@ function solveOnePage(
 			acceptedRailAllocations,
 			options,
 			coordinatedGroups,
+			undefined,
+			laneBoxesOf(coordinatedSwimlanes),
 		);
 		edgeTextAnnotations = coordinateEdgeTextAnnotations(
 			coordinatedEdges,

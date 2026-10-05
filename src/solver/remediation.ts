@@ -91,6 +91,7 @@ import type { NodeObstacleEntry } from "./route-edges.js";
 import {
 	coordinateEdges,
 	isPreRouteTextObstacle,
+	laneBoxesOf,
 	reportRouteTextClearance,
 	resourceFlowLabelHardObstacles,
 } from "./route-edges.js";
@@ -1065,6 +1066,7 @@ export function rerouteRemediationEdges(
 		state.frame !== undefined,
 		state.policyHardObstacleMetadata,
 		state.acceptedRailAllocations,
+		laneBoxesOf(state.coordinatedSwimlanes),
 	);
 	state.edgeRoutingDiagnostics.splice(
 		0,

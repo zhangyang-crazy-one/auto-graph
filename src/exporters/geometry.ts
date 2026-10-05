@@ -24,6 +24,7 @@ import {
 import { previousLayoutOf } from "../layout/global/previous.js";
 import { measureLayoutQuality } from "../quality/layout-metrics.js";
 import { computeArrowhead } from "./arrow.js";
+import { groupsOuterFirst } from "./group-order.js";
 import { labelBackdropBox } from "./label-backdrop.js";
 
 /**
@@ -405,7 +406,9 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 	for (const group of diagram.groups) {
 		for (const child of group.groupIds) groupParent.set(child, group.id);
 	}
-	for (const group of diagram.groups) {
+	// Outer containers paint first: a filled outer frame would cover the
+	// ones nested in it.
+	for (const group of groupsOuterFirst(diagram.groups)) {
 		const labelId = textId("group-label", group.id);
 		const parentId = groupParent.get(group.id);
 		containers.push({

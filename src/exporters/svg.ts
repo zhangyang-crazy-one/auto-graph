@@ -24,6 +24,7 @@ import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import { computeArrowhead } from "./arrow.js";
 import { compartmentSeparatorRows } from "./compartments.js";
 import { fallbackTextWidth } from "./fallback-text.js";
+import { groupsOuterFirst } from "./group-order.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import { fittedPageScale, usablePage } from "./page.js";
 import {
@@ -174,7 +175,10 @@ function renderBody(diagram: CoordinatedDiagram): string[] {
 		...(diagram.swimlanes ?? []).flatMap((swimlane) =>
 			renderSwimlane(swimlane, annotations),
 		),
-		...diagram.groups.map((group) => indent(renderGroup(group))),
+		// Outer frames first: they are filled and would cover nested ones.
+		...groupsOuterFirst(diagram.groups).map((group) =>
+			indent(renderGroup(group)),
+		),
 		...(diagram.matrices ?? []).flatMap((matrix) =>
 			indentLines(renderMatrixBlock(matrix as CoordinatedMatrixBlock)),
 		),
