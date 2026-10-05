@@ -1,0 +1,58 @@
+# A sequence diagram in the full DSL: participants are nodes, the
+# `sequence` block lists what happens in time order. The `sequence` view
+# (examples/views/sequence.yaml) is the compact way to write the same.
+title: Order checkout
+frame: { kind: sd, titleTab: sd Checkout }
+nodes:
+  shop: { label: Shop UI }
+  orders: { label: Order Service }
+  stock: { label: Inventory }
+  pay: { label: Payment Gateway }
+  db: { label: Orders DB, shape: cylinder }
+sequence:
+  autonumber: true
+  participants:
+    - { id: customer, label: Customer, kind: actor }
+    - shop
+    - orders
+    - { id: worker, label: Validator }
+    - stock
+    - pay
+    - db
+  steps:
+    - { type: message, from: customer, to: shop, text: Place order }
+    - { type: message, from: shop, to: orders, text: "createOrder(cart, customerId, shippingAddress)" }
+    - { type: message, from: orders, to: worker, text: new, kind: create }
+    - type: note
+      position: over
+      participants: [orders, worker]
+      text: The validator checks every cart line before stock is reserved.
+    - type: fragment
+      kind: loop
+      operands:
+        - guard: for each cart line
+          steps:
+            - { type: message, from: worker, to: stock, text: "reserve(sku, qty)" }
+            - type: fragment
+              kind: opt
+              operands:
+                - guard: low stock
+                  steps:
+                    - { type: message, from: stock, to: stock, text: schedule reorder, kind: async }
+            - { type: message, from: stock, to: worker, text: reserved, kind: reply }
+    - { type: message, from: worker, to: orders, text: lines ok, kind: reply }
+    - { type: destroy, participant: worker }
+    - { type: divider, text: Payment }
+    - type: fragment
+      kind: par
+      operands:
+        - steps:
+            - { type: message, from: orders, to: pay, text: charge(total) }
+            - { type: message, from: pay, to: orders, text: approved, kind: reply }
+        - steps:
+            - { type: message, from: orders, to: db, text: INSERT order }
+            - { type: message, from: db, to: orders, kind: reply }
+    - { type: ref, participants: [orders, db], text: Send confirmation e-mail }
+    - { type: note, position: left, participants: [shop], text: spinner shown }
+    - { type: message, from: orders, to: shop, text: order id, kind: reply }
+    - { type: message, from: shop, to: customer, text: Thank you!, kind: async }

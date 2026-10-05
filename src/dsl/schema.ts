@@ -14,7 +14,7 @@ const deliverabilityModeSchema = z.enum(["strict", "degraded-ok"]);
 const remediationPolicyModeSchema = z.enum(["off", "suggest", "auto"]);
 const outputFormatSchema = z.enum(["svg", "excalidraw", "drawio", "geometry"]);
 const edgeStrokeStyleSchema = z.enum(["solid", "dashed"]);
-const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle"]);
+const edgeArrowheadSchema = z.enum(["triangle", "hollowTriangle", "open"]);
 const primaryReadingDirectionSchema = z.enum([
 	"top_to_bottom",
 	"top-to-bottom",
@@ -386,6 +386,140 @@ const constraintSchema = z.union([
 	containmentConstraintSchema,
 ]);
 
+const sequenceParticipantKindSchema = z.enum([
+	"participant",
+	"actor",
+	"database",
+]);
+const sequenceMessageKindSchema = z.enum(["sync", "async", "reply", "create"]);
+const sequenceFragmentKindSchema = z.enum([
+	"alt",
+	"opt",
+	"loop",
+	"par",
+	"break",
+	"critical",
+	"neg",
+	"strict",
+	"seq",
+	"ignore",
+	"consider",
+	"assert",
+]);
+
+const sequenceParticipantSchema = z.union([
+	z.string(),
+	z
+		.object({
+			id: z.string(),
+			label: labelSchema.optional(),
+			kind: sequenceParticipantKindSchema.optional(),
+		})
+		.strict(),
+]);
+
+export type SequenceStepDsl =
+	| {
+			type: "message";
+			id?: string | undefined;
+			from: string;
+			to: string;
+			text?: string | undefined;
+			kind?: z.infer<typeof sequenceMessageKindSchema> | undefined;
+			activate?: boolean | undefined;
+			deactivate?: boolean | undefined;
+	  }
+	| { type: "activate" | "deactivate" | "destroy"; participant: string }
+	| {
+			type: "note";
+			id?: string | undefined;
+			text: string;
+			position?: "left" | "right" | "over" | undefined;
+			participants: string[];
+	  }
+	| { type: "divider"; text?: string | undefined }
+	| {
+			type: "fragment";
+			id?: string | undefined;
+			kind: z.infer<typeof sequenceFragmentKindSchema>;
+			operands: { guard?: string | undefined; steps: SequenceStepDsl[] }[];
+	  }
+	| {
+			type: "ref";
+			id?: string | undefined;
+			text: string;
+			participants: string[];
+	  };
+
+const sequenceStepSchema: z.ZodType<SequenceStepDsl> = z.lazy(() =>
+	z.discriminatedUnion("type", [
+		z
+			.object({
+				type: z.literal("message"),
+				id: z.string().optional(),
+				from: z.string(),
+				to: z.string(),
+				text: z.string().optional(),
+				kind: sequenceMessageKindSchema.optional(),
+				activate: z.boolean().optional(),
+				deactivate: z.boolean().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				type: z.enum(["activate", "deactivate", "destroy"]),
+				participant: z.string(),
+			})
+			.strict(),
+		z
+			.object({
+				type: z.literal("note"),
+				id: z.string().optional(),
+				text: z.string(),
+				position: z.enum(["left", "right", "over"]).optional(),
+				participants: z.array(z.string()).min(1).max(2),
+			})
+			.strict(),
+		z
+			.object({ type: z.literal("divider"), text: z.string().optional() })
+			.strict(),
+		z
+			.object({
+				type: z.literal("fragment"),
+				id: z.string().optional(),
+				kind: sequenceFragmentKindSchema,
+				operands: z
+					.array(
+						z
+							.object({
+								guard: z.string().optional(),
+								steps: z.array(sequenceStepSchema),
+							})
+							.strict(),
+					)
+					.min(1),
+			})
+			.strict(),
+		z
+			.object({
+				type: z.literal("ref"),
+				id: z.string().optional(),
+				text: z.string(),
+				participants: z.array(z.string()).min(1),
+			})
+			.strict(),
+	]),
+);
+
+const sequenceSchema = z
+	.object({
+		participants: z.array(sequenceParticipantSchema).optional(),
+		autoActivate: z.boolean().optional(),
+		autonumber: z.boolean().optional(),
+		steps: z.array(sequenceStepSchema),
+	})
+	.strict();
+
 export const diagramDslSchema = z
 	.object({
 		id: z.string().optional(),
@@ -489,6 +623,7 @@ export const diagramDslSchema = z
 		tables: z.array(tableSchema).optional(),
 		evidencePanels: z.array(evidencePanelSchema).optional(),
 		constraints: z.array(constraintSchema).optional(),
+		sequence: sequenceSchema.optional(),
 		frame: z
 			.object({
 				kind: z.string(),

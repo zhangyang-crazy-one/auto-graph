@@ -4,6 +4,11 @@ import {
 	EDGE_CROSSING_GLYPH_RADIUS,
 	hopGlyphs,
 } from "../geometry/edge-crossings.js";
+import {
+	actorFigure,
+	fragmentTagPoints,
+	noteOutlinePoints,
+} from "../geometry/sequence-shapes.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -19,13 +24,20 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import {
+	type CoordinatedSequence,
+	SEQUENCE_DESTRUCTION_HALF_SIZE,
+	SEQUENCE_NOTE_FOLD,
+	SEQUENCE_TAG_CUT,
+} from "../ir/sequence.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import type { ExportOptions } from "./types.js";
 
 type ExcalidrawElement =
 	| ExcalidrawShapeElement
 	| ExcalidrawTextElement
-	| ExcalidrawArrowElement;
+	| ExcalidrawArrowElement
+	| ExcalidrawLineElement;
 
 type ExcalidrawElementType =
 	| "rectangle"
@@ -35,7 +47,8 @@ type ExcalidrawElementType =
 	| "hexagon"
 	| "cylinder"
 	| "text"
-	| "arrow";
+	| "arrow"
+	| "line";
 
 interface ExcalidrawElementBase<TType extends ExcalidrawElementType> {
 	id: string;
@@ -103,6 +116,16 @@ interface ExcalidrawArrowElement extends ExcalidrawElementBase<"arrow"> {
 	endArrowhead: "arrow" | "triangle" | "triangle_outline" | null;
 }
 
+/** A polyline; closed (first point repeated) and filled for polygons. */
+interface ExcalidrawLineElement extends ExcalidrawElementBase<"line"> {
+	type: "line";
+	points: Point[];
+	startBinding: null;
+	endBinding: null;
+	startArrowhead: null;
+	endArrowhead: null;
+}
+
 export function exportExcalidraw(
 	diagram: CoordinatedDiagram,
 	options: ExportOptions = {},
@@ -125,7 +148,24 @@ export function exportExcalidraw(
 		}
 	}
 
+	if (diagram.sequence !== undefined) {
+		elements.push(...renderSequenceBackground(diagram.sequence));
+	}
+
 	for (const node of diagram.nodes) {
+		if (node.metadata?.sequenceParticipant === "actor") {
+			// The stick figure, and its name below it as solved.
+			elements.push(...renderActor(node));
+			const label = (diagram.textAnnotations ?? []).find(
+				(annotation) =>
+					annotation.surfaceKind === "node-label" &&
+					annotation.ownerId === node.id,
+			);
+			if (label !== undefined) {
+				elements.push(renderAnnotationText(`node-text:${node.id}`, label));
+			}
+			continue;
+		}
 		elements.push(renderNode(node, groupIdByChildId.get(node.id) ?? []));
 		const text = renderText(
 			`node-text:${node.id}`,
@@ -152,7 +192,21 @@ export function exportExcalidraw(
 	}
 
 	for (const edge of diagram.edges) {
-		elements.push(...renderArrowElements(edge, diagram.edgeCrossings ?? []));
+		const arrows = renderArrowElements(edge, diagram.edgeCrossings ?? []);
+		// A message runs between lifelines, not into its participants'
+		// heads: binding it would snap it to a head when one is moved.
+		elements.push(
+			...(diagram.sequence === undefined
+				? arrows
+				: arrows.map((arrow) => ({
+						...arrow,
+						startBinding: null,
+						endBinding: null,
+					}))),
+		);
+	}
+	if (diagram.sequence !== undefined) {
+		elements.push(...renderSequenceForeground(diagram.sequence));
 	}
 	// Labels after every arrow: element order is z-order, and a label's
 	// backdrop must cover all strokes, not only its own edge's.
@@ -160,6 +214,26 @@ export function exportExcalidraw(
 		elements.push(
 			...renderEdgeLabelAnnotations(edge, diagram.textAnnotations ?? []),
 		);
+	}
+
+	// Fragment tags and guards, note and divider texts, over everything.
+	for (const annotation of diagram.textAnnotations ?? []) {
+		if (!SEQUENCE_SURFACES.has(annotation.surfaceKind)) continue;
+		// The solved line breaks, so Excalidraw does not rewrap the text.
+		const text =
+			annotation.lines.length > 0
+				? annotation.lines.map((line) => line.text).join("\n")
+				: annotation.text;
+		elements.push({
+			...renderAnnotationText(
+				`${annotation.surfaceKind}:${annotation.ownerId}:${annotation.surfaceIndex ?? 0}`,
+				annotation,
+			),
+			text,
+			originalText: text,
+			textAlign: "left",
+			verticalAlign: "top",
+		});
 	}
 
 	const scene = {
@@ -179,6 +253,197 @@ export function exportExcalidraw(
 	};
 
 	return `${JSON.stringify(scene, null, 2)}\n`;
+}
+
+const SEQUENCE_SURFACES = new Set<SolvedTextAnnotation["surfaceKind"]>([
+	"sequence-note",
+	"fragment-tag",
+	"fragment-guard",
+	"sequence-divider",
+]);
+
+function renderLine(
+	id: string,
+	points: readonly Point[],
+	options: {
+		dashed?: boolean;
+		fill?: string;
+		strokeWidth?: number;
+		strokeColor?: string;
+	} = {},
+): ExcalidrawLineElement {
+	const origin = points[0] ?? { x: 0, y: 0 };
+	const relative = points.map((point) => ({
+		x: point.x - origin.x,
+		y: point.y - origin.y,
+	}));
+	const box = pointsBox(relative);
+	return {
+		...baseElement(id, "line", {
+			x: origin.x,
+			y: origin.y,
+			width: box.width,
+			height: box.height,
+		}),
+		backgroundColor: options.fill ?? "transparent",
+		strokeStyle: options.dashed === true ? "dashed" : "solid",
+		strokeWidth: options.strokeWidth ?? 1,
+		strokeColor: options.strokeColor ?? "#374151",
+		points: relative,
+		startBinding: null,
+		endBinding: null,
+		startArrowhead: null,
+		endArrowhead: null,
+	};
+}
+
+function closed(points: readonly Point[]): Point[] {
+	const first = points[0];
+	return first === undefined ? [] : [...points, { ...first }];
+}
+
+/** Lifelines, activation bars and fragments: below the messages. */
+function renderSequenceBackground(
+	sequence: CoordinatedSequence,
+): ExcalidrawElement[] {
+	return [
+		...sequence.lifelines.map((lifeline) =>
+			renderLine(
+				`lifeline:${lifeline.participantId}`,
+				[
+					{ x: lifeline.x, y: lifeline.top },
+					{ x: lifeline.x, y: lifeline.bottom },
+				],
+				{ dashed: true, strokeColor: "#6b7280" },
+			),
+		),
+		...sequence.activations.map(
+			(activation): ExcalidrawShapeElement => ({
+				...baseElement(
+					`activation:${activation.id}`,
+					"rectangle",
+					activation.box,
+				),
+				backgroundColor: "#f3f4f6",
+			}),
+		),
+		...sequence.fragments.flatMap((fragment): ExcalidrawElement[] => [
+			{
+				...baseElement(`fragment:${fragment.id}`, "rectangle", fragment.box),
+				backgroundColor: fragment.kind === "ref" ? "#ffffff" : "transparent",
+			},
+			renderLine(
+				`fragment-tag:${fragment.id}`,
+				closed(fragmentTagPoints(fragment.tagBox, SEQUENCE_TAG_CUT)),
+				{ fill: "#ffffff" },
+			),
+			...fragment.operands.slice(1).map((operand, index) =>
+				renderLine(
+					`fragment-separator:${fragment.id}:${index + 1}`,
+					[
+						{ x: fragment.box.x, y: operand.top },
+						{ x: fragment.box.x + fragment.box.width, y: operand.top },
+					],
+					{ dashed: true },
+				),
+			),
+		]),
+	];
+}
+
+/** Notes, dividers and destruction marks: above the messages. */
+function renderSequenceForeground(
+	sequence: CoordinatedSequence,
+): ExcalidrawElement[] {
+	const h = SEQUENCE_DESTRUCTION_HALF_SIZE;
+	return [
+		...sequence.notes.flatMap((note) => {
+			const fold = SEQUENCE_NOTE_FOLD;
+			const corner = { x: note.box.x + note.box.width - fold, y: note.box.y };
+			return [
+				renderLine(
+					`note:${note.id}`,
+					closed(noteOutlinePoints(note.box, fold)),
+					{ fill: "#fffbeb", strokeColor: "#b45309" },
+				),
+				renderLine(
+					`note-fold:${note.id}`,
+					[
+						corner,
+						{ x: corner.x, y: corner.y + fold },
+						{ x: note.box.x + note.box.width, y: corner.y + fold },
+					],
+					{ strokeColor: "#b45309" },
+				),
+			];
+		}),
+		...sequence.dividers.flatMap((divider): ExcalidrawElement[] => [
+			...[-1.5, 1.5].map((offset, index) =>
+				renderLine(`divider:${divider.id}:${index}`, [
+					{ x: divider.x1, y: divider.y + offset },
+					{ x: divider.x2, y: divider.y + offset },
+				]),
+			),
+			...(divider.box === undefined
+				? []
+				: [
+						{
+							...baseElement(
+								`divider-box:${divider.id}`,
+								"rectangle",
+								divider.box,
+							),
+							backgroundColor: "#ffffff",
+						},
+					]),
+		]),
+		...sequence.destructions.flatMap((destruction) => {
+			const { x, y } = destruction.point;
+			return [
+				renderLine(
+					`destruction:${destruction.participantId}:0`,
+					[
+						{ x: x - h, y: y - h },
+						{ x: x + h, y: y + h },
+					],
+					{ strokeWidth: 2, strokeColor: "#111827" },
+				),
+				renderLine(
+					`destruction:${destruction.participantId}:1`,
+					[
+						{ x: x - h, y: y + h },
+						{ x: x + h, y: y - h },
+					],
+					{ strokeWidth: 2, strokeColor: "#111827" },
+				),
+			];
+		}),
+	];
+}
+
+/** An actor head: the stick figure, grouped so it moves as one. */
+function renderActor(node: CoordinatedNode): ExcalidrawElement[] {
+	const figure = actorFigure(node.box);
+	const group = [`actor:${node.id}`];
+	const { cx, cy, r } = figure.head;
+	return [
+		{
+			...baseElement(`node:${node.id}`, "ellipse", {
+				x: cx - r,
+				y: cy - r,
+				width: 2 * r,
+				height: 2 * r,
+			}),
+			backgroundColor: node.style?.fill ?? "#ffffff",
+			groupIds: group,
+		},
+		...figure.lines.map(([from, to], index) => ({
+			...renderLine(`actor-line:${node.id}:${index}`, [from, to], {
+				strokeWidth: 1.5,
+			}),
+			groupIds: group,
+		})),
+	];
 }
 
 function viewportAppState(
@@ -674,6 +939,8 @@ function mapArrowhead(
 			return "triangle";
 		case "hollowTriangle":
 			return "triangle_outline";
+		case "open":
+			return "arrow";
 	}
 }
 

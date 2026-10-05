@@ -139,6 +139,7 @@ flow:
 | `system-context` | one system, its users and neighbouring systems (C4 level 1) | `system`, `people`, `externals`, `relations` |
 | `state` | states of one thing and the events between them | `states`, `transitions` (`[*]` = initial / final), `initial` |
 | `tree` | org charts, breakdowns, taxonomies | `root` as a nested outline: `{ 公司: [财务, { 技术: [前端, 后端] }] }` |
+| `sequence` | who calls whom, in time order (UML / SysML sequence, DoDAF OV-6c) | `participants` (`type`: participant, actor, database), `messages` (see [Sequence Diagrams](#sequence-diagrams)) |
 
 Every view reads the same way:
 
@@ -156,6 +157,53 @@ agh --input order.yaml --expand        # the full DSL the view produces, to hand
 ```
 
 Examples: `examples/views/`. Register your own kind of diagram with `registerView({ id, title, summary, schema, example, expand })`: `schema` is a zod schema of the input, `expand` returns DSL data and reports problems through its context (`context.warn(path, code, message, hint)`).
+
+## Sequence Diagrams
+
+Sequence diagrams have their own solver: participants stand side by side, each with a lifeline, and messages run between them top to bottom in the order written. Nothing goes through the graph layout, so the drawing is a valid sequence diagram by construction — messages are horizontal and in order, activation bars start at a call and end at its reply, fragments nest, and lifelines are spaced just far enough apart for every label, self-call loop, note and fragment border between them.
+
+```yaml
+view: sequence
+title: 用户登录
+participants:
+  user: { label: 用户, type: actor }
+  web: Web 前端
+  auth: 认证服务
+  db: { label: 用户库, type: database }
+messages:
+  - user -> web: 输入账号密码
+  - web -> auth: POST /login
+  - auth -> db: 查询用户
+  - db --> auth: 用户记录
+  - alt: 密码正确
+    messages:
+      - auth -> auth: 签发 JWT
+      - auth --> web: 200 + token
+    else:
+      - guard: 密码错误
+        messages:
+          - auth --> web: 401
+          - note right of web: 连续失败 5 次锁定账号
+  - web ->> user: 显示结果
+```
+
+| Write | Draws |
+| --- | --- |
+| `a -> b: text` | a call: solid, filled arrowhead; activates `b` until its reply |
+| `a ->> b: text` | a signal (asynchronous): solid, open arrowhead |
+| `b --> a: text` | a reply: dashed, open arrowhead; ends `b`'s activation |
+| `a ->* b: text` | creates `b`: its head appears at this message |
+| `a ->+ b`, `b -->- a` | also activate the receiver / deactivate the sender |
+| `a -> a: text` | a self call: a loop on the lifeline, with a short nested bar |
+| `activate a`, `deactivate a`, `destroy a` | bars by hand; an X where the lifeline ends |
+| `note left of a: …`, `note right of a: …`, `note over a, b: …` | notes |
+| `ref over a, b: …` | an interaction use (a box naming another diagram) |
+| `== text ==` | a divider across the diagram |
+| `alt: guard` + `messages`, `else: [{ guard, messages }]` | combined fragments: `alt`, `opt`, `loop`, `par` (further operands under `and`), `break`, `critical`, `neg` |
+
+`autonumber: true` numbers the messages; `autoActivate: false` leaves bars to `activate` / `deactivate`. A participant used without being declared is added in the order it first appears; one a letter or two off a declared id is reported as a typo.
+
+In the full DSL a sequence diagram is a `sequence` block whose `participants` are nodes (`examples/sequence.yaml`): steps are `{ type: message | note | fragment | ref | divider | activate | deactivate | destroy, … }`, and `frame: { kind: sd, titleTab: … }` draws the UML frame around it. Every exporter draws it: SVG; draw.io with native, editable `umlLifeline` lifelines (activation bars are their children, messages stay pinned to them), `umlFrame` fragments and `umlDestroy` marks; Excalidraw; and the geometry contract, whose `sequence` block lists lifelines, bars, fragments, notes, dividers and destructions as ready-to-draw lines, boxes and paths.
 
 ## Global Layout
 

@@ -3640,6 +3640,11 @@ export function isRouteClearanceText(
 			return true;
 		case "group-label":
 			return textExtendsOutsideAnchor(annotation);
+		case "sequence-note":
+		case "fragment-tag":
+		case "fragment-guard":
+		case "sequence-divider":
+			return true;
 	}
 }
 

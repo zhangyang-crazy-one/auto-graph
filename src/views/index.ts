@@ -1,5 +1,6 @@
 import { architectureView } from "./builtin/architecture.js";
 import { flowchartView } from "./builtin/flowchart.js";
+import { sequenceView } from "./builtin/sequence.js";
 import { stateView } from "./builtin/state.js";
 import { swimlaneView } from "./builtin/swimlane.js";
 import { systemContextView } from "./builtin/system-context.js";
@@ -32,6 +33,7 @@ export type * from "./types.js";
 export {
 	architectureView,
 	flowchartView,
+	sequenceView,
 	stateView,
 	swimlaneView,
 	systemContextView,
@@ -44,3 +46,4 @@ registerView(architectureView, { replace: true });
 registerView(systemContextView, { replace: true });
 registerView(stateView, { replace: true });
 registerView(treeView, { replace: true });
+registerView(sequenceView, { replace: true });

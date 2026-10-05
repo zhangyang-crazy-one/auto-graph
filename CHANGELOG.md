@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Sequence diagrams
+
+- **New diagram kind with its own solver**: a `sequence` block (participants are nodes, messages are edges) and a compact `view: sequence`. Rows get their y from their measured text in time order; lifelines are spaced so every message label, self-call loop, note and fragment border fits, shortest constraints first. Messages are horizontal and ordered, sync calls activate their receiver until the reply, self calls loop with a nested bar, `create` places the new head at its message, `destroy` ends the lifeline at an X. Combined fragments (`alt`, `opt`, `loop`, `par`, `break`, `critical`, `neg`, …) nest with padding and stay clear of outside activation bars; guards move past bars; `ref`, notes (left / right / over one or two), dividers and autonumbering are supported. A label never sits on an activation bar, a head or a note: a long message keeps its label between the sender and the first busy lifeline it passes.
+- **Every exporter**: SVG (stick-figure actors, cylinder databases); draw.io with native `umlLifeline` cells (bars are their children, messages pinned to them at relative points), `umlFrame` fragments, `shape=note` notes and `umlDestroy`; Excalidraw (unbound message arrows, line elements); the geometry contract gains an optional `sequence` block, `open` arrowheads and `strokeOnly` actor paths (additive within v1).
+- **Open arrowheads**: edges accept `arrowhead: open` (two strokes, no fill) in every exporter.
+
 ### SVG canvas
 
 - **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, all text drawn without a solved box (fallback labels, compartment rows, frame and lane titles, evidence text), hop glyphs and arrowheads, plus how far a stroke paints past its outline (up to 3px at a mitred corner). A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.

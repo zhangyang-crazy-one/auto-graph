@@ -135,6 +135,7 @@ import {
 	resourceFlowLabelHardObstacles,
 	scoreRouteLabelFeedbackCandidate,
 } from "./route-edges.js";
+import { solveSequenceDiagram } from "./sequence.js";
 import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	applySwimlaneLayoutContracts,
@@ -149,6 +150,15 @@ export function solveDiagram(
 	diagram: NormalizedDiagram,
 	inputOptions: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
+	// A sequence diagram has its own layout: lifelines across, time down.
+	if (diagram.sequence !== undefined) {
+		return solveSequenceDiagram(
+			diagram as NormalizedDiagram & {
+				sequence: NonNullable<NormalizedDiagram["sequence"]>;
+			},
+			inputOptions,
+		);
+	}
 	const explicitPagePolicy =
 		inputOptions.pagePolicy ?? metadataPagePolicy(diagram.metadata);
 	const deferAutoPagePolicy =

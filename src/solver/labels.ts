@@ -1490,6 +1490,10 @@ export function isExternallyPlacedText(surfaceKind: TextSurfaceKind): boolean {
 		case "node-label":
 		case "group-label":
 		case "compartment-row":
+		case "sequence-note":
+		case "fragment-tag":
+		case "fragment-guard":
+		case "sequence-divider":
 			return false;
 	}
 }

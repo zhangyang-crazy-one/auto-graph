@@ -3,14 +3,23 @@ import {
 	EDGE_CROSSING_END_CUTOFF,
 	hopGlyphs,
 } from "../geometry/edge-crossings.js";
+import {
+	actorFigure,
+	fragmentTagPoints,
+	noteOutlinePoints,
+} from "../geometry/sequence-shapes.js";
 import { cylinderCapRadius, shapeSkew } from "../geometry/shapes.js";
 import type { Box, Point, PreviousLayout } from "../ir/geometry.js";
-import type {
-	CoordinatedDiagram,
-	CoordinatedEdge,
-	CoordinatedNode,
-	EdgeCrossing,
-	SolvedTextAnnotation,
+import {
+	type CoordinatedDiagram,
+	type CoordinatedEdge,
+	type CoordinatedNode,
+	type CoordinatedSequence,
+	type EdgeCrossing,
+	SEQUENCE_DESTRUCTION_HALF_SIZE,
+	SEQUENCE_NOTE_FOLD,
+	SEQUENCE_TAG_CUT,
+	type SolvedTextAnnotation,
 } from "../ir/index.js";
 import { previousLayoutOf } from "../layout/global/previous.js";
 import { measureLayoutQuality } from "../quality/layout-metrics.js";
@@ -99,6 +108,10 @@ const textBlock = z.object({
 		"compartment-row",
 		"swimlane-label",
 		"frame-title",
+		"sequence-note",
+		"fragment-tag",
+		"fragment-guard",
+		"sequence-divider",
 	]),
 	text: z.string(),
 	/** Box reserved for the text (padding included). */
@@ -128,6 +141,8 @@ const node = z.object({
 	outline,
 	/** Outline as path commands (fill this; draw it for the stroke). */
 	path: z.array(pathCommand),
+	/** Stroke `path` without filling it (an actor's stick figure). */
+	strokeOnly: z.boolean().optional(),
 	parentId: z.string().optional(),
 	ports: z.array(
 		z.object({
@@ -168,7 +183,8 @@ const edge = z.object({
 	arrowheads: z.array(
 		z.object({
 			at: z.enum(["source", "target"]),
-			fill: z.enum(["filled", "hollow"]),
+			/** `open`: stroke left → tip → right, no fill (the route runs to the tip). */
+			fill: z.enum(["filled", "hollow", "open"]),
 			tip: point,
 			/** Triangle: tip, left, right. */
 			points: z.array(point),
@@ -184,8 +200,92 @@ const edge = z.object({
 	labelId: z.string().optional(),
 });
 
+const segment = z.object({
+	x1: z.number(),
+	y1: z.number(),
+	x2: z.number(),
+	y2: z.number(),
+});
+
+/** Sequence diagrams: everything drawn besides heads (nodes) and messages (edges). */
+const sequence = z.object({
+	/** Dashed vertical lines. */
+	lifelines: z.array(
+		z.object({
+			participantId: z.string(),
+			kind: z.enum(["participant", "actor", "database"]),
+			line: segment,
+			created: z.boolean(),
+			destroyed: z.boolean(),
+		}),
+	),
+	activations: z.array(
+		z.object({
+			id: z.string(),
+			participantId: z.string(),
+			depth: z.number(),
+			box,
+		}),
+	),
+	/** Outermost first. `ref` fragments are filled; the others are not. */
+	fragments: z.array(
+		z.object({
+			id: z.string(),
+			kind: z.string(),
+			box,
+			/** Operator tag outline (a pentagon), filled. */
+			tag: z.array(point),
+			/** Dashed separators between operands. */
+			separators: z.array(segment),
+			depth: z.number(),
+			tagTextId: z.string().optional(),
+			guardTextIds: z.array(z.string()),
+		}),
+	),
+	notes: z.array(
+		z.object({
+			id: z.string(),
+			box,
+			/** Outline (filled) and the fold line. */
+			path: z.array(pathCommand),
+			textId: z.string().optional(),
+		}),
+	),
+	/** Double rules across the diagram, with an optional boxed text. */
+	dividers: z.array(
+		z.object({
+			id: z.string(),
+			lines: z.array(segment),
+			box: box.optional(),
+			textId: z.string().optional(),
+		}),
+	),
+	/** X marks where lifelines end. */
+	destructions: z.array(
+		z.object({
+			participantId: z.string(),
+			at: point,
+			lines: z.array(segment),
+		}),
+	),
+	messageOrder: z.array(z.string()),
+});
+
 const paint = z.object({
-	kind: z.enum(["container", "edge", "node", "port", "backdrop", "text"]),
+	kind: z.enum([
+		"container",
+		"edge",
+		"node",
+		"port",
+		"backdrop",
+		"text",
+		"lifeline",
+		"activation",
+		"fragment",
+		"note",
+		"divider",
+		"destruction",
+	]),
 	id: z.string(),
 });
 
@@ -206,6 +306,8 @@ export const geometryDocumentSchema = z.object({
 	containers: z.array(container),
 	edges: z.array(edge),
 	texts: z.array(textBlock),
+	/** Present for sequence diagrams. */
+	sequence: sequence.optional(),
 	/** Back to front. */
 	zOrder: z.array(paint),
 	metrics: z.record(z.string(), z.number()),
@@ -269,12 +371,16 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 
 	const nodes: GeometryDocument["nodes"] = diagram.nodes.map((item) => {
 		const labelId = textId("node-label", item.id);
+		const actor = item.metadata?.sequenceParticipant === "actor";
 		return {
 			id: item.id,
-			shape: item.shape,
+			shape: actor ? "actor" : item.shape,
 			box: { ...item.box },
-			outline: outlineOf(item),
-			path: outlinePath(item),
+			outline: actor
+				? { kind: "rect" as const, box: { ...item.box }, cornerRadius: 0 }
+				: outlineOf(item),
+			path: actor ? actorPath(item.box) : outlinePath(item),
+			...(actor ? { strokeOnly: true } : {}),
 			...(item.parentId === undefined ? {} : { parentId: item.parentId }),
 			ports: (item.ports ?? []).map((port) => ({
 				id: port.id,
@@ -341,9 +447,45 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 		.filter((item) => item.points.length >= 2)
 		.map((item) => edgeOf(item, nodeById, crossings, textId));
 
+	const sequenceDoc =
+		diagram.sequence === undefined
+			? undefined
+			: sequenceOf(diagram.sequence, texts, annotations);
 	const zOrder: GeometryDocument["zOrder"] = [
 		...containers.map((item) => ({ kind: "container" as const, id: item.id })),
+		...(sequenceDoc === undefined
+			? []
+			: [
+					...sequenceDoc.lifelines.map((item) => ({
+						kind: "lifeline" as const,
+						id: item.participantId,
+					})),
+					...sequenceDoc.activations.map((item) => ({
+						kind: "activation" as const,
+						id: item.id,
+					})),
+					...sequenceDoc.fragments.map((item) => ({
+						kind: "fragment" as const,
+						id: item.id,
+					})),
+				]),
 		...edges.map((item) => ({ kind: "edge" as const, id: item.id })),
+		...(sequenceDoc === undefined
+			? []
+			: [
+					...sequenceDoc.notes.map((item) => ({
+						kind: "note" as const,
+						id: item.id,
+					})),
+					...sequenceDoc.dividers.map((item) => ({
+						kind: "divider" as const,
+						id: item.id,
+					})),
+					...sequenceDoc.destructions.map((item) => ({
+						kind: "destruction" as const,
+						id: item.participantId,
+					})),
+				]),
 		...nodes.map((item) => ({ kind: "node" as const, id: item.id })),
 		...nodes.flatMap((item) =>
 			item.ports.map((port) => ({
@@ -394,6 +536,7 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 		containers,
 		edges,
 		texts,
+		...(sequenceDoc === undefined ? {} : { sequence: sequenceDoc }),
 		zOrder,
 		metrics: Object.fromEntries(
 			Object.entries(metrics).filter(
@@ -669,7 +812,11 @@ function edgeOf(
 		x: (arrowhead.left.x + arrowhead.right.x) / 2,
 		y: (arrowhead.left.y + arrowhead.right.y) / 2,
 	};
-	const stroked = [...item.points.slice(0, -1), base];
+	// An open arrowhead is two strokes: the route runs on to its tip.
+	const stroked =
+		item.arrowhead === "open"
+			? item.points.map((p) => ({ ...p }))
+			: [...item.points.slice(0, -1), base];
 	const under = crossings.filter(
 		(crossing) => crossing.underEdgeId === item.id,
 	);
@@ -684,7 +831,12 @@ function edgeOf(
 		arrowheads: [
 			{
 				at: "target",
-				fill: item.arrowhead === "hollowTriangle" ? "hollow" : "filled",
+				fill:
+					item.arrowhead === "hollowTriangle"
+						? "hollow"
+						: item.arrowhead === "open"
+							? "open"
+							: "filled",
 				tip: { ...arrowhead.tip },
 				points: [arrowhead.tip, arrowhead.left, arrowhead.right].map((p) => ({
 					...p,
@@ -697,6 +849,133 @@ function edgeOf(
 			style: crossing.style,
 		})),
 		...(labelId === undefined ? {} : { labelId }),
+	};
+}
+
+/** An actor's stick figure as strokes: the head circle, body, arms, legs. */
+function actorPath(box: Box): GeometryPathCommand[] {
+	const figure = actorFigure(box);
+	const { cx, cy, r } = figure.head;
+	return [
+		{ op: "M", x: cx - r, y: cy },
+		arc(r, r, true, { x: cx + r, y: cy }),
+		arc(r, r, true, { x: cx - r, y: cy }),
+		...figure.lines.flatMap(([from, to]): GeometryPathCommand[] => [
+			{ op: "M", x: from.x, y: from.y },
+			{ op: "L", x: to.x, y: to.y },
+		]),
+	];
+}
+
+function sequenceOf(
+	sequence: CoordinatedSequence,
+	texts: GeometryDocument["texts"],
+	annotations: readonly SolvedTextAnnotation[],
+): NonNullable<GeometryDocument["sequence"]> {
+	const textFor = (surface: string, ownerId: string, index?: number) =>
+		texts.find(
+			(text, position) =>
+				text.surface === surface &&
+				text.ownerId === ownerId &&
+				annotations[position]?.surfaceIndex === index,
+		)?.id;
+	const h = SEQUENCE_DESTRUCTION_HALF_SIZE;
+	return {
+		lifelines: sequence.lifelines.map((lifeline) => ({
+			participantId: lifeline.participantId,
+			kind: lifeline.kind,
+			line: {
+				x1: lifeline.x,
+				y1: lifeline.top,
+				x2: lifeline.x,
+				y2: lifeline.bottom,
+			},
+			created: lifeline.created,
+			destroyed: lifeline.destroyed,
+		})),
+		activations: sequence.activations.map((activation) => ({
+			id: activation.id,
+			participantId: activation.participantId,
+			depth: activation.depth,
+			box: { ...activation.box },
+		})),
+		fragments: sequence.fragments.map((fragment) => {
+			const tagTextId = textFor("fragment-tag", fragment.id);
+			return {
+				id: fragment.id,
+				kind: fragment.kind,
+				box: { ...fragment.box },
+				tag: fragmentTagPoints(fragment.tagBox, SEQUENCE_TAG_CUT),
+				separators: fragment.operands.slice(1).map((operand) => ({
+					x1: fragment.box.x,
+					y1: operand.top,
+					x2: fragment.box.x + fragment.box.width,
+					y2: operand.top,
+				})),
+				depth: fragment.depth,
+				...(tagTextId === undefined ? {} : { tagTextId }),
+				guardTextIds: fragment.operands.flatMap((_, index) => {
+					const id = textFor("fragment-guard", fragment.id, index);
+					return id === undefined ? [] : [id];
+				}),
+			};
+		}),
+		notes: sequence.notes.map((note) => {
+			const outline = noteOutlinePoints(note.box, SEQUENCE_NOTE_FOLD);
+			const corner = {
+				x: note.box.x + note.box.width - SEQUENCE_NOTE_FOLD,
+				y: note.box.y,
+			};
+			const textId = textFor("sequence-note", note.id);
+			return {
+				id: note.id,
+				box: { ...note.box },
+				path: [
+					...outline.map(
+						(p, index): GeometryPathCommand => ({
+							op: index === 0 ? "M" : "L",
+							x: p.x,
+							y: p.y,
+						}),
+					),
+					{ op: "Z" as const },
+					{ op: "M" as const, x: corner.x, y: corner.y },
+					{ op: "L" as const, x: corner.x, y: corner.y + SEQUENCE_NOTE_FOLD },
+					{
+						op: "L" as const,
+						x: note.box.x + note.box.width,
+						y: corner.y + SEQUENCE_NOTE_FOLD,
+					},
+				],
+				...(textId === undefined ? {} : { textId }),
+			};
+		}),
+		dividers: sequence.dividers.map((divider) => {
+			const textId = textFor("sequence-divider", divider.id);
+			return {
+				id: divider.id,
+				lines: [-1.5, 1.5].map((offset) => ({
+					x1: divider.x1,
+					y1: divider.y + offset,
+					x2: divider.x2,
+					y2: divider.y + offset,
+				})),
+				...(divider.box === undefined ? {} : { box: { ...divider.box } }),
+				...(textId === undefined ? {} : { textId }),
+			};
+		}),
+		destructions: sequence.destructions.map((destruction) => {
+			const { x, y } = destruction.point;
+			return {
+				participantId: destruction.participantId,
+				at: { x, y },
+				lines: [
+					{ x1: x - h, y1: y - h, x2: x + h, y2: y + h },
+					{ x1: x - h, y1: y + h, x2: x + h, y2: y - h },
+				],
+			};
+		}),
+		messageOrder: [...sequence.messageOrder],
 	};
 }
 

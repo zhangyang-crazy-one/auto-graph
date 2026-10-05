@@ -756,6 +756,10 @@ export function isEdgeConnectedTextAnnotation(
 		case "group-label":
 		case "swimlane-label":
 		case "frame-title":
+		case "sequence-note":
+		case "fragment-tag":
+		case "fragment-guard":
+		case "sequence-divider":
 			return false;
 	}
 }

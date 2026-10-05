@@ -23,6 +23,7 @@ import type {
 } from "./elements.js";
 import type { Box, DiagramDirection, JsonObject } from "./geometry.js";
 import type { SolvedTextAnnotation } from "./label-layout.js";
+import type { CoordinatedSequence, SequenceSpec } from "./sequence.js";
 
 export type DiagramStage = "intent" | "normalized" | "coordinated";
 
@@ -172,6 +173,8 @@ export interface IntentDiagram {
 	evidencePanels?: EvidencePanel[];
 	constraints?: Constraint[];
 	frame?: DiagramFrame;
+	/** A sequence diagram: participants are nodes, messages are edges. */
+	sequence?: SequenceSpec;
 	metadata?: DiagramMetadata;
 }
 
@@ -190,6 +193,8 @@ export interface NormalizedDiagram {
 	constraints: Constraint[];
 	diagnostics: Diagnostic[];
 	frame?: DiagramFrame;
+	/** A sequence diagram: participants are nodes, messages are edges. */
+	sequence?: SequenceSpec;
 	metadata?: DiagramMetadata;
 }
 
@@ -215,6 +220,8 @@ export interface CoordinatedDiagram {
 	routing?: RoutingAllocationReport;
 	bounds: Box;
 	frame?: CoordinatedFrame;
+	/** Lifelines, activations, fragments and notes of a sequence diagram. */
+	sequence?: CoordinatedSequence;
 	metadata?: DiagramMetadata;
 	qualityReport?: import("../solver/pipeline/quality.js").QualityReport;
 }

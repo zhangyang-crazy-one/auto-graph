@@ -31,6 +31,11 @@ import {
 import { createDefaultTextMeasurer, type TextMeasurer } from "../text/index.js";
 import { sortDslDiagnostics } from "./diagnostics.js";
 import type { DiagramDsl } from "./schema.js";
+import {
+	normalizeSequence,
+	validateSequenceReferences,
+	withSequenceParticipantNodes,
+} from "./sequence.js";
 import type { DslDiagnostic, NormalizeDiagramDslResult } from "./types.js";
 
 export const DEFAULT_NODE_PADDING: Insets = {
@@ -65,8 +70,13 @@ export function normalizeDiagramDsl(
 	dslValue: unknown,
 	options: NormalizeDiagramDslOptions = {},
 ): NormalizeDiagramDslResult {
-	const dsl = dslValue as DiagramDsl;
-	const diagnostics = validateReferences(dsl);
+	const authored = dslValue as DiagramDsl;
+	// Sequence participants listed only under `sequence` are nodes too.
+	const dsl = withSequenceParticipantNodes(authored);
+	const diagnostics = [
+		...validateSequenceReferences(authored),
+		...validateReferences(dsl),
+	];
 	if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
 		return {
 			diagnostics: sortDslDiagnostics(diagnostics),
@@ -74,6 +84,7 @@ export function normalizeDiagramDsl(
 		};
 	}
 
+	const sequence = normalizeSequence(dsl);
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	const routeKind = dsl.routing?.kind ?? "orthogonal";
 	const portShifting = normalizePortShifting(dsl.routing?.portShifting);
@@ -97,6 +108,7 @@ export function normalizeDiagramDsl(
 		constraints: normalizeConstraints(dsl),
 		diagnostics: [],
 		...(dsl.frame === undefined ? {} : { frame: normalizeFrame(dsl.frame) }),
+		...(sequence === undefined ? {} : { sequence }),
 		metadata: {
 			routeKind,
 			...(initialLayout === undefined ? {} : { initialLayout }),

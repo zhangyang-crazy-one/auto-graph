@@ -26,6 +26,13 @@ import { compartmentSeparatorRows } from "./compartments.js";
 import { fallbackTextWidth } from "./fallback-text.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import { fittedPageScale, usablePage } from "./page.js";
+import {
+	renderActor,
+	renderSequenceBackground,
+	renderSequenceForeground,
+	renderSequenceText,
+	SEQUENCE_TEXT_SURFACES,
+} from "./sequence-svg.js";
 import type { ExportOptions } from "./types.js";
 
 /** Default margin between the drawn content and the canvas edge. */
@@ -109,13 +116,25 @@ function renderBody(diagram: CoordinatedDiagram): string[] {
 		...(diagram.evidencePanels ?? []).flatMap((panel) =>
 			indentLines(renderEvidencePanel(panel as CoordinatedEvidencePanel)),
 		),
+		...(diagram.sequence === undefined
+			? []
+			: indentLines(renderSequenceBackground(diagram.sequence))),
 		...diagram.edges.flatMap((edge) => {
 			const path = renderEdgePath(edge, crossings);
 			return path === undefined
 				? []
 				: [indent(path), indent(renderArrowhead(edge))];
 		}),
-		...diagram.nodes.map((node) => indent(renderNode(node))),
+		...(diagram.sequence === undefined
+			? []
+			: indentLines(renderSequenceForeground(diagram.sequence))),
+		...diagram.nodes.map((node) =>
+			indent(
+				node.metadata?.sequenceParticipant === "actor"
+					? renderActor(node)
+					: renderNode(node),
+			),
+		),
 		...diagram.nodes.flatMap((node) => renderCompartments(node, annotations)),
 		...diagram.nodes.flatMap((node) => renderPorts(node, annotations)),
 		...diagram.groups.flatMap((group) =>
@@ -127,6 +146,11 @@ function renderBody(diagram: CoordinatedDiagram): string[] {
 				: [],
 		),
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
+		...annotations
+			.filter((annotation) =>
+				SEQUENCE_TEXT_SURFACES.has(annotation.surfaceKind),
+			)
+			.flatMap((annotation) => indentLines(renderSequenceText(annotation))),
 	];
 }
 
@@ -836,13 +860,15 @@ function renderEdgePath(
 	const underCrossings = crossings.filter(
 		(crossing) => crossing.underEdgeId === edge.id,
 	);
+	// An open arrowhead is two strokes: the line runs on to its tip.
+	const drawn =
+		edge.arrowhead === "open"
+			? [...edge.points]
+			: pathPointsBeforeArrowhead(edge.points);
 	const d =
 		underCrossings.length === 0
-			? formatPath(pathPointsBeforeArrowhead(edge.points))
-			: formatPathWithJumps(
-					pathPointsBeforeArrowhead(edge.points),
-					underCrossings,
-				);
+			? formatPath(drawn)
+			: formatPathWithJumps(drawn, underCrossings);
 	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${d}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
 }
 
@@ -1015,6 +1041,9 @@ function renderLabelBackdrop(
 
 function renderArrowhead(edge: CoordinatedEdge): string {
 	const arrowhead = computeArrowhead(edge.points);
+	if (edge.arrowhead === "open") {
+		return `<polyline class="edge-arrowhead" data-edge="${escapeAttribute(edge.id)}" points="${formatPoints([arrowhead.left, arrowhead.tip, arrowhead.right])}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"/>`;
+	}
 	const fill = edge.arrowhead === "hollowTriangle" ? "none" : EDGE_STROKE;
 	return `<polygon class="edge-arrowhead" data-edge="${escapeAttribute(edge.id)}" points="${formatPoints([arrowhead.tip, arrowhead.left, arrowhead.right])}" fill="${fill}" stroke="${EDGE_STROKE}"/>`;
 }

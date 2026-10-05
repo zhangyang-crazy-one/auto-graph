@@ -110,6 +110,53 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## 时序图
+
+时序图有专门的求解器：参与者横向排开，每个参与者一条生命线，消息按书写顺序自上而下排列。它不走通用的图布局，所以画出来的天然是合法的时序图：消息水平且有序，激活条从调用开始、到返回结束，组合片段正确嵌套，生命线之间的间距刚好容得下其间的标签、自调用环、备注和片段边框。
+
+```yaml
+view: sequence
+title: 用户登录
+participants:
+  user: { label: 用户, type: actor }
+  web: Web 前端
+  auth: 认证服务
+  db: { label: 用户库, type: database }
+messages:
+  - user -> web: 输入账号密码
+  - web -> auth: POST /login
+  - auth -> db: 查询用户
+  - db --> auth: 用户记录
+  - alt: 密码正确
+    messages:
+      - auth -> auth: 签发 JWT
+      - auth --> web: 200 + token
+    else:
+      - guard: 密码错误
+        messages:
+          - auth --> web: 401
+          - note right of web: 连续失败 5 次锁定账号
+  - web ->> user: 显示结果
+```
+
+| 写法 | 画出 |
+| --- | --- |
+| `a -> b: 文字` | 同步调用：实线、实心箭头；`b` 激活到对应的返回为止 |
+| `a ->> b: 文字` | 异步消息：实线、开口箭头 |
+| `b --> a: 文字` | 返回：虚线、开口箭头；结束 `b` 的激活 |
+| `a ->* b: 文字` | 创建 `b`：它的头部出现在这条消息处 |
+| `a ->+ b`、`b -->- a` | 额外激活接收方 / 结束发送方的激活 |
+| `a -> a: 文字` | 自调用：生命线上的回环，带一段嵌套激活条 |
+| `activate a`、`deactivate a`、`destroy a` | 手动控制激活条；生命线在 X 处结束 |
+| `note left of a: …`、`note right of a: …`、`note over a, b: …` | 备注 |
+| `ref over a, b: …` | 交互引用（指向另一张图的框） |
+| `== 文字 ==` | 横贯全图的分隔线 |
+| `alt: 条件` + `messages`、`else: [{ guard, messages }]` | 组合片段：`alt`、`opt`、`loop`、`par`（其余分支写在 `and` 下）、`break`、`critical`、`neg` |
+
+`autonumber: true` 给消息编号；`autoActivate: false` 时激活条只由 `activate` / `deactivate` 控制。未声明就使用的参与者按首次出现的顺序加入；和已声明 id 只差一两个字母的会被当作笔误报错。
+
+完整 DSL 里，时序图是一个 `sequence` 块，其中的 `participants` 就是节点（见 `examples/sequence.yaml`）：步骤写成 `{ type: message | note | fragment | ref | divider | activate | deactivate | destroy, … }`，`frame: { kind: sd, titleTab: … }` 会画出 UML 外框。所有导出器都支持：SVG；draw.io 使用原生可编辑的 `umlLifeline` 生命线（激活条是它的子单元，消息固定在生命线上）、`umlFrame` 片段和 `umlDestroy` 标记；Excalidraw；以及几何契约，其 `sequence` 块把生命线、激活条、片段、备注、分隔线和销毁标记都给成可以直接绘制的线段、矩形和路径。
+
 ## 密集走线控制
 
 需要保留坐标的密集图可以通过 YAML `routing` 元数据启用避障走线控制。这些控制保持确定性和无头运行；如果布局无法满足约束，会返回结构化诊断，而不是依赖人工看图判断。
