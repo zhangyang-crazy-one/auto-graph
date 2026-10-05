@@ -78,7 +78,8 @@ export interface EdgeEndpoint {
 }
 
 export type EdgeStrokeStyle = "solid" | "dashed";
-export type EdgeArrowhead = "triangle" | "hollowTriangle";
+/** `open`: two strokes, no fill (UML asynchronous messages and replies). */
+export type EdgeArrowhead = "triangle" | "hollowTriangle" | "open";
 export type PortSide = "top" | "right" | "bottom" | "left";
 export type PortKind = "proxy" | "flow";
 

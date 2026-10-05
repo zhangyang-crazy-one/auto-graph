@@ -42,7 +42,11 @@ export type TextSurfaceKind =
 	| "edge-label"
 	| "compartment-row"
 	| "swimlane-label"
-	| "frame-title";
+	| "frame-title"
+	| "sequence-note"
+	| "fragment-tag"
+	| "fragment-guard"
+	| "sequence-divider";
 
 export interface SolvedTextAnnotation {
 	text: string;

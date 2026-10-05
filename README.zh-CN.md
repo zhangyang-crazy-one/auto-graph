@@ -110,6 +110,53 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## 时序图
+
+时序图有专门的求解器：参与者横向排开，每个参与者一条生命线，消息按书写顺序自上而下排列。它不走通用的图布局，所以画出来的天然是合法的时序图：消息水平且有序，激活条从调用开始、到返回结束，组合片段正确嵌套，生命线之间的间距刚好容得下其间的标签、自调用环、备注和片段边框。
+
+```yaml
+view: sequence
+title: 用户登录
+participants:
+  user: { label: 用户, type: actor }
+  web: Web 前端
+  auth: 认证服务
+  db: { label: 用户库, type: database }
+messages:
+  - user -> web: 输入账号密码
+  - web -> auth: POST /login
+  - auth -> db: 查询用户
+  - db --> auth: 用户记录
+  - alt: 密码正确
+    messages:
+      - auth -> auth: 签发 JWT
+      - auth --> web: 200 + token
+    else:
+      - guard: 密码错误
+        messages:
+          - auth --> web: 401
+          - note right of web: 连续失败 5 次锁定账号
+  - web ->> user: 显示结果
+```
+
+| 写法 | 画出 |
+| --- | --- |
+| `a -> b: 文字` | 同步调用：实线、实心箭头；`b` 激活到对应的返回为止 |
+| `a ->> b: 文字` | 异步消息：实线、开口箭头 |
+| `b --> a: 文字` | 返回：虚线、开口箭头；结束 `b` 的激活 |
+| `a ->* b: 文字` | 创建 `b`：它的头部出现在这条消息处 |
+| `a ->+ b`、`b -->- a` | 额外激活接收方 / 结束发送方的激活 |
+| `a -> a: 文字` | 自调用：生命线上的回环，带一段嵌套激活条 |
+| `activate a`、`deactivate a`、`destroy a` | 手动控制激活条；生命线在 X 处结束 |
+| `note left of a: …`、`note right of a: …`、`note over a, b: …` | 备注 |
+| `ref over a, b: …` | 交互引用（指向另一张图的框） |
+| `== 文字 ==` | 横贯全图的分隔线 |
+| `alt: 条件` + `messages`、`else: [{ guard, messages }]` | 组合片段：`alt`、`opt`、`loop`、`par`（其余分支写在 `and` 下）、`break`、`critical`、`neg` |
+
+`autonumber: true` 给消息编号；`autoActivate: false` 时激活条只由 `activate` / `deactivate` 控制。未声明就使用的参与者按首次出现的顺序加入；和已声明 id 只差一两个字母的会被当作笔误报错。
+
+完整 DSL 里，时序图是一个 `sequence` 块，其中的 `participants` 就是节点（见 `examples/sequence.yaml`）：步骤写成 `{ type: message | note | fragment | ref | divider | activate | deactivate | destroy, … }`，`frame: { kind: sd, titleTab: … }` 会画出 UML 外框。所有导出器都支持：SVG；draw.io 使用原生可编辑的 `umlLifeline` 生命线（激活条是它的子单元，消息固定在生命线上）、`umlFrame` 片段和 `umlDestroy` 标记；Excalidraw；以及几何契约，其 `sequence` 块把生命线、激活条、片段、备注、分隔线和销毁标记都给成可以直接绘制的线段、矩形和路径。
+
 ## 密集走线控制
 
 需要保留坐标的密集图可以通过 YAML `routing` 元数据启用避障走线控制。这些控制保持确定性和无头运行；如果布局无法满足约束，会返回结构化诊断，而不是依赖人工看图判断。
@@ -140,7 +187,7 @@ routing:
 
 `deliverabilityMode: strict`（等价于 `strict: true`）要求几何干净，或返回带 `remediationPlans` 的结构化 `unsatisfiable`。`deliverabilityMode: degraded-ok` 保留 advisory degraded 输出。
 
-本地 route/label 反馈循环耗尽后，残余冲突进入有界 remediation 轮次（默认最多 2 次）。应用顺序为 grow → rails → external-label。`pageSplit` **不会**自动物化拆页。
+本地 route/label 反馈循环耗尽后，残余冲突进入有界 remediation 轮次（默认最多 2 次）。应用顺序为 grow → rails → external-label。设置 `pageSplit: auto` 后，之后仍不干净的页面会被拆成多页（见下文）。
 
 ### 连线分布默认行为
 
@@ -157,7 +204,13 @@ routing:
 | `externalLabels` | 仅暂存 keyed callout 计划 | 应用确定性 keyed callout 并复查 clearance |
 | `routeRails` | 仅暂存 dependency rail 计划 | 强制 dependency rails、重路由，标记 `applied` 或 `blocked` |
 | `growFixedGeometry` | 仅暂存增长计划 | 应用 growth deltas / 扩展节点、重路由，标记 `applied` 或 `blocked` |
-| `pageSplit` | 暂存可读的 `required`/`available` 计划（仅 `suggest`，无 `auto`） | — 拆页**不会**自动物化 |
+| `pageSplit` | 暂存可读的 `required`/`available` 计划 | 拆成 2–6 页并逐页求解，标记 `applied`（附 `pages` 与 `crossPageEdgeIds`）或 `blocked` |
+
+#### 拆页（`pageSplit: auto`）
+
+其他补救措施之后仍有交付冲突（超容量）的页面，或在 `--page` 适配下标签会小于 8px 的页面，会被拆成多页。属于一起的节点不会被拆开：一个分组及其嵌套内容、一个节点及其子节点总在同一页。页面是这些单元按单页求解时的排列顺序（沿流向；若横向切割更少则横向）连续分段，互不相连的部分保持分开，使它们之间的分页边界不切断任何边；分段边界在保持各页均衡的前提下切断最少的边。之后每页独立求解；泳道池保留全部泳道；框架标题与图标题加上 “(2/3)”。被切断的边在两页上都画出，并止于一个**跨页连接符**，注明另一侧的页码和节点（“→ P2 · Billing”、“P1 · Orders →”；`metadata.offPageConnector`、`remotePage`、`remoteNodeId`）。
+
+只有当拆页后的冲突更少（或可读字号更大）时才采用拆页；否则计划标记为 `blocked` 并附原因，同时给出 `remediation.page-split.blocked` 警告。结果是第 1 页加上 `pages`（每页的求解结果）、合并后的 `deliverability`（各页计划带页前缀，如 `page-2-remediation-01-…`），以及带 `detail.page` 的全部诊断。在 `deliverabilityMode: strict` 下，任何一页残留的冲突仍然是错误（带页码的 `routing.deliverability.unsatisfiable`）。各导出器都会输出全部页面：SVG 纵向堆叠（每页一个嵌套的 `<svg class="page">`，各自适配纸张），draw.io 每页一个 `<diagram>` 标签页，Excalidraw 纵向堆叠并给 id 加 `page-N:` 前缀，geometry 文档带 `pages`。
 
 计划状态为 `suggested`、`applied` 或 `blocked`。在 full-auto strict 密集验收下，可自动执行的类型必须是 `applied` 或 `blocked`，不能停留在 `suggested`。
 

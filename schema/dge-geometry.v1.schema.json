@@ -301,6 +301,9 @@
 							]
 						}
 					},
+					"strokeOnly": {
+						"type": "boolean"
+					},
 					"parentId": {
 						"type": "string"
 					},
@@ -629,7 +632,7 @@
 								},
 								"fill": {
 									"type": "string",
-									"enum": ["filled", "hollow"]
+									"enum": ["filled", "hollow", "open"]
 								},
 								"tip": {
 									"type": "object",
@@ -732,7 +735,11 @@
 							"edge-label",
 							"compartment-row",
 							"swimlane-label",
-							"frame-title"
+							"frame-title",
+							"sequence-note",
+							"fragment-tag",
+							"fragment-guard",
+							"sequence-divider"
 						]
 					},
 					"text": {
@@ -860,6 +867,439 @@
 				"additionalProperties": false
 			}
 		},
+		"sequence": {
+			"type": "object",
+			"properties": {
+				"lifelines": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"participantId": {
+								"type": "string"
+							},
+							"kind": {
+								"type": "string",
+								"enum": ["participant", "actor", "database"]
+							},
+							"line": {
+								"type": "object",
+								"properties": {
+									"x1": {
+										"type": "number"
+									},
+									"y1": {
+										"type": "number"
+									},
+									"x2": {
+										"type": "number"
+									},
+									"y2": {
+										"type": "number"
+									}
+								},
+								"required": ["x1", "y1", "x2", "y2"],
+								"additionalProperties": false
+							},
+							"created": {
+								"type": "boolean"
+							},
+							"destroyed": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"participantId",
+							"kind",
+							"line",
+							"created",
+							"destroyed"
+						],
+						"additionalProperties": false
+					}
+				},
+				"activations": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"participantId": {
+								"type": "string"
+							},
+							"depth": {
+								"type": "number"
+							},
+							"box": {
+								"type": "object",
+								"properties": {
+									"x": {
+										"type": "number"
+									},
+									"y": {
+										"type": "number"
+									},
+									"width": {
+										"type": "number"
+									},
+									"height": {
+										"type": "number"
+									}
+								},
+								"required": ["x", "y", "width", "height"],
+								"additionalProperties": false
+							}
+						},
+						"required": ["id", "participantId", "depth", "box"],
+						"additionalProperties": false
+					}
+				},
+				"fragments": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"type": "string"
+							},
+							"box": {
+								"type": "object",
+								"properties": {
+									"x": {
+										"type": "number"
+									},
+									"y": {
+										"type": "number"
+									},
+									"width": {
+										"type": "number"
+									},
+									"height": {
+										"type": "number"
+									}
+								},
+								"required": ["x", "y", "width", "height"],
+								"additionalProperties": false
+							},
+							"tag": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"x": {
+											"type": "number"
+										},
+										"y": {
+											"type": "number"
+										}
+									},
+									"required": ["x", "y"],
+									"additionalProperties": false
+								}
+							},
+							"separators": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"x1": {
+											"type": "number"
+										},
+										"y1": {
+											"type": "number"
+										},
+										"x2": {
+											"type": "number"
+										},
+										"y2": {
+											"type": "number"
+										}
+									},
+									"required": ["x1", "y1", "x2", "y2"],
+									"additionalProperties": false
+								}
+							},
+							"depth": {
+								"type": "number"
+							},
+							"tagTextId": {
+								"type": "string"
+							},
+							"guardTextIds": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"box",
+							"tag",
+							"separators",
+							"depth",
+							"guardTextIds"
+						],
+						"additionalProperties": false
+					}
+				},
+				"notes": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"box": {
+								"type": "object",
+								"properties": {
+									"x": {
+										"type": "number"
+									},
+									"y": {
+										"type": "number"
+									},
+									"width": {
+										"type": "number"
+									},
+									"height": {
+										"type": "number"
+									}
+								},
+								"required": ["x", "y", "width", "height"],
+								"additionalProperties": false
+							},
+							"path": {
+								"type": "array",
+								"items": {
+									"oneOf": [
+										{
+											"type": "object",
+											"properties": {
+												"op": {
+													"type": "string",
+													"const": "M"
+												},
+												"x": {
+													"type": "number"
+												},
+												"y": {
+													"type": "number"
+												}
+											},
+											"required": ["op", "x", "y"],
+											"additionalProperties": false
+										},
+										{
+											"type": "object",
+											"properties": {
+												"op": {
+													"type": "string",
+													"const": "L"
+												},
+												"x": {
+													"type": "number"
+												},
+												"y": {
+													"type": "number"
+												}
+											},
+											"required": ["op", "x", "y"],
+											"additionalProperties": false
+										},
+										{
+											"type": "object",
+											"properties": {
+												"op": {
+													"type": "string",
+													"const": "A"
+												},
+												"rx": {
+													"type": "number"
+												},
+												"ry": {
+													"type": "number"
+												},
+												"rotation": {
+													"type": "number"
+												},
+												"largeArc": {
+													"type": "boolean"
+												},
+												"sweep": {
+													"type": "boolean"
+												},
+												"x": {
+													"type": "number"
+												},
+												"y": {
+													"type": "number"
+												}
+											},
+											"required": [
+												"op",
+												"rx",
+												"ry",
+												"rotation",
+												"largeArc",
+												"sweep",
+												"x",
+												"y"
+											],
+											"additionalProperties": false
+										},
+										{
+											"type": "object",
+											"properties": {
+												"op": {
+													"type": "string",
+													"const": "Z"
+												}
+											},
+											"required": ["op"],
+											"additionalProperties": false
+										}
+									]
+								}
+							},
+							"textId": {
+								"type": "string"
+							}
+						},
+						"required": ["id", "box", "path"],
+						"additionalProperties": false
+					}
+				},
+				"dividers": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"lines": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"x1": {
+											"type": "number"
+										},
+										"y1": {
+											"type": "number"
+										},
+										"x2": {
+											"type": "number"
+										},
+										"y2": {
+											"type": "number"
+										}
+									},
+									"required": ["x1", "y1", "x2", "y2"],
+									"additionalProperties": false
+								}
+							},
+							"box": {
+								"type": "object",
+								"properties": {
+									"x": {
+										"type": "number"
+									},
+									"y": {
+										"type": "number"
+									},
+									"width": {
+										"type": "number"
+									},
+									"height": {
+										"type": "number"
+									}
+								},
+								"required": ["x", "y", "width", "height"],
+								"additionalProperties": false
+							},
+							"textId": {
+								"type": "string"
+							}
+						},
+						"required": ["id", "lines"],
+						"additionalProperties": false
+					}
+				},
+				"destructions": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"participantId": {
+								"type": "string"
+							},
+							"at": {
+								"type": "object",
+								"properties": {
+									"x": {
+										"type": "number"
+									},
+									"y": {
+										"type": "number"
+									}
+								},
+								"required": ["x", "y"],
+								"additionalProperties": false
+							},
+							"lines": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"x1": {
+											"type": "number"
+										},
+										"y1": {
+											"type": "number"
+										},
+										"x2": {
+											"type": "number"
+										},
+										"y2": {
+											"type": "number"
+										}
+									},
+									"required": ["x1", "y1", "x2", "y2"],
+									"additionalProperties": false
+								}
+							}
+						},
+						"required": ["participantId", "at", "lines"],
+						"additionalProperties": false
+					}
+				},
+				"messageOrder": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"required": [
+				"lifelines",
+				"activations",
+				"fragments",
+				"notes",
+				"dividers",
+				"destructions",
+				"messageOrder"
+			],
+			"additionalProperties": false
+		},
 		"zOrder": {
 			"type": "array",
 			"items": {
@@ -867,7 +1307,20 @@
 				"properties": {
 					"kind": {
 						"type": "string",
-						"enum": ["container", "edge", "node", "port", "backdrop", "text"]
+						"enum": [
+							"container",
+							"edge",
+							"node",
+							"port",
+							"backdrop",
+							"text",
+							"lifeline",
+							"activation",
+							"fragment",
+							"note",
+							"divider",
+							"destruction"
+						]
 					},
 					"id": {
 						"type": "string"
@@ -910,6 +1363,12 @@
 			"type": "array",
 			"items": {
 				"type": "string"
+			}
+		},
+		"pages": {
+			"type": "array",
+			"items": {
+				"$ref": "#"
 			}
 		}
 	},

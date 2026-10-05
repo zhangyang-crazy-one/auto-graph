@@ -27,6 +27,13 @@ export interface RouteHardObstacleMetadata {
 
 export interface RouteEdgeInput {
 	kind?: RouteKind;
+	/**
+	 * Obstacle-avoiding routes: a clean path that reaches an end sliding
+	 * along the node's border, or with an end segment too short for its
+	 * arrowhead, competes with one leaving and entering along each side's
+	 * normal (a short stub off each end). Off by default.
+	 */
+	endStubs?: boolean;
 	direction: DiagramDirection;
 	source: ShapeGeometry;
 	target: ShapeGeometry;

@@ -52,11 +52,12 @@ describe("relation syntax", () => {
 });
 
 describe("built-in views", () => {
-	it("registers six views with examples that render cleanly", () => {
+	it("registers seven views with examples that render cleanly", () => {
 		const ids = listViews().map((view) => view.id);
 		expect(ids).toEqual([
 			"architecture",
 			"flowchart",
+			"sequence",
 			"state",
 			"swimlane",
 			"system-context",

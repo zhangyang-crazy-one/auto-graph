@@ -40,7 +40,10 @@ import {
 	refreshTableColumnXOffsets,
 	reportEvidenceBlockOverlaps,
 } from "./evidence.js";
-import type { SolveDiagramOptions } from "./options.js";
+import {
+	resolveRemediationPolicy,
+	type SolveDiagramOptions,
+} from "./options.js";
 import {
 	classifyPagePolicyFromBoxes,
 	isStrictDeliverability,
@@ -48,6 +51,7 @@ import {
 	resolvePagePolicy,
 	shouldAutoClassifyPagePolicy,
 } from "./page-policy.js";
+import { splitOverCapacityPage } from "./page-split.js";
 import { LayoutPipeline } from "./pipeline/pipeline.js";
 import { scoreLayoutQuality } from "./pipeline/quality.js";
 import type { LayoutState } from "./pipeline/types.js";
@@ -135,6 +139,7 @@ import {
 	resourceFlowLabelHardObstacles,
 	scoreRouteLabelFeedbackCandidate,
 } from "./route-edges.js";
+import { solveSequenceDiagram } from "./sequence.js";
 import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	applySwimlaneLayoutContracts,
@@ -147,8 +152,30 @@ import {
 
 export function solveDiagram(
 	diagram: NormalizedDiagram,
+	options: SolveDiagramOptions = {},
+): CoordinatedDiagram {
+	const solved = solveOnePage(diagram, options);
+	// remediationPolicy.pageSplit: "auto" cuts a page still over capacity
+	// into pages, each solved on its own (#75 / #86).
+	return diagram.sequence === undefined &&
+		resolveRemediationPolicy(options.remediationPolicy).pageSplit === "auto"
+		? splitOverCapacityPage(diagram, options, solved, solveOnePage)
+		: solved;
+}
+
+function solveOnePage(
+	diagram: NormalizedDiagram,
 	inputOptions: SolveDiagramOptions = {},
 ): CoordinatedDiagram {
+	// A sequence diagram has its own layout: lifelines across, time down.
+	if (diagram.sequence !== undefined) {
+		return solveSequenceDiagram(
+			diagram as NormalizedDiagram & {
+				sequence: NonNullable<NormalizedDiagram["sequence"]>;
+			},
+			inputOptions,
+		);
+	}
 	const explicitPagePolicy =
 		inputOptions.pagePolicy ?? metadataPagePolicy(diagram.metadata);
 	const deferAutoPagePolicy =

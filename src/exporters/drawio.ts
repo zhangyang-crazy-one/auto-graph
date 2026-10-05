@@ -1,4 +1,8 @@
-import { EDGE_CROSSING_GLYPH_RADIUS, unionBoxes } from "../geometry/index.js";
+import {
+	ACTOR_FIGURE_HEIGHT,
+	EDGE_CROSSING_GLYPH_RADIUS,
+	unionBoxes,
+} from "../geometry/index.js";
 import type { CoordinatedDiagram } from "../ir/diagram.js";
 import type {
 	CoordinatedEdge,
@@ -14,6 +18,11 @@ import type {
 } from "../ir/elements.js";
 import type { Box, Point } from "../ir/geometry.js";
 import type { SolvedTextAnnotation } from "../ir/label-layout.js";
+import {
+	type CoordinatedLifeline,
+	SEQUENCE_DESTRUCTION_HALF_SIZE,
+	SEQUENCE_NOTE_FOLD,
+} from "../ir/sequence.js";
 import { compartmentSeparatorRows } from "./compartments.js";
 import { fallbackTextWidth } from "./fallback-text.js";
 import { fittedPageScale, usablePage } from "./page.js";
@@ -32,7 +41,34 @@ export function exportDrawio(
 	diagram: CoordinatedDiagram,
 	options: ExportOptions = {},
 ): string {
-	const title = options.title ?? diagram.title ?? diagram.id;
+	// A split diagram: one draw.io page (tab) per page.
+	const pages =
+		diagram.pages !== undefined && diagram.pages.length > 1
+			? diagram.pages.map((page, index) =>
+					drawioDiagram(page, options, {
+						id: `${diagram.id}-page-${index + 1}`,
+						name:
+							page.title ??
+							`${diagram.id} (${index + 1}/${diagram.pages?.length})`,
+					}),
+				)
+			: [drawioDiagram(diagram, options)];
+	return [
+		`<?xml version="1.0" encoding="UTF-8"?>`,
+		`<mxfile host="auto-graph" type="device">`,
+		...pages.flat(),
+		`</mxfile>`,
+		``,
+	].join("\n");
+}
+
+/** One `<diagram>` element: a draw.io page. */
+function drawioDiagram(
+	diagram: CoordinatedDiagram,
+	options: ExportOptions,
+	sheet?: { id: string; name: string },
+): string[] {
+	const title = sheet?.name ?? options.title ?? diagram.title ?? diagram.id;
 	const fallbackLabels = fallbackPortLabels(diagram);
 	const page = drawioPageBox(diagram, options);
 	// On a requested page (paper size and fit scale), the paper is drawn
@@ -335,6 +371,8 @@ export function exportDrawio(
 	// edges pinned to it) when the node is dragged; a port label is a child
 	// of its port, so it also follows the port when the port is moved.
 	const nodeCellIds = new Map<string, string>();
+	// Sequence participants: the whole lifeline, which messages connect to.
+	const lifelineBoxes = new Map<string, Box>();
 	// A port label's owner id joins node and port ids with a dot, which is
 	// ambiguous when ids contain dots: keep every port cell under that key
 	// and give the label to the nearest one.
@@ -344,9 +382,98 @@ export function exportDrawio(
 	// Keyed by node, then port: ids may contain dots, so "a"."b.c" and
 	// "a.b"."c" must not share a key.
 	const portCells = new Map<string, Map<string, { id: string; box: Box }>>();
+	const lifelineById = new Map(
+		(diagram.sequence?.lifelines ?? []).map((lifeline) => [
+			lifeline.participantId,
+			lifeline,
+		]),
+	);
+	// Fragments sit below the messages, as in the SVG.
+	if (diagram.sequence !== undefined) {
+		layer = cells;
+		for (const fragment of diagram.sequence.fragments) {
+			const frame = { box: fragment.box };
+			const frameId = vertex(
+				"",
+				[
+					"shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;",
+					`width=${formatNumber(fragment.tagBox.width)};height=${formatNumber(fragment.tagBox.height)};`,
+					fragment.kind === "ref" ? "fillColor=#ffffff;" : "fillColor=none;",
+				].join(""),
+				fragment.box,
+			);
+			const parent = { id: frameId, box: frame.box };
+			for (const operand of fragment.operands.slice(1)) {
+				vertex(
+					"",
+					"line;html=1;dashed=1;strokeWidth=1;fillColor=none;points=[];rotatable=0;",
+					{
+						x: fragment.box.x,
+						y: operand.top - 4,
+						width: fragment.box.width,
+						height: 8,
+					},
+					parent,
+				);
+			}
+			for (const text of annotations.filter(
+				(annotation) =>
+					annotation.ownerId === fragment.id &&
+					(annotation.surfaceKind === "fragment-tag" ||
+						annotation.surfaceKind === "fragment-guard" ||
+						annotation.surfaceKind === "sequence-note"),
+			)) {
+				vertex(
+					calloutText(text),
+					`${SOLVED_TEXT_STYLE}${fontStyleEntries(text)}`,
+					text.box,
+					parent,
+				);
+			}
+		}
+	}
+	layer = foreground;
 	for (const node of diagram.nodes) {
 		const cellId = String(nextId++);
 		nodeCellIds.set(node.id, cellId);
+		const lifeline = lifelineById.get(node.id);
+		if (lifeline !== undefined) {
+			// A native UML lifeline: the head and its dashed line in one cell,
+			// with the activation bars as its children, so messages pinned to
+			// it stay on it when it is moved.
+			const box: Box = {
+				x: lifeline.headBox.x,
+				y: lifeline.headBox.y,
+				width: lifeline.headBox.width,
+				height: lifeline.bottom - lifeline.headBox.y,
+			};
+			cells.push(
+				renderLifelineCell(
+					cellId,
+					node,
+					lifeline,
+					shift(box),
+					annotations.find(
+						(annotation) =>
+							annotation.surfaceKind === "node-label" &&
+							annotation.ownerId === node.id,
+					),
+				),
+			);
+			lifelineBoxes.set(node.id, box);
+			for (const activation of diagram.sequence?.activations ?? []) {
+				if (activation.participantId !== node.id) continue;
+				layer = cells;
+				vertex(
+					"",
+					"html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;fillColor=#f3f4f6;",
+					activation.box,
+					{ id: cellId, box },
+				);
+				layer = foreground;
+			}
+			continue;
+		}
 		// Solved compartment rows are drawn at their own boxes (typography
 		// and row pitch as solved), not reflowed into one node label.
 		const solvedRows =
@@ -486,7 +613,9 @@ export function exportDrawio(
 	}
 	const nodeById = new Map(diagram.nodes.map((node) => [node.id, node]));
 	const boxOf = (node: CoordinatedNode | undefined) =>
-		node === undefined ? undefined : shift(node.box);
+		node === undefined
+			? undefined
+			: shift(lifelineBoxes.get(node.id) ?? node.box);
 	// The solved label of each edge: its callout key when externalized,
 	// otherwise the inline edge label.
 	const labelByEdge = new Map<string, SolvedTextAnnotation>();
@@ -612,6 +741,57 @@ export function exportDrawio(
 		),
 	);
 
+	if (diagram.sequence !== undefined) {
+		layer = foreground;
+		for (const note of diagram.sequence.notes) {
+			const text = annotations.find(
+				(annotation) =>
+					annotation.surfaceKind === "sequence-note" &&
+					annotation.ownerId === note.id,
+			);
+			vertex(
+				text === undefined ? "" : calloutText(text),
+				// draw.io adds its default spacing (2) to these: the note's
+				// padding, as solved.
+				`shape=note;whiteSpace=wrap;html=1;size=${SEQUENCE_NOTE_FOLD};align=left;verticalAlign=top;spacingLeft=8;spacingRight=8;spacingTop=4;fillColor=#fffbeb;strokeColor=#b45309;${text === undefined ? "" : fontStyleEntries(text)}`,
+				note.box,
+			);
+		}
+		for (const divider of diagram.sequence.dividers) {
+			vertex(
+				"",
+				"shape=partialRectangle;html=1;top=1;bottom=1;left=0;right=0;fillColor=none;",
+				{
+					x: divider.x1,
+					y: divider.y - 1.5,
+					width: divider.x2 - divider.x1,
+					height: 3,
+				},
+			);
+			const text = annotations.find(
+				(annotation) =>
+					annotation.surfaceKind === "sequence-divider" &&
+					annotation.ownerId === divider.id,
+			);
+			if (divider.box !== undefined) {
+				vertex(
+					text === undefined ? "" : calloutText(text),
+					`rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;${text === undefined ? "" : fontStyleEntries(text)}`,
+					divider.box,
+				);
+			}
+		}
+		for (const destruction of diagram.sequence.destructions) {
+			const h = SEQUENCE_DESTRUCTION_HALF_SIZE;
+			vertex("", "shape=umlDestroy;html=1;strokeWidth=2;", {
+				x: destruction.point.x - h,
+				y: destruction.point.y - h,
+				width: 2 * h,
+				height: 2 * h,
+			});
+		}
+	}
+
 	for (const callout of annotations.filter(
 		(annotation) => annotation.placementDetail?.role === "callout",
 	)) {
@@ -626,18 +806,14 @@ export function exportDrawio(
 	}
 
 	return [
-		`<?xml version="1.0" encoding="UTF-8"?>`,
-		`<mxfile host="auto-graph" type="device">`,
-		`  <diagram id="${escapeXml(diagram.id)}" name="${escapeXml(title)}">`,
+		`  <diagram id="${escapeXml(sheet?.id ?? diagram.id)}" name="${escapeXml(title)}">`,
 		`    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" ${pageAttributes}>`,
 		`      <root>`,
 		...[...cells, ...edgeLayer, ...foreground].map((cell) => `        ${cell}`),
 		`      </root>`,
 		`    </mxGraphModel>`,
 		`  </diagram>`,
-		`</mxfile>`,
-		``,
-	].join("\n");
+	];
 }
 
 /** Port cells keep the authored fill/stroke, with the SVG exporter's defaults. */
@@ -738,6 +914,35 @@ function renderNodeCell(
 				: compartmentHtml(node),
 	);
 	return `<mxCell id="${escapeXml(cellId)}" value="${label}" style="${escapeXml(style)}" vertex="1" parent="${escapeXml(parentId)}">${geometry(box)}</mxCell>`;
+}
+
+/** A sequence participant as draw.io's `umlLifeline` (head and line). */
+function renderLifelineCell(
+	cellId: string,
+	node: CoordinatedNode,
+	lifeline: CoordinatedLifeline,
+	/** Head top to lifeline foot, in page coordinates. */
+	box: Box,
+	solvedLabel?: SolvedTextAnnotation,
+): string {
+	const actor = lifeline.kind === "actor";
+	const style = [
+		"shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;",
+		'newEdgeStyle={"edgeStyle":"elbowEdgeStyle","elbow":"vertical","curved":0,"rounded":0};',
+		actor
+			? `participant=umlActor;size=${formatNumber(ACTOR_FIGURE_HEIGHT)};verticalAlign=top;spacingTop=${formatNumber(lifeline.headBox.height - (solvedLabel?.box.height ?? 18))};`
+			: `size=${formatNumber(lifeline.headBox.height)};`,
+		...(node.style?.fill === undefined
+			? []
+			: [`fillColor=${styleValue(node.style.fill)};`]),
+		...(node.style?.stroke === undefined
+			? []
+			: [`strokeColor=${styleValue(node.style.stroke)};`]),
+		...(solvedLabel === undefined ? [] : [fontStyleEntries(solvedLabel)]),
+	].join("");
+	const label =
+		solvedLabel !== undefined ? calloutText(solvedLabel) : nodeLabelHtml(node);
+	return `<mxCell id="${escapeXml(cellId)}" value="${escapeXml(label)}" style="${escapeXml(style)}" vertex="1" parent="1">${geometry(box)}</mxCell>`;
 }
 
 /**
@@ -1193,10 +1398,12 @@ function renderEdgeCell(input: EdgeCellInput): string {
 		"jumpSize=6",
 		...(input.endArrow === false
 			? ["endArrow=none"]
-			: [
-					"endArrow=block",
-					`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
-				]),
+			: edge.arrowhead === "open"
+				? ["endArrow=open", "endFill=0"]
+				: [
+						"endArrow=block",
+						`endFill=${edge.arrowhead === "hollowTriangle" ? 0 : 1}`,
+					]),
 		// Encoded: an id's ';' or '=' would otherwise split the style string.
 		...(input.pieceOf === undefined
 			? []

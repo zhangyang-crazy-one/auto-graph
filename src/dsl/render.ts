@@ -465,16 +465,14 @@ function isRemediationPolicyOptions(value: unknown): value is {
 	externalLabels?: "off" | "suggest" | "auto";
 	routeRails?: "off" | "suggest" | "auto";
 	growFixedGeometry?: "off" | "suggest" | "auto";
-	pageSplit?: "off" | "suggest";
+	pageSplit?: "off" | "suggest" | "auto";
 } {
 	return (
 		isJsonObject(value) &&
 		isRemediationPolicyMode(value.externalLabels) &&
 		isRemediationPolicyMode(value.routeRails) &&
 		isRemediationPolicyMode(value.growFixedGeometry) &&
-		(value.pageSplit === undefined ||
-			value.pageSplit === "off" ||
-			value.pageSplit === "suggest")
+		isRemediationPolicyMode(value.pageSplit)
 	);
 }
 

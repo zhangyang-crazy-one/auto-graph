@@ -143,15 +143,56 @@ export function buildRoutingAllocationReport(
 	return { rails, gutters };
 }
 
+/**
+ * Obstacle-avoiding routes: named ports own their side (#76). An anonymous
+ * end bound for a side that carries named ports takes the free side facing
+ * the other node instead, when that node lies beyond this one across that
+ * side. Squeezed between the ports, its route ran down the narrow strip
+ * between them and the node and stacked on its neighbours there.
+ */
+/** Least spacing between ends moved off a side their node's ports own. */
+const MOVED_END_SPACING = 16;
+
+export function portFreeAnchorSide(
+	side: AnchorSide,
+	ownBox: Box,
+	otherBox: Box,
+	owned: ReadonlySet<AnchorSide> | undefined,
+): AnchorSide | undefined {
+	if (owned === undefined || !owned.has(side)) return undefined;
+	const own = boxCenter(ownBox);
+	const other = boxCenter(otherBox);
+	const dx = other.x - own.x;
+	const dy = other.y - own.y;
+	const candidate: AnchorSide | undefined =
+		side === "left" || side === "right"
+			? Math.abs(dy) > ownBox.height / 2
+				? dy > 0
+					? "bottom"
+					: "top"
+				: undefined
+			: Math.abs(dx) > ownBox.width / 2
+				? dx > 0
+					? "right"
+					: "left"
+				: undefined;
+	return candidate !== undefined && !owned.has(candidate)
+		? candidate
+		: undefined;
+}
+
 export function computePolicyFanOutAnchors(
 	edges: readonly NormalizedEdge[],
 	boxes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
+	/** Sides of each node that carry named ports (#76). */
+	portSides: ReadonlyMap<string, ReadonlySet<AnchorSide>> = new Map(),
 ): Map<string, DistributedAnchor> {
 	const config =
 		typeof options.anchorCapacity === "object" ? options.anchorCapacity : {};
 	const spacing = Math.max(1, config.minSpacing ?? 8);
+	const portAware = (options.routeKind ?? "orthogonal") === "obstacle-avoiding";
 	const groups = new Map<
 		string,
 		{
@@ -159,8 +200,50 @@ export function computePolicyFanOutAnchors(
 			side: AnchorSide;
 			role: EndpointRole;
 			edgeIds: string[];
+			/** Centre of each edge's other node. */
+			others: Map<string, Point>;
+			redirected: boolean;
 		}
 	>();
+	const add = (
+		edge: NormalizedEdge,
+		role: EndpointRole,
+		ownBox: Box,
+		otherBox: Box,
+	) => {
+		const end = edge[role];
+		if (end.portId !== undefined) return;
+		const chosen = distributableAnchorSide(
+			end.anchor,
+			ownBox,
+			otherBox,
+			direction,
+		);
+		if (chosen === undefined) return;
+		const moved =
+			portAware && end.anchor === undefined
+				? portFreeAnchorSide(
+						chosen,
+						ownBox,
+						otherBox,
+						portSides.get(end.nodeId),
+					)
+				: undefined;
+		const side = moved ?? chosen;
+		const key = `${end.nodeId}:${side}:${role}`;
+		const group = groups.get(key) ?? {
+			nodeId: end.nodeId,
+			side,
+			role,
+			edgeIds: [],
+			others: new Map<string, Point>(),
+			redirected: false,
+		};
+		group.edgeIds.push(edge.id);
+		group.others.set(edge.id, boxCenter(otherBox));
+		if (moved !== undefined) group.redirected = true;
+		groups.set(key, group);
+	};
 
 	for (const edge of [...edges].sort((a, b) => a.id.localeCompare(b.id))) {
 		const sourceBox = boxes.get(edge.source.nodeId)?.box;
@@ -168,60 +251,8 @@ export function computePolicyFanOutAnchors(
 		if (sourceBox === undefined || targetBox === undefined) {
 			continue;
 		}
-		if (
-			edge.source.portId === undefined &&
-			distributableAnchorSide(
-				edge.source.anchor,
-				sourceBox,
-				targetBox,
-				direction,
-			) !== undefined
-		) {
-			const side = distributableAnchorSide(
-				edge.source.anchor,
-				sourceBox,
-				targetBox,
-				direction,
-			);
-			if (side !== undefined) {
-				const key = `${edge.source.nodeId}:${side}:source`;
-				const group = groups.get(key) ?? {
-					nodeId: edge.source.nodeId,
-					side,
-					role: "source" as EndpointRole,
-					edgeIds: [],
-				};
-				group.edgeIds.push(edge.id);
-				groups.set(key, group);
-			}
-		}
-		if (
-			edge.target.portId === undefined &&
-			distributableAnchorSide(
-				edge.target.anchor,
-				targetBox,
-				sourceBox,
-				direction,
-			) !== undefined
-		) {
-			const side = distributableAnchorSide(
-				edge.target.anchor,
-				targetBox,
-				sourceBox,
-				direction,
-			);
-			if (side !== undefined) {
-				const key = `${edge.target.nodeId}:${side}:target`;
-				const group = groups.get(key) ?? {
-					nodeId: edge.target.nodeId,
-					side,
-					role: "target" as EndpointRole,
-					edgeIds: [],
-				};
-				group.edgeIds.push(edge.id);
-				groups.set(key, group);
-			}
-		}
+		add(edge, "source", sourceBox, targetBox);
+		add(edge, "target", targetBox, sourceBox);
 	}
 
 	const distributed = new Map<string, DistributedAnchor>();
@@ -230,11 +261,32 @@ export function computePolicyFanOutAnchors(
 			`${b.nodeId}:${b.side}:${b.role}`,
 		),
 	)) {
-		if (group.edgeIds.length <= 1) continue;
+		// A moved end is placed even alone: left to the router, it would take
+		// the side its node's named ports own again.
+		if (group.edgeIds.length <= 1 && !group.redirected) continue;
 		const box = boxes.get(group.nodeId)?.box;
 		if (box === undefined) continue;
-		const edgeIds = [...group.edgeIds].sort((a, b) => a.localeCompare(b));
-		const fanOut = computeFanOutPorts(edgeIds, box, group.side, spacing);
+		// Moved ends are ordered by where their other node lies, so routes
+		// coming in from that side do not cross at the node.
+		const along = (edgeId: string) => {
+			const other = group.others.get(edgeId);
+			if (other === undefined) return 0;
+			return group.side === "left" || group.side === "right"
+				? other.y
+				: other.x;
+		};
+		const edgeIds = [...group.edgeIds].sort(
+			(a, b) =>
+				(group.redirected ? along(a) - along(b) : 0) || a.localeCompare(b),
+		);
+		// Moved ends arrive side by side from one direction: room for
+		// their arrowheads between them.
+		const fanOut = computeFanOutPorts(
+			edgeIds,
+			box,
+			group.side,
+			group.redirected ? Math.max(spacing, MOVED_END_SPACING) : spacing,
+		);
 		for (const edgeId of edgeIds) {
 			const port = fanOut.get(edgeId);
 			if (port === undefined) continue;
@@ -658,6 +710,8 @@ export function distributedAnchorPointsByEndpoint(
 	direction: NormalizedDiagram["direction"],
 	options: SolveDiagramOptions,
 	diagnostics: Diagnostic[] = [],
+	/** Sides of each node that carry named ports (#76). */
+	portSides: ReadonlyMap<string, ReadonlySet<AnchorSide>> = new Map(),
 ): Map<string, DistributedAnchor> {
 	// Distribute shared-side endpoints by default for orthogonal routers so
 	// fan-out / fan-in edges never start from the same point. Straight and
@@ -690,8 +744,20 @@ export function distributedAnchorPointsByEndpoint(
 			side: AnchorSide;
 			/** Center of the opposite endpoint's node. */
 			other: Point;
+			/** Moved off a side its named ports own. */
+			redirected?: boolean;
 		}[]
 	>();
+	const portAware = routeKind === "obstacle-avoiding";
+	const freeSide = (
+		nodeId: string,
+		side: AnchorSide,
+		ownBox: Box,
+		otherBox: Box,
+	): AnchorSide | undefined =>
+		portAware
+			? portFreeAnchorSide(side, ownBox, otherBox, portSides.get(nodeId))
+			: undefined;
 
 	// Implicit mode groups endpoints by flow-aware sides, so edges fanning
 	// out across ranks share (and split) one side instead of some of them
@@ -714,12 +780,22 @@ export function distributedAnchorPointsByEndpoint(
 			continue;
 		}
 		if (edge.source.portId === undefined) {
-			const sourceSide = sideFor(
+			const chosenSourceSide = sideFor(
 				edge.source.anchor,
 				sourceBox,
 				targetBox,
 				"source",
 			);
+			const redirectedSource =
+				chosenSourceSide === undefined || edge.source.anchor !== undefined
+					? undefined
+					: freeSide(
+							edge.source.nodeId,
+							chosenSourceSide,
+							sourceBox,
+							targetBox,
+						);
+			const sourceSide = redirectedSource ?? chosenSourceSide;
 			if (sourceSide !== undefined) {
 				const key = `${edge.source.nodeId}:${sourceSide}`;
 				const endpoints = endpointsByNodeSide.get(key) ?? [];
@@ -729,17 +805,28 @@ export function distributedAnchorPointsByEndpoint(
 					nodeId: edge.source.nodeId,
 					side: sourceSide,
 					other: boxCenter(targetBox),
+					...(redirectedSource === undefined ? {} : { redirected: true }),
 				});
 				endpointsByNodeSide.set(key, endpoints);
 			}
 		}
 		if (edge.target.portId === undefined) {
-			const targetSide = sideFor(
+			const chosenTargetSide = sideFor(
 				edge.target.anchor,
 				targetBox,
 				sourceBox,
 				"target",
 			);
+			const redirectedTarget =
+				chosenTargetSide === undefined || edge.target.anchor !== undefined
+					? undefined
+					: freeSide(
+							edge.target.nodeId,
+							chosenTargetSide,
+							targetBox,
+							sourceBox,
+						);
+			const targetSide = redirectedTarget ?? chosenTargetSide;
 			if (targetSide !== undefined) {
 				const key = `${edge.target.nodeId}:${targetSide}`;
 				const endpoints = endpointsByNodeSide.get(key) ?? [];
@@ -749,6 +836,7 @@ export function distributedAnchorPointsByEndpoint(
 					nodeId: edge.target.nodeId,
 					side: targetSide,
 					other: boxCenter(sourceBox),
+					...(redirectedTarget === undefined ? {} : { redirected: true }),
 				});
 				endpointsByNodeSide.set(key, endpoints);
 			}
@@ -758,8 +846,10 @@ export function distributedAnchorPointsByEndpoint(
 	const distributed = new Map<string, DistributedAnchor>();
 	for (const endpoints of endpointsByNodeSide.values()) {
 		// A lone endpoint keeps the router's free side choice so it can
-		// still detour around obstacles.
-		if (endpoints.length <= 1) continue;
+		// still detour around obstacles, unless it was moved off a side its
+		// node's named ports own: the router would pick that side again.
+		const redirected = endpoints.some((endpoint) => endpoint.redirected);
+		if (endpoints.length <= 1 && !redirected) continue;
 		// Implicit mode orders endpoints along the side by where the opposite
 		// node sits so neighbouring edges fan out without crossing right at
 		// the node boundary. Explicit modes keep stable edge id / role order.
@@ -775,7 +865,9 @@ export function distributedAnchorPointsByEndpoint(
 					: endpoint.other.x
 				: nestedSlotKey(endpoint.side, ownBox, endpoint.other);
 		const sorted = [...endpoints].sort((a, b) => {
-			if (implicitCompact) {
+			// Moved ends are ordered by where their other node lies, so the
+			// routes coming in from that side do not cross at the node.
+			if (implicitCompact || redirected) {
 				const byPosition = key(a) - key(b);
 				if (Math.abs(byPosition) > 0.5) return byPosition;
 			}

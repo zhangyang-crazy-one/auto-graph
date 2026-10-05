@@ -18,6 +18,8 @@ const EXAMPLES = [
 	"examples/flowchart.yaml",
 	"examples/groups.yaml",
 	"examples/swimlane.yaml",
+	"examples/sequence.yaml",
+	"examples/views/sequence.yaml",
 	"test/fixtures/benchmark/cn-architecture.yaml",
 ];
 
@@ -91,6 +93,28 @@ describe("geometry contract v1", () => {
 							.filter((item) => item.backdrop !== null)
 							.map((item) => item.id),
 					),
+					lifeline: new Set(
+						(document.sequence?.lifelines ?? []).map(
+							(item) => item.participantId,
+						),
+					),
+					activation: new Set(
+						(document.sequence?.activations ?? []).map((item) => item.id),
+					),
+					fragment: new Set(
+						(document.sequence?.fragments ?? []).map((item) => item.id),
+					),
+					note: new Set(
+						(document.sequence?.notes ?? []).map((item) => item.id),
+					),
+					divider: new Set(
+						(document.sequence?.dividers ?? []).map((item) => item.id),
+					),
+					destruction: new Set(
+						(document.sequence?.destructions ?? []).map(
+							(item) => item.participantId,
+						),
+					),
 				};
 				const seen = new Set<string>();
 				for (const paint of document.zOrder) {
@@ -149,7 +173,9 @@ describe("geometry contract v1", () => {
 				expect(svg.startsWith("<svg")).toBe(true);
 				const paths = svg.match(/<path /g) ?? [];
 				expect(paths.length).toBe(
-					document.nodes.length + document.edges.length,
+					document.nodes.length +
+						document.edges.length +
+						(document.sequence?.notes.length ?? 0),
 				);
 			});
 		});

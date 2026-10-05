@@ -26,6 +26,13 @@ import { compartmentSeparatorRows } from "./compartments.js";
 import { fallbackTextWidth } from "./fallback-text.js";
 import { LABEL_BACKDROP_FILL, labelBackdropBox } from "./label-backdrop.js";
 import { fittedPageScale, usablePage } from "./page.js";
+import {
+	renderActor,
+	renderSequenceBackground,
+	renderSequenceForeground,
+	renderSequenceText,
+	SEQUENCE_TEXT_SURFACES,
+} from "./sequence-svg.js";
 import type { ExportOptions } from "./types.js";
 
 /** Default margin between the drawn content and the canvas edge. */
@@ -55,6 +62,9 @@ export function exportSvg(
 	diagram: CoordinatedDiagram,
 	options: ExportOptions = {},
 ): string {
+	if (diagram.pages !== undefined && diagram.pages.length > 1) {
+		return exportSvgPages(diagram, diagram.pages, options);
+	}
 	const title = options.title ?? diagram.title;
 	const body = renderBody(diagram);
 	const content = canvasContent(diagram, body, options);
@@ -88,6 +98,71 @@ export function exportSvg(
 	].join("\n")}\n`;
 }
 
+/** Space between pages of a split diagram (px). */
+const PAGE_GAP = 32;
+
+/**
+ * A split diagram (`remediationPolicy.pageSplit: auto`): its pages one
+ * below the other, each drawn as `exportSvg` draws a single page (fitted
+ * to the paper when one is given) in a nested `<svg>`.
+ */
+function exportSvgPages(
+	diagram: CoordinatedDiagram,
+	pages: readonly CoordinatedDiagram[],
+	options: ExportOptions,
+): string {
+	const title = options.title ?? diagram.title;
+	const paper = usablePage(options.page);
+	const drawn = pages.map((page) => {
+		const body = renderBody(page);
+		const content = canvasContent(page, body, options);
+		// Every page fits the paper on its own, never above natural size.
+		const scale =
+			paper === undefined
+				? 1
+				: fittedPageScale(content, { ...paper, scale: 1 });
+		const viewBox =
+			paper === undefined
+				? content
+				: {
+						x: content.x + content.width / 2 - paper.width / scale / 2,
+						y: content.y + content.height / 2 - paper.height / scale / 2,
+						width: paper.width / scale,
+						height: paper.height / scale,
+					};
+		const size =
+			paper === undefined
+				? { width: viewBox.width, height: viewBox.height }
+				: { width: paper.width, height: paper.height };
+		return { body, viewBox, size };
+	});
+	const width = Math.max(...drawn.map((page) => page.size.width));
+	const lines: string[] = [];
+	let y = 0;
+	drawn.forEach((page, index) => {
+		if (index > 0) {
+			lines.push(
+				`  <line class="page-break" x1="0" y1="${formatNumber(y - PAGE_GAP / 2)}" x2="${formatNumber(width)}" y2="${formatNumber(y - PAGE_GAP / 2)}" stroke="#9ca3af" stroke-dasharray="8 6"/>`,
+			);
+		}
+		const { viewBox } = page;
+		lines.push(
+			`  <svg class="page" data-page="${index + 1}" x="0" y="${formatNumber(y)}" width="${formatNumber(page.size.width)}" height="${formatNumber(page.size.height)}" viewBox="${formatBoxViewBox(viewBox)}">`,
+			`    <rect class="background" x="${formatNumber(viewBox.x)}" y="${formatNumber(viewBox.y)}" width="${formatNumber(viewBox.width)}" height="${formatNumber(viewBox.height)}" fill="#ffffff"/>`,
+			...page.body.map((line) => `  ${line}`),
+			"  </svg>",
+		);
+		y += page.size.height + PAGE_GAP;
+	});
+	const height = y - PAGE_GAP;
+	return `${[
+		`<svg xmlns="http://www.w3.org/2000/svg" role="img" data-page-count="${pages.length}"${paper === undefined ? "" : ` width="${formatNumber(width)}" height="${formatNumber(height)}"`} viewBox="0 0 ${formatNumber(width)} ${formatNumber(height)}">`,
+		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
+		...lines,
+		"</svg>",
+	].join("\n")}\n`;
+}
+
 /** Everything below the background, in paint order. */
 function renderBody(diagram: CoordinatedDiagram): string[] {
 	const annotations = diagram.textAnnotations ?? [];
@@ -109,13 +184,25 @@ function renderBody(diagram: CoordinatedDiagram): string[] {
 		...(diagram.evidencePanels ?? []).flatMap((panel) =>
 			indentLines(renderEvidencePanel(panel as CoordinatedEvidencePanel)),
 		),
+		...(diagram.sequence === undefined
+			? []
+			: indentLines(renderSequenceBackground(diagram.sequence))),
 		...diagram.edges.flatMap((edge) => {
 			const path = renderEdgePath(edge, crossings);
 			return path === undefined
 				? []
 				: [indent(path), indent(renderArrowhead(edge))];
 		}),
-		...diagram.nodes.map((node) => indent(renderNode(node))),
+		...(diagram.sequence === undefined
+			? []
+			: indentLines(renderSequenceForeground(diagram.sequence))),
+		...diagram.nodes.map((node) =>
+			indent(
+				node.metadata?.sequenceParticipant === "actor"
+					? renderActor(node)
+					: renderNode(node),
+			),
+		),
 		...diagram.nodes.flatMap((node) => renderCompartments(node, annotations)),
 		...diagram.nodes.flatMap((node) => renderPorts(node, annotations)),
 		...diagram.groups.flatMap((group) =>
@@ -127,6 +214,11 @@ function renderBody(diagram: CoordinatedDiagram): string[] {
 				: [],
 		),
 		...diagram.edges.flatMap((edge) => renderEdgeLabel(edge, annotations)),
+		...annotations
+			.filter((annotation) =>
+				SEQUENCE_TEXT_SURFACES.has(annotation.surfaceKind),
+			)
+			.flatMap((annotation) => indentLines(renderSequenceText(annotation))),
 	];
 }
 
@@ -836,13 +928,15 @@ function renderEdgePath(
 	const underCrossings = crossings.filter(
 		(crossing) => crossing.underEdgeId === edge.id,
 	);
+	// An open arrowhead is two strokes: the line runs on to its tip.
+	const drawn =
+		edge.arrowhead === "open"
+			? [...edge.points]
+			: pathPointsBeforeArrowhead(edge.points);
 	const d =
 		underCrossings.length === 0
-			? formatPath(pathPointsBeforeArrowhead(edge.points))
-			: formatPathWithJumps(
-					pathPointsBeforeArrowhead(edge.points),
-					underCrossings,
-				);
+			? formatPath(drawn)
+			: formatPathWithJumps(drawn, underCrossings);
 	return `<path class="edge" data-id="${escapeAttribute(edge.id)}" d="${d}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"${dash}/>`;
 }
 
@@ -1015,6 +1109,9 @@ function renderLabelBackdrop(
 
 function renderArrowhead(edge: CoordinatedEdge): string {
 	const arrowhead = computeArrowhead(edge.points);
+	if (edge.arrowhead === "open") {
+		return `<polyline class="edge-arrowhead" data-edge="${escapeAttribute(edge.id)}" points="${formatPoints([arrowhead.left, arrowhead.tip, arrowhead.right])}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.5"/>`;
+	}
 	const fill = edge.arrowhead === "hollowTriangle" ? "none" : EDGE_STROKE;
 	return `<polygon class="edge-arrowhead" data-edge="${escapeAttribute(edge.id)}" points="${formatPoints([arrowhead.tip, arrowhead.left, arrowhead.right])}" fill="${fill}" stroke="${EDGE_STROKE}"/>`;
 }

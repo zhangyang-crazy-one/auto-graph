@@ -58,6 +58,8 @@ export interface AgentPage {
 	fontPx: number;
 	readable: boolean;
 	comfortable: boolean;
+	/** Pages the diagram was split into (`remediationPolicy.pageSplit: auto`). */
+	pageCount?: number;
 }
 
 export interface AgentReportInput {
@@ -153,7 +155,7 @@ export function buildAgentReport(input: AgentReportInput): AgentReport {
 			code: "page.unreadable",
 			where: "page",
 			message: `On ${page.size} the labels shrink to ${page.fontPx}px, too small to read.`,
-			fix: "Split the diagram or use a larger page (see suggestions).",
+			fix: "Split it into pages (`routing.remediationPolicy.pageSplit: auto`) or use a larger page (see suggestions).",
 		});
 	} else if (page !== undefined && !page.comfortable) {
 		issues.push({
@@ -235,6 +237,7 @@ function agentPage(fit: PageFit): AgentPage {
 		fontPx: Math.round(fit.fontPx * 10) / 10,
 		readable: fit.readable,
 		comfortable: fit.comfortable,
+		...(fit.pageCount === undefined ? {} : { pageCount: fit.pageCount }),
 	};
 }
 

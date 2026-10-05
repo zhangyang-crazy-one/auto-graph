@@ -749,6 +749,28 @@ describe("dense MBSE issue regressions", { timeout: 120_000 }, () => {
 		}
 	});
 
+	it("#76: SV-1 obstacle-avoiding ends keep off the side named ports own", () => {
+		const solved = solveDiagram(load(PAGES["SV-1 ports"] as string), LEGACY);
+		const hub = solved.nodes.find((node) => node.id === "hn900")?.box as Box;
+		// hn900's left side carries CMD / SEN / DAT: anonymous ends arriving
+		// from below or above take the bottom or top side instead of
+		// squeezing between the ports (they used to stack at x = 414).
+		for (const edge of solved.edges) {
+			if (edge.target.nodeId !== "hn900" || edge.target.portId !== undefined) {
+				continue;
+			}
+			const end = edge.points.at(-1) as Point;
+			expect(Math.abs(end.x - hub.x), edge.id).toBeGreaterThan(1);
+		}
+		const found = evidence(solved);
+		expect(found.overlapLen).toBe(0);
+		expect(found.slotCollisions).toBe(0);
+		expect(found.nearParallel).toBe(0);
+		expect(found.alongBorderEnds).toBe(0);
+		expect(found.shortArrowEnds).toBe(0);
+		expect(found.svgHops).toBe(found.edgeCrossings);
+	});
+
 	it("#89: draw.io export carries every crossing as a jump", () => {
 		for (const [name, source] of Object.entries(PAGES)) {
 			const solved = solveDiagram(load(source), RSOP);

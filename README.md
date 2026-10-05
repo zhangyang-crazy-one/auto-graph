@@ -139,6 +139,7 @@ flow:
 | `system-context` | one system, its users and neighbouring systems (C4 level 1) | `system`, `people`, `externals`, `relations` |
 | `state` | states of one thing and the events between them | `states`, `transitions` (`[*]` = initial / final), `initial` |
 | `tree` | org charts, breakdowns, taxonomies | `root` as a nested outline: `{ 公司: [财务, { 技术: [前端, 后端] }] }` |
+| `sequence` | who calls whom, in time order (UML / SysML sequence, DoDAF OV-6c) | `participants` (`type`: participant, actor, database), `messages` (see [Sequence Diagrams](#sequence-diagrams)) |
 
 Every view reads the same way:
 
@@ -156,6 +157,53 @@ agh --input order.yaml --expand        # the full DSL the view produces, to hand
 ```
 
 Examples: `examples/views/`. Register your own kind of diagram with `registerView({ id, title, summary, schema, example, expand })`: `schema` is a zod schema of the input, `expand` returns DSL data and reports problems through its context (`context.warn(path, code, message, hint)`).
+
+## Sequence Diagrams
+
+Sequence diagrams have their own solver: participants stand side by side, each with a lifeline, and messages run between them top to bottom in the order written. Nothing goes through the graph layout, so the drawing is a valid sequence diagram by construction — messages are horizontal and in order, activation bars start at a call and end at its reply, fragments nest, and lifelines are spaced just far enough apart for every label, self-call loop, note and fragment border between them.
+
+```yaml
+view: sequence
+title: 用户登录
+participants:
+  user: { label: 用户, type: actor }
+  web: Web 前端
+  auth: 认证服务
+  db: { label: 用户库, type: database }
+messages:
+  - user -> web: 输入账号密码
+  - web -> auth: POST /login
+  - auth -> db: 查询用户
+  - db --> auth: 用户记录
+  - alt: 密码正确
+    messages:
+      - auth -> auth: 签发 JWT
+      - auth --> web: 200 + token
+    else:
+      - guard: 密码错误
+        messages:
+          - auth --> web: 401
+          - note right of web: 连续失败 5 次锁定账号
+  - web ->> user: 显示结果
+```
+
+| Write | Draws |
+| --- | --- |
+| `a -> b: text` | a call: solid, filled arrowhead; activates `b` until its reply |
+| `a ->> b: text` | a signal (asynchronous): solid, open arrowhead |
+| `b --> a: text` | a reply: dashed, open arrowhead; ends `b`'s activation |
+| `a ->* b: text` | creates `b`: its head appears at this message |
+| `a ->+ b`, `b -->- a` | also activate the receiver / deactivate the sender |
+| `a -> a: text` | a self call: a loop on the lifeline, with a short nested bar |
+| `activate a`, `deactivate a`, `destroy a` | bars by hand; an X where the lifeline ends |
+| `note left of a: …`, `note right of a: …`, `note over a, b: …` | notes |
+| `ref over a, b: …` | an interaction use (a box naming another diagram) |
+| `== text ==` | a divider across the diagram |
+| `alt: guard` + `messages`, `else: [{ guard, messages }]` | combined fragments: `alt`, `opt`, `loop`, `par` (further operands under `and`), `break`, `critical`, `neg` |
+
+`autonumber: true` numbers the messages; `autoActivate: false` leaves bars to `activate` / `deactivate`. A participant used without being declared is added in the order it first appears; one a letter or two off a declared id is reported as a typo.
+
+In the full DSL a sequence diagram is a `sequence` block whose `participants` are nodes (`examples/sequence.yaml`): steps are `{ type: message | note | fragment | ref | divider | activate | deactivate | destroy, … }`, and `frame: { kind: sd, titleTab: … }` draws the UML frame around it. Every exporter draws it: SVG; draw.io with native, editable `umlLifeline` lifelines (activation bars are their children, messages stay pinned to them), `umlFrame` fragments and `umlDestroy` marks; Excalidraw; and the geometry contract, whose `sequence` block lists lifelines, bars, fragments, notes, dividers and destructions as ready-to-draw lines, boxes and paths.
 
 ## Global Layout
 
@@ -299,7 +347,7 @@ Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes whe
 
 `deliverabilityMode: strict` (equivalent to `strict: true`) requires clean geometry or structured `unsatisfiable` output with `remediationPlans`. `deliverabilityMode: degraded-ok` keeps advisory degraded output.
 
-After the local route/label feedback loop exhausts, residual conflicts enter a bounded remediation pass (default 2 iterations). Apply order is grow → rails → external-label. `pageSplit` is never auto-materialized.
+After the local route/label feedback loop exhausts, residual conflicts enter a bounded remediation pass (default 2 iterations). Apply order is grow → rails → external-label. With `pageSplit: auto`, a page that is still not clean afterwards is split into pages (see below).
 
 ### `remediationPolicy` apply matrix
 
@@ -308,7 +356,13 @@ After the local route/label feedback loop exhausts, residual conflicts enter a b
 | `externalLabels` | Stage keyed-callout plans only | Apply deterministic keyed callouts and re-check clearance |
 | `routeRails` | Stage dependency-rail plans only | Force dependency rails, re-route, mark `applied` or `blocked` |
 | `growFixedGeometry` | Stage growth plans only | Apply growth deltas / expand nodes, re-route, mark `applied` or `blocked` |
-| `pageSplit` | Stage machine-readable `required`/`available` plans (`suggest` only; no `auto`) | — page split is **not** auto-materialized |
+| `pageSplit` | Stage machine-readable `required`/`available` plans | Split the page into 2–6 pages, solve each on its own, mark `applied` (with `pages` and `crossPageEdgeIds`) or `blocked` |
+
+#### Page split (`pageSplit: auto`)
+
+A page is split when it stays over capacity after the other remedies (any residual deliverability conflict), or when `--page` fitting would draw its labels below 8px. Nodes that belong together stay on one page: a group with everything nested in it, a node with its children. Pages are runs of these units in the order the single-page solve placed them (along the flow, or across it when that cuts fewer edges), with unconnected parts kept apart so a boundary between them cuts nothing; the run boundaries cut as few edges as possible while keeping pages even. Each page is then solved on its own; swimlane pools keep all their lanes; frame title tabs and titles get "(2/3)". A cut edge is drawn on both pages and ends at an **off-page connector** naming the page and node on the other side ("→ P2 · Billing", "P1 · Orders →"; `metadata.offPageConnector`, `remotePage`, `remoteNodeId`).
+
+The split is kept only if it leaves fewer conflicts (or larger readable text) than the single page; otherwise the plan is `blocked` with the reason and a `remediation.page-split.blocked` warning. The result is page 1 with `pages` (every page solved), a merged `deliverability` whose plans come with their page (`page-2-remediation-01-…`), and every page's diagnostics tagged with `detail.page`. Under `deliverabilityMode: strict`, conflicts left on any page are still errors (`routing.deliverability.unsatisfiable` with its page). Exporters draw every page: SVG stacks them (one nested `<svg class="page">` each, fitted to the paper on its own), draw.io writes one `<diagram>` tab per page, Excalidraw stacks them with `page-N:` id prefixes, and the geometry document carries `pages`.
 
 Plan statuses are `suggested`, `applied`, or `blocked`. Under full-auto strict dense acceptance, auto-capable types must be `applied` or `blocked` (not left as `suggested`).
 
