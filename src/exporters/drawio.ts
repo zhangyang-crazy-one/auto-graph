@@ -41,7 +41,34 @@ export function exportDrawio(
 	diagram: CoordinatedDiagram,
 	options: ExportOptions = {},
 ): string {
-	const title = options.title ?? diagram.title ?? diagram.id;
+	// A split diagram: one draw.io page (tab) per page.
+	const pages =
+		diagram.pages !== undefined && diagram.pages.length > 1
+			? diagram.pages.map((page, index) =>
+					drawioDiagram(page, options, {
+						id: `${diagram.id}-page-${index + 1}`,
+						name:
+							page.title ??
+							`${diagram.id} (${index + 1}/${diagram.pages?.length})`,
+					}),
+				)
+			: [drawioDiagram(diagram, options)];
+	return [
+		`<?xml version="1.0" encoding="UTF-8"?>`,
+		`<mxfile host="auto-graph" type="device">`,
+		...pages.flat(),
+		`</mxfile>`,
+		``,
+	].join("\n");
+}
+
+/** One `<diagram>` element: a draw.io page. */
+function drawioDiagram(
+	diagram: CoordinatedDiagram,
+	options: ExportOptions,
+	sheet?: { id: string; name: string },
+): string[] {
+	const title = sheet?.name ?? options.title ?? diagram.title ?? diagram.id;
 	const fallbackLabels = fallbackPortLabels(diagram);
 	const page = drawioPageBox(diagram, options);
 	// On a requested page (paper size and fit scale), the paper is drawn
@@ -779,18 +806,14 @@ export function exportDrawio(
 	}
 
 	return [
-		`<?xml version="1.0" encoding="UTF-8"?>`,
-		`<mxfile host="auto-graph" type="device">`,
-		`  <diagram id="${escapeXml(diagram.id)}" name="${escapeXml(title)}">`,
+		`  <diagram id="${escapeXml(sheet?.id ?? diagram.id)}" name="${escapeXml(title)}">`,
 		`    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" ${pageAttributes}>`,
 		`      <root>`,
 		...[...cells, ...edgeLayer, ...foreground].map((cell) => `        ${cell}`),
 		`      </root>`,
 		`    </mxGraphModel>`,
 		`  </diagram>`,
-		`</mxfile>`,
-		``,
-	].join("\n");
+	];
 }
 
 /** Port cells keep the authored fill/stroke, with the SVG exporter's defaults. */

@@ -62,6 +62,9 @@ export function exportSvg(
 	diagram: CoordinatedDiagram,
 	options: ExportOptions = {},
 ): string {
+	if (diagram.pages !== undefined && diagram.pages.length > 1) {
+		return exportSvgPages(diagram, diagram.pages, options);
+	}
 	const title = options.title ?? diagram.title;
 	const body = renderBody(diagram);
 	const content = canvasContent(diagram, body, options);
@@ -91,6 +94,71 @@ export function exportSvg(
 				]),
 		`  <rect class="background" x="${formatNumber(background.x)}" y="${formatNumber(background.y)}" width="${formatNumber(background.width)}" height="${formatNumber(background.height)}" fill="#ffffff"/>`,
 		...body,
+		"</svg>",
+	].join("\n")}\n`;
+}
+
+/** Space between pages of a split diagram (px). */
+const PAGE_GAP = 32;
+
+/**
+ * A split diagram (`remediationPolicy.pageSplit: auto`): its pages one
+ * below the other, each drawn as `exportSvg` draws a single page (fitted
+ * to the paper when one is given) in a nested `<svg>`.
+ */
+function exportSvgPages(
+	diagram: CoordinatedDiagram,
+	pages: readonly CoordinatedDiagram[],
+	options: ExportOptions,
+): string {
+	const title = options.title ?? diagram.title;
+	const paper = usablePage(options.page);
+	const drawn = pages.map((page) => {
+		const body = renderBody(page);
+		const content = canvasContent(page, body, options);
+		// Every page fits the paper on its own, never above natural size.
+		const scale =
+			paper === undefined
+				? 1
+				: fittedPageScale(content, { ...paper, scale: 1 });
+		const viewBox =
+			paper === undefined
+				? content
+				: {
+						x: content.x + content.width / 2 - paper.width / scale / 2,
+						y: content.y + content.height / 2 - paper.height / scale / 2,
+						width: paper.width / scale,
+						height: paper.height / scale,
+					};
+		const size =
+			paper === undefined
+				? { width: viewBox.width, height: viewBox.height }
+				: { width: paper.width, height: paper.height };
+		return { body, viewBox, size };
+	});
+	const width = Math.max(...drawn.map((page) => page.size.width));
+	const lines: string[] = [];
+	let y = 0;
+	drawn.forEach((page, index) => {
+		if (index > 0) {
+			lines.push(
+				`  <line class="page-break" x1="0" y1="${formatNumber(y - PAGE_GAP / 2)}" x2="${formatNumber(width)}" y2="${formatNumber(y - PAGE_GAP / 2)}" stroke="#9ca3af" stroke-dasharray="8 6"/>`,
+			);
+		}
+		const { viewBox } = page;
+		lines.push(
+			`  <svg class="page" data-page="${index + 1}" x="0" y="${formatNumber(y)}" width="${formatNumber(page.size.width)}" height="${formatNumber(page.size.height)}" viewBox="${formatBoxViewBox(viewBox)}">`,
+			`    <rect class="background" x="${formatNumber(viewBox.x)}" y="${formatNumber(viewBox.y)}" width="${formatNumber(viewBox.width)}" height="${formatNumber(viewBox.height)}" fill="#ffffff"/>`,
+			...page.body.map((line) => `  ${line}`),
+			"  </svg>",
+		);
+		y += page.size.height + PAGE_GAP;
+	});
+	const height = y - PAGE_GAP;
+	return `${[
+		`<svg xmlns="http://www.w3.org/2000/svg" role="img" data-page-count="${pages.length}"${paper === undefined ? "" : ` width="${formatNumber(width)}" height="${formatNumber(height)}"`} viewBox="0 0 ${formatNumber(width)} ${formatNumber(height)}">`,
+		...(title === undefined ? [] : [`  <title>${escapeXml(title)}</title>`]),
+		...lines,
 		"</svg>",
 	].join("\n")}\n`;
 }

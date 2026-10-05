@@ -347,7 +347,7 @@ Use `fixedSwimlaneGeometry` with authored `box` values on swimlanes or lanes whe
 
 `deliverabilityMode: strict` (equivalent to `strict: true`) requires clean geometry or structured `unsatisfiable` output with `remediationPlans`. `deliverabilityMode: degraded-ok` keeps advisory degraded output.
 
-After the local route/label feedback loop exhausts, residual conflicts enter a bounded remediation pass (default 2 iterations). Apply order is grow → rails → external-label. `pageSplit` is never auto-materialized.
+After the local route/label feedback loop exhausts, residual conflicts enter a bounded remediation pass (default 2 iterations). Apply order is grow → rails → external-label. With `pageSplit: auto`, a page that is still not clean afterwards is split into pages (see below).
 
 ### `remediationPolicy` apply matrix
 
@@ -356,7 +356,13 @@ After the local route/label feedback loop exhausts, residual conflicts enter a b
 | `externalLabels` | Stage keyed-callout plans only | Apply deterministic keyed callouts and re-check clearance |
 | `routeRails` | Stage dependency-rail plans only | Force dependency rails, re-route, mark `applied` or `blocked` |
 | `growFixedGeometry` | Stage growth plans only | Apply growth deltas / expand nodes, re-route, mark `applied` or `blocked` |
-| `pageSplit` | Stage machine-readable `required`/`available` plans (`suggest` only; no `auto`) | — page split is **not** auto-materialized |
+| `pageSplit` | Stage machine-readable `required`/`available` plans | Split the page into 2–6 pages, solve each on its own, mark `applied` (with `pages` and `crossPageEdgeIds`) or `blocked` |
+
+#### Page split (`pageSplit: auto`)
+
+A page is split when it stays over capacity after the other remedies (any residual deliverability conflict), or when `--page` fitting would draw its labels below 8px. Nodes that belong together stay on one page: a group with everything nested in it, a node with its children. Pages are runs of these units in the order the single-page solve placed them (along the flow, or across it when that cuts fewer edges), with unconnected parts kept apart so a boundary between them cuts nothing; the run boundaries cut as few edges as possible while keeping pages even. Each page is then solved on its own; swimlane pools keep all their lanes; frame title tabs and titles get "(2/3)". A cut edge is drawn on both pages and ends at an **off-page connector** naming the page and node on the other side ("→ P2 · Billing", "P1 · Orders →"; `metadata.offPageConnector`, `remotePage`, `remoteNodeId`).
+
+The split is kept only if it leaves fewer conflicts (or larger readable text) than the single page; otherwise the plan is `blocked` with the reason and a `remediation.page-split.blocked` warning. The result is page 1 with `pages` (every page solved), a merged `deliverability` whose plans come with their page (`page-2-remediation-01-…`), and every page's diagnostics tagged with `detail.page`. Under `deliverabilityMode: strict`, conflicts left on any page are still errors (`routing.deliverability.unsatisfiable` with its page). Exporters draw every page: SVG stacks them (one nested `<svg class="page">` each, fitted to the paper on its own), draw.io writes one `<diagram>` tab per page, Excalidraw stacks them with `page-N:` id prefixes, and the geometry document carries `pages`.
 
 Plan statuses are `suggested`, `applied`, or `blocked`. Under full-auto strict dense acceptance, auto-capable types must be `applied` or `blocked` (not left as `suggested`).
 

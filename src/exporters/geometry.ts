@@ -320,6 +320,13 @@ export const geometryDocumentSchema = z.object({
 	),
 	/** Diagram parts this version does not describe (drawn by exporters). */
 	omitted: z.array(z.string()),
+	/**
+	 * A split diagram (`remediationPolicy.pageSplit: auto`): every page as
+	 * a document of its own, page 1 first (the top level describes page 1).
+	 */
+	get pages() {
+		return z.array(geometryDocumentSchema).optional();
+	},
 });
 
 export type GeometryDocument = z.infer<typeof geometryDocumentSchema>;
@@ -549,6 +556,9 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 			message: diagnostic.message,
 		})),
 		omitted,
+		...(diagram.pages !== undefined && diagram.pages.length > 1
+			? { pages: diagram.pages.map((page) => exportGeometry(page)) }
+			: {}),
 	});
 }
 

@@ -1,7 +1,19 @@
 import { detectOrthogonalEdgeCrossings } from "../geometry/edge-crossings.js";
-import type { CoordinatedDiagram, NormalizedDiagram } from "../ir/diagram.js";
+import type {
+	CoordinatedDiagram,
+	NormalizedDiagram,
+	RemediationPlan,
+} from "../ir/diagram.js";
 import type { DiagramDirection } from "../ir/geometry.js";
-import type { SolveDiagramOptions } from "./options.js";
+import {
+	resolveRemediationPolicy,
+	type SolveDiagramOptions,
+} from "./options.js";
+import {
+	assemblePages,
+	createPageSplitter,
+	type PageSplitAttempt,
+} from "./page-split.js";
 import { solveDiagram } from "./solve.js";
 
 /**
@@ -165,6 +177,11 @@ export interface PageFit {
 	comfortable: boolean;
 	/** Every layout tried, best first. */
 	candidates: PageCandidate[];
+	/**
+	 * Pages the diagram was split into (`pageSplit: auto`) because one
+	 * page was unreadable; scale and fontPx are then the smallest page's.
+	 */
+	pageCount?: number;
 }
 
 /** Solve `diagram` for `page` and return the best-fitting layout. */
@@ -240,20 +257,140 @@ export function solveForPage(
 	const best = tried[0] as (typeof tried)[number];
 	const size = oriented(page, best.candidate.orientation);
 	const fontPx = round(medianLabelFont(best.solved) * best.candidate.scale);
+	const fit: PageFit = {
+		...(page.name === undefined ? {} : { name: page.name }),
+		width: size.width,
+		height: size.height,
+		orientation: best.candidate.orientation,
+		margin: page.margin,
+		direction: best.candidate.direction,
+		scale: best.candidate.scale,
+		fontPx,
+		readable: fontPx >= MIN_READABLE_FONT_PX,
+		comfortable: fontPx >= COMFORTABLE_FONT_PX,
+		candidates: tried.map((entry) => entry.candidate),
+	};
+	if (
+		!fit.readable &&
+		best.solved.pages === undefined &&
+		diagram.sequence === undefined &&
+		resolveRemediationPolicy(options.remediationPolicy).pageSplit === "auto"
+	) {
+		return splitForReadability(
+			best.candidate.direction === diagram.direction
+				? diagram
+				: withDirection(diagram, best.candidate.direction),
+			base,
+			best.solved,
+			fit,
+			size,
+		);
+	}
+	return { solved: best.solved, fit };
+}
+
+/** Pages a diagram may be split into for readable text. */
+const MAX_READABILITY_ATTEMPTS = 3;
+
+/**
+ * `pageSplit: auto` on a page where the whole diagram would be drawn too
+ * small to read: split it into pages of the same size and orientation,
+ * each fitted on its own, with more pages until every one is readable.
+ */
+function splitForReadability(
+	diagram: NormalizedDiagram,
+	options: SolveDiagramOptions,
+	solved: CoordinatedDiagram,
+	fit: PageFit,
+	size: { width: number; height: number },
+): { solved: CoordinatedDiagram; fit: PageFit } {
+	const availableWidth = size.width - 2 * fit.margin;
+	const availableHeight = size.height - 2 * fit.margin;
+	const reason = `On ${fit.name ?? `${fit.width}x${fit.height}`} the labels would be ${fit.fontPx}px, below the ${MIN_READABLE_FONT_PX}px readable minimum.`;
+	const plan: RemediationPlan = {
+		id: `remediation-${String((solved.deliverability?.remediationPlans.length ?? 0) + 1).padStart(2, "0")}-page-split`,
+		type: "page-split",
+		status: "suggested",
+		reason,
+		diagnosticCodes: [],
+		edgeIds: [],
+		nodeIds: [],
+		detail: {
+			strategy: "split-over-capacity-page",
+			policy: "auto",
+			edgeCount: solved.edges.length,
+			nodeCount: solved.nodes.length,
+			required: MIN_READABLE_FONT_PX,
+			available: fit.fontPx,
+			reason,
+		},
+	};
+	const splitter = createPageSplitter(diagram, solved, options);
+	const pageFit = (page: CoordinatedDiagram) => {
+		const scale = Math.min(
+			1,
+			availableWidth / Math.max(1, page.bounds.width),
+			availableHeight / Math.max(1, page.bounds.height),
+		);
+		return {
+			scale: round(scale),
+			fontPx: round(medianLabelFont(page) * scale),
+		};
+	};
+	let best:
+		| { attempt: PageSplitAttempt; scale: number; fontPx: number }
+		| undefined;
+	const first = Math.max(
+		2,
+		Math.ceil(MIN_READABLE_FONT_PX / Math.max(fit.fontPx, 0.001)),
+	);
+	for (
+		let pageCount = first;
+		pageCount <=
+		Math.min(splitter.maxPages, first + MAX_READABILITY_ATTEMPTS - 1);
+		pageCount += 1
+	) {
+		const attempt = splitter.split(pageCount, (page, pageOptions) =>
+			solveDiagram(page, {
+				...pageOptions,
+				targetAspectRatio: availableWidth / availableHeight,
+			}),
+		);
+		const fits = attempt.pages.map(pageFit);
+		const fontPx = Math.min(...fits.map((entry) => entry.fontPx));
+		const scale = Math.min(...fits.map((entry) => entry.scale));
+		if (best === undefined || fontPx > best.fontPx) {
+			best = { attempt, scale, fontPx };
+		}
+		if (fontPx >= MIN_READABLE_FONT_PX) break;
+	}
+	if (best === undefined || best.fontPx <= fit.fontPx) {
+		return {
+			solved: {
+				...solved,
+				diagnostics: [
+					...solved.diagnostics,
+					{
+						severity: "warning",
+						code: "remediation.page-split.blocked",
+						message: `${reason} Splitting into pages did not make it larger.`,
+						path: ["routing", "remediationPolicy", "pageSplit"],
+						detail: { pageId: solved.id },
+					},
+				],
+			},
+			fit,
+		};
+	}
 	return {
-		solved: best.solved,
+		solved: assemblePages(solved, plan, best.attempt),
 		fit: {
-			...(page.name === undefined ? {} : { name: page.name }),
-			width: size.width,
-			height: size.height,
-			orientation: best.candidate.orientation,
-			margin: page.margin,
-			direction: best.candidate.direction,
-			scale: best.candidate.scale,
-			fontPx,
-			readable: fontPx >= MIN_READABLE_FONT_PX,
-			comfortable: fontPx >= COMFORTABLE_FONT_PX,
-			candidates: tried.map((entry) => entry.candidate),
+			...fit,
+			scale: best.scale,
+			fontPx: best.fontPx,
+			readable: best.fontPx >= MIN_READABLE_FONT_PX,
+			comfortable: best.fontPx >= COMFORTABLE_FONT_PX,
+			pageCount: best.attempt.pages.length,
 		},
 	};
 }

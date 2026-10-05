@@ -130,6 +130,87 @@ export function exportExcalidraw(
 	diagram: CoordinatedDiagram,
 	options: ExportOptions = {},
 ): string {
+	const elements =
+		diagram.pages !== undefined && diagram.pages.length > 1
+			? stackedPageElements(diagram.pages)
+			: sceneElements(diagram);
+	const scene = {
+		type: "excalidraw",
+		version: 2,
+		source: "auto-graph",
+		elements,
+		appState: {
+			name: options.title ?? diagram.title ?? diagram.id,
+			viewBackgroundColor: "#ffffff",
+			gridSize: null,
+			...(options.viewportPadding === undefined
+				? {}
+				: viewportAppState(diagram.bounds, options.viewportPadding)),
+		},
+		files: {},
+	};
+
+	return `${JSON.stringify(scene, null, 2)}\n`;
+}
+
+/** Space between the pages of a split diagram (px). */
+const PAGE_GAP = 80;
+
+/**
+ * A split diagram's pages one below the other, left edges aligned. Ids
+ * from page 2 on carry a `page-N:` prefix so the scene's ids stay unique.
+ */
+function stackedPageElements(
+	pages: readonly CoordinatedDiagram[],
+): ExcalidrawElement[] {
+	const left = (pages[0] as CoordinatedDiagram).bounds.x;
+	let top = (pages[0] as CoordinatedDiagram).bounds.y;
+	return pages.flatMap((page, index) => {
+		const dx = left - page.bounds.x;
+		const dy = top - page.bounds.y;
+		top += page.bounds.height + PAGE_GAP;
+		const rename = (id: string) =>
+			index === 0 ? id : `page-${index + 1}:${id}`;
+		return sceneElements(page).map((element): ExcalidrawElement => {
+			const moved = {
+				...element,
+				id: rename(element.id),
+				x: finite(element.x + dx),
+				y: finite(element.y + dy),
+				groupIds: element.groupIds.map(rename),
+			};
+			if (moved.type === "text") {
+				return {
+					...moved,
+					containerId:
+						moved.containerId === null ? null : rename(moved.containerId),
+				};
+			}
+			if (moved.type === "arrow") {
+				return {
+					...moved,
+					startBinding:
+						moved.startBinding === null
+							? null
+							: {
+									...moved.startBinding,
+									elementId: rename(moved.startBinding.elementId),
+								},
+					endBinding:
+						moved.endBinding === null
+							? null
+							: {
+									...moved.endBinding,
+									elementId: rename(moved.endBinding.elementId),
+								},
+				};
+			}
+			return moved;
+		});
+	});
+}
+
+function sceneElements(diagram: CoordinatedDiagram): ExcalidrawElement[] {
 	const elements: ExcalidrawElement[] = [];
 	const groupIdByChildId = createGroupMembership(diagram.groups);
 
@@ -236,23 +317,7 @@ export function exportExcalidraw(
 		});
 	}
 
-	const scene = {
-		type: "excalidraw",
-		version: 2,
-		source: "auto-graph",
-		elements,
-		appState: {
-			name: options.title ?? diagram.title ?? diagram.id,
-			viewBackgroundColor: "#ffffff",
-			gridSize: null,
-			...(options.viewportPadding === undefined
-				? {}
-				: viewportAppState(diagram.bounds, options.viewportPadding)),
-		},
-		files: {},
-	};
-
-	return `${JSON.stringify(scene, null, 2)}\n`;
+	return elements;
 }
 
 const SEQUENCE_SURFACES = new Set<SolvedTextAnnotation["surfaceKind"]>([

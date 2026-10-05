@@ -35,7 +35,8 @@ export type DeliverabilityMode = "strict" | "degraded-ok";
 
 export type RemediationPolicyMode = "off" | "suggest" | "auto";
 
-export type PageSplitPolicyMode = Exclude<RemediationPolicyMode, "auto">;
+/** `auto` splits a page that stays over capacity into several pages. */
+export type PageSplitPolicyMode = RemediationPolicyMode;
 
 /** Page-level dense routing policy (Phase 16). */
 export type PagePolicy =
@@ -112,6 +113,15 @@ export interface PageSplitRemediationDetail {
 	required: number;
 	available: number;
 	reason: string;
+	/** When applied: what each page holds (1-based page numbers). */
+	pages?: Array<{
+		page: number;
+		nodeIds: string[];
+		/** Edges drawn whole on this page. */
+		edgeIds: string[];
+	}>;
+	/** When applied: edges cut at a page boundary (one connector per end). */
+	crossPageEdgeIds?: string[];
 }
 
 export type RemediationPlanDetail =
@@ -222,6 +232,12 @@ export interface CoordinatedDiagram {
 	frame?: CoordinatedFrame;
 	/** Lifelines, activations, fragments and notes of a sequence diagram. */
 	sequence?: CoordinatedSequence;
+	/**
+	 * Set when `remediationPolicy.pageSplit: "auto"` split an over-capacity
+	 * page: every page, solved on its own, the first one being this
+	 * diagram. Edges cut at a boundary end at off-page connector nodes.
+	 */
+	pages?: CoordinatedDiagram[];
 	metadata?: DiagramMetadata;
 	qualityReport?: import("../solver/pipeline/quality.js").QualityReport;
 }

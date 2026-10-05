@@ -604,7 +604,7 @@ export const diagramDslSchema = z
 						externalLabels: remediationPolicyModeSchema.optional(),
 						routeRails: remediationPolicyModeSchema.optional(),
 						growFixedGeometry: remediationPolicyModeSchema.optional(),
-						pageSplit: z.enum(["off", "suggest"]).optional(),
+						pageSplit: remediationPolicyModeSchema.optional(),
 					})
 					.optional(),
 				portShifting: z

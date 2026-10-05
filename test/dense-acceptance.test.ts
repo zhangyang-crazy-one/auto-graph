@@ -414,6 +414,44 @@ describe("dense MBSE acceptance gate", { timeout: 15_000 }, () => {
 		}
 	});
 
+	it("executes pageSplit auto and still reports what stays unresolved under strict", () => {
+		const options = denseFullAutoStrictOptions();
+		options.remediationPolicy = {
+			...options.remediationPolicy,
+			pageSplit: "auto",
+		};
+		const single = solveDiagram(denseCvDependencyPage(), {
+			...options,
+			remediationPolicy: { ...options.remediationPolicy, pageSplit: "suggest" },
+		});
+		const result = solveDiagram(denseCvDependencyPage(), options);
+		const blocking = (diagram: CoordinatedDiagram) =>
+			diagram.diagnostics.filter(
+				(diagnostic) =>
+					diagnostic.severity === "error" &&
+					diagnostic.code !== "routing.deliverability.unsatisfiable",
+			).length;
+
+		expect(result.pages?.length).toBeGreaterThanOrEqual(2);
+		expect(
+			result.deliverability?.remediationPlans.find(
+				(plan) => plan.type === "page-split",
+			)?.status,
+		).toBe("applied");
+		expect(blocking(result)).toBeLessThan(blocking(single));
+		// Fixed positions still overlap after growth: strict delivery says
+		// so as errors, naming the page, instead of passing the pages off
+		// as deliverable.
+		expect(result.deliverability?.status).toBe("unsatisfiable");
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				severity: "error",
+				code: "routing.deliverability.unsatisfiable",
+				detail: expect.objectContaining({ page: expect.any(Number) }),
+			}),
+		);
+	});
+
 	it("emits growthDeltas and page-split for grow-disabled IBD pages", () => {
 		const options: SolveDiagramOptions = {
 			initialLayout: "positions",
