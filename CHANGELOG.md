@@ -8,6 +8,11 @@
 - **Every exporter**: SVG (stick-figure actors, cylinder databases); draw.io with native `umlLifeline` cells (bars are their children, messages pinned to them at relative points), `umlFrame` fragments, `shape=note` notes and `umlDestroy`; Excalidraw (unbound message arrows, line elements); the geometry contract gains an optional `sequence` block, `open` arrowheads and `strokeOnly` actor paths (additive within v1).
 - **Open arrowheads**: edges accept `arrowhead: open` (two strokes, no fill) in every exporter.
 
+### Obstacle-avoiding routes at named ports (#76)
+
+- **Named ports own their side**: on obstacle-avoiding pages, an anonymous end bound for a side that carries named ports takes the free side facing the other node when that node lies beyond this one across that side. Squeezed between the ports, those routes ran down the narrow strip between the ports and the node and stacked there (SV-1: five ends at x = 414). Moved ends are spread 16px apart and ordered by where their other node lies, so they do not cross at the node.
+- **Ends along the side's normal**: for edges at nodes with named ports, a clean route that reaches an end sliding along the node's border, or with an end segment shorter than an arrowhead, competes with one searched between 12px stubs off both ends; the tournament's direction and new short-end penalties prefer it, and the plain route wins ties. Those routes' ends are then tidied like default-orthogonal ones. Dense SV-1 (obstacle-avoiding): overlapping parallels 268 → 0 px, slot collisions 1 → 0, near-parallel runs 160 → 0 px, border-hugging ends 4 → 0, short arrow ends 3 → 0, crossings 9 → 3. Pages without named ports (AV-1, OV-5b, the dense CV gate, every example) are unchanged.
+
 ### SVG canvas
 
 - **Nothing drawn is clipped**: the SVG view box covers everything drawn, not just the solved bounds. That includes label backdrops (3px wider than their text), ports, all text drawn without a solved box (fallback labels, compartment rows, frame and lane titles, evidence text), hop glyphs and arrowheads, plus how far a stroke paints past its outline (up to 3px at a mitred corner). A 4px margin is added around it. The white background fills the whole canvas; it used to stop at the bounds, leaving a transparent ring when hop glyphs expanded the view box.

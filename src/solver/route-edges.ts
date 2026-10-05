@@ -197,8 +197,20 @@ export function coordinateEdges(
 	// Policy fan-out (resource-flow / ibd-high-fan-in) replaces
 	// distributedAnchorPointsByEndpoint for eligible endpoints so each
 	// edge is mutated once. Explicit portId / corner anchors are skipped.
+	const portSides = new Map(
+		coordinatedNodes.map((node) => [
+			node.id,
+			new Set((node.ports ?? []).map((port) => port.side)),
+		]),
+	);
 	const policyFanOutAnchors = policyUsesFanOutBundles(options.pagePolicy)
-		? computePolicyFanOutAnchors(allocationEdges, nodes, direction, options)
+		? computePolicyFanOutAnchors(
+				allocationEdges,
+				nodes,
+				direction,
+				options,
+				portSides,
+			)
 		: new Map<string, DistributedAnchor>();
 	const distributedAnchors = policyUsesFanOutBundles(options.pagePolicy)
 		? new Map<string, DistributedAnchor>()
@@ -208,6 +220,7 @@ export function coordinateEdges(
 				direction,
 				options,
 				diagnostics,
+				portSides,
 			);
 	const routeHardObstacleMetadata =
 		hardObstacleMetadata ??
@@ -551,6 +564,13 @@ export function coordinateEdges(
 		const nudgePitch = trackPitch(options.idealNudgingDistance);
 		const routeInput: RouteEdgeInput = {
 			kind: options.routeKind ?? "orthogonal",
+			// Ends at a node with named ports leave and enter along their
+			// side's normal: the ports' stubs and labels crowd that side, and
+			// a route sliding along the border runs into them (#76).
+			...((portSides.get(edge.source.nodeId)?.size ?? 0) > 0 ||
+			(portSides.get(edge.target.nodeId)?.size ?? 0) > 0
+				? { endStubs: true }
+				: {}),
 			direction,
 			source: sourceGeometry,
 			target: targetGeometry,
@@ -872,6 +892,8 @@ export function coordinateEdges(
 			const routed = routeEdge({
 				...effectiveInput,
 				kind: "obstacle-avoiding",
+				// Its ends are pinned back to the short route's slots below.
+				endStubs: false,
 			});
 			// Keep slot and port points: the fallback may slide an end along
 			// its side, onto another edge's slot. A fallback whose ends cannot
@@ -965,6 +987,11 @@ export function coordinateEdges(
 		railAllocations,
 		options,
 		groups,
+		new Set(
+			[...portSides].flatMap(([nodeId, sides]) =>
+				sides.size > 0 ? [nodeId] : [],
+			),
+		),
 	);
 	// Opt-in Left-Edge channel nudge (#88), before labels and bounds are
 	// derived from the routes.
@@ -1200,6 +1227,8 @@ export function finalizeCoordinatedEdges(
 	railAllocations: ReadonlyMap<string, RoutingRailAllocation> | undefined,
 	options: SolveDiagramOptions,
 	groups: readonly CoordinatedGroup[] = [],
+	/** Nodes with named ports (obstacle-avoiding end tidying, #76). */
+	portedNodeIds?: ReadonlySet<string>,
 ): CoordinatedEdge[] {
 	const implicit = implicitAnchorDistribution(options);
 	// Every post-pass move is validated against the same obstacles the
@@ -1333,6 +1362,20 @@ export function finalizeCoordinatedEdges(
 			: snapped;
 	// Default orthogonal pages: straighten sub-2px jogs and give short end
 	// stubs room for the arrowhead (#99).
+	// Obstacle-avoiding pages tidy only the routes of nodes with named
+	// ports, whose ends now leave along their side's normal (#76); the
+	// strict dense label gate is tuned against the others' geometry.
+	const portRouteIds = new Set(
+		routeKind === "obstacle-avoiding"
+			? edges
+					.filter((edge) =>
+						[edge.source.nodeId, edge.target.nodeId].some(
+							(nodeId) => portedNodeIds?.has(nodeId) ?? false,
+						),
+					)
+					.map((edge) => edge.id)
+			: [],
+	);
 	const tidied = implicit
 		? tidyRouteEnds(
 				uncrossBySliding(cleared, nodes, obstacles, layered),
@@ -1340,7 +1383,18 @@ export function finalizeCoordinatedEdges(
 				obstacles,
 				layered,
 			)
-		: cleared;
+		: portRouteIds.size > 0
+			? tidyRouteEnds(
+					cleared,
+					nodes,
+					obstacles,
+					new Set(
+						edges
+							.filter((edge) => !portRouteIds.has(edge.id))
+							.map((edge) => edge.id),
+					),
+				)
+			: cleared;
 	for (const edge of tidied) {
 		if (layered.has(edge.id)) LAYERED_ROUTES.add(edge.points);
 	}

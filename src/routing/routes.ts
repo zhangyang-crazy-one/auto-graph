@@ -90,6 +90,14 @@ interface RouteQuality {
 	 * a `left` anchor while hugging the node border.
 	 */
 	readonly directionPenalty: number;
+	/**
+	 * Obstacle-avoiding tournament only: route ends whose first/last
+	 * segment is shorter than an end stub, too short for an arrowhead to
+	 * read clear of the corner (#76).
+	 */
+	readonly shortEnds?: number;
+	/** 1 for a stubbed rival route: on a tie, the route found without stubs wins. */
+	readonly stubbedRival?: number;
 	readonly excessiveLength: number;
 	readonly backtrackDistance: number;
 	readonly anchorPenalty: number;
@@ -142,11 +150,13 @@ function compareRouteQuality(left: RouteQuality, right: RouteQuality): number {
 		left.softCrossings - right.softCrossings ||
 		left.softCrossingLength - right.softCrossingLength ||
 		left.directionPenalty - right.directionPenalty ||
+		(left.shortEnds ?? 0) - (right.shortEnds ?? 0) ||
 		left.excessiveLength - right.excessiveLength ||
 		left.routeLength - right.routeLength ||
 		left.bendCount - right.bendCount ||
 		left.backtrackDistance - right.backtrackDistance ||
-		left.anchorPenalty - right.anchorPenalty
+		left.anchorPenalty - right.anchorPenalty ||
+		(left.stubbedRival ?? 0) - (right.stubbedRival ?? 0)
 	);
 }
 
@@ -1288,6 +1298,7 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 			target: Point,
 			anchorPenalty: number,
 			anchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+			stubbedRival = false,
 		): void => {
 			if (
 				routeIntersectsObstacles(candidate, softObstacles, softObstacleIndex) ||
@@ -1308,7 +1319,19 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 				anchorPenalty,
 				anchors,
 			);
-			cleanTournament.push({ points: candidate, source, target, quality });
+			cleanTournament.push({
+				points: candidate,
+				source,
+				target,
+				quality:
+					input.endStubs !== true
+						? quality
+						: {
+								...quality,
+								shortEnds: shortEndCount(candidate),
+								...(stubbedRival ? { stubbedRival: 1 } : {}),
+							},
+			});
 		};
 		const detourBudget = input.maxDetourRatio ?? 3;
 		const hasGoodEnoughClean = (): boolean =>
@@ -1319,6 +1342,66 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					detourRatio(candidate.points, candidate.source, candidate.target) <=
 						detourBudget,
 			);
+		// A clean path that reaches an end sliding along the node's border,
+		// or with an end segment too short for its arrowhead, gets a rival
+		// searched between short stubs off the two ends: it leaves and enters
+		// along each side's normal, and the tournament's direction and
+		// short-end penalties prefer it (#76). The clean path still competes
+		// and wins ties; without a clear stub (a neighbour that close) only
+		// it does. Paths that already end well, and edges with no clean
+		// path, are left alone, so the routes of other edges do not shift.
+		const considerStubbedRival = (
+			plain: readonly Point[],
+			source: Point,
+			target: Point,
+			cornerObstacles: readonly Box[],
+			anchorPenalty: number,
+			anchors: { sourceAnchor: AnchorName; targetAnchor: AnchorName },
+		): void => {
+			if (
+				input.endStubs !== true ||
+				(routeDirectionPenalty(plain, anchors) === 0 &&
+					shortEndCount(plain) === 0)
+			) {
+				return;
+			}
+			const sourceStub = endStub(source, anchors.sourceAnchor, allObstacles);
+			const targetStub = endStub(target, anchors.targetAnchor, allObstacles);
+			if (sourceStub === undefined || targetStub === undefined) return;
+			const stubbed = findCornerGraphPath(
+				sourceStub,
+				targetStub,
+				cornerObstacles,
+				{
+					endpointObstacles,
+					margin: 2,
+					maxCorners: cornerBudget(cornerObstacles.length),
+					textObstacleVertices: input.textObstacleVertices === true,
+				},
+				diagnostics,
+			);
+			if (stubbed === null || stubbed.length < 2) return;
+			const finalized = finalizeRoutePoints(
+				compactCollinear([source, ...stubbed, target]),
+				softObstacles,
+				hardObstacles,
+				undefined,
+				softObstacleIndex,
+				hardObstacleIndex,
+			);
+			if (
+				routeIntersectsObstacles(finalized, softObstacles, softObstacleIndex) ||
+				routeIntersectsObstacles(finalized, hardObstacles, hardObstacleIndex) ||
+				routeIntersectsEndpointInteriors(finalized, endpointObstacles) ||
+				// A rival only for a tidy route: within the detour budget and
+				// with few bends, not a long way round.
+				detourRatio(finalized, source, target) > detourBudget ||
+				routeBendCount(finalized) > STUBBED_ROUTE_MAX_BENDS
+			) {
+				return;
+			}
+			considerClean(finalized, source, target, anchorPenalty, anchors, true);
+		};
 		let previousSideKey: string | undefined;
 
 		for (const pair of routeTournamentPairs(
@@ -1420,6 +1503,14 @@ export function routeEdge(input: RouteEdgeInput): RouteEdgeResult {
 					sourceAnchor: pair.sourceAnchor,
 					targetAnchor: pair.targetAnchor,
 				});
+				considerStubbedRival(
+					finalized,
+					source,
+					target,
+					cornerObstacles,
+					anchorPenalty,
+					{ sourceAnchor: pair.sourceAnchor, targetAnchor: pair.targetAnchor },
+				);
 				continue;
 			}
 			recordRejected(finalized, source, target, endpointObstacles);
@@ -2833,6 +2924,80 @@ function routeTournamentPairs(
 		}
 	}
 	return results;
+}
+
+/** Length of the stub a route leaves and enters a side along. */
+const END_STUB = 12;
+/** Most bends a stubbed rival route may take. */
+const STUBBED_ROUTE_MAX_BENDS = 6;
+
+/**
+ * The point `END_STUB` off `point` along the normal of its side, when that
+ * side is cardinal and the point is clear of every obstacle.
+ */
+function endStub(
+	point: Point,
+	anchor: AnchorName,
+	obstacles: readonly Box[],
+): Point | undefined {
+	if (!isCardinalAnchor(anchor)) return undefined;
+	const stub =
+		anchor === "top"
+			? { x: point.x, y: point.y - END_STUB }
+			: anchor === "bottom"
+				? { x: point.x, y: point.y + END_STUB }
+				: anchor === "left"
+					? { x: point.x - END_STUB, y: point.y }
+					: { x: point.x + END_STUB, y: point.y };
+	const blocked = obstacles.some(
+		(box) =>
+			stub.x > box.x &&
+			stub.x < box.x + box.width &&
+			stub.y > box.y &&
+			stub.y < box.y + box.height,
+	);
+	return blocked ? undefined : stub;
+}
+
+/** Ends of a route whose first / last segment is shorter than a stub. */
+function shortEndCount(points: readonly Point[]): number {
+	const length = (a: Point | undefined, b: Point | undefined) =>
+		a === undefined || b === undefined
+			? Number.POSITIVE_INFINITY
+			: Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+	return (
+		(length(points[0], points[1]) < END_STUB - 0.5 ? 1 : 0) +
+		(length(points.at(-1), points.at(-2)) < END_STUB - 0.5 ? 1 : 0)
+	);
+}
+
+/** Drop repeated points and the middle of straight runs. */
+function compactCollinear(points: readonly Point[]): Point[] {
+	const out: Point[] = [];
+	for (const point of points) {
+		const last = out.at(-1);
+		if (
+			last !== undefined &&
+			Math.abs(last.x - point.x) < 1e-9 &&
+			Math.abs(last.y - point.y) < 1e-9
+		) {
+			continue;
+		}
+		const before = out.at(-2);
+		if (
+			before !== undefined &&
+			last !== undefined &&
+			((Math.abs(before.x - last.x) < 1e-9 &&
+				Math.abs(last.x - point.x) < 1e-9) ||
+				(Math.abs(before.y - last.y) < 1e-9 &&
+					Math.abs(last.y - point.y) < 1e-9))
+		) {
+			out[out.length - 1] = point;
+			continue;
+		}
+		out.push(point);
+	}
+	return out;
 }
 
 function isCardinalAnchor(
