@@ -248,6 +248,49 @@ describe("lone cross-flow ends", () => {
 	});
 });
 
+describe("lone flow-side ends", () => {
+	// An evaluation hierarchy: a goal over four criteria. The outer
+	// criteria's ends were left to the router, which took the shortest way
+	// in, through their inner sides instead of their tops.
+	const TREE = JSON.stringify({
+		layout: { direction: "TB" },
+		routing: { kind: "orthogonal" },
+		nodes: {
+			goal: {
+				label: "goal",
+				size: { width: 180, height: 80 },
+				position: { x: 315, y: 0 },
+			},
+			...Object.fromEntries(
+				["a", "b", "c", "d"].map((id, index) => [
+					id,
+					{
+						label: id,
+						size: { width: 180, height: 80 },
+						position: { x: index * 210, y: 130 },
+					},
+				]),
+			),
+		},
+		edges: ["a", "b", "c", "d"].map((id) => ({ source: "goal", target: id })),
+	});
+
+	it("enter a tree's children from the top", () => {
+		const diagram = renderDiagramDsl(TREE).diagram;
+		if (diagram === undefined) throw new Error("did not solve");
+		for (const edge of diagram.edges) {
+			const child = diagram.nodes.find(
+				(node) => node.id === edge.target.nodeId,
+			)?.box;
+			const end = edge.points.at(-1);
+			expect(end?.y).toBeCloseTo(child?.y ?? Number.NaN, 5);
+		}
+		expect(countCrossings(diagram.edges.map((edge) => [...edge.points]))).toBe(
+			0,
+		);
+	});
+});
+
 describe("shape outline attach points", () => {
 	it("projects side points onto the drawn outline", () => {
 		const box = { x: 0, y: 0, width: 100, height: 40 };

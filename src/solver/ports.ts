@@ -848,20 +848,18 @@ export function distributedAnchorPointsByEndpoint(
 		// A lone endpoint keeps the router's free side choice so it can
 		// still detour around obstacles, unless it was moved off a side its
 		// node's named ports own: the router would pick that side again.
+		// On default orthogonal pages a lone end is pinned to its flow-aware
+		// side as well. Left free, the router took the shortest way in, so
+		// a tree's outer children were entered from the side instead of the
+		// top, and a backward edge's top or bottom end could land in the
+		// middle of a flow side, between the ends distributed there, and
+		// cross one of them. When that side is blocked, routeEdges retries
+		// with the router's free choice.
 		const redirected = endpoints.some((endpoint) => endpoint.redirected);
-		// A lone end the flow sent across it (a backward edge's top or
-		// bottom in LR) is pinned there too: left free, the router may take
-		// a flow side's middle, between the ends distributed on it, and
-		// cross one of them at the node.
 		if (endpoints.length <= 1 && !redirected) {
 			const lone = endpoints[0];
 			const loneGeometry = boxes.get(lone?.nodeId ?? "");
-			if (
-				implicitCompact &&
-				lone !== undefined &&
-				loneGeometry !== undefined &&
-				crossFlowSide(lone.side, direction)
-			) {
+			if (implicitCompact && lone !== undefined && loneGeometry !== undefined) {
 				distributed.set(endpointDistributionKey(lone.edgeId, lone.role), {
 					anchor: lone.side,
 					point: evenlyDistributedAnchorPoint(loneGeometry, lone.side, 0, 1),
@@ -1289,14 +1287,4 @@ export function buildCenteredTextAnnotation(input: {
 		fontSize: input.typography?.fontSize ?? input.layout.font.fontSize,
 		textBackend: input.layout.textBackend,
 	};
-}
-
-function crossFlowSide(
-	side: AnchorSide,
-	direction: NormalizedDiagram["direction"],
-): boolean {
-	const horizontalFlow = direction === "LR" || direction === "RL";
-	return horizontalFlow
-		? side === "top" || side === "bottom"
-		: side === "left" || side === "right";
 }

@@ -1391,9 +1391,7 @@ export function finalizeCoordinatedEdges(
 			? edges
 					.filter((edge) =>
 						[edge.source.nodeId, edge.target.nodeId].some(
-							(nodeId) =>
-								process.env.DGE_ALL_STUBS === "1" ||
-								(portedNodeIds?.has(nodeId) ?? false),
+							(nodeId) => portedNodeIds?.has(nodeId) ?? false,
 						),
 					)
 					.map((edge) => edge.id)
