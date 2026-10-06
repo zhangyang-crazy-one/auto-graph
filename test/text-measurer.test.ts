@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderDiagramDsl } from "../src/dsl/index.js";
 import type { TextStyleOptions } from "../src/text/index.js";
 import {
 	createDefaultTextMeasurer,
@@ -143,6 +144,32 @@ describe("text measurement", () => {
 		} finally {
 			globalThis.OffscreenCanvas = originalOffscreenCanvas;
 		}
+	});
+
+	it("ends a line at an authored line break", () => {
+		installNodeCanvasRuntime();
+		const measurer = createDefaultTextMeasurer();
+		const prepared = measurer.prepare("核验来源\n版本与授权", style);
+		// Wide enough for both lines on one: the break still ends the first.
+		const layout = measurer.layout(prepared, 1000, 20);
+		expect(layout.lines.map((line) => line.text.trim())).toEqual([
+			"核验来源",
+			"版本与授权",
+		]);
+	});
+
+	it("draws authored line breaks as lines in every format", () => {
+		const source = `nodes:
+  a: { label: "核验来源\\n版本与授权" }
+  b: { label: B }
+edges:
+  - a -> b
+`;
+		const svg = renderDiagramDsl(source, { format: "svg" }).content ?? "";
+		expect(svg).toMatch(/<tspan[^>]*>核验来源<\/tspan>/);
+		expect(svg).toMatch(/<tspan[^>]*>版本与授权<\/tspan>/);
+		const drawio = renderDiagramDsl(source, { format: "drawio" }).content;
+		expect(drawio).toContain('value="核验来源&lt;br&gt;版本与授权"');
 	});
 
 	it("preserves deterministic fallback when Node canvas installation fails", () => {

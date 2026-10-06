@@ -39,10 +39,12 @@ export class PretextTextMeasurer implements TextMeasurer {
 		validateTextStyle(style);
 
 		const font = toCanvasFont(style);
+		// An authored line break ends the line: text carrying one is laid
+		// out as pre-wrap unless the style says otherwise.
+		const whiteSpace =
+			style.whiteSpace ?? (text.includes("\n") ? "pre-wrap" : undefined);
 		const options = {
-			...(style.whiteSpace === undefined
-				? {}
-				: { whiteSpace: style.whiteSpace }),
+			...(whiteSpace === undefined ? {} : { whiteSpace }),
 			...(style.wordBreak === undefined ? {} : { wordBreak: style.wordBreak }),
 			...(style.letterSpacing === undefined
 				? {}
