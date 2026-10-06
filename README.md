@@ -110,6 +110,24 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## Layered Architecture (Group Bands)
+
+A group with `direction` lays its members out as bands. `vertical` stacks them top to bottom in the order listed (nested groups, then nodes) and runs the nested groups through at one common width, the way the layers of an architecture diagram span the page. `horizontal` places them side by side at one common height, so a cross-cutting column such as security or operations spans every layer beside it. Members linked by edges keep the layout's spacing (room for the edges and their labels); unlinked members follow at a 24px gap. A banded column stretched by its parent spreads its nodes evenly over its new length.
+
+`frame: false` makes a group a layout container only: it takes no padding unless given one and is never drawn (no frame, no title; draw.io keeps an unstyled `group` cell, the geometry contract keeps the container with `frame: false` and leaves it out of `zOrder`).
+
+```yaml
+groups:
+  access: { label: Access layer, nodes: [web, mobile] }
+  apply: { label: Application layer, nodes: [qa, reporting, training] }
+  data: { label: Data layer, nodes: [kb, records] }
+  layers: { groups: [access, apply, data], direction: vertical, frame: false }
+  ops: { label: Operations, nodes: [identity, audit], direction: vertical }
+  platform: { label: Platform, groups: [layers, ops], direction: horizontal }
+```
+
+Edge labels keep off drawn group frames as they keep off lane borders.
+
 ## Views
 
 Most diagrams are one of a few kinds. Name the kind with `view:` and write only the content — no shapes, containers, directions or layout settings; the view expands it into the DSL above and checks the rules of that kind. This is the easiest way for a language model to draw a correct diagram.
@@ -450,7 +468,7 @@ Format precedence is CLI `--format`, then DSL `output.format`, then `svg`.
 One coordinate system (px, origin top left, y down), every number rounded to 3 decimals, byte-stable for the same input:
 
 - `nodes`: box, outline as a primitive (`rect` + corner radius, `ellipse`, `polygon`, `cylinder`) **and** as path commands (`M`/`L`/`A`/`Z`), ports.
-- `containers`: groups, swimlanes and lanes with their boxes, lane headers, parent and children.
+- `containers`: groups, swimlanes and lanes with their boxes, lane headers, parent and children. A frameless group (`frame: false`) is listed with `frame: false` and is not in `zOrder`.
 - `edges`: source/target point and side, the route `points`, the stroke `path` (shortened to the arrowhead base, with jump arcs or gaps cut in where it passes under another edge), arrowhead triangles, crossings, label reference.
 - `texts`: every label with its box, font, lines (left `x`, baseline `y`, width, line box), the backdrop box to paint behind it and its rotation.
 - `zOrder`: back-to-front paint list; `metrics`: layout quality; `diagnostics`.

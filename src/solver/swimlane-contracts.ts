@@ -6,6 +6,7 @@ import type { Diagnostic } from "../ir/diagnostics.js";
 import type { PagePolicy } from "../ir/diagram.js";
 import type {
 	CoordinatedFrame,
+	CoordinatedGroup,
 	NormalizedEdge,
 	Swimlane,
 	SwimlaneLane,
@@ -122,6 +123,25 @@ export function laneBorderLabelObstacles(
 			];
 		}),
 	);
+}
+
+/**
+ * Thin obstacles along drawn group frames, so edge labels keep off the
+ * frame lines as they keep off lane borders. Frameless groups draw no line.
+ */
+export function groupBorderLabelObstacles(
+	groups: readonly CoordinatedGroup[],
+): Box[] {
+	return groups.flatMap((group) => {
+		if (group.frame === false) return [];
+		const box = group.box;
+		return [
+			{ x: box.x - 1, y: box.y, width: 2, height: box.height },
+			{ x: box.x + box.width - 1, y: box.y, width: 2, height: box.height },
+			{ x: box.x, y: box.y - 1, width: box.width, height: 2 },
+			{ x: box.x, y: box.y + box.height - 1, width: box.width, height: 2 },
+		];
+	});
 }
 
 export function applySwimlaneLayoutContracts(

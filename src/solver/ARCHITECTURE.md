@@ -11,6 +11,7 @@
 | `cjk-typography.ts` | CJK font / size enhancement |
 | `helpers.ts` | shared geometry / diagnostic / clone helpers |
 | `initial-layout.ts` | Dagre/position seed, stack wrap, growth helpers |
+| `group-bands.ts` | banded groups (`direction`): stack / side-by-side members on the seed, run nested groups through at one width or height |
 | `swimlane-contracts.ts` | swimlane contract layout + fixed-lane geometry |
 | `ports.ts` | port boxes, anchor capacity, fan-out anchors |
 | `coordinate.ts` | node / group / frame box coordination |
@@ -40,7 +41,7 @@ Solver modules must form a **directed acyclic graph**. Lower layers must not imp
 
 ```text
 options / page-policy / cjk-typography / helpers
-  → initial-layout / swimlane-contracts / evidence
+  → initial-layout / group-bands / swimlane-contracts / evidence
   → ports → coordinate
   → route-edges
   → labels

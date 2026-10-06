@@ -748,7 +748,10 @@ function normalizeGroups(
 		.sort()
 		.map((id) => {
 			const group = dsl.groups?.[id];
-			const label = toLabel(group?.label);
+			// A frameless group is a layout container: no title, and no
+			// padding unless asked for.
+			const frameless = group?.frame === false;
+			const label = frameless ? undefined : toLabel(group?.label);
 			const labelLayout =
 				label === undefined ? undefined : fitDslGroupLabel(label, measurer);
 
@@ -757,7 +760,11 @@ function normalizeGroups(
 				...(label === undefined ? {} : { label }),
 				nodeIds: [...(group?.nodes ?? [])],
 				groupIds: [...(group?.groups ?? [])],
-				padding: group?.padding ?? { ...DEFAULT_GROUP_PADDING },
+				padding:
+					group?.padding ??
+					(frameless
+						? { top: 0, right: 0, bottom: 0, left: 0 }
+						: { ...DEFAULT_GROUP_PADDING }),
 				...(group?.headerHeight === undefined
 					? {}
 					: { headerHeight: group.headerHeight }),
@@ -767,6 +774,7 @@ function normalizeGroups(
 				...(group?.direction === undefined
 					? {}
 					: { direction: group.direction }),
+				...(frameless ? { frame: false } : {}),
 				...(labelLayout === undefined ? {} : { labelLayout }),
 			};
 		});

@@ -173,7 +173,14 @@ const groupSchema = z.object({
 	padding: insetsSchema.optional(),
 	headerHeight: nonNegativeNumberSchema.optional(),
 	labelPosition: z.enum(["top", "inside", "outside"]).optional(),
+	/**
+	 * Lay the members out as bands: `vertical` stacks them and runs nested
+	 * groups through at one width, `horizontal` puts them side by side at
+	 * one height (src/solver/group-bands.ts).
+	 */
 	direction: z.enum(["horizontal", "vertical"]).optional(),
+	/** `false`: a layout container only, never drawn (no frame, no title). */
+	frame: z.boolean().optional(),
 });
 
 const swimlaneSchema = z.object({

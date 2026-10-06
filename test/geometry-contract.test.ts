@@ -79,7 +79,12 @@ describe("geometry contract v1", () => {
 
 			it("paints every element exactly once and only known ids", () => {
 				const ids = {
-					container: new Set(document.containers.map((item) => item.id)),
+					// Frameless groups are layout containers: never painted.
+					container: new Set(
+						document.containers
+							.filter((item) => item.frame !== false)
+							.map((item) => item.id),
+					),
 					edge: new Set(document.edges.map((item) => item.id)),
 					node: new Set(document.nodes.map((item) => item.id)),
 					port: new Set(

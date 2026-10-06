@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Layered architecture bands, frameless groups, labels off group frames
+
+- **Group bands**: a group's `direction` was accepted but ignored. A `vertical` group now stacks its members in the order listed and runs its nested groups through at one common width, the way the layers of an architecture diagram span the page; a `horizontal` group places them side by side at one common height, so a cross-cutting column (security, operations) spans the layers beside it. Members linked by edges keep the layout's spacing; unlinked members follow at a 24px gap. A banded column stretched by its parent spreads its nodes evenly. The bands are arranged on the initial layout, before constraints and routing, and the stretched frames survive remediation.
+- **Frameless groups**: `frame: false` makes a group a layout container only. It takes no padding unless given one and is never drawn: SVG and Excalidraw skip it, draw.io keeps an unstyled `group` cell as its members' parent, the geometry contract lists it with `frame: false` and leaves it out of `zOrder` (schema updated).
+- **Edge labels off group frames**: edge labels kept off lane borders but could sit across a group frame line (an architecture page: labels between stretched layers lay on the layer frames). Drawn group frames are now label obstacles too.
+- All examples are unchanged.
+
+### Obstacle-avoiding routes centred in their channels; nested group frames
+
+- **Channel centring**: the obstacle-avoiding router finds shortest paths through obstacle corners, so its segments ran 2px beside node sides and group frames and its end stubs were as short as that left them. Interior segments now move to the middle of their free channel: the space between the nearest node, obstacle, group-frame or lane-divider sides over the segment's span. A frame the segment runs inside bounds it by its own sides. Segments of different routes sharing a channel are spaced evenly in their current order. A moved route is kept only if it hits no more obstacles, runs no further along an outline, leaves no more short end stubs, overlaps no more routes and crosses no more of them.
+- Dense pages (obstacle-avoiding):
+
+  | Page | Metric | Before | After |
+  |---|---|---|---|
+  | SV-1 | border runs | 42 px | 0 |
+  | AV-1 | overlapping parallels | 26 px | 0 |
+  | AV-1 | near-parallel runs | 338 px | 162 px |
+  | AV-1 | stray labels | 1 | 0 |
+  | AV-1 | border runs | 326 px | 444 px |
+  | OV-5b | border runs | 120 px | 21 px |
+  | OV-5b | short arrow ends | 4 | 0 |
+
+  AV-1's border runs grow: edge separation later pushes one route next to a group frame. Pages with other routing kinds are unchanged.
+- **Group nesting independent of ids**: groups are sorted by id before solving, and an outer group whose id sorted before a group nested in it failed with `solver.group-reference.missing` (e.g. `platform` containing `support`). Groups are now solved innermost first, whatever their ids; results keep the input order.
+- **Lone ends pinned to their flow side**: on default orthogonal pages an end alone on its node side was left to the router, which took the shortest way in. A tree's outer children were entered through their inner sides instead of their tops (an evaluation hierarchy), and a backward edge's top or bottom end could land in the middle of a flow side, between the ends distributed there, and cross one of them (a message-flow page: a repair reported back to an earlier step). Such an end is now pinned to its flow-aware side like the ends that share a side; a blocked side still falls back to the router's choice. All examples are unchanged.
+- **Authored line breaks**: a `\n` in a label, note or any other text was laid out as a space, so a two-part label wrapped wherever the width ran out (`核验 来` / `源 版本`). Text that carries a line break is now laid out pre-wrap: the break ends the line, and the width still wraps a line that is too long. SVG draws the lines, draw.io gets `<br>`, Excalidraw keeps the newline. The system-context view example loses a trailing space after each element name; no other example changes.
+- **Nested group frames**: SVG and the geometry contract painted groups in input order, so an outer group listed after a nested one covered it with its filled frame (an architecture diagram showed its layer labels with no layer boxes). Outer frames now paint first, as draw.io's export already did.
+
+
+### draw.io export checked in draw.io's engine
+
+- The draw.io export was loaded into mxGraph (draw.io's engine) with draw.io's own shapes and default theme, in headless Chromium. For every example, the dense SV-1 / AV-1 / OV-5b pages and a split three-page diagram, the routes draw.io computes were compared with the solved ones: 205 edges, all within 0.06px.
+- **Fragments over bars**: sequence fragments are written after lifelines and activation bars, still below messages. Before, bars covered the `opt` / `par` / `ref` tags and showed through a `ref` box. Tags are filled white; a `ref` body is filled too (`swimlaneFillColor`; `fillColor` only fills a umlFrame's tag).
+- **Exact message ends**: relative exit/entry points keep six decimals. Three decimals moved an end up to half a pixel on a tall lifeline, and draw.io's orthogonal router then drew a step into the horizontal message.
+- **Upright actors**: draw.io stretches the actor figure across its lifeline cell, so an actor's cell is as wide as the figure (20px). Its name is unwrapped and has a white backdrop over the dashed line.
+
 ### Sequence diagrams
 
 - **New diagram kind with its own solver**: a `sequence` block (participants are nodes, messages are edges) and a compact `view: sequence`. Rows get their y from their measured text in time order; lifelines are spaced so every message label, self-call loop, note and fragment border fits, shortest constraints first. Messages are horizontal and ordered, sync calls activate their receiver until the reply, self calls loop with a nested bar, `create` places the new head at its message, `destroy` ends the lifeline at an X. Combined fragments (`alt`, `opt`, `loop`, `par`, `break`, `critical`, `neg`, …) nest with padding and stay clear of outside activation bars; guards move past bars; `ref`, notes (left / right / over one or two), dividers and autonumbering are supported. A label never sits on an activation bar, a head or a note: a long message keeps its label between the sender and the first busy lifeline it passes.

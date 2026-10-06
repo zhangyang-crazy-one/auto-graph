@@ -215,6 +215,8 @@ function sceneElements(diagram: CoordinatedDiagram): ExcalidrawElement[] {
 	const groupIdByChildId = createGroupMembership(diagram.groups);
 
 	for (const group of diagram.groups) {
+		// A frameless group is a layout container: nothing to draw.
+		if (group.frame === false) continue;
 		const groupElementId = groupElementIdFor(group.id);
 		elements.push(renderGroup(group));
 		const text = renderText(

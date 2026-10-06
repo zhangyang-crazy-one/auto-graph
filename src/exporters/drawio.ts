@@ -1,5 +1,6 @@
 import {
 	ACTOR_FIGURE_HEIGHT,
+	ACTOR_FIGURE_WIDTH,
 	EDGE_CROSSING_GLYPH_RADIUS,
 	unionBoxes,
 } from "../geometry/index.js";
@@ -331,7 +332,11 @@ function drawioDiagram(
 					: undefined;
 		const groupId = vertex(
 			titleCell === undefined ? multilineHtml(group.label?.text ?? "") : "",
-			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
+			// A frameless group stays a container cell (its members keep
+			// their parent) that draw.io does not draw.
+			group.frame === false
+				? "group;"
+				: "rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
 			parentGroup(outerGroup(group)) ?? laneOf(group.id, group.box),
 		);
@@ -388,50 +393,6 @@ function drawioDiagram(
 			lifeline,
 		]),
 	);
-	// Fragments sit below the messages, as in the SVG.
-	if (diagram.sequence !== undefined) {
-		layer = cells;
-		for (const fragment of diagram.sequence.fragments) {
-			const frame = { box: fragment.box };
-			const frameId = vertex(
-				"",
-				[
-					"shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;",
-					`width=${formatNumber(fragment.tagBox.width)};height=${formatNumber(fragment.tagBox.height)};`,
-					fragment.kind === "ref" ? "fillColor=#ffffff;" : "fillColor=none;",
-				].join(""),
-				fragment.box,
-			);
-			const parent = { id: frameId, box: frame.box };
-			for (const operand of fragment.operands.slice(1)) {
-				vertex(
-					"",
-					"line;html=1;dashed=1;strokeWidth=1;fillColor=none;points=[];rotatable=0;",
-					{
-						x: fragment.box.x,
-						y: operand.top - 4,
-						width: fragment.box.width,
-						height: 8,
-					},
-					parent,
-				);
-			}
-			for (const text of annotations.filter(
-				(annotation) =>
-					annotation.ownerId === fragment.id &&
-					(annotation.surfaceKind === "fragment-tag" ||
-						annotation.surfaceKind === "fragment-guard" ||
-						annotation.surfaceKind === "sequence-note"),
-			)) {
-				vertex(
-					calloutText(text),
-					`${SOLVED_TEXT_STYLE}${fontStyleEntries(text)}`,
-					text.box,
-					parent,
-				);
-			}
-		}
-	}
 	layer = foreground;
 	for (const node of diagram.nodes) {
 		const cellId = String(nextId++);
@@ -441,10 +402,14 @@ function drawioDiagram(
 			// A native UML lifeline: the head and its dashed line in one cell,
 			// with the activation bars as its children, so messages pinned to
 			// it stay on it when it is moved.
+			// draw.io stretches an actor figure across its cell: an actor's
+			// cell is as wide as the figure, centred on the lifeline.
+			const width =
+				lifeline.kind === "actor" ? ACTOR_FIGURE_WIDTH : lifeline.headBox.width;
 			const box: Box = {
-				x: lifeline.headBox.x,
+				x: lifeline.x - width / 2,
 				y: lifeline.headBox.y,
-				width: lifeline.headBox.width,
+				width,
 				height: lifeline.bottom - lifeline.headBox.y,
 			};
 			cells.push(
@@ -578,6 +543,56 @@ function drawioDiagram(
 			);
 		}
 	}
+	// Fragments paint over lifelines and bars (so their tags stay readable,
+	// and a ref covers the lifelines it spans) but below the messages, as
+	// in the SVG. umlFrame fills its tag with fillColor and its body with
+	// swimlaneFillColor.
+	if (diagram.sequence !== undefined) {
+		layer = cells;
+		for (const fragment of diagram.sequence.fragments) {
+			const frame = { box: fragment.box };
+			const frameId = vertex(
+				"",
+				[
+					"shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;",
+					`width=${formatNumber(fragment.tagBox.width)};height=${formatNumber(fragment.tagBox.height)};`,
+					fragment.kind === "ref"
+						? "fillColor=#ffffff;swimlaneFillColor=#ffffff;"
+						: "fillColor=#ffffff;swimlaneFillColor=none;",
+				].join(""),
+				fragment.box,
+			);
+			const parent = { id: frameId, box: frame.box };
+			for (const operand of fragment.operands.slice(1)) {
+				vertex(
+					"",
+					"line;html=1;dashed=1;strokeWidth=1;fillColor=none;points=[];rotatable=0;",
+					{
+						x: fragment.box.x,
+						y: operand.top - 4,
+						width: fragment.box.width,
+						height: 8,
+					},
+					parent,
+				);
+			}
+			for (const text of annotations.filter(
+				(annotation) =>
+					annotation.ownerId === fragment.id &&
+					(annotation.surfaceKind === "fragment-tag" ||
+						annotation.surfaceKind === "fragment-guard" ||
+						annotation.surfaceKind === "sequence-note"),
+			)) {
+				vertex(
+					calloutText(text),
+					`${SOLVED_TEXT_STYLE}${fontStyleEntries(text)}`,
+					text.box,
+					parent,
+				);
+			}
+		}
+	}
+	layer = foreground;
 	for (const portLabel of annotations.filter(
 		(annotation) => annotation.surfaceKind === "port-label",
 	)) {
@@ -930,7 +945,9 @@ function renderLifelineCell(
 		"shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;",
 		'newEdgeStyle={"edgeStyle":"elbowEdgeStyle","elbow":"vertical","curved":0,"rounded":0};',
 		actor
-			? `participant=umlActor;size=${formatNumber(ACTOR_FIGURE_HEIGHT)};verticalAlign=top;spacingTop=${formatNumber(lifeline.headBox.height - (solvedLabel?.box.height ?? 18))};`
+			? // The name below the figure is not wrapped to the figure's
+				// width, and covers the dashed line that starts under the figure.
+				`participant=umlActor;size=${formatNumber(ACTOR_FIGURE_HEIGHT)};verticalAlign=top;spacingTop=${formatNumber(lifeline.headBox.height - (solvedLabel?.box.height ?? 18))};whiteSpace=nowrap;labelBackgroundColor=#ffffff;`
 			: `size=${formatNumber(lifeline.headBox.height)};`,
 		...(node.style?.fill === undefined
 			? []
@@ -1434,8 +1451,8 @@ function renderEdgeCell(input: EdgeCellInput): string {
 			: relativePoint(last, input.targetBox);
 	if (exit !== undefined) {
 		styleParts.push(
-			`exitX=${formatNumber(exit.x)}`,
-			`exitY=${formatNumber(exit.y)}`,
+			`exitX=${formatFraction(exit.x)}`,
+			`exitY=${formatFraction(exit.y)}`,
 			"exitDx=0",
 			"exitDy=0",
 			"exitPerimeter=0",
@@ -1443,8 +1460,8 @@ function renderEdgeCell(input: EdgeCellInput): string {
 	}
 	if (entry !== undefined) {
 		styleParts.push(
-			`entryX=${formatNumber(entry.x)}`,
-			`entryY=${formatNumber(entry.y)}`,
+			`entryX=${formatFraction(entry.x)}`,
+			`entryY=${formatFraction(entry.y)}`,
 			"entryDx=0",
 			"entryDy=0",
 			"entryPerimeter=0",
@@ -1940,6 +1957,15 @@ function calloutText(annotation: SolvedTextAnnotation): string {
 	return annotation.lines.length > 0
 		? annotation.lines.map((line) => escapeHtml(line.text)).join("<br>")
 		: escapeHtml(annotation.text);
+}
+
+/**
+ * A relative exit/entry point: three decimals would move the end up to
+ * half a pixel on a tall lifeline, and draw.io's orthogonal router then
+ * steps a horizontal message to meet it.
+ */
+function formatFraction(value: number): string {
+	return Number.isFinite(value) ? String(Number(value.toFixed(6))) : "0";
 }
 
 function formatNumber(value: number): string {

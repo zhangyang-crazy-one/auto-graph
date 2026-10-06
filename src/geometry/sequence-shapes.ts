@@ -2,6 +2,8 @@ import type { Box, Point } from "../ir/geometry.js";
 
 /** Height of the stick figure drawn for an actor head. */
 export const ACTOR_FIGURE_HEIGHT = 34;
+/** Arm span of the actor stick figure. */
+export const ACTOR_FIGURE_WIDTH = 20;
 
 export interface ActorFigure {
 	head: { cx: number; cy: number; r: number };
@@ -29,8 +31,8 @@ export function actorFigure(box: Box): ActorFigure {
 				{ x: cx, y: hip },
 			],
 			[
-				{ x: cx - 10, y: arms },
-				{ x: cx + 10, y: arms },
+				{ x: cx - ACTOR_FIGURE_WIDTH / 2, y: arms },
+				{ x: cx + ACTOR_FIGURE_WIDTH / 2, y: arms },
 			],
 			[
 				{ x: cx, y: hip },

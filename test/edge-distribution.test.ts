@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDiagramDsl, parseDiagramDsl } from "../src/dsl/index.js";
+import {
+	normalizeDiagramDsl,
+	parseDiagramDsl,
+	renderDiagramDsl,
+} from "../src/dsl/index.js";
 import {
 	computeShapeGeometry,
 	shapeSideAttachRange,
@@ -196,6 +200,94 @@ constraints:
 		);
 		const points = result.edges[0]?.points ?? [];
 		expect(points).toHaveLength(2);
+	});
+});
+
+describe("lone cross-flow ends", () => {
+	// A message-flow page: the review step reports a repair back to a step
+	// far up and behind it, while two flows come into its left side. Left
+	// free, the router took the left side's middle for the repair, between
+	// the two incoming ends, and crossed one of them at the node.
+	const PAGE = JSON.stringify({
+		layout: { direction: "LR" },
+		routing: { kind: "orthogonal" },
+		nodes: Object.fromEntries(
+			[
+				["govern", 320, 0],
+				["search", 320, 300],
+				["actor", -120, 300, 300],
+				["review", 720, 420],
+			].map(([id, x, y, height]) => [
+				id,
+				{
+					label: id,
+					size: { width: 190, height: height ?? 64 },
+					position: { x, y },
+				},
+			]),
+		),
+		edges: [
+			{ source: "search", target: "review" },
+			{ source: "actor", target: "review" },
+			{ source: "review", target: "govern" },
+		],
+	});
+
+	it("leave by the cross-flow side the flow picked for them", () => {
+		const diagram = renderDiagramDsl(PAGE).diagram;
+		if (diagram === undefined) throw new Error("did not solve");
+		const review = diagram.nodes.find((node) => node.id === "review")?.box;
+		const repair = diagram.edges.find(
+			(edge) => edge.target.nodeId === "govern",
+		);
+		expect(review).toBeDefined();
+		expect(repair?.points[0]?.y).toBeCloseTo(review?.y ?? 0, 5);
+		expect(countCrossings(diagram.edges.map((edge) => [...edge.points]))).toBe(
+			0,
+		);
+	});
+});
+
+describe("lone flow-side ends", () => {
+	// An evaluation hierarchy: a goal over four criteria. The outer
+	// criteria's ends were left to the router, which took the shortest way
+	// in, through their inner sides instead of their tops.
+	const TREE = JSON.stringify({
+		layout: { direction: "TB" },
+		routing: { kind: "orthogonal" },
+		nodes: {
+			goal: {
+				label: "goal",
+				size: { width: 180, height: 80 },
+				position: { x: 315, y: 0 },
+			},
+			...Object.fromEntries(
+				["a", "b", "c", "d"].map((id, index) => [
+					id,
+					{
+						label: id,
+						size: { width: 180, height: 80 },
+						position: { x: index * 210, y: 130 },
+					},
+				]),
+			),
+		},
+		edges: ["a", "b", "c", "d"].map((id) => ({ source: "goal", target: id })),
+	});
+
+	it("enter a tree's children from the top", () => {
+		const diagram = renderDiagramDsl(TREE).diagram;
+		if (diagram === undefined) throw new Error("did not solve");
+		for (const edge of diagram.edges) {
+			const child = diagram.nodes.find(
+				(node) => node.id === edge.target.nodeId,
+			)?.box;
+			const end = edge.points.at(-1);
+			expect(end?.y).toBeCloseTo(child?.y ?? Number.NaN, 5);
+		}
+		expect(countCrossings(diagram.edges.map((edge) => [...edge.points]))).toBe(
+			0,
+		);
 	});
 });
 
