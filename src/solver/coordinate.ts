@@ -138,10 +138,37 @@ export function coordinateGroups(
 	 */
 	reservedBoxes?: ReadonlyMap<string, Box>,
 ): CoordinatedGroup[] {
-	const coordinated: CoordinatedGroup[] = [];
+	const coordinated: { group: CoordinatedGroup; index: number }[] = [];
 	const groupBoxes = new Map<string, Box>();
 
-	for (const group of groups) {
+	// Inner groups first: an outer group's box is computed from its nested
+	// groups' boxes, whatever order the groups are listed (or sorted) in.
+	// A cycle is broken where it repeats; its groups report the reference.
+	const byId = new Map(groups.map((group) => [group.id, group]));
+	const depths = new Map<string, number>();
+	const depthOf = (group: NormalizedGroup, seen: Set<string>): number => {
+		const known = depths.get(group.id);
+		if (known !== undefined) return known;
+		let depth = 0;
+		for (const childId of group.groupIds) {
+			const child = byId.get(childId);
+			if (child === undefined || seen.has(childId)) continue;
+			depth = Math.max(depth, depthOf(child, new Set([...seen, childId])) + 1);
+		}
+		depths.set(group.id, depth);
+		return depth;
+	};
+	const ordered = groups
+		.map((group, index) => ({
+			group,
+			index,
+			depth: depthOf(group, new Set([group.id])),
+		}))
+		.sort(
+			(left, right) => left.depth - right.depth || left.index - right.index,
+		);
+
+	for (const { group, index } of ordered) {
 		const childBoxes: Box[] = [];
 		let missing = false;
 
@@ -190,11 +217,11 @@ export function coordinateGroups(
 				: geometry.box;
 		groupBoxes.set(group.id, box);
 		diagnostics.push(...geometry.diagnostics);
-		coordinated.push({
-			...group,
-			box,
-		});
+		coordinated.push({ group: { ...group, box }, index });
 	}
 
-	return coordinated;
+	// Results keep the input order.
+	return coordinated
+		.sort((left, right) => left.index - right.index)
+		.map((entry) => entry.group);
 }

@@ -184,6 +184,34 @@ groups:
   outer: { label: Outer, groups: [inner], nodes: [c] }
 `;
 
+	it("solves a parent group whose id sorts before its nested groups", () => {
+		// Groups are sorted by id: "a-platform" comes before "layer", so the
+		// parent was solved before the group it contains.
+		const result = renderDiagramDsl(`
+nodes:
+  a: { label: A }
+  b: { label: B }
+edges:
+  - a -> b
+groups:
+  layer: { label: Layer, nodes: [a, b] }
+  a-platform: { label: Platform, groups: [layer] }
+`);
+		expect(
+			result.diagnostics.filter(
+				(diagnostic) => diagnostic.severity === "error",
+			),
+		).toEqual([]);
+		const groups = result.diagram?.groups ?? [];
+		const outer = groups.find((group) => group.id === "a-platform")?.box;
+		const inner = groups.find((group) => group.id === "layer")?.box;
+		expect(outer).toBeDefined();
+		expect(inner).toBeDefined();
+		if (outer === undefined || inner === undefined) return;
+		expect(outer.x).toBeLessThanOrEqual(inner.x);
+		expect(outer.x + outer.width).toBeGreaterThanOrEqual(inner.x + inner.width);
+	});
+
 	it("paints outer frames before the frames nested in them", () => {
 		const diagram = renderDiagramDsl(NESTED).diagram;
 		if (diagram === undefined) throw new Error("did not solve");

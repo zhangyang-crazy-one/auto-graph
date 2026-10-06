@@ -18,6 +18,7 @@
   | OV-5b | short arrow ends | 4 | 0 |
 
   AV-1's border runs grow: edge separation later pushes one route next to a group frame. Pages with other routing kinds are unchanged.
+- **Group nesting independent of ids**: groups are sorted by id before solving, and an outer group whose id sorted before a group nested in it failed with `solver.group-reference.missing` (e.g. `platform` containing `support`). Groups are now solved innermost first, whatever their ids; results keep the input order.
 - **Nested group frames**: SVG and the geometry contract painted groups in input order, so an outer group listed after a nested one covered it with its filled frame (an architecture diagram showed its layer labels with no layer boxes). Outer frames now paint first, as draw.io's export already did.
 
 
