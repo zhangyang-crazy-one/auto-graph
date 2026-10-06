@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Layered architecture bands, frameless groups, labels off group frames
+
+- **Group bands**: a group's `direction` was accepted but ignored. A `vertical` group now stacks its members in the order listed and runs its nested groups through at one common width, the way the layers of an architecture diagram span the page; a `horizontal` group places them side by side at one common height, so a cross-cutting column (security, operations) spans the layers beside it. Members linked by edges keep the layout's spacing; unlinked members follow at a 24px gap. A banded column stretched by its parent spreads its nodes evenly. The bands are arranged on the initial layout, before constraints and routing, and the stretched frames survive remediation.
+- **Frameless groups**: `frame: false` makes a group a layout container only. It takes no padding unless given one and is never drawn: SVG and Excalidraw skip it, draw.io keeps an unstyled `group` cell as its members' parent, the geometry contract lists it with `frame: false` and leaves it out of `zOrder` (schema updated).
+- **Edge labels off group frames**: edge labels kept off lane borders but could sit across a group frame line (an architecture page: labels between stretched layers lay on the layer frames). Drawn group frames are now label obstacles too.
+- All examples are unchanged.
+
 ### Obstacle-avoiding routes centred in their channels; nested group frames
 
 - **Channel centring**: the obstacle-avoiding router finds shortest paths through obstacle corners, so its segments ran 2px beside node sides and group frames and its end stubs were as short as that left them. Interior segments now move to the middle of their free channel: the space between the nearest node, obstacle, group-frame or lane-divider sides over the segment's span. A frame the segment runs inside bounds it by its own sides. Segments of different routes sharing a channel are spaced evenly in their current order. A moved route is kept only if it hits no more obstacles, runs no further along an outline, leaves no more short end stubs, overlaps no more routes and crosses no more of them.

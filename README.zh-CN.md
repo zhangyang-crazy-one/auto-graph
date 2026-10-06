@@ -110,6 +110,24 @@ constraints:
     offset: { x: 160, y: 0 }
 ```
 
+## 分层架构（分组条带）
+
+带 `direction` 的分组按条带排布成员。`vertical` 按列出顺序（先嵌套分组、后节点）自上而下堆叠，并把嵌套分组拉通到同一宽度，即架构图中各层横贯全图的画法；`horizontal` 左右并排并拉齐到同一高度，使安全、运维等横切能力以竖条形式贯通旁边的各层。有连线相连的成员保留布局给出的间距（为连线和标签留出空间），无连线的成员以 24px 间距紧凑排列。被父分组拉伸的条带列会把其节点沿新长度均匀铺开。
+
+`frame: false` 表示分组只作布局容器：未指定时不留内边距，任何格式都不绘制（无边框、无标题；draw.io 保留一个无样式的 `group` 容器单元，几何契约保留该容器并标注 `frame: false`，但不放入 `zOrder`）。
+
+```yaml
+groups:
+  access: { label: 接入层, nodes: [web, mobile] }
+  apply: { label: 应用层, nodes: [qa, reporting, training] }
+  data: { label: 数据层, nodes: [kb, records] }
+  layers: { groups: [access, apply, data], direction: vertical, frame: false }
+  ops: { label: 运行支撑, nodes: [identity, audit], direction: vertical }
+  platform: { label: 平台, groups: [layers, ops], direction: horizontal }
+```
+
+连线标签会像避开泳道边线一样避开绘出的分组边框。
+
 ## 时序图
 
 时序图有专门的求解器：参与者横向排开，每个参与者一条生命线，消息按书写顺序自上而下排列。它不走通用的图布局，所以画出来的天然是合法的时序图：消息水平且有序，激活条从调用开始、到返回结束，组合片段正确嵌套，生命线之间的间距刚好容得下其间的标签、自调用环、备注和片段边框。
@@ -248,7 +266,7 @@ cat diagram.yaml | agh --json
 统一坐标系（px，原点左上，y 向下），所有数值保留 3 位小数，同一输入逐字节稳定：
 
 - `nodes`：外框、外形（`rect` + 圆角、`ellipse`、`polygon`、`cylinder` 原语，**以及** `M`/`L`/`A`/`Z` 路径命令）、端口。
-- `containers`：分组、泳道与泳道行（框、表头、父子关系）。
+- `containers`：分组、泳道与泳道行（框、表头、父子关系）。不绘制的分组（`frame: false`）标注 `frame: false`，不进入 `zOrder`。
 - `edges`：起止点与所在边、路由点 `points`、描边路径 `path`（截到箭头底边，并在从其他连线下方穿过处切入跳线弧或缺口）、箭头三角形、交叉点、标签引用。
 - `texts`：每个文字块的框、字体、逐行位置（左侧 `x`、基线 `y`、宽度、行框）、需要先画的白底框以及旋转角度。
 - `zOrder`：从后到前的绘制顺序；`metrics`：布局质量指标；`diagnostics`：诊断信息。

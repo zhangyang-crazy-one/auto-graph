@@ -232,6 +232,8 @@ export interface IntentGroup {
 	headerHeight?: number;
 	labelPosition?: "top" | "inside" | "outside";
 	direction?: "horizontal" | "vertical";
+	/** `false`: a layout container only, never drawn. */
+	frame?: boolean;
 	metadata?: JsonObject;
 }
 
@@ -244,6 +246,8 @@ export interface NormalizedGroup {
 	headerHeight?: number;
 	labelPosition?: "top" | "inside" | "outside";
 	direction?: "horizontal" | "vertical";
+	/** `false`: a layout container only, never drawn. */
+	frame?: boolean;
 	metadata?: JsonObject;
 	labelLayout?: LabelLayout;
 }

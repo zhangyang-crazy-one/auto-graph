@@ -332,7 +332,11 @@ function drawioDiagram(
 					: undefined;
 		const groupId = vertex(
 			titleCell === undefined ? multilineHtml(group.label?.text ?? "") : "",
-			"rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
+			// A frameless group stays a container cell (its members keep
+			// their parent) that draw.io does not draw.
+			group.frame === false
+				? "group;"
+				: "rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=6;",
 			group.box,
 			parentGroup(outerGroup(group)) ?? laneOf(group.id, group.box),
 		);

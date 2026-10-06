@@ -167,6 +167,8 @@ const container = z.object({
 	nodeIds: z.array(z.string()),
 	containerIds: z.array(z.string()),
 	labelId: z.string().optional(),
+	/** `false`: a layout container only, absent from zOrder (never drawn). */
+	frame: z.literal(false).optional(),
 });
 
 const edge = z.object({
@@ -419,6 +421,7 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 			nodeIds: [...group.nodeIds],
 			containerIds: [...group.groupIds],
 			...(labelId === undefined ? {} : { labelId }),
+			...(group.frame === false ? { frame: false as const } : {}),
 		});
 	}
 	for (const swimlane of diagram.swimlanes ?? []) {
@@ -462,7 +465,9 @@ export function exportGeometry(diagram: CoordinatedDiagram): GeometryDocument {
 			? undefined
 			: sequenceOf(diagram.sequence, texts, annotations);
 	const zOrder: GeometryDocument["zOrder"] = [
-		...containers.map((item) => ({ kind: "container" as const, id: item.id })),
+		...containers
+			.filter((item) => item.frame !== false)
+			.map((item) => ({ kind: "container" as const, id: item.id })),
 		...(sequenceDoc === undefined
 			? []
 			: [

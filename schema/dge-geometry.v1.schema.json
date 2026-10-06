@@ -434,6 +434,10 @@
 					},
 					"labelId": {
 						"type": "string"
+					},
+					"frame": {
+						"type": "boolean",
+						"const": false
 					}
 				},
 				"required": ["id", "kind", "box", "nodeIds", "containerIds"],

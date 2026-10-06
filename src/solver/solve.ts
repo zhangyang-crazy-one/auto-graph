@@ -69,6 +69,7 @@ import {
 	coordinateNodes,
 	frameInsets,
 } from "./coordinate.js";
+import { arrangeGroupBands } from "./group-bands.js";
 import {
 	cloneBoxMap,
 	cloneNormalizedNodeForSolver,
@@ -145,6 +146,7 @@ import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	applySwimlaneLayoutContracts,
 	coordinateSwimlanes,
+	groupBorderLabelObstacles,
 	hasFixedSwimlaneGeometry,
 	laneBorderLabelObstacles,
 	laneSoftCorridors,
@@ -362,6 +364,22 @@ function solveOnePage(
 		}
 	}
 
+	// Banded groups (a group `direction`) arrange their members on the
+	// seed: layers run through at one width, a side column spans them.
+	const bandFrames = arrangeGroupBands(
+		styledGroups,
+		initialNodeBoxes,
+		styledEdges,
+	);
+	const globalGroupBoxes =
+		!useRecursive && initialLayoutMode === "global" && "groupBoxes" in layout
+			? layout.groupBoxes
+			: undefined;
+	const reservedGroupBoxes =
+		bandFrames.size === 0
+			? globalGroupBoxes
+			: new Map([...(globalGroupBoxes ?? []), ...bandFrames]);
+
 	// Routes the global layout computed are used for every edge that is
 	// still valid when edges are coordinated (see coordinateEdges).
 	if ("routes" in layout && layout.routes !== undefined) {
@@ -499,9 +517,7 @@ function solveOnePage(
 		constrained.boxes,
 		options,
 		diagnostics,
-		!useRecursive && initialLayoutMode === "global" && "groupBoxes" in layout
-			? layout.groupBoxes
-			: undefined,
+		reservedGroupBoxes,
 	);
 	let coordinatedSwimlanes = coordinateSwimlanes(
 		styledSwimlanes,
@@ -735,6 +751,7 @@ function solveOnePage(
 			...baseTextAnnotations.map(textAnnotationContentBox),
 			...frameTextAnnotation.map((annotation) => annotation.box),
 			...laneBorderLabelObstacles(coordinatedSwimlanes),
+			...groupBorderLabelObstacles(coordinatedGroups),
 		],
 		options,
 	);
@@ -863,6 +880,7 @@ function solveOnePage(
 					...baseTextAnnotations.map(textAnnotationContentBox),
 					...frameTextAnnotation.map((annotation) => annotation.box),
 					...laneBorderLabelObstacles(coordinatedSwimlanes),
+					...groupBorderLabelObstacles(coordinatedGroups),
 				],
 				options,
 			);
@@ -956,6 +974,7 @@ function solveOnePage(
 				...baseTextAnnotations.map(textAnnotationContentBox),
 				...frameTextAnnotation.map((annotation) => annotation.box),
 				...laneBorderLabelObstacles(coordinatedSwimlanes),
+				...groupBorderLabelObstacles(coordinatedGroups),
 			],
 			options,
 		);
@@ -1049,6 +1068,7 @@ function solveOnePage(
 			styledEdges,
 			styledNodes,
 			styledGroups,
+			...(bandFrames.size === 0 ? {} : { reservedGroupBoxes: bandFrames }),
 			styledSwimlanes,
 			swimlaneLayouts: swimlaneContracts.layouts,
 			coordinatedMatrices,
@@ -1105,6 +1125,7 @@ function solveOnePage(
 					// opaque callout must not cut a lane divider.
 					...titleBarObstacles,
 					...laneBorderLabelObstacles(coordinatedSwimlanes),
+					...groupBorderLabelObstacles(coordinatedGroups),
 					// Port labels often reach past their node.
 					...baseTextAnnotations
 						.filter((annotation) => annotation.surfaceKind === "port-label")
@@ -1121,6 +1142,7 @@ function solveOnePage(
 					// label or a group title either.
 					...titleBarObstacles,
 					...laneBorderLabelObstacles(coordinatedSwimlanes),
+					...groupBorderLabelObstacles(coordinatedGroups),
 					...keyTextObstacles(baseTextAnnotations),
 				],
 				// Every callout sits inside the frame, which must fit the page too.

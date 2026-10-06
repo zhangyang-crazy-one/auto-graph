@@ -176,9 +176,11 @@ function renderBody(diagram: CoordinatedDiagram): string[] {
 			renderSwimlane(swimlane, annotations),
 		),
 		// Outer frames first: they are filled and would cover nested ones.
-		...groupsOuterFirst(diagram.groups).map((group) =>
-			indent(renderGroup(group)),
-		),
+		// Ordered with the frameless groups still in: they link nested
+		// frames to the ones around them.
+		...groupsOuterFirst(diagram.groups)
+			.filter((group) => group.frame !== false)
+			.map((group) => indent(renderGroup(group))),
 		...(diagram.matrices ?? []).flatMap((matrix) =>
 			indentLines(renderMatrixBlock(matrix as CoordinatedMatrixBlock)),
 		),

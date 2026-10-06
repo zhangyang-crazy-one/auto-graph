@@ -98,6 +98,7 @@ import {
 import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	coordinateSwimlanes,
+	groupBorderLabelObstacles,
 	laneBorderLabelObstacles,
 	laneSoftCorridors,
 	reserveLaneCorridors,
@@ -250,6 +251,8 @@ export interface RemediationPassContext {
 	styledEdges: NormalizedEdge[];
 	styledNodes: NormalizedNode[];
 	styledGroups: NormalizedGroup[];
+	/** Frames banded groups were given (group-bands); groups still cover them. */
+	reservedGroupBoxes?: ReadonlyMap<string, Box>;
 	styledSwimlanes: Swimlane[];
 	swimlaneLayouts: ReadonlyMap<string, SwimlaneContractLayout>;
 	coordinatedMatrices: CoordinatedMatrixBlock[];
@@ -623,6 +626,7 @@ export function applyExternalLabelRemediation(
 				// opaque callout must not cut a lane divider.
 				...state.titleBarObstacles,
 				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
+				...groupBorderLabelObstacles(state.coordinatedGroups),
 				// Port labels often reach past their node.
 				...state.baseTextAnnotations
 					.filter((annotation) => annotation.surfaceKind === "port-label")
@@ -641,6 +645,7 @@ export function applyExternalLabelRemediation(
 				// label or a group title either.
 				...state.titleBarObstacles,
 				...laneBorderLabelObstacles(state.coordinatedSwimlanes),
+				...groupBorderLabelObstacles(state.coordinatedGroups),
 				...keyTextObstacles(state.baseTextAnnotations),
 			],
 			// Every callout sits inside the frame, which must fit the page too.
@@ -823,6 +828,7 @@ export function rebuildRemediationGeometry(
 		state.constrainedBoxes,
 		context.options,
 		state.diagnostics,
+		context.reservedGroupBoxes,
 	);
 	state.coordinatedSwimlanes = coordinateSwimlanes(
 		context.styledSwimlanes,
@@ -1080,6 +1086,7 @@ export function rerouteRemediationEdges(
 			...state.baseTextAnnotations.map(textAnnotationContentBox),
 			...state.frameTextAnnotation.map((annotation) => annotation.box),
 			...laneBorderLabelObstacles(state.coordinatedSwimlanes),
+			...groupBorderLabelObstacles(state.coordinatedGroups),
 		],
 		options,
 	);
