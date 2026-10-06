@@ -849,7 +849,26 @@ export function distributedAnchorPointsByEndpoint(
 		// still detour around obstacles, unless it was moved off a side its
 		// node's named ports own: the router would pick that side again.
 		const redirected = endpoints.some((endpoint) => endpoint.redirected);
-		if (endpoints.length <= 1 && !redirected) continue;
+		// A lone end the flow sent across it (a backward edge's top or
+		// bottom in LR) is pinned there too: left free, the router may take
+		// a flow side's middle, between the ends distributed on it, and
+		// cross one of them at the node.
+		if (endpoints.length <= 1 && !redirected) {
+			const lone = endpoints[0];
+			const loneGeometry = boxes.get(lone?.nodeId ?? "");
+			if (
+				implicitCompact &&
+				lone !== undefined &&
+				loneGeometry !== undefined &&
+				crossFlowSide(lone.side, direction)
+			) {
+				distributed.set(endpointDistributionKey(lone.edgeId, lone.role), {
+					anchor: lone.side,
+					point: evenlyDistributedAnchorPoint(loneGeometry, lone.side, 0, 1),
+				});
+			}
+			continue;
+		}
 		// Implicit mode orders endpoints along the side by where the opposite
 		// node sits so neighbouring edges fan out without crossing right at
 		// the node boundary. Explicit modes keep stable edge id / role order.
@@ -1270,4 +1289,14 @@ export function buildCenteredTextAnnotation(input: {
 		fontSize: input.typography?.fontSize ?? input.layout.font.fontSize,
 		textBackend: input.layout.textBackend,
 	};
+}
+
+function crossFlowSide(
+	side: AnchorSide,
+	direction: NormalizedDiagram["direction"],
+): boolean {
+	const horizontalFlow = direction === "LR" || direction === "RL";
+	return horizontalFlow
+		? side === "top" || side === "bottom"
+		: side === "left" || side === "right";
 }

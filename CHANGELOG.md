@@ -19,6 +19,7 @@
 
   AV-1's border runs grow: edge separation later pushes one route next to a group frame. Pages with other routing kinds are unchanged.
 - **Group nesting independent of ids**: groups are sorted by id before solving, and an outer group whose id sorted before a group nested in it failed with `solver.group-reference.missing` (e.g. `platform` containing `support`). Groups are now solved innermost first, whatever their ids; results keep the input order.
+- **Lone cross-flow ends pinned**: a backward edge that runs far back along the flow leaves and enters across it (top or bottom in LR). When it was the only end on that side, the router chose its side freely and could take the middle of a flow side, between the ends distributed there, and cross one of them at the node (an emergency-platform message-flow page: a repair reported back to an earlier step). Such an end is now pinned to the cross-flow side the flow picked. All examples are unchanged.
 - **Nested group frames**: SVG and the geometry contract painted groups in input order, so an outer group listed after a nested one covered it with its filled frame (an architecture diagram showed its layer labels with no layer boxes). Outer frames now paint first, as draw.io's export already did.
 
 
