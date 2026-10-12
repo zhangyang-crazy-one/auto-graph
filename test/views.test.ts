@@ -215,6 +215,12 @@ describe("built-in views", () => {
 		expect(result.value?.groups).toEqual({
 			svc: { label: "服务", nodes: ["api"] },
 			layer2: { label: "数据", nodes: ["db", "mq", "x"] },
+			// The layers are banded so they run through at one width.
+			layers: {
+				groups: ["svc", "layer2"],
+				direction: "vertical",
+				frame: false,
+			},
 		});
 		const nodes = result.value?.nodes as Record<string, { shape?: string }>;
 		expect(nodes.db?.shape).toBe("cylinder");
@@ -227,6 +233,51 @@ describe("built-in views", () => {
 		expect(codes(result.diagnostics)).toEqual([
 			"view.architecture.unknown-kind",
 		]);
+	});
+
+	it("architecture: layers run through at one width, in reading order", () => {
+		const source = (direction: string) => `view: architecture
+direction: ${direction}
+layers:
+  - label: Clients
+    components: { web: Web }
+  - label: Services
+    components: { a: Orders, b: Payments, c: Users }
+  - label: Data
+    components: { db: { label: DB, kind: database } }
+links:
+  - web -> a, b, c
+  - a, c -> db
+`;
+		const layerBoxes = (direction: string) => {
+			const diagram = render(source(direction)).diagram;
+			if (diagram === undefined) throw new Error("did not solve");
+			expect(diagram.groups.find((group) => group.id === "layers")?.frame).toBe(
+				false,
+			);
+			return ["layer1", "layer2", "layer3"].map((id) => {
+				const box = diagram.groups.find((group) => group.id === id)?.box;
+				if (box === undefined) throw new Error(`no ${id}`);
+				return box;
+			});
+		};
+		const tb = layerBoxes("TB");
+		for (const box of tb) {
+			expect(box.x).toBeCloseTo(tb[0]?.x ?? 0, 6);
+			expect(box.width).toBeCloseTo(tb[0]?.width ?? 0, 6);
+		}
+		expect(tb[0]?.y).toBeLessThan(tb[1]?.y ?? 0);
+		expect(tb[1]?.y).toBeLessThan(tb[2]?.y ?? 0);
+		const lr = layerBoxes("LR");
+		for (const box of lr) {
+			expect(box.y).toBeCloseTo(lr[0]?.y ?? 0, 6);
+			expect(box.height).toBeCloseTo(lr[0]?.height ?? 0, 6);
+		}
+		expect(lr[0]?.x).toBeLessThan(lr[1]?.x ?? 0);
+		const bt = layerBoxes("BT");
+		expect(bt[0]?.y).toBeGreaterThan(bt[1]?.y ?? 0);
+		expect(bt[1]?.y).toBeGreaterThan(bt[2]?.y ?? 0);
+		expect(bt[0]?.width).toBeCloseTo(bt[1]?.width ?? 0, 6);
 	});
 
 	it("architecture: warns about a layer no link reaches", () => {

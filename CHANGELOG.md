@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Architecture view: layers run through
+
+- `view: architecture` bands its layers with a frameless group (group bands), so every layer is drawn at one common width in TB / BT and one common height in LR / RL, in reading order. Before, each layer's frame was as wide as its own components. A one-layer view is unchanged.
+
 ### Layered architecture bands, frameless groups, labels off group frames
 
 - **Group bands**: a group's `direction` was accepted but ignored. A `vertical` group now stacks its members in the order listed and runs its nested groups through at one common width, the way the layers of an architecture diagram span the page; a `horizontal` group places them side by side at one common height, so a cross-cutting column (security, operations) spans the layers beside it. Members linked by edges keep the layout's spacing; unlinked members follow at a 24px gap. A banded column stretched by its parent spreads its nodes evenly. The bands are arranged on the initial layout, before constraints and routing, and the stretched frames survive remediation.

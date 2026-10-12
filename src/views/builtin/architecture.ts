@@ -109,7 +109,7 @@ links:
 	expand(input, context) {
 		const resolver = new NodeResolver(context);
 		const nodes: Record<string, Record<string, unknown>> = {};
-		const groups: Record<string, { label: string; nodes: string[] }> = {};
+		const groups: Record<string, Record<string, unknown>> = {};
 		const layerOf = new Map<string, number>();
 		const groupIds = new Set<string>();
 		input.layers.forEach((layer, index) => {
@@ -197,9 +197,26 @@ links:
 				"Layers are drawn in the order links run; write callbacks and replies after the forward calls, or dashed (-.->).",
 			);
 		}
+		// The layers run through at one width (one height in LR / RL): a
+		// frameless group bands them in reading order (group-bands).
+		const direction = input.direction ?? "TB";
+		const layerIds = [...groupIds];
+		if (layerIds.length > 1) {
+			let bandId = "layers";
+			for (let index = 2; groupIds.has(bandId); index += 1) {
+				bandId = `layers${index}`;
+			}
+			const reversed = direction === "BT" || direction === "RL";
+			groups[bandId] = {
+				groups: reversed ? layerIds.reverse() : layerIds,
+				direction:
+					direction === "LR" || direction === "RL" ? "horizontal" : "vertical",
+				frame: false,
+			};
+		}
 		return {
 			...(input.title === undefined ? {} : { title: input.title }),
-			layout: { direction: input.direction ?? "TB", mode: "global" },
+			layout: { direction, mode: "global" },
 			nodes,
 			edges,
 			groups,
