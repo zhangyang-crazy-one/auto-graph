@@ -318,7 +318,7 @@ export function solveSequenceDiagram(
 		}),
 	);
 
-	const vertical = layOutRows(
+	let vertical = layOutRows(
 		sequence,
 		participants,
 		indexOf,
@@ -327,7 +327,36 @@ export function solveSequenceDiagram(
 		typography,
 		diagnostics,
 	);
-	const xs = spaceLifelines(participants, vertical);
+	let xs = spaceLifelines(participants, vertical);
+	// A note over two lifelines is drawn across them: its text wraps to that
+	// width, not the narrower default, so the rows are laid out once more.
+	const noteWidths = new Map<string, number>();
+	for (const note of vertical.notes) {
+		if (note.step.position !== "over" || note.layout.lines.length < 2) continue;
+		const lo = Math.min(...note.participants.map((index) => xs[index] ?? 0));
+		const hi = Math.max(...note.participants.map((index) => xs[index] ?? 0));
+		const span = hi - lo + 2 * NOTE_OVERHANG;
+		if (hi > lo && span > note.layout.box.width + 1) {
+			noteWidths.set(note.id, span);
+		}
+	}
+	if (noteWidths.size > 0) {
+		for (const participant of participants) {
+			delete participant.createdAt;
+			delete participant.destroyedAt;
+		}
+		vertical = layOutRows(
+			sequence,
+			participants,
+			indexOf,
+			headHeight,
+			measurer,
+			typography,
+			[],
+			noteWidths,
+		);
+		xs = spaceLifelines(participants, vertical);
+	}
 
 	// Heads and lifelines.
 	const nodes: CoordinatedNode[] = [];
@@ -754,6 +783,7 @@ function layOutRows(
 	measurer: TextMeasurer,
 	typography: ReturnType<typeof createCjkTypographyOptions>,
 	diagnostics: Diagnostic[],
+	noteWidths: ReadonlyMap<string, number> = new Map(),
 ): VerticalPass {
 	const pass: VerticalPass = {
 		messages: [],
@@ -826,7 +856,39 @@ function layOutRows(
 			activation.top + MIN_ACTIVATION_HEIGHT,
 		);
 		activation.closed = true;
+		const frame = calls.indexOf(activation);
+		if (frame >= 0) calls.splice(frame, 1);
 		return true;
+	};
+	// The bars sync calls open (autoActivate), innermost last, and the last
+	// y each one took part in a message. A message sent by a participant
+	// below the innermost call means the calls above it have returned:
+	// their bars close at their last message, so a flow written without
+	// replies does not stack ever deeper bars on its receivers.
+	const calls: Activation[] = [];
+	const lastUse = new Map<Activation, number>();
+	const returnTo = (index: number) => {
+		let keep = calls.length;
+		while (keep > 0 && calls[keep - 1]?.participant !== index) keep -= 1;
+		for (let at = calls.length - 1; at >= keep; at -= 1) {
+			const frame = calls[at] as Activation;
+			// A bar opened on top of it (activate) keeps it open.
+			if (stack(frame.participant).at(-1) !== frame) break;
+			// It runs on under the bars nested on it.
+			let bottom = lastUse.get(frame) ?? frame.top;
+			for (const bar of pass.activations) {
+				if (bar.participant === frame.participant && bar.depth > frame.depth) {
+					if (bar.top >= frame.top) bottom = Math.max(bottom, bar.bottom);
+				}
+			}
+			deactivate(frame.participant, bottom);
+		}
+	};
+	const use = (indices: readonly number[], y: number) => {
+		for (const index of indices) {
+			const bar = stack(index).at(-1);
+			if (bar !== undefined) lastUse.set(bar, y);
+		}
 	};
 	const touch = (indices: readonly number[]) => {
 		for (const fragment of fragmentStack) {
@@ -894,6 +956,7 @@ function layOutRows(
 					if (step.kind !== "create") {
 						checkAlive(participants, to, cursor, at, "to", diagnostics);
 					}
+					if (sequence.autoActivate) returnTo(from);
 					const fromDepth = topDepth(from);
 					const busy = new Map<number, number>();
 					for (
@@ -970,13 +1033,15 @@ function layOutRows(
 							step.deactivate === true ||
 							(step.kind === "reply" && sequence.autoActivate);
 						if (ends) deactivate(from, y);
-						const calls =
-							(step.kind === "sync" && sequence.autoActivate) ||
-							step.activate === true;
-						if (calls) activate(to, y);
+						const autoCall = step.kind === "sync" && sequence.autoActivate;
+						if (autoCall || step.activate === true) {
+							const bar = activate(to, y);
+							if (autoCall && step.activate !== true) calls.push(bar);
+						}
 						toDepth = topDepth(to);
 						cursor = y + ROW_GAP;
 					}
+					use([from, to], y);
 					const row: MessageRow = {
 						id,
 						step,
@@ -1052,7 +1117,7 @@ function layOutRows(
 						{
 							font: styled(step.text, NOTE_FONT),
 							padding: NOTE_PADDING,
-							maxWidth: NOTE_MAX_WIDTH,
+							maxWidth: noteWidths.get(id) ?? NOTE_MAX_WIDTH,
 						},
 						measurer,
 					);

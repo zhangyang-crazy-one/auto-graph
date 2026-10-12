@@ -12,6 +12,7 @@ import { ACTOR_FIGURE_WIDTH } from "../src/geometry/index.js";
 import { expandViewSource } from "../src/index.js";
 import type {
 	Box,
+	CoordinatedActivation,
 	CoordinatedDiagram,
 	CoordinatedEdge,
 	CoordinatedSequence,
@@ -976,5 +977,57 @@ sequence:
 			error.points[0]?.y,
 		);
 		expect(error.points[0]?.x).toBeCloseTo(bars[1]?.box.x ?? 0, 6);
+	});
+});
+
+describe("activation bars without replies", () => {
+	// A flow written as calls only: each call returns before the next
+	// message from someone else, so its bar closes instead of nesting.
+	const FLOW = `
+nodes:
+  u: { label: User }
+  p: { label: Platform }
+  d: { label: Duty }
+sequence:
+  participants: [u, p, d]
+  steps:
+    - { type: message, from: u, to: p, text: submit }
+    - { type: message, from: p, to: d, text: push }
+    - { type: message, from: d, to: p, text: show }
+    - { type: message, from: u, to: p, text: confirm }
+    - { type: message, from: u, to: p, text: remind }
+    - type: note
+      position: over
+      participants: [u, d]
+      text: Delivered is not read; an unopened reminder is followed up, never counted as read.
+`;
+	const sequence = sequenceOf(solve(FLOW));
+	const bars = (id: string) =>
+		sequence.activations.filter((bar) => bar.participantId === id);
+
+	it("close when the call returns, nesting only callbacks", () => {
+		const platform = bars("p");
+		// submit, the callback from Duty (nested), confirm, remind.
+		expect(platform.map((bar) => bar.depth)).toEqual([0, 1, 0, 0]);
+		const [submit, callback] = platform as [
+			CoordinatedActivation,
+			CoordinatedActivation,
+		];
+		// The bar runs on under the callback nested on it.
+		expect(submit.box.y + submit.box.height).toBeGreaterThanOrEqual(
+			callback.box.y + callback.box.height - 0.01,
+		);
+		for (const bar of platform.slice(2)) {
+			expect(bar.box.x).toBeCloseTo(submit.box.x, 6);
+		}
+	});
+
+	it("wrap a note over two lifelines to its drawn width", () => {
+		const note = sequence.notes[0];
+		const text = solve(FLOW).textAnnotations?.find(
+			(annotation) => annotation.ownerId === note?.id,
+		);
+		expect(note).toBeDefined();
+		expect(text?.box?.width ?? 0).toBeGreaterThan(200);
 	});
 });

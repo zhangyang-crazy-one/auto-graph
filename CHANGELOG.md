@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Sequence bars that return, notes across their lifelines, label ownership
+
+- Sequence diagrams: with `autoActivate`, a message sent from below the
+  innermost call means the calls above it returned. Their bars close at
+  their last message instead of stacking ever deeper on the receivers of
+  a flow written without replies. Callbacks still nest, under a bar that
+  runs on beneath them.
+- A note over two lifelines wraps its text to the width it is drawn at.
+- Text: a line no longer breaks inside a Latin word after an opening
+  bracket ("（F" / "UN-144"), or before a closing bracket or stop.
+- Edge labels prefer a spot nearer their own route than any other route.
+
 ### Architecture view: layers run through
 
 - `view: architecture` bands its layers with a frameless group (group bands), so every layer is drawn at one common width in TB / BT and one common height in LR / RL, in reading order. Before, each layer's frame was as wide as its own components. A one-layer view is unchanged.

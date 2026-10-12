@@ -192,3 +192,24 @@ edges:
 		}
 	});
 });
+
+describe("Pretext line breaks", () => {
+	it("keep a Latin word after an opening bracket whole", () => {
+		const measurer = createDefaultTextMeasurer();
+		const prepared = measurer.prepare("求人员明确确认已阅（FUN-144/BR-19）。", {
+			fontFamily: '"Noto Sans CJK SC", sans-serif',
+			fontSize: 13,
+			lineHeight: 18,
+		});
+		for (let width = 100; width <= 200; width += 5) {
+			const lines = measurer.layout(prepared, width, 18).lines;
+			lines.slice(1).forEach((line, index) => {
+				const before = lines[index]?.text.at(-1) ?? "";
+				expect(`${before}|${line.text[0]}`).not.toMatch(
+					/[A-Za-z0-9]\|[A-Za-z0-9]/,
+				);
+				expect(line.text[0]).not.toMatch(/[）。]/);
+			});
+		}
+	});
+});
