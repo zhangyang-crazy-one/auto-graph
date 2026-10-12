@@ -62,11 +62,26 @@ const layerSchema = z
 	})
 	.strict();
 
+/**
+ * Cross-cutting capabilities (security, operations, …) drawn as columns
+ * beside the layers, spanning all of them: `left` before the layers and
+ * `right` after them (above and below in LR / RL).
+ */
+const columnsSchema = z
+	.object({
+		left: z.array(layerSchema).optional(),
+		right: z.array(layerSchema).optional(),
+	})
+	.strict();
+
 const schema = z
 	.object({
 		title: z.string().optional(),
 		direction: z.enum(["TB", "LR", "BT", "RL"]).optional(),
+		/** Title of a frame around the whole architecture (the system). */
+		boundary: z.string().optional(),
 		layers: z.array(layerSchema).min(1),
+		columns: columnsSchema.optional(),
 		links: z.array(relationSchema).optional(),
 	})
 	.strict();
@@ -112,25 +127,22 @@ links:
 		const groups: Record<string, Record<string, unknown>> = {};
 		const layerOf = new Map<string, number>();
 		const groupIds = new Set<string>();
-		input.layers.forEach((layer, index) => {
-			const groupId = layer.id ?? `layer${index + 1}`;
-			if (groupIds.has(groupId)) {
-				context.error(
-					["layers", index, "id"],
-					"view.architecture.duplicate-layer",
-					`Layer id "${groupId}" is used twice.`,
-				);
-			}
-			groupIds.add(groupId);
+		const placed = new Map<string, string>();
+		const addComponents = (
+			components: ArchitectureInput["layers"][number]["components"],
+			path: (string | number)[],
+			where: string,
+		): string[] => {
 			const members: string[] = [];
-			for (const [id, item] of Object.entries(layer.components)) {
-				const path = ["layers", index, "components", id];
-				if (layerOf.has(id)) {
+			for (const [id, item] of Object.entries(components)) {
+				const itemPath = [...path, "components", id];
+				const already = placed.get(id);
+				if (already !== undefined) {
 					context.error(
-						path,
+						itemPath,
 						"view.architecture.duplicate-component",
-						`Component "${id}" is already in layer ${(layerOf.get(id) ?? 0) + 1}.`,
-						"Give each component one layer.",
+						`Component "${id}" is already in ${already}.`,
+						"Give each component one layer or column.",
 					);
 					continue;
 				}
@@ -142,7 +154,7 @@ links:
 						: (KIND_ALIASES[kindText.toLowerCase()] ?? kindText.toLowerCase());
 				if (KIND_NODE[kind] === undefined) {
 					context.warn(
-						[...path, "kind"],
+						[...itemPath, "kind"],
 						"view.architecture.unknown-kind",
 						`Unknown component kind "${kindText}"; drawn as a service.`,
 						`Kinds: ${COMPONENT_KINDS.join(", ")}.`,
@@ -150,15 +162,57 @@ links:
 				}
 				const note = typeof item === "string" ? undefined : item.note;
 				resolver.add(id, label);
-				layerOf.set(id, index);
+				placed.set(id, where);
 				members.push(id);
 				nodes[id] = {
 					label: note === undefined ? label : `${label}\n${note}`,
 					...(KIND_NODE[kind] ?? KIND_NODE.service),
 				};
 			}
+			return members;
+		};
+		const claimGroupId = (id: string, path: (string | number)[]) => {
+			if (groupIds.has(id)) {
+				context.error(
+					path,
+					"view.architecture.duplicate-layer",
+					`Layer id "${id}" is used twice.`,
+				);
+			}
+			groupIds.add(id);
+		};
+		input.layers.forEach((layer, index) => {
+			const groupId = layer.id ?? `layer${index + 1}`;
+			claimGroupId(groupId, ["layers", index, "id"]);
+			const members = addComponents(
+				layer.components,
+				["layers", index],
+				`layer ${index + 1}`,
+			);
+			for (const id of members) layerOf.set(id, index);
 			groups[groupId] = { label: layer.label, nodes: members };
 		});
+		const direction = input.direction ?? "TB";
+		const across = direction === "LR" || direction === "RL";
+		const columnIds = { left: [] as string[], right: [] as string[] };
+		for (const side of ["left", "right"] as const) {
+			(input.columns?.[side] ?? []).forEach((column, index) => {
+				const groupId = column.id ?? `${side}${index + 1}`;
+				claimGroupId(groupId, ["columns", side, index, "id"]);
+				const members = addComponents(
+					column.components,
+					["columns", side, index],
+					`${side} column ${index + 1}`,
+				);
+				// A column runs across the layers: its components stack along it.
+				groups[groupId] = {
+					label: column.label,
+					nodes: members,
+					direction: across ? "horizontal" : "vertical",
+				};
+				columnIds[side].push(groupId);
+			});
+		}
 		const edges = relationEdges(input.links ?? [], resolver, context, "links");
 
 		// A layer no link touches has no place in the tier order.
@@ -198,20 +252,35 @@ links:
 			);
 		}
 		// The layers run through at one width (one height in LR / RL): a
-		// frameless group bands them in reading order (group-bands).
-		const direction = input.direction ?? "TB";
-		const layerIds = [...groupIds];
-		if (layerIds.length > 1) {
-			let bandId = "layers";
-			for (let index = 2; groupIds.has(bandId); index += 1) {
-				bandId = `layers${index}`;
-			}
+		// frameless group bands them in reading order (group-bands). Columns
+		// and the boundary frame sit around that band.
+		const layerIds = input.layers.map(
+			(layer, index) => layer.id ?? `layer${index + 1}`,
+		);
+		const freshId = (base: string) => {
+			let id = base;
+			for (let index = 2; groupIds.has(id); index += 1) id = `${base}${index}`;
+			groupIds.add(id);
+			return id;
+		};
+		const hasColumns = columnIds.left.length + columnIds.right.length > 0;
+		let stack = layerIds.length === 1 ? layerIds[0] : undefined;
+		if (layerIds.length > 1 || hasColumns) {
+			stack = freshId("layers");
 			const reversed = direction === "BT" || direction === "RL";
-			groups[bandId] = {
-				groups: reversed ? layerIds.reverse() : layerIds,
-				direction:
-					direction === "LR" || direction === "RL" ? "horizontal" : "vertical",
+			groups[stack] = {
+				groups: reversed ? [...layerIds].reverse() : layerIds,
+				direction: across ? "horizontal" : "vertical",
 				frame: false,
+			};
+		}
+		if (hasColumns || input.boundary !== undefined) {
+			groups[freshId("architecture")] = {
+				...(input.boundary === undefined
+					? { frame: false }
+					: { label: input.boundary }),
+				groups: [...columnIds.left, stack, ...columnIds.right],
+				direction: across ? "vertical" : "horizontal",
 			};
 		}
 		return {

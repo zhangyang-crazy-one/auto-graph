@@ -153,7 +153,7 @@ flow:
 | --- | --- | --- |
 | `flowchart` | a process of steps and decisions | `steps`, `flow` |
 | `swimlane` | a process across roles or systems | `lanes` (with their `steps`), `flow` |
-| `architecture` | layered system architecture; the layers run through at one width (one height in LR) | ordered `layers` of `components` (`kind`: service, client, app, gateway, database, cache, storage, queue, user, external), `links` |
+| `architecture` | layered system architecture; the layers run through at one width (one height in LR) | ordered `layers` of `components` (`kind`: service, client, app, gateway, database, cache, storage, queue, user, external), `links`; optional `columns.left` / `columns.right` for cross-cutting capabilities spanning every layer (rows above / below in LR), `boundary` for a frame around it all |
 | `system-context` | one system, its users and neighbouring systems (C4 level 1) | `system`, `people`, `externals`, `relations` |
 | `state` | states of one thing and the events between them | `states`, `transitions` (`[*]` = initial / final), `initial` |
 | `tree` | org charts, breakdowns, taxonomies | `root` as a nested outline: `{ 公司: [财务, { 技术: [前端, 后端] }] }` |

@@ -5,6 +5,8 @@
 ### Architecture view: layers run through
 
 - `view: architecture` bands its layers with a frameless group (group bands), so every layer is drawn at one common width in TB / BT and one common height in LR / RL, in reading order. Before, each layer's frame was as wide as its own components. A one-layer view is unchanged.
+- `columns.left` / `columns.right` add cross-cutting capabilities (security, operations, …) as columns beside the layers that span all of them; in LR / RL they become rows above and below. `boundary` draws a titled frame around the layers and columns. A component belongs to one layer or column.
+- **Group titles stay on one line**: a group title was wrapped at a node label's width (160px), so a frame much wider than its title still drew it on two lines. Group titles now wrap only past 480px (or their own `maxWidth`). No example changes.
 
 ### Layered architecture bands, frameless groups, labels off group frames
 

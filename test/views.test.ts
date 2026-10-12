@@ -280,6 +280,71 @@ links:
 		expect(bt[0]?.width).toBeCloseTo(bt[1]?.width ?? 0, 6);
 	});
 
+	it("architecture: columns span the layers; boundary frames them all", () => {
+		const source = (direction: string) => `view: architecture
+direction: ${direction}
+boundary: Platform
+layers:
+  - label: Clients
+    components: { web: Web }
+  - label: Services
+    components: { a: Orders, b: Payments, c: Users }
+  - label: Data
+    components: { db: { label: DB, kind: database } }
+columns:
+  right:
+    - id: ops
+      label: Operations
+      components: { idp: Identity, audit: Audit }
+links:
+  - web -> a, b, c
+  - a, c -> db
+`;
+		const solved = (direction: string) => {
+			const result = render(source(direction));
+			expect(codes(result.diagnostics)).toEqual([]);
+			const diagram = result.diagram;
+			if (diagram === undefined) throw new Error("did not solve");
+			const box = (id: string) => {
+				const found = diagram.groups.find((group) => group.id === id)?.box;
+				if (found === undefined) throw new Error(`no ${id}`);
+				return found;
+			};
+			return { box, diagram };
+		};
+		const tb = solved("TB");
+		const layers = tb.box("layers");
+		const ops = tb.box("ops");
+		expect(ops.x).toBeGreaterThan(layers.x + layers.width);
+		expect(ops.y).toBeCloseTo(layers.y, 6);
+		expect(ops.height).toBeCloseTo(layers.height, 6);
+		const frame = tb.box("architecture");
+		expect(frame.x).toBeLessThan(layers.x);
+		expect(frame.x + frame.width).toBeGreaterThan(ops.x + ops.width);
+		expect(
+			tb.diagram.groups.find((group) => group.id === "architecture")?.label
+				?.text,
+		).toBe("Platform");
+		// In LR the column becomes a row under the layers, as wide as they are.
+		const lr = solved("LR");
+		const lrLayers = lr.box("layers");
+		const lrOps = lr.box("ops");
+		expect(lrOps.y).toBeGreaterThan(lrLayers.y + lrLayers.height);
+		expect(lrOps.x).toBeCloseTo(lrLayers.x, 6);
+		expect(lrOps.width).toBeCloseTo(lrLayers.width, 6);
+	});
+
+	it("architecture: a component sits in one layer or column", () => {
+		const result = expand({
+			view: "architecture",
+			layers: [{ label: "A", components: { a: "A" } }],
+			columns: { left: [{ label: "Ops", components: { a: "again" } }] },
+		});
+		expect(codes(result.diagnostics)).toContain(
+			"view.architecture.duplicate-component",
+		);
+	});
+
 	it("architecture: warns about a layer no link reaches", () => {
 		const result = expand({
 			view: "architecture",

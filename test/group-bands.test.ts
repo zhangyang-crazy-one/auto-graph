@@ -189,3 +189,20 @@ describe("frameless groups", () => {
 		expect(layers.y + layers.height).toBeCloseTo(data.y + data.height, 6);
 	});
 });
+
+describe("group titles", () => {
+	it("stay on one line over a wide frame", () => {
+		const diagram = solve(`
+nodes:
+  a: { label: A }
+  b: { label: B }
+  c: { label: C }
+edges:
+  - a -> b
+groups:
+  platform: { label: 应急知识治理与现场协同平台, nodes: [a, b, c] }
+`);
+		const group = diagram.groups.find((item) => item.id === "platform");
+		expect(group?.labelLayout?.lines).toHaveLength(1);
+	});
+});
