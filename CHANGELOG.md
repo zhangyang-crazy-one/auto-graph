@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Sequence bars that return, notes across their lifelines, label ownership
+
+- Sequence diagrams: with `autoActivate`, a message sent from below the
+  innermost call means the calls above it returned. Their bars close at
+  their last message instead of stacking ever deeper on the receivers of
+  a flow written without replies. Callbacks still nest, under a bar that
+  runs on beneath them.
+- A note over two lifelines wraps its text to the width it is drawn at.
+- Text: a line no longer breaks inside a Latin word after an opening
+  bracket ("（F" / "UN-144"), or before a closing bracket or stop.
+- Edge labels prefer a spot nearer their own route than any other route.
+
+### Architecture view: layers run through
+
+- `view: architecture` bands its layers with a frameless group (group bands), so every layer is drawn at one common width in TB / BT and one common height in LR / RL, in reading order. Before, each layer's frame was as wide as its own components. A one-layer view is unchanged.
+- `columns.left` / `columns.right` add cross-cutting capabilities (security, operations, …) as columns beside the layers that span all of them; in LR / RL they become rows above and below. `boundary` draws a titled frame around the layers and columns. A component belongs to one layer or column.
+- **Group titles stay on one line**: a group title was wrapped at a node label's width (160px), so a frame much wider than its title still drew it on two lines. Group titles now wrap only past 480px (or their own `maxWidth`). No example changes.
+
 ### Layered architecture bands, frameless groups, labels off group frames
 
 - **Group bands**: a group's `direction` was accepted but ignored. A `vertical` group now stacks its members in the order listed and runs its nested groups through at one common width, the way the layers of an architecture diagram span the page; a `horizontal` group places them side by side at one common height, so a cross-cutting column (security, operations) spans the layers beside it. Members linked by edges keep the layout's spacing; unlinked members follow at a 24px gap. A banded column stretched by its parent spreads its nodes evenly. The bands are arranged on the initial layout, before constraints and routing, and the stretched frames survive remediation.

@@ -1597,6 +1597,21 @@ export function edgeLabelAnchor(
 	// It only takes spots near the requested offset from the line: a label
 	// drifting further off reads as another edge's label.
 	const backdropFirst = options.routeKind !== "obstacle-avoiding";
+	// Among the clear spots, the first one nearer its own route than any
+	// other wins; a spot nearer another route reads as that edge's label.
+	// Without one, the first clear spot stands. An explicit labelOffset
+	// pins the distance from the line: the first clear spot keeps it.
+	const ownership = options.labelOffset === undefined;
+	const clearSpot = (center: Point): EdgeLabelAnchorResult => ({
+		center,
+		candidateCount: candidates.length,
+		localConflictCount: 0,
+		routeConflictCount: 0,
+		nodeOverlapCount: 0,
+		labelOverlapCount: 0,
+		externalized: edgeLabelExternalizationPolicy(options) === "force",
+	});
+	let firstClear: Point | undefined;
 	for (const candidate of backdropFirst ? candidates : []) {
 		if (
 			Math.abs(distanceToPolyline(candidate, edge.points) - baseOffset) >
@@ -1633,16 +1648,22 @@ export function edgeLabelAnchor(
 		) {
 			continue;
 		}
-		return {
-			center: candidate,
-			candidateCount: candidates.length,
-			localConflictCount: 0,
-			routeConflictCount: 0,
-			nodeOverlapCount: 0,
-			labelOverlapCount: 0,
-			externalized: edgeLabelExternalizationPolicy(options) === "force",
-		};
+		firstClear ??= candidate;
+		const own = boxPolylineDistance(labelBox, edge.points);
+		if (
+			ownership &&
+			otherRoutes.some(
+				(other) => boxPolylineDistance(labelBox, other.points) < own,
+			)
+		) {
+			continue;
+		}
+		return clearSpot(candidate);
 	}
+	if (firstClear !== undefined) return clearSpot(firstClear);
+	// Conflict-free by the text box: the first one nearer its own route,
+	// else the first one; else the best scored spot.
+	let firstFree: Point | undefined;
 	for (const candidate of candidates) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
@@ -1665,22 +1686,20 @@ export function edgeLabelAnchor(
 		const placedLabelOverlaps = placedLabelBoxes.filter((box) =>
 			intersectsAabb(labelBox, box),
 		).length;
+		const own = boxPolylineDistance(labelBox, edge.points);
+		const nearerOther =
+			ownership &&
+			otherRoutes.some(
+				(other) => boxPolylineDistance(labelBox, other.points) < own,
+			);
 		if (
 			!crossesOwnRoute &&
 			otherRouteCrossings === 0 &&
 			nodeOverlaps === 0 &&
 			placedLabelOverlaps === 0
 		) {
-			const externalPolicy = edgeLabelExternalizationPolicy(options);
-			return {
-				center: candidate,
-				candidateCount: candidates.length,
-				localConflictCount: 0,
-				routeConflictCount: 0,
-				nodeOverlapCount: 0,
-				labelOverlapCount: 0,
-				externalized: externalPolicy === "force",
-			};
+			if (!nearerOther) return clearSpot(candidate);
+			firstFree ??= candidate;
 		}
 		const distanceFromDefault = Math.hypot(
 			candidate.x - placement.x,
@@ -1690,6 +1709,7 @@ export function edgeLabelAnchor(
 			nodeOverlaps * 1_000_000 +
 			placedLabelOverlaps * 500_000 +
 			otherRouteCrossings * 100_000 +
+			(nearerOther ? 20_000 : 0) +
 			(crossesOwnRoute ? 10_000 : 0) +
 			distanceFromDefault;
 		if (bestFallback === undefined || score < bestFallback.score) {
@@ -1703,6 +1723,7 @@ export function edgeLabelAnchor(
 		}
 	}
 
+	if (firstFree !== undefined) return clearSpot(firstFree);
 	const fallback = bestFallback ?? {
 		candidate: placement,
 		score: 0,
@@ -1726,6 +1747,27 @@ export function edgeLabelAnchor(
 			externalPolicy === "force" ||
 			(localConflictCount > 0 && externalPolicy === "congested"),
 	};
+}
+
+/** Distance from a box to the nearest point of an orthogonal polyline. */
+function boxPolylineDistance(box: Box, points: readonly Point[]): number {
+	let best = Number.POSITIVE_INFINITY;
+	for (let index = 0; index + 1 < points.length; index += 1) {
+		const a = points[index] as Point;
+		const b = points[index + 1] as Point;
+		const dx = Math.max(
+			0,
+			Math.min(a.x, b.x) - (box.x + box.width),
+			box.x - Math.max(a.x, b.x),
+		);
+		const dy = Math.max(
+			0,
+			Math.min(a.y, b.y) - (box.y + box.height),
+			box.y - Math.max(a.y, b.y),
+		);
+		best = Math.min(best, Math.hypot(dx, dy));
+	}
+	return best;
 }
 
 function pointsExtent(points: readonly Point[]): {

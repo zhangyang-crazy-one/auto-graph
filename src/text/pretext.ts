@@ -1,6 +1,12 @@
-import type { PreparedTextWithSegments } from "@chenglou/pretext";
+import type {
+	LayoutCursor,
+	LayoutLine,
+	PreparedTextWithSegments,
+} from "@chenglou/pretext";
 import {
+	layoutNextLineRange,
 	layoutWithLines,
+	materializeLineRange,
 	measureNaturalWidth,
 	prepareWithSegments,
 } from "@chenglou/pretext";
@@ -71,11 +77,20 @@ export class PretextTextMeasurer implements TextMeasurer {
 			throw new TypeError("lineHeight must be finite and positive");
 		}
 
-		const result = layoutWithLines(
-			toInternalPrepared(prepared),
-			maxWidth,
-			lineHeight,
-		);
+		const internal = toInternalPrepared(prepared);
+		let result = layoutWithLines(internal, maxWidth, lineHeight);
+		if (
+			result.lines.some((line, index) =>
+				badBreak(line, result.lines[index + 1]),
+			)
+		) {
+			const lines = relayoutLines(internal, prepared.font, maxWidth);
+			result = {
+				lines,
+				lineCount: lines.length,
+				height: lines.length * lineHeight,
+			};
+		}
 		const width = result.lines.reduce(
 			(current, line) => Math.max(current, line.width),
 			0,
@@ -105,6 +120,73 @@ export class PretextTextMeasurer implements TextMeasurer {
 	naturalWidth(prepared: PreparedText): number {
 		return measureNaturalWidth(toInternalPrepared(prepared));
 	}
+}
+
+/** Latin letters and digits: a run of them is one word. */
+const WORD_CHAR = /[A-Za-z0-9]/;
+/** Opening brackets and quotes, kept with the word after them. */
+const OPENERS = new Set([..."（([［【「『〈《“‘"]);
+/** Closing punctuation, never at the start of a line. */
+const CLOSERS = new Set([..."）)]］】」』〉》”’。，、；：！？.,;:!?"]);
+
+/**
+ * A break inside a Latin word or number ("(F" / "UN-144"), or before a
+ * closing bracket or stop. Pretext merges an opening bracket with the word
+ * after it into one CJK segment and then breaks that per character.
+ */
+function badBreak(line: LayoutLine, next: LayoutLine | undefined): boolean {
+	if (next === undefined) return false;
+	const last = line.text.at(-1) ?? "";
+	const first = next.text[0] ?? "";
+	return (WORD_CHAR.test(last) && WORD_CHAR.test(first)) || CLOSERS.has(first);
+}
+
+/** Where a bad break moves back to: before the line's last word. */
+function breakBefore(text: string): number {
+	let end = text.length;
+	if (WORD_CHAR.test(text[end - 1] ?? "")) {
+		while (end > 0 && WORD_CHAR.test(text[end - 1] ?? "")) end -= 1;
+	} else {
+		end -= 1;
+	}
+	while (end > 0 && OPENERS.has(text[end - 1] ?? "")) end -= 1;
+	return end;
+}
+
+/** Line by line, moving each bad break back before the word it splits. */
+function relayoutLines(
+	prepared: PreparedTextWithSegments,
+	font: string,
+	maxWidth: number,
+): LayoutLine[] {
+	const lines: LayoutLine[] = [];
+	const next = (cursor: LayoutCursor, width: number) => {
+		const range = layoutNextLineRange(prepared, cursor, width);
+		return range === null ? null : materializeLineRange(prepared, range);
+	};
+	let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 };
+	let line = next(cursor, maxWidth);
+	while (line !== null) {
+		let following = next(line.end, maxWidth);
+		if (following !== null && badBreak(line, following)) {
+			const keep = breakBefore(line.text);
+			if (keep > 0) {
+				const width =
+					measureNaturalWidth(
+						prepareWithSegments(line.text.slice(0, keep), font),
+					) + 0.01;
+				const shorter = next(cursor, Math.min(width, maxWidth));
+				if (shorter !== null && shorter.text.length < line.text.length) {
+					line = shorter;
+					following = next(line.end, maxWidth);
+				}
+			}
+		}
+		lines.push(line);
+		cursor = line.end;
+		line = following;
+	}
+	return lines;
 }
 
 function toInternalPrepared(prepared: PreparedText): PreparedTextWithSegments {

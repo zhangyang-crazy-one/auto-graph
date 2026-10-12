@@ -1057,6 +1057,12 @@ function toLabel(
 		: { text: value.text, maxWidth: value.maxWidth };
 }
 
+/**
+ * A group title is a one-line header over a frame usually far wider than a
+ * node: it wraps only when it is long, not at a node label's width.
+ */
+const GROUP_LABEL_MAX_WIDTH = 480;
+
 function fitDslGroupLabel(label: Label, measurer: TextMeasurer) {
 	return fitLabel(
 		label.text,
@@ -1064,7 +1070,7 @@ function fitDslGroupLabel(label: Label, measurer: TextMeasurer) {
 			font: DEFAULT_FONT,
 			padding: DEFAULT_NODE_PADDING,
 			minSize: DEFAULT_NODE_MIN_SIZE,
-			maxWidth: label.maxWidth ?? DEFAULT_LABEL_MAX_WIDTH,
+			maxWidth: label.maxWidth ?? GROUP_LABEL_MAX_WIDTH,
 			overflow: "diagnose",
 		},
 		measurer,
