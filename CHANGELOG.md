@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### 3D scene: floor-plan layout from relations (#119, phase 1c)
+
+- Objects no longer need a pinned position: `solveScene` lays out the
+  floor plan from the relations. Each axis is a separation-constrained
+  quadratic program on the existing VPSC solver; walls are variables.
+  - `against wall`, `corner`, `center-of`, `align`, `grid`, `around`
+    (r·cos θ, r·sin θ), `distribute` and pinned positions are equalities;
+    `in-front-of`/`behind`/`left-of`/`right-of` fix the gap along the
+    reference's side (snapped to the nearest axis) and pull the centers
+    in line on the other axis.
+  - Overlaps (with `minGap`, or a `keep clear` distance) are removed
+    VPSC-style: a separation on the axis that overlaps least, never on an
+    axis where equalities already fix the pair's offset; a pair still
+    overlapping after a solve moves to the other axis once.
+  - Objects nothing holds start on a grid over the room; objects beside
+    a reference drift to it.
+- `facing <object>` now faces the object's nearest point (the side of a
+  long table), not its center. Turns that depend on positions are settled
+  by re-running the layout (up to 4 passes).
+- New diagnostics: `scene.layout.conflict` (relations that cannot hold
+  together, with the objects involved) and `scene.relation.off-floor`
+  (floor relations naming an object on a support).
+- Fixtures `study` (the #119 scene, relations only), `meeting` and
+  `showroom` with golden top views; random-scene property test
+  (`test/property/scene-layout.test.ts`): 60 satisfiable scenes must
+  solve clean and conflicting ones must never be silently bad (500 seeds
+  clean locally, under 100 ms each).
+
 ### 3D scene: supports, turns, collision checks and a top view (#119, phases 1b + 1d)
 
 - `solveScene(spec)` places what needs no planar layout yet: `on`

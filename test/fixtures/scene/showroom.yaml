@@ -1,0 +1,19 @@
+# Showroom: a grid of plinths, benches spread along the south wall, a
+# reception desk in a corner and two kiosks mirrored about the room.
+scene: showroom
+bounds: { width: 8, depth: 6, height: 3.5 }
+minGap: 0.2
+objects:
+  plinth:    { size: [0.8, 0.8, 1.0], count: 6 }
+  vase:      { size: [0.3, 0.3, 0.5] }
+  bench:     { size: [1.6, 0.5, 0.45], count: 3 }
+  reception: { size: [1.8, 0.7, 1.05] }
+  kiosk_a:   { size: [0.6, 0.6, 1.5] }
+  kiosk_b:   { size: [0.6, 0.6, 1.5] }
+relations:
+  - plinth grid 2x3, gap 1.0
+  - vase on plinth1
+  - bench distribute evenly along wall south
+  - reception corner ne, gap 0.4
+  - kiosk_a and kiosk_b symmetric about room, axis x
+  - kiosk_a against wall north

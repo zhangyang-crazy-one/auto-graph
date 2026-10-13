@@ -31,7 +31,7 @@
 <text x="248" y="232" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">table</text>
 <text x="248" y="245" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">box</text>
 <text x="258" y="92" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">tv</text>
-<text x="48" y="384" font-size="11" fill="#dc2626">✗ "chair" is turned to 90° and to -141.3402°.</text>
+<text x="48" y="384" font-size="11" fill="#dc2626">✗ "chair" is turned to 90° and to 180°.</text>
 <text x="48" y="400" font-size="11" fill="#dc2626">✗ "sofa" reaches 0.3 m past the walls.</text>
 <text x="48" y="416" font-size="11" fill="#dc2626">✗ "tv" stands with its center off "desk" and would fall.</text>
 <text x="48" y="432" font-size="11" fill="#dc2626">✗ "desk" and "chair" overlap by 0.1 m.</text>

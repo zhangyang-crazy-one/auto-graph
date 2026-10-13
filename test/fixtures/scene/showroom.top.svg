@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="896" height="696" viewBox="0 0 896 696" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M98 648V48M148 648V48M198 648V48M248 648V48M298 648V48M348 648V48M398 648V48M448 648V48M498 648V48M548 648V48M598 648V48M648 648V48M698 648V48M748 648V48M798 648V48M48 598H848M48 548H848M48 498H848M48 448H848M48 398H848M48 348H848M48 298H848M48 248H848M48 198H848M48 148H848M48 98H848" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="800" height="600" fill="none" stroke="#334155" stroke-width="2"/>
+<text x="48" y="664" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="148" y="664" font-size="10" fill="#64748b" text-anchor="middle">1</text>
+<text x="248" y="664" font-size="10" fill="#64748b" text-anchor="middle">2</text>
+<text x="348" y="664" font-size="10" fill="#64748b" text-anchor="middle">3</text>
+<text x="448" y="664" font-size="10" fill="#64748b" text-anchor="middle">4</text>
+<text x="548" y="664" font-size="10" fill="#64748b" text-anchor="middle">5</text>
+<text x="648" y="664" font-size="10" fill="#64748b" text-anchor="middle">6</text>
+<text x="748" y="664" font-size="10" fill="#64748b" text-anchor="middle">7</text>
+<text x="848" y="664" font-size="10" fill="#64748b" text-anchor="middle">8</text>
+<text x="40" y="651" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="551" font-size="10" fill="#64748b" text-anchor="end">1</text>
+<text x="40" y="451" font-size="10" fill="#64748b" text-anchor="end">2</text>
+<text x="40" y="351" font-size="10" fill="#64748b" text-anchor="end">3</text>
+<text x="40" y="251" font-size="10" fill="#64748b" text-anchor="end">4</text>
+<text x="40" y="151" font-size="10" fill="#64748b" text-anchor="end">5</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">6</text>
+<path d="M872 14l-5 12h10z" fill="#334155"/>
+<text x="872" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="228,298 308,298 308,218 228,218" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="268,305 273,298 263,298" fill="#1e3a8a"/>
+<polygon points="408,298 488,298 488,218 408,218" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="448,305 453,298 443,298" fill="#1e3a8a"/>
+<polygon points="588,298 668,298 668,218 588,218" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="628,305 633,298 623,298" fill="#1e3a8a"/>
+<polygon points="228,478 308,478 308,398 228,398" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="268,485 273,478 263,478" fill="#1e3a8a"/>
+<polygon points="408,478 488,478 488,398 408,398" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="448,485 453,478 443,478" fill="#1e3a8a"/>
+<polygon points="588,478 668,478 668,398 588,398" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="628,485 633,478 623,478" fill="#1e3a8a"/>
+<polygon points="128,648 288,648 288,598 128,598" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="208,655 213,648 203,648" fill="#1e3a8a"/>
+<polygon points="368,648 528,648 528,598 368,598" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="448,655 453,648 443,648" fill="#1e3a8a"/>
+<polygon points="608,648 768,648 768,598 608,598" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="688,655 693,648 683,648" fill="#1e3a8a"/>
+<polygon points="628,158 808,158 808,88 628,88" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="718,165 723,158 713,158" fill="#1e3a8a"/>
+<polygon points="518,108 578,108 578,48 518,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="548,115 553,108 543,108" fill="#1e3a8a"/>
+<polygon points="318,108 378,108 378,48 318,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="348,115 353,108 343,108" fill="#1e3a8a"/>
+<polygon points="253,273 283,273 283,243 253,243" fill="#fde68a" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="268,280 273,273 263,273" fill="#1e3a8a"/>
+<text x="268" y="262" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plinth1</text>
+<text x="448" y="262" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plinth2</text>
+<text x="628" y="262" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plinth3</text>
+<text x="268" y="442" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plinth4</text>
+<text x="448" y="442" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plinth5</text>
+<text x="628" y="442" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plinth6</text>
+<text x="208" y="627" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench1</text>
+<text x="448" y="627" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench2</text>
+<text x="688" y="627" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench3</text>
+<text x="718" y="127" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">reception</text>
+<text x="548" y="82" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">kiosk_a</text>
+<text x="348" y="82" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">kiosk_b</text>
+<text x="268" y="275" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">vase</text>
+</svg>

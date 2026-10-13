@@ -1,0 +1,22 @@
+# Meeting room: three chairs on each side of the table spread out by
+# themselves; the screen and credenza take their walls.
+scene: meeting
+bounds: { width: 6, depth: 4.5, height: 3 }
+minGap: 0.1
+objects:
+  table:    { size: [3, 1.2, 0.75] }
+  chair:    { size: [0.5, 0.5, 0.9], count: 6 }
+  screen:   { size: [1.8, 0.1, 1.1] }
+  credenza: { size: [1.6, 0.45, 0.8] }
+  plant:    { size: [0.4, 0.4, 1.2], count: 2 }
+  laptop:   { size: [0.35, 0.25, 0.02] }
+relations:
+  - table center-of room
+  - chair1 and chair2 and chair3 in-front-of table, facing table, gap 0.15
+  - chair4 and chair5 and chair6 behind table, facing table, gap 0.15
+  - screen against wall east
+  - credenza against wall west
+  - plant1 left-of credenza
+  - plant2 right-of credenza
+  - laptop on table, at front
+  - keep clear 0.9 between table and screen

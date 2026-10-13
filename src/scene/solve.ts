@@ -3,12 +3,14 @@ import {
 	contains,
 	direction,
 	distance,
+	dot,
 	type Footprint,
 	footprint,
 	halfExtent,
 	normalizeDegrees,
 	overhang,
 	penetration,
+	sub,
 	type Vec2,
 } from "./geometry.js";
 import type {
@@ -22,11 +24,14 @@ import type {
 	SupportSpot,
 	WallSide,
 } from "./ir.js";
+import { type FloorLayoutResult, layoutFloor } from "./layout.js";
 
 /** Lengths below this (0.1 mm) count as touching, not overlapping. */
 const TOLERANCE = 1e-4;
 /** Two turns closer than this (degrees) agree. */
 const YAW_TOLERANCE = 0.01;
+/** Turn-and-lay-out passes before the turns must have settled. */
+const MAX_PASSES = 4;
 
 /** Compass directions as angles counter-clockwise from east. */
 const COMPASS: Record<WallSide, number> = {
@@ -44,18 +49,6 @@ const AWAY_FROM_WALL: Record<WallSide, number> = {
 	west: 0,
 };
 
-const PLANAR_KINDS = new Set<SceneRelation["kind"]>([
-	"beside",
-	"against-wall",
-	"corner",
-	"center-of",
-	"align",
-	"distribute",
-	"grid",
-	"around",
-	"symmetric",
-]);
-
 interface Placement {
 	object: SceneObject;
 	center: Vec2;
@@ -66,19 +59,20 @@ interface Placement {
 }
 
 /**
- * Place what can be placed without a planar layout and check the result.
+ * Solve a scene: where every object stands, which way it faces, and
+ * whether the result holds up.
  *
  * - Supports: `on` relations form a forest; an object stands on top of its
- *   support (z = support top), the rest on the floor.
- * - Turns: a pinned `yaw`, `rotate` or `facing` decides; otherwise `around`
- *   faces the center, `against wall` turns the back to the wall, and an
- *   object on a support turns with it so their fronts agree.
- * - Floor-plan positions: pinned `position`, or the `at` spot on the
- *   support. Other objects are listed in `unplaced` (the planar layout
- *   that places them from relations comes next).
+ *   support (z = support top) at its `at` spot, the rest on the floor.
+ * - Floor plan: relations become separation constraints on each axis (see
+ *   `layoutFloor`); pinned positions are fixed offsets from the walls.
+ * - Turns: a pinned `yaw`, `rotate` or `facing` (the nearest point of an
+ *   object) decides; otherwise `around` faces the center, `against wall`
+ *   turns the back to the wall, and an object on a support turns with it.
+ *   Turns that depend on positions are settled by re-running the layout.
  * - Checks: interpenetration (separating axes), objects past the walls or
- *   ceiling, objects whose center is off their support, overhangs,
- *   `keep clear` and `minGap`.
+ *   ceiling, objects whose center is off their support, relations that
+ *   cannot hold together, `keep clear`; overhangs and `minGap` warn.
  *
  * `valid` is false when any check fails; the geometry is still returned
  * so the failure can be seen.
@@ -104,19 +98,77 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			(order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
 	);
 
-	const placed = new Map<string, Placement>();
-	const centerOf = (id: string): Vec2 | undefined => {
-		const done = placed.get(id)?.center;
-		if (done !== undefined) return done;
+	// Floor plan: turn, lay out, and turn again from the new positions
+	// (facing and around depend on where things are) until turns settle.
+	const floor = spec.objects.filter((object) => !supports.has(object.id));
+	const pinnedCenter = (id: string): Vec2 | undefined => {
 		const pinned = byId.get(id)?.position;
 		return pinned === undefined ? undefined : { x: pinned[0], y: pinned[1] };
 	};
+	const hasSymmetric = spec.relations.some(
+		(relation) => relation.kind === "symmetric",
+	);
+	let layout: FloorLayoutResult | undefined;
+	let yaws = new Map<string, number>();
+	for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+		const centers = layout?.centers;
+		const lookup = (id: string) => centers?.get(id) ?? pinnedCenter(id);
+		const next = new Map(
+			floor.map((object) => [
+				object.id,
+				resolveYaw(object, spec, undefined, lookup, [], (id) => {
+					const center = centers?.get(id);
+					const target = byId.get(id);
+					return center === undefined || target === undefined
+						? undefined
+						: footprint(center, target.size, yaws.get(id) ?? 0);
+				}),
+			]),
+		);
+		const settled =
+			layout !== undefined &&
+			(pass >= 2 || !hasSymmetric) &&
+			floor.every(
+				(object) =>
+					angleGap(next.get(object.id) ?? 0, yaws.get(object.id) ?? 0) <=
+					YAW_TOLERANCE,
+			);
+		if (settled) break;
+		yaws = next;
+		layout = layoutFloor({
+			spec,
+			floor,
+			yaw: yaws,
+			...(centers === undefined ? {} : { previous: centers }),
+		});
+	}
+	diagnostics.push(...(layout?.diagnostics ?? []));
+	const floorCenters = layout?.centers ?? new Map<string, Vec2>();
+
+	const placed = new Map<string, Placement>();
+	const centerOf = (id: string): Vec2 | undefined =>
+		placed.get(id)?.center ?? floorCenters.get(id) ?? pinnedCenter(id);
 
 	for (const object of sequence) {
 		const supportId = supports.get(object.id);
 		const support = supportId === undefined ? undefined : placed.get(supportId);
 		if (supportId !== undefined && support === undefined) continue;
-		const yaw = resolveYaw(object, spec, support, centerOf, diagnostics);
+		const yaw = resolveYaw(
+			object,
+			spec,
+			support,
+			centerOf,
+			diagnostics,
+			(id) => {
+				const done = placed.get(id)?.shape;
+				if (done !== undefined) return done;
+				const center = floorCenters.get(id);
+				const target = byId.get(id);
+				return center === undefined || target === undefined
+					? undefined
+					: footprint(center, target.size, yaws.get(id) ?? 0);
+			},
+		);
 		let center: Vec2 | undefined = centerOf(object.id);
 		if (center === undefined && support !== undefined) {
 			const spot = spec.relations.find(
@@ -157,20 +209,9 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 					: `"${id}" has no position.`,
 			objects: [id],
 			path: object.path,
-			hint: "Pin it with `position: [x, y]`; placing objects from relations alone is not implemented yet.",
+			hint: "Give its support a place, or remove the `on` relation.",
 		});
 	}
-	for (const relation of spec.relations) {
-		if (!PLANAR_KINDS.has(relation.kind)) continue;
-		diagnostics.push({
-			severity: "info",
-			code: "scene.relation.unchecked",
-			message: `The ${relation.kind} relation is not applied or checked yet.`,
-			path: relation.path,
-			hint: "Pinned positions are used as given.",
-		});
-	}
-
 	const rank = { error: 0, warning: 1, info: 2 } as const;
 	const sorted = diagnostics
 		.map((diagnostic, index) => ({ diagnostic, index }))
@@ -252,9 +293,26 @@ function resolveYaw(
 	support: Placement | undefined,
 	centerOf: (id: string) => Vec2 | undefined,
 	diagnostics: SceneDiagnostic[],
+	shapeOf: (id: string) => Footprint | undefined = () => undefined,
 ): number {
 	const front = axisAngle(object.front);
 	const own = centerOf(object.id);
+	// Face the nearest point of an object (the side of a long table, not
+	// its middle); its center when standing over it.
+	const nearestPoint = (id: string): Vec2 | undefined => {
+		const shape = shapeOf(id);
+		if (shape === undefined || own === undefined) return centerOf(id);
+		const local = sub(own, shape.center);
+		const u = clamp(dot(local, shape.axisX), shape.halfX);
+		const v = clamp(dot(local, shape.axisY), shape.halfY);
+		const point = {
+			x: shape.center.x + shape.axisX.x * u + shape.axisY.x * v,
+			y: shape.center.y + shape.axisX.y * u + shape.axisY.y * v,
+		};
+		return Math.hypot(point.x - own.x, point.y - own.y) < TOLERANCE
+			? shape.center
+			: point;
+	};
 	const facingYaw = (target: Vec2 | undefined): number | undefined => {
 		if (own === undefined || target === undefined) return undefined;
 		const dx = target.x - own.x;
@@ -281,7 +339,7 @@ function resolveYaw(
 			const yaw =
 				"direction" in relation.target
 					? normalizeDegrees(COMPASS[relation.target.direction] - front)
-					: facingYaw(centerOf(relation.target.object));
+					: facingYaw(nearestPoint(relation.target.object));
 			if (yaw === undefined) {
 				if ("object" in relation.target) {
 					diagnostics.push({
@@ -520,6 +578,10 @@ function aabb(item: Placement): {
 		min: [item.center.x - ex, item.center.y - ey, item.z],
 		max: [item.center.x + ex, item.center.y + ey, item.z + item.object.size[2]],
 	};
+}
+
+function clamp(value: number, half: number): number {
+	return Math.max(-half, Math.min(half, value));
 }
 
 function angleGap(a: number, b: number): number {

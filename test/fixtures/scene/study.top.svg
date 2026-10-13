@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="496" height="596" viewBox="0 0 496 596" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M98 548V48M148 548V48M198 548V48M248 548V48M298 548V48M348 548V48M398 548V48M48 498H448M48 448H448M48 398H448M48 348H448M48 298H448M48 248H448M48 198H448M48 148H448M48 98H448" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="400" height="500" fill="none" stroke="#334155" stroke-width="2"/>
+<text x="48" y="564" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="148" y="564" font-size="10" fill="#64748b" text-anchor="middle">1</text>
+<text x="248" y="564" font-size="10" fill="#64748b" text-anchor="middle">2</text>
+<text x="348" y="564" font-size="10" fill="#64748b" text-anchor="middle">3</text>
+<text x="448" y="564" font-size="10" fill="#64748b" text-anchor="middle">4</text>
+<text x="40" y="551" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="451" font-size="10" fill="#64748b" text-anchor="end">1</text>
+<text x="40" y="351" font-size="10" fill="#64748b" text-anchor="end">2</text>
+<text x="40" y="251" font-size="10" fill="#64748b" text-anchor="end">3</text>
+<text x="40" y="151" font-size="10" fill="#64748b" text-anchor="end">4</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">5</text>
+<path d="M472 14l-5 12h10z" fill="#334155"/>
+<text x="472" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="178,118 318,118 318,48 178,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="248,125 253,118 243,118" fill="#1e3a8a"/>
+<polygon points="273,128 223,128 223,178 273,178" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="248,121 243,128 253,128" fill="#1e3a8a"/>
+<polygon points="188,358 308,358 308,238 188,238" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="248,365 253,358 243,358" fill="#1e3a8a"/>
+<polygon points="270.5,365.5 225.5,365.5 225.5,410.5 270.5,410.5" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="248,358.5 243,365.5 253,365.5" fill="#1e3a8a"/>
+<polygon points="315.5,275.5 315.5,320.5 360.5,320.5 360.5,275.5" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="308.5,298 315.5,303 315.5,293" fill="#1e3a8a"/>
+<polygon points="225.5,230.5 270.5,230.5 270.5,185.5 225.5,185.5" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="248,237.5 253,230.5 243,230.5" fill="#1e3a8a"/>
+<polygon points="180.5,320.5 180.5,275.5 135.5,275.5 135.5,320.5" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="187.5,298 180.5,293 180.5,303" fill="#1e3a8a"/>
+<polygon points="298,68 318,68 318,48 298,48" fill="#fde68a" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="308,75 313,68 303,68" fill="#1e3a8a"/>
+<text x="248" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk</text>
+<text x="248" y="157" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">chair</text>
+<text x="248" y="302" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">table</text>
+<text x="248" y="392" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">seat1</text>
+<text x="338" y="302" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">seat2</text>
+<text x="248" y="212" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">seat3</text>
+<text x="158" y="302" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">seat4</text>
+<text x="308" y="62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp</text>
+</svg>

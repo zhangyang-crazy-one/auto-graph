@@ -1,0 +1,18 @@
+# The #119 study: relations only, no coordinates.
+scene: study
+units: m
+bounds: { width: 4, depth: 5, height: 2.8 }
+minGap: 0.05
+objects:
+  desk:  { size: [1.4, 0.7, 0.75], front: -y }
+  chair: { size: [0.5, 0.5, 0.9],  front: -y }
+  lamp:  { size: [0.2, 0.2, 0.5] }
+  table: { size: [1.2, 1.2, 0.75] }
+  seat:  { size: [0.45, 0.45, 0.9], front: -y, count: 4 }
+relations:
+  - desk against wall north
+  - chair in-front-of desk, facing desk, gap 0.1
+  - lamp on desk, at right-back
+  - table center-of room
+  - seat around table, radius 0.9, evenly
+  - keep clear 0.8 between desk and table
