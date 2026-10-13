@@ -1,0 +1,22 @@
+view: sequence
+title: 用户登录
+participants:
+  user: { label: 用户, type: actor }
+  web: Web 前端
+  auth: 认证服务
+  db: { label: 用户库, type: database }
+messages:
+  - user -> web: 输入账号密码
+  - web -> auth: POST /login
+  - auth -> db: 查询用户
+  - db --> auth: 用户记录
+  - alt: 密码正确
+    messages:
+      - auth -> auth: 签发 JWT
+      - auth --> web: 200 + token
+    else:
+      - guard: 密码错误
+        messages:
+          - auth --> web: 401
+          - note right of web: 连续失败 5 次锁定账号
+  - web ->> user: 显示结果

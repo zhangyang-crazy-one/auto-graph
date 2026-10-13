@@ -1,0 +1,25 @@
+view: architecture
+boundary: Emergency knowledge platform
+layers:
+  - label: Access
+    components:
+      mini: Mini program
+      web: Web console
+  - label: Application
+    components:
+      qa: Q&A
+      report: Field reports
+  - label: Data
+    components:
+      kb: { label: Knowledge base, kind: database }
+columns:
+  right:
+    - label: Operations
+      components:
+        auth: Identity
+        perm: Permissions
+        audit: Audit
+links:
+  - mini -> qa: ask
+  - web -> report
+  - qa, report -> kb

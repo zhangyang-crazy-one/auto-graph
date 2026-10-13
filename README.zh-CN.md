@@ -8,33 +8,13 @@
 
 它为大模型、编码 Agent 和 CI 流水线而设计：不用手调 x/y，不依赖渲染器反馈，也不需要“看图再挪一挪”。同样的输入，永远得到逐字节相同的输出。
 
-<p align="center">
-  <img src="docs/images/architecture.svg" alt="auto-graph 绘制的分层架构图" width="48%">
-  &nbsp;
-  <img src="docs/images/swimlane.svg" alt="auto-graph 绘制的泳道流程图" width="48%">
-</p>
-<p align="center">
-  <img src="docs/images/sequence.svg" alt="auto-graph 绘制的时序图" width="72%">
-</p>
-<p align="center"><sub>上面每张图都是 <a href="examples/views"><code>examples/views/</code></a> 里一个约 20 行文件的 SVG 输出。</sub></p>
+## 一眼看懂
 
-## 核心特点
+左边是十几行内容描述，右边就是 auto-graph 根据它画出的图，未经任何手工调整。
 
-- **只写内容，不画图。** 内置七种视图：流程图、泳道图、分层架构图、系统上下文图、状态机、树形图、时序图。你只需写图的内容，这类图的画法规范由视图负责。写错了会得到带修改建议的诊断，例如 `Unknown node "reveiw". Did you mean "review"?`。
-- **确定性输出。** 同样的输入，逐字节相同的输出。图可以做快照测试、在代码评审里比对差异，Agent 反复生成也不会漂移。把上一版结果传回去，一处小修改在图上也只是一处小变化。
-- **文字安全，中文友好。** 所有标签都在布局前测量：默认用 Pretext，传入实际字体时按真实字体精确测量。折行遵守避头尾规则，文字绝不溢出图形。像 `订单服务（FUN-144）` 这样中英混排的标签，断行位置和排版软件一致。
-- **线路清爽易读。** 全局分层布局配合通道走线，再经过一轮整理：去掉多余的拐弯，让并行的线保持间距，让每个标签贴着自己的线。在 90 张随机图加全部示例上，“读起来像一条断线”的情况从 138 处降到 1 处，近距离并行从 88 处降到 2 处，标签离别的线更近从 74 处降到 8 处，并由属性测试持续守住。
-- **懂图表的语义。** 架构图的各层横向拉通到同一宽度，横切能力以竖列贯穿各层；泳道之间的交接直接横穿泳道；时序图有专门的求解器（激活条、组合片段、备注、创建与销毁），画出来天然就是合法的 UML。
-- **处处可编辑。** SVG 用于文档；draw.io 输出原生可编辑的图形，时序图的生命线就是真正的 `umlLifeline`；还有 Excalidraw，以及带版本号的 JSON 几何契约，任何渲染器用约 100 行循环就能画出来。
-- **为 Agent 而生。** 可以把图适配到 A4 或幻灯片，得到一份 Agent 报告：结论、定位到原文的问题和具体建议（比如“拆成几页”“换个方向试试”），以及一组质量指标，用数字代替截图。
-
-## 快速上手
-
-```bash
-npm install @crazyhappyone/auto-graph
-```
-
-写下这张图要表达的内容：
+<table>
+<tr>
+<td width="50%">
 
 ```yaml
 # order.yaml
@@ -54,7 +34,33 @@ flow:
   - pay -> ship -> receive
 ```
 
-画出来：
+</td>
+<td>
+
+<img src="docs/images/swimlane.zh.svg" alt="auto-graph 根据左侧内容画出的泳道图" width="100%">
+
+</td>
+</tr>
+</table>
+
+## 核心特点
+
+- **只写内容，不画图。** 内置七种视图：流程图、泳道图、分层架构图、系统上下文图、状态机、树形图、时序图。你只需写图的内容，这类图的画法规范由视图负责。写错了会得到带修改建议的诊断，例如 `Unknown node "reveiw". Did you mean "review"?`。
+- **确定性输出。** 同样的输入，逐字节相同的输出。图可以做快照测试、在代码评审里比对差异，Agent 反复生成也不会漂移。把上一版结果传回去，一处小修改在图上也只是一处小变化。
+- **文字安全，中文友好。** 所有标签都在布局前测量：默认用 Pretext，传入实际字体时按真实字体精确测量。折行遵守避头尾规则，文字绝不溢出图形。像 `订单服务（FUN-144）` 这样中英混排的标签，断行位置和排版软件一致。
+- **线路清爽易读。** 全局分层布局配合通道走线，再经过一轮整理：去掉多余的拐弯，让并行的线保持间距，让每个标签贴着自己的线。在 90 张随机图加全部示例上，“读起来像一条断线”的情况从 138 处降到 1 处，近距离并行从 88 处降到 2 处，标签离别的线更近从 74 处降到 8 处，并由属性测试持续守住。
+- **懂图表的语义。** 架构图的各层横向拉通到同一宽度，横切能力以竖列贯穿各层；泳道之间的交接直接横穿泳道；时序图有专门的求解器（激活条、组合片段、备注、创建与销毁），画出来天然就是合法的 UML。
+- **处处可编辑。** SVG 用于文档；draw.io 输出原生可编辑的图形，时序图的生命线就是真正的 `umlLifeline`；还有 Excalidraw，以及带版本号的 JSON 几何契约，任何渲染器用约 100 行循环就能画出来。
+- **为 Agent 而生。** 可以把图适配到 A4 或幻灯片，得到一份 Agent 报告：结论、定位到原文的问题和具体建议（比如“拆成几页”“换个方向试试”），以及一组质量指标，用数字代替截图。
+
+## 快速上手
+
+```bash
+npm install @crazyhappyone/auto-graph
+```
+
+
+把[一眼看懂](#一眼看懂)里的泳道图保存为 `order.yaml`，然后画出来：
 
 ```bash
 npx agh --input order.yaml --output order.svg                         # SVG
@@ -107,27 +113,56 @@ agh --input order.yaml --expand     # 查看视图展开后的完整 DSL，便�
 
 各层横向拉通到同一宽度，和手工画架构图的习惯一致。服务于所有层的能力（安全、运维）放在侧边的竖列里，贯穿全部各层；`boundary` 给整个系统加上外框：
 
+<table>
+<tr>
+<td width="50%">
+
 ```yaml
 view: architecture
 boundary: 应急知识治理与现场协同平台
 layers:
-  - { label: 接入层, components: { mini: 微信小程序, web: Web 管理端 } }
-  - { label: 应用层, components: { qa: 知识问答, report: 现场报送 } }
-  - { label: 数据层, components: { kb: { label: 知识库, kind: database } } }
+  - label: 接入层
+    components:
+      mini: 微信小程序
+      web: Web 管理端
+  - label: 应用层
+    components:
+      qa: 知识问答
+      report: 现场报送
+  - label: 数据层
+    components:
+      kb: { label: 知识库, kind: database }
 columns:
   right:
-    - { label: 运行支撑, components: { auth: 身份核验, audit: 安全审计 } }
+    - label: 运行支撑
+      components:
+        auth: 身份核验
+        perm: 分级权限
+        audit: 安全审计
 links:
   - mini -> qa: 现场提问
   - web -> report
   - qa, report -> kb
 ```
 
+</td>
+<td>
+
+<img src="docs/images/architecture.zh.svg" alt="auto-graph 根据左侧内容画出的架构图" width="100%">
+
+</td>
+</tr>
+</table>
+
 底层对应 DSL 的“分组条带”：`direction: vertical` 的分组把成员按同一宽度纵向堆叠，`horizontal` 则按同一高度横向并排；`frame: false` 让分组只作布局容器，不会被画出来。
 
 ### 时序图
 
 时序图有专门的求解器：参与者横向排开，每人一条生命线，消息按书写顺序自上而下排列。消息水平且有序，激活条从调用开始、在返回时结束，组合片段正确嵌套，生命线之间的间距刚好容得下其间的标签、自调用、备注和片段边框。
+
+<table>
+<tr>
+<td width="50%">
 
 ```yaml
 view: sequence
@@ -153,6 +188,15 @@ messages:
           - note right of web: 连续失败 5 次锁定账号
   - web ->> user: 显示结果
 ```
+
+</td>
+<td>
+
+<img src="docs/images/sequence.zh.svg" alt="auto-graph 根据左侧内容画出的时序图" width="100%">
+
+</td>
+</tr>
+</table>
 
 | 写法 | 画出 |
 | --- | --- |

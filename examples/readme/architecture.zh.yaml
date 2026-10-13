@@ -1,0 +1,25 @@
+view: architecture
+boundary: 应急知识治理与现场协同平台
+layers:
+  - label: 接入层
+    components:
+      mini: 微信小程序
+      web: Web 管理端
+  - label: 应用层
+    components:
+      qa: 知识问答
+      report: 现场报送
+  - label: 数据层
+    components:
+      kb: { label: 知识库, kind: database }
+columns:
+  right:
+    - label: 运行支撑
+      components:
+        auth: 身份核验
+        perm: 分级权限
+        audit: 安全审计
+links:
+  - mini -> qa: 现场提问
+  - web -> report
+  - qa, report -> kb

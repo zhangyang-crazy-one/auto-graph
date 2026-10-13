@@ -1,0 +1,22 @@
+view: sequence
+title: Sign in
+participants:
+  user: { label: User, type: actor }
+  web: Web app
+  auth: Auth service
+  db: { label: User store, type: database }
+messages:
+  - user -> web: enter credentials
+  - web -> auth: POST /login
+  - auth -> db: find user
+  - db --> auth: user record
+  - alt: password correct
+    messages:
+      - auth -> auth: sign JWT
+      - auth --> web: 200 + token
+    else:
+      - guard: password wrong
+        messages:
+          - auth --> web: 401
+          - note right of web: lock after 5 failures
+  - web ->> user: show result

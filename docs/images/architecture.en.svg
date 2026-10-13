@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="-39 -123 516.6 608">
+  <rect class="background" x="-39" y="-123" width="516.6" height="608" fill="#ffffff"/>
+  <rect class="group" data-id="architecture" x="-32" y="-116" width="502.6" height="594" fill="#f9fafb" stroke="#374151" stroke-dasharray="6 4"/>
+  <rect class="group" data-id="right1" x="314.36" y="-58" width="140.24" height="520" fill="#f9fafb" stroke="#374151" stroke-dasharray="6 4"/>
+  <rect class="group" data-id="layer1" x="-16" y="-58" width="306.36" height="116" fill="#f9fafb" stroke="#374151" stroke-dasharray="6 4"/>
+  <rect class="group" data-id="layer2" x="-16" y="138" width="306.36" height="116" fill="#f9fafb" stroke="#374151" stroke-dasharray="6 4"/>
+  <rect class="group" data-id="layer3" x="-16" y="334" width="306.36" height="128" fill="#f9fafb" stroke="#374151" stroke-dasharray="6 4"/>
+  <path class="edge" data-id="mini-qa" d="M 66.44 42 L 66.44 186" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="mini-qa" points="66.44,196 62.44,186 70.44,186" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="qa-kb" d="M 66.44 238 L 66.44 315 L 131.09 315 L 131.09 382.064" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="qa-kb" points="131.09,392.064 127.09,382.064 135.09,382.064" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="report-kb" d="M 209.34 238 L 209.34 315 L 145.09 315 L 145.09 382.064" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="report-kb" points="145.09,392.064 141.09,382.064 149.09,382.064" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="web-report" d="M 209.34 42 L 209.34 186" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="web-report" points="209.34,196 205.34,186 213.34,186" fill="#111827" stroke="#111827"/>
+  <rect class="node node-rectangle" data-id="audit" fill="#f8fafc" stroke="#374151" x="344.48" y="404" width="80" height="42"/>
+  <rect class="node node-rectangle" data-id="auth" fill="#f8fafc" stroke="#374151" x="344.48" y="0" width="80" height="42"/>
+  <path class="node node-cylinder" data-id="kb" fill="#f8fafc" stroke="#374151" d="M 70.33 404 A 67.765 12 0 0 1 205.86 404 L 205.86 434 A 67.765 12 0 0 1 70.33 434 Z M 70.33 404 A 67.765 12 0 0 0 205.86 404 M 70.33 434 A 67.765 12 0 0 0 205.86 434 M 138.095 392"/>
+  <rect class="node node-rectangle" data-id="mini" fill="#f8fafc" stroke="#374151" x="0" y="0" width="113.69" height="42"/>
+  <rect class="node node-rectangle" data-id="perm" fill="#f8fafc" stroke="#374151" x="330.36" y="202" width="108.24" height="42"/>
+  <rect class="node node-rectangle" data-id="qa" fill="#f8fafc" stroke="#374151" x="26.44" y="196" width="80" height="42"/>
+  <rect class="node node-rectangle" data-id="report" fill="#f8fafc" stroke="#374151" x="154.44" y="196" width="109.8" height="42"/>
+  <rect class="node node-rectangle" data-id="web" fill="#f8fafc" stroke="#374151" x="161.69" y="0" width="112.67" height="42"/>
+  <rect class="label-backdrop" data-for="architecture" data-text-surface="group-label" x="-19" y="-105" width="202.1" height="20" rx="2" fill="#ffffff"/>
+  <text class="label" data-for="architecture" data-text-surface="group-label" data-owner-id="architecture" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="82.05" y="-95">Emergency knowledge platform</text>
+  <rect class="label-backdrop" data-for="layer1" data-text-surface="group-label" x="-3" y="-47" width="51.12" height="20" rx="2" fill="#ffffff"/>
+  <text class="label" data-for="layer1" data-text-surface="group-label" data-owner-id="layer1" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="24" y="-37">Access</text>
+  <rect class="label-backdrop" data-for="layer2" data-text-surface="group-label" x="-3" y="149" width="74.49" height="20" rx="2" fill="#ffffff"/>
+  <text class="label" data-for="layer2" data-text-surface="group-label" data-owner-id="layer2" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="34.245" y="159">Application</text>
+  <rect class="label-backdrop" data-for="layer3" data-text-surface="group-label" x="-3" y="345" width="35.57" height="20" rx="2" fill="#ffffff"/>
+  <text class="label" data-for="layer3" data-text-surface="group-label" data-owner-id="layer3" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="24" y="355">Data</text>
+  <rect class="label-backdrop" data-for="right1" data-text-surface="group-label" x="327.36" y="-47" width="74.48" height="20" rx="2" fill="#ffffff"/>
+  <text class="label" data-for="right1" data-text-surface="group-label" data-owner-id="right1" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="364.6" y="-37">Operations</text>
+  <text class="label" data-for="audit" data-text-surface="node-label" data-owner-id="audit" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="384.48" y="425">Audit</text>
+  <text class="label" data-for="auth" data-text-surface="node-label" data-owner-id="auth" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="384.48" y="21">Identity</text>
+  <text class="label" data-for="kb" data-text-surface="node-label" data-owner-id="kb" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="138.095" y="425">Knowledge base</text>
+  <text class="label" data-for="mini" data-text-surface="node-label" data-owner-id="mini" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="56.845" y="21">Mini program</text>
+  <text class="label" data-for="perm" data-text-surface="node-label" data-owner-id="perm" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="384.48" y="223">Permissions</text>
+  <text class="label" data-for="qa" data-text-surface="node-label" data-owner-id="qa" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="66.44" y="217">Q&amp;A</text>
+  <text class="label" data-for="report" data-text-surface="node-label" data-owner-id="report" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="209.34" y="217">Field reports</text>
+  <text class="label" data-for="web" data-text-surface="node-label" data-owner-id="web" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="218.025" y="21">Web console</text>
+  <rect class="label-backdrop" data-for="mini-qa" data-text-surface="edge-label" x="36.105" y="111" width="24.67" height="16" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="mini-qa" data-text-surface="edge-label" data-owner-id="mini-qa" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="12" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="48.44" y="119">ask</text>
+</svg>
