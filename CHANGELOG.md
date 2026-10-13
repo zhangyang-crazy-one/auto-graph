@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### 3D scene DSL and IR (#119, phase 1a)
+
+- New `src/scene/`: a `scene:` document (room `bounds`, `objects` with
+  `size [w, d, h]` and `front`, relation strings) is validated and turned
+  into the scene IR by `parseSceneDsl` / `normalizeSceneDsl`. Nothing is
+  solved yet; the diagram DSL is unchanged.
+- Frame: x east, y north, z up, origin at the room's south-west floor
+  corner; lengths in meters (`units: cm|mm` and `10cm`-style values are
+  converted). Default front is `-y`; left and right are as seen facing
+  the reference's front.
+- Relations: `in-front-of`/`behind`/`left-of`/`right-of` (`gap`,
+  `distance`), `against wall`, `corner`, `center-of`, `on … at <spot>`,
+  `facing`, `rotate`, `align`, `distribute`, `grid RxC`, `around …
+  radius` (polar, faces the center by default), `symmetric about`,
+  `keep clear … between`. Clauses follow the verb after commas;
+  `a and b` and `count` groups are subjects.
+- `count: 4` on `seat` makes `seat1` … `seat4` (a group id ending in a
+  digit gets `-1` …). Errors point at `objects.<id>` or `relations[i]`
+  with the relation text, and suggest the nearest object or verb.
+
 ### Page split partition: linear memory, a work budget, shared preparation (#106)
 
 - The partition no longer builds a U² cut table: cut counts are computed
