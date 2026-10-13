@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="-7 -7 505.08 507.6">
+  <title>用户登录</title>
+  <rect class="background" x="-7" y="-7" width="505.08" height="507.6" fill="#ffffff"/>
+  <line class="sequence-lifeline" data-for="user" x1="18" y1="56" x2="18" y2="493.6" stroke="#6b7280" stroke-dasharray="5 4"/>
+  <line class="sequence-lifeline" data-for="web" x1="127" y1="56" x2="127" y2="493.6" stroke="#6b7280" stroke-dasharray="5 4"/>
+  <line class="sequence-lifeline" data-for="auth" x1="314.89" y1="56" x2="314.89" y2="493.6" stroke="#6b7280" stroke-dasharray="5 4"/>
+  <line class="sequence-lifeline" data-for="db" x1="451.08" y1="56" x2="451.08" y2="493.6" stroke="#6b7280" stroke-dasharray="5 4"/>
+  <rect class="sequence-activation" data-for="web" data-depth="0" x="122" y="94.8" width="10" height="214.4" fill="#f3f4f6" stroke="#374151"/>
+  <rect class="sequence-activation" data-for="auth" data-depth="0" x="309.89" y="126.8" width="10" height="182.4" fill="#f3f4f6" stroke="#374151"/>
+  <rect class="sequence-activation" data-for="db" data-depth="0" x="446.08" y="161.6" width="10" height="34.8" fill="#f3f4f6" stroke="#374151"/>
+  <rect class="sequence-activation" data-for="auth" data-depth="1" x="314.89" y="261.2" width="10" height="16" fill="#f3f4f6" stroke="#374151"/>
+  <rect class="sequence-activation" data-for="auth" data-depth="0" x="309.89" y="323.2" width="10" height="46.8" fill="#f3f4f6" stroke="#374151"/>
+  <rect class="sequence-fragment" data-id="fragment-1" data-kind="alt" x="110" y="210.4" width="324.08" height="216.4" fill="none" stroke="#374151"/>
+  <polygon class="sequence-fragment-tag" data-for="fragment-1" points="110,210.4 139.62,210.4 139.62,223.4 133.62,229.4 110,229.4" fill="#ffffff" stroke="#374151"/>
+  <line class="sequence-operand-separator" data-for="fragment-1" x1="110" y1="323.2" x2="434.08" y2="323.2" stroke="#374151" stroke-dasharray="5 4"/>
+  <path class="edge" data-id="m1" d="M 18 94.8 L 112 94.8" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="m1" points="122,94.8 112,98.8 112,90.8" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="m2" d="M 132 126.8 L 299.89 126.8" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="m2" points="309.89,126.8 299.89,130.8 299.89,122.8" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="m3" d="M 319.89 161.6 L 436.08 161.6" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="m3" points="446.08,161.6 436.08,165.6 436.08,157.6" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="m4" d="M 446.08 196.4 L 319.89 196.4" fill="none" stroke="#111827" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <polyline class="edge-arrowhead" data-edge="m4" points="329.89,192.4 319.89,196.4 329.89,200.4" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <path class="edge" data-id="m5" d="M 319.89 245.2 L 354.89 245.2 L 354.89 263.2 L 334.89 263.2" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="m5" points="324.89,263.2 334.89,259.2 334.89,267.2" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="m6" d="M 309.89 309.2 L 132 309.2" fill="none" stroke="#111827" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <polyline class="edge-arrowhead" data-edge="m6" points="142,305.2 132,309.2 142,313.2" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <path class="edge" data-id="m7" d="M 309.89 370 L 127 370" fill="none" stroke="#111827" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <polyline class="edge-arrowhead" data-edge="m7" points="137,366 127,370 137,374" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <path class="edge" data-id="m8" d="M 127 461.6 L 18 461.6" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polyline class="edge-arrowhead" data-edge="m8" points="28,457.6 18,461.6 28,465.6" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <path class="sequence-note" data-id="note-1" d="M 137 384 L 289.89 384 L 297.89 392 L 297.89 412.8 L 137 412.8 Z M 289.89 384 L 289.89 392 L 297.89 392" fill="#fffbeb" stroke="#b45309"/>
+  <g class="node node-actor" data-id="user" fill="none" stroke="#374151" stroke-width="1.5">
+  <circle cx="18" cy="7" r="6" fill="#ffffff"/>
+  <path d="M 18 13 L 18 25 M 8 17 L 28 17 M 18 25 L 9 34 M 18 25 L 27 34"/>
+</g>
+  <rect class="node node-rectangle" data-id="web" fill="#f8fafc" stroke="#374151" x="80.79" y="0" width="92.42" height="56"/>
+  <rect class="node node-rectangle" data-id="auth" fill="#f8fafc" stroke="#374151" x="270.89" y="0" width="88" height="56"/>
+  <path class="node node-cylinder" data-id="db" fill="#f8fafc" stroke="#374151" d="M 411.08 12 A 40 12 0 0 1 491.08 12 L 491.08 44 A 40 12 0 0 1 411.08 44 Z M 411.08 12 A 40 12 0 0 0 491.08 12 M 411.08 44 A 40 12 0 0 0 491.08 44 M 451.08 0"/>
+  <text class="label" data-for="user" data-text-surface="node-label" data-owner-id="user" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="18" y="47">用户</text>
+  <text class="label" data-for="web" data-text-surface="node-label" data-owner-id="web" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="127" y="28">Web 前端</text>
+  <text class="label" data-for="auth" data-text-surface="node-label" data-owner-id="auth" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="314.89" y="28">认证服务</text>
+  <text class="label" data-for="db" data-text-surface="node-label" data-owner-id="db" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="451.08" y="35">用户库</text>
+  <rect class="label-backdrop" data-for="m1" data-text-surface="edge-label" x="25" y="73" width="90" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m1" data-text-surface="edge-label" data-owner-id="m1" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="70" y="82.4">输入账号密码</text>
+  <rect class="label-backdrop" data-for="m2" data-text-surface="edge-label" x="185.605" y="107.8" width="70.68" height="16" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m2" data-text-surface="edge-label" data-owner-id="m2" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="12" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="220.945" y="115.8">POST /login</text>
+  <rect class="label-backdrop" data-for="m3" data-text-surface="edge-label" x="351.985" y="139.8" width="62" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m3" data-text-surface="edge-label" data-owner-id="m3" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="382.985" y="149.2">查询用户</text>
+  <rect class="label-backdrop" data-for="m4" data-text-surface="edge-label" x="351.985" y="174.6" width="62" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m4" data-text-surface="edge-label" data-owner-id="m4" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="382.985" y="184">用户记录</text>
+  <rect class="label-backdrop" data-for="m5" data-text-surface="edge-label" x="357.89" y="244.8" width="67.189" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m5" data-text-surface="edge-label" data-owner-id="m5" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="391.484" y="254.2">签发 JWT</text>
+  <rect class="label-backdrop" data-for="m6" data-text-surface="edge-label" x="186.42" y="290.2" width="69.05" height="16" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m6" data-text-surface="edge-label" data-owner-id="m6" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="12" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="220.945" y="298.2">200 + token</text>
+  <rect class="label-backdrop" data-for="m7" data-text-surface="edge-label" x="205.435" y="351" width="26.02" height="16" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m7" data-text-surface="edge-label" data-owner-id="m7" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="12" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="218.445" y="359">401</text>
+  <rect class="label-backdrop" data-for="m8" data-text-surface="edge-label" x="41.5" y="439.8" width="62" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="m8" data-text-surface="edge-label" data-owner-id="m8" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="72.5" y="449.2">显示结果</text>
+  <text class="sequence-note" data-for="note-1" data-text-surface="sequence-note" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827">
+    <tspan x="147" y="403.44">连续失败 5 次锁定账号</tspan>
+  </text>
+  <text class="fragment-tag" data-for="fragment-1" data-text-surface="fragment-tag" data-text-backend="pretext" font-family="Arial, sans-serif" font-size="11" fill="#111827">
+    <tspan x="116" y="223.8">alt</tspan>
+  </text>
+  <text class="fragment-guard" data-for="fragment-1" data-text-surface="fragment-guard" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827">
+    <tspan x="147.62" y="224.94">[密码正确]</tspan>
+  </text>
+  <text class="fragment-guard" data-for="fragment-1" data-text-surface="fragment-guard" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827">
+    <tspan x="122" y="340.64">[密码错误]</tspan>
+  </text>
+</svg>
