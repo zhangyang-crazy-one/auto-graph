@@ -178,8 +178,9 @@ export interface PageFit {
 	/** Every layout tried, best first. */
 	candidates: PageCandidate[];
 	/**
-	 * Pages the diagram was split into (`pageSplit: auto`) because one
-	 * page was unreadable; scale and fontPx are then the smallest page's.
+	 * Pages the diagram was split into (`pageSplit: auto`), because one
+	 * page was unreadable or because it stayed over capacity; scale and
+	 * fontPx are then the smallest page's.
 	 */
 	pageCount?: number;
 }
@@ -207,6 +208,7 @@ export function solveForPage(
 	const tried: {
 		solved: CoordinatedDiagram;
 		candidate: PageCandidate;
+		fontPx: number;
 		fill: number;
 		order: number;
 	}[] = [];
@@ -223,20 +225,36 @@ export function solveForPage(
 				...base,
 				targetAspectRatio: availableWidth / availableHeight,
 			});
-			const { width, height } = solved.bounds;
-			const scale = Math.min(
-				availableWidth / Math.max(1, width),
-				availableHeight / Math.max(1, height),
+			// A diagram already split into pages (pageSplit for conflicts) is
+			// as readable as its worst page, each fitted on its own.
+			const pages = solved.pages ?? [solved];
+			const scales = pages.map((page) =>
+				Math.min(
+					availableWidth / Math.max(1, page.bounds.width),
+					availableHeight / Math.max(1, page.bounds.height),
+				),
 			);
-			const shown = Math.min(1, scale);
+			const shown = Math.min(1, ...scales);
+			const fontPx = Math.min(
+				...pages.map(
+					(page, index) =>
+						medianLabelFont(page) * Math.min(1, scales[index] ?? 1),
+				),
+			);
+			const { width, height } = solved.bounds;
 			tried.push({
 				solved,
 				candidate: {
 					orientation,
 					direction,
 					scale: round(shown),
-					crossings: detectOrthogonalEdgeCrossings(solved.edges).length,
+					crossings: pages.reduce(
+						(sum, page) =>
+							sum + detectOrthogonalEdgeCrossings(page.edges).length,
+						0,
+					),
 				},
+				fontPx,
 				fill: (width * height * shown * shown) / (size.width * size.height),
 				order: tried.length,
 			});
@@ -256,7 +274,7 @@ export function solveForPage(
 	);
 	const best = tried[0] as (typeof tried)[number];
 	const size = oriented(page, best.candidate.orientation);
-	const fontPx = round(medianLabelFont(best.solved) * best.candidate.scale);
+	const fontPx = round(best.fontPx);
 	const fit: PageFit = {
 		...(page.name === undefined ? {} : { name: page.name }),
 		width: size.width,
@@ -269,6 +287,9 @@ export function solveForPage(
 		readable: fontPx >= MIN_READABLE_FONT_PX,
 		comfortable: fontPx >= COMFORTABLE_FONT_PX,
 		candidates: tried.map((entry) => entry.candidate),
+		...(best.solved.pages === undefined
+			? {}
+			: { pageCount: best.solved.pages.length }),
 	};
 	if (
 		!fit.readable &&

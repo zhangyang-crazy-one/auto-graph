@@ -1031,3 +1031,36 @@ sequence:
 		expect(text?.box?.width ?? 0).toBeGreaterThan(200);
 	});
 });
+
+describe("activate / deactivate after other steps", () => {
+	// A divider or a note between a message and the command moves time on:
+	// the bar starts and ends where the command is written.
+	const sequence = sequenceOf(
+		solve(`
+nodes:
+  a: { label: A }
+  b: { label: B }
+sequence:
+  autoActivate: false
+  steps:
+    - { type: message, from: a, to: b, kind: async, text: first }
+    - { type: divider, text: Later phase }
+    - { type: activate, participant: b }
+    - { type: message, from: b, to: a, kind: async, text: second }
+    - { type: note, participants: [a], position: right, text: Still working }
+    - { type: deactivate, participant: b }
+`),
+	);
+
+	it("anchors to where the command is written", () => {
+		const bar = sequence.activations[0] as CoordinatedActivation;
+		const divider = sequence.dividers[0];
+		const note = sequence.notes[0];
+		expect(divider).toBeDefined();
+		expect(note).toBeDefined();
+		expect(bar.box.y).toBeGreaterThan(divider?.y ?? 0);
+		expect(bar.box.y + bar.box.height).toBeGreaterThanOrEqual(
+			(note?.box.y ?? 0) + (note?.box.height ?? 0),
+		);
+	});
+});

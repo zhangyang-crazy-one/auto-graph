@@ -81,7 +81,7 @@ export class PretextTextMeasurer implements TextMeasurer {
 		let result = layoutWithLines(internal, maxWidth, lineHeight);
 		if (
 			result.lines.some((line, index) =>
-				badBreak(line, result.lines[index + 1]),
+				badBreak(internal, line, result.lines[index + 1]),
 			)
 		) {
 			const lines = relayoutLines(internal, prepared.font, maxWidth);
@@ -132,13 +132,30 @@ const CLOSERS = new Set([..."）)]］】」』〉》”’。，、；：！？.
 /**
  * A break inside a Latin word or number ("(F" / "UN-144"), or before a
  * closing bracket or stop. Pretext merges an opening bracket with the word
- * after it into one CJK segment and then breaks that per character.
+ * after it into one CJK segment and then breaks that per character. A line
+ * the author ended (a hard break) is never a bad break.
  */
-function badBreak(line: LayoutLine, next: LayoutLine | undefined): boolean {
-	if (next === undefined) return false;
+function badBreak(
+	prepared: PreparedTextWithSegments,
+	line: LayoutLine,
+	next: LayoutLine | undefined,
+): boolean {
+	if (next === undefined || endsAtHardBreak(prepared, line)) return false;
 	const last = line.text.at(-1) ?? "";
 	const first = next.text[0] ?? "";
 	return (WORD_CHAR.test(last) && WORD_CHAR.test(first)) || CLOSERS.has(first);
+}
+
+/** Whether a line ends at an authored line break rather than for width. */
+function endsAtHardBreak(
+	prepared: PreparedTextWithSegments,
+	line: LayoutLine,
+): boolean {
+	const { kinds } = prepared as PreparedTextWithSegments & {
+		kinds?: readonly string[];
+	};
+	const { segmentIndex, graphemeIndex } = line.end;
+	return graphemeIndex === 0 && kinds?.[segmentIndex - 1] === "hard-break";
 }
 
 /** Where a bad break moves back to: before the line's last word. */
@@ -168,7 +185,7 @@ function relayoutLines(
 	let line = next(cursor, maxWidth);
 	while (line !== null) {
 		let following = next(line.end, maxWidth);
-		if (following !== null && badBreak(line, following)) {
+		if (following !== null && badBreak(prepared, line, following)) {
 			const keep = breakBefore(line.text);
 			if (keep > 0) {
 				const width =
