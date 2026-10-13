@@ -43,6 +43,7 @@
 		"build": "tsup",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
+		"docs:images": "node scripts/readme-images.mjs",
 		"bench:scale": "DGE_SCALE=1 vitest run test/scale --reporter=verbose",
 		"lint": "biome ci .",
 		"format": "biome check --write .",

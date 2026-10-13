@@ -1,0 +1,15 @@
+# order.yaml
+view: swimlane
+title: Order fulfilment
+lanes:
+  customer:
+    label: Customer
+    steps: { order: Place order, pay: Pay, receive: Receive }
+  shop:
+    label: Shop
+    steps: { check: In stock?, ship: Ship }
+flow:
+  - order -> check
+  - check -> pay: yes
+  - check -> order: no
+  - pay -> ship -> receive
