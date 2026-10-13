@@ -751,11 +751,13 @@ function solveOnePage(
 			...coordinatedNodes.map((node) => node.box),
 			...baseTextAnnotations.map(textAnnotationContentBox),
 			...frameTextAnnotation.map((annotation) => annotation.box),
+		],
+		options,
+		[
+			...groupTitleLabelGaps(baseTextAnnotations),
 			...laneBorderLabelObstacles(coordinatedSwimlanes),
 			...groupBorderLabelObstacles(coordinatedGroups),
 		],
-		options,
-		groupTitleLabelGaps(baseTextAnnotations),
 	);
 	const maxEdgeLabelReroutes = edgeLabelRerouteIterations(options);
 	let routeLabelFeedbackState: RouteLabelFeedbackState = {
@@ -881,11 +883,13 @@ function solveOnePage(
 					...coordinatedNodes.map((node) => node.box),
 					...baseTextAnnotations.map(textAnnotationContentBox),
 					...frameTextAnnotation.map((annotation) => annotation.box),
+				],
+				options,
+				[
+					...groupTitleLabelGaps(baseTextAnnotations),
 					...laneBorderLabelObstacles(coordinatedSwimlanes),
 					...groupBorderLabelObstacles(coordinatedGroups),
 				],
-				options,
-				groupTitleLabelGaps(baseTextAnnotations),
 			);
 			const candidateTextAnnotations = routeLabelFeedbackTextAnnotations(
 				baseTextAnnotations,
@@ -976,11 +980,13 @@ function solveOnePage(
 				...coordinatedNodes.map((node) => node.box),
 				...baseTextAnnotations.map(textAnnotationContentBox),
 				...frameTextAnnotation.map((annotation) => annotation.box),
+			],
+			options,
+			[
+				...groupTitleLabelGaps(baseTextAnnotations),
 				...laneBorderLabelObstacles(coordinatedSwimlanes),
 				...groupBorderLabelObstacles(coordinatedGroups),
 			],
-			options,
-			groupTitleLabelGaps(baseTextAnnotations),
 		);
 		const prunedRouteDiagnostics = [
 			...routeLabelFeedbackState.edgeRoutingDiagnostics,

@@ -529,6 +529,9 @@ export function routeLayeredEdges(
 	return routes;
 }
 
+/** Runs of two segments closer than this across the flow read as one. */
+const ALIGNED_RUNS = 6;
+
 /**
  * Tracks for the segments of one channel. Overlapping segments get
  * different tracks, ordered to cross fewer horizontal runs; returns the
@@ -554,13 +557,25 @@ function assignTracks(
 	const arcs: { from: number; to: number; weight: number }[] = [];
 	for (let i = 0; i < n; i += 1) {
 		for (let j = i + 1; j < n; j += 1) {
-			if ((lo[j] as number) > (hi[i] as number) + 1) continue;
-			if ((lo[i] as number) > (hi[j] as number) + 1) continue;
+			// Pairs whose spans come within ALIGNED_RUNS are ordered too: one
+			// segment's run may still line up with the other's.
+			if ((lo[j] as number) > (hi[i] as number) + ALIGNED_RUNS) continue;
+			if ((lo[i] as number) > (hi[j] as number) + ALIGNED_RUNS) continue;
 			const a = bending[i] as (typeof bending)[number];
 			const b = bending[j] as (typeof bending)[number];
-			// a on an earlier track (nearer the upper layer) than b.
-			const aFirst = Number(inside(b.upper, i)) + Number(inside(a.lower, j));
-			const bFirst = Number(inside(a.upper, j)) + Number(inside(b.lower, i));
+			// a on an earlier track (nearer the upper layer) than b. Then a's
+			// lower run (from its track on) and b's upper run (up to its
+			// track) share the stretch between the two tracks: when they sit
+			// on (nearly) one line they read as one, so that order costs
+			// more than any crossing.
+			const aFirst =
+				Number(inside(b.upper, i)) +
+				Number(inside(a.lower, j)) +
+				(Math.abs(a.lower - b.upper) < ALIGNED_RUNS ? n : 0);
+			const bFirst =
+				Number(inside(a.upper, j)) +
+				Number(inside(b.lower, i)) +
+				(Math.abs(b.lower - a.upper) < ALIGNED_RUNS ? n : 0);
 			if (aFirst <= bFirst) {
 				arcs.push({ from: i, to: j, weight: bFirst - aFirst });
 			} else {
