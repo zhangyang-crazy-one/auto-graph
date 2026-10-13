@@ -1,0 +1,219 @@
+import {
+	axisAngle,
+	corners,
+	direction,
+	footprint,
+	halfExtent,
+	type Vec2,
+} from "./geometry.js";
+import type { PlacedSceneObject, SolvedScene } from "./ir.js";
+
+export interface SceneTopViewOptions {
+	/** Pixels per meter (default 100). */
+	scale?: number;
+}
+
+const MARGIN = 48;
+const LEVEL_FILLS = ["#dbeafe", "#fde68a", "#fbcfe8", "#d9f99d"];
+const STROKE = "#1e3a8a";
+const FAULT = "#dc2626";
+const WARNING = "#b45309";
+/** Diagnostics that mark an object as wrong in the drawing. */
+const FAULT_CODES = new Set([
+	"scene.collision",
+	"scene.out-of-bounds",
+	"scene.above-ceiling",
+	"scene.support.unstable",
+	"scene.keep-clear",
+	"scene.yaw.conflict",
+]);
+
+/**
+ * A plan view of a solved scene for checking it by eye: the room with a
+ * 0.5 m grid (north up), every footprint filled by how high it is stacked,
+ * a triangle on each front, objects in a failed check outlined red, and
+ * the unplaced objects listed underneath.
+ */
+export function sceneTopViewSvg(
+	scene: SolvedScene,
+	options: SceneTopViewOptions = {},
+): string {
+	const scale = options.scale ?? 100;
+	const { width, depth } = scene.bounds;
+	const roomWidth = width * scale;
+	const roomDepth = depth * scale;
+	const notes = footerLines(scene);
+	const svgWidth = roomWidth + MARGIN * 2;
+	const svgHeight = roomDepth + MARGIN * 2 + notes.length * 16;
+	const px = (x: number) => fmt(MARGIN + x * scale);
+	const py = (y: number) => fmt(MARGIN + (depth - y) * scale);
+	const point = (p: Vec2) => `${px(p.x)},${py(p.y)}`;
+
+	const out: string[] = [
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgWidth)}" height="${fmt(svgHeight)}" viewBox="0 0 ${fmt(svgWidth)} ${fmt(svgHeight)}" font-family="sans-serif">`,
+		`<rect width="100%" height="100%" fill="#ffffff"/>`,
+	];
+
+	const grid: string[] = [];
+	for (let x = 0.5; x < width - 1e-9; x += 0.5) {
+		grid.push(`M${px(x)} ${py(0)}V${py(depth)}`);
+	}
+	for (let y = 0.5; y < depth - 1e-9; y += 0.5) {
+		grid.push(`M${px(0)} ${py(y)}H${px(width)}`);
+	}
+	if (grid.length > 0) {
+		out.push(
+			`<path d="${grid.join("")}" stroke="#e2e8f0" stroke-width="1" fill="none"/>`,
+		);
+	}
+	out.push(
+		`<rect x="${px(0)}" y="${py(depth)}" width="${fmt(roomWidth)}" height="${fmt(roomDepth)}" fill="none" stroke="#334155" stroke-width="2"/>`,
+	);
+	for (let x = 0; x <= width + 1e-9; x += 1) {
+		out.push(
+			`<text x="${px(x)}" y="${fmt(MARGIN + roomDepth + 16)}" font-size="10" fill="#64748b" text-anchor="middle">${fmt(x)}</text>`,
+		);
+	}
+	for (let y = 0; y <= depth + 1e-9; y += 1) {
+		out.push(
+			`<text x="${fmt(MARGIN - 8)}" y="${fmt(Number(py(y)) + 3)}" font-size="10" fill="#64748b" text-anchor="end">${fmt(y)}</text>`,
+		);
+	}
+	const nx = MARGIN + roomWidth + 24;
+	out.push(
+		`<path d="M${fmt(nx)} 14l-5 12h10z" fill="#334155"/>`,
+		`<text x="${fmt(nx)}" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>`,
+	);
+
+	const faulty = new Set(
+		scene.diagnostics
+			.filter((diagnostic) => FAULT_CODES.has(diagnostic.code))
+			.flatMap((diagnostic) => diagnostic.objects ?? []),
+	);
+	const level = stackLevels(scene.objects);
+	const drawOrder = scene.objects
+		.map((object, index) => ({ object, index }))
+		.sort(
+			(a, b) =>
+				a.object.position[2] - b.object.position[2] || a.index - b.index,
+		)
+		.map(({ object }) => object);
+	const labels: { text: string; x: number; y: number }[] = [];
+	for (const object of drawOrder) {
+		const shape = footprint(
+			{ x: object.position[0], y: object.position[1] },
+			object.size,
+			object.yaw,
+		);
+		const fault = faulty.has(object.id);
+		const fill = LEVEL_FILLS[(level.get(object.id) ?? 0) % LEVEL_FILLS.length];
+		out.push(
+			`<polygon points="${corners(shape).map(point).join(" ")}" fill="${fill}" fill-opacity="0.9" stroke="${fault ? FAULT : STROKE}" stroke-width="${fault ? 2.5 : 1.25}"${fault ? ' stroke-dasharray="6 3"' : ""}/>`,
+		);
+		const forward = direction(object.yaw + axisAngle(object.front));
+		const reach = halfExtent(shape, forward);
+		const edge = {
+			x: shape.center.x + forward.x * reach,
+			y: shape.center.y + forward.y * reach,
+		};
+		const tip = 7 / scale;
+		const wing = 5 / scale;
+		const side = { x: -forward.y, y: forward.x };
+		out.push(
+			`<polygon points="${[
+				{ x: edge.x + forward.x * tip, y: edge.y + forward.y * tip },
+				{ x: edge.x + side.x * wing, y: edge.y + side.y * wing },
+				{ x: edge.x - side.x * wing, y: edge.y - side.y * wing },
+			]
+				.map(point)
+				.join(" ")}" fill="${fault ? FAULT : STROKE}"/>`,
+		);
+		labels.push({
+			text: object.label ?? object.id,
+			x: Number(px(shape.center.x)),
+			y: Number(py(shape.center.y)) + 4,
+		});
+	}
+	// Labels go on top of every footprint; one that would cover an earlier
+	// label (a lamp centered on its desk) moves down a line.
+	const taken: { x: number; y: number; half: number }[] = [];
+	for (const label of labels) {
+		const half = label.text.length * 3.3 + 2;
+		let y = label.y;
+		while (
+			taken.some(
+				(other) =>
+					Math.abs(other.y - y) < 12 &&
+					Math.abs(other.x - label.x) < other.half + half,
+			)
+		) {
+			y += 13;
+		}
+		taken.push({ x: label.x, y, half });
+		out.push(
+			`<text x="${fmt(label.x)}" y="${fmt(y)}" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">${escapeXml(label.text)}</text>`,
+		);
+	}
+
+	notes.forEach((line, index) => {
+		out.push(
+			`<text x="${fmt(MARGIN)}" y="${fmt(MARGIN + roomDepth + 36 + index * 16)}" font-size="11" fill="${line.color}">${escapeXml(line.text)}</text>`,
+		);
+	});
+	out.push("</svg>");
+	return `${out.join("\n")}\n`;
+}
+
+function footerLines(scene: SolvedScene): { text: string; color: string }[] {
+	const lines: { text: string; color: string }[] = [];
+	for (const diagnostic of scene.diagnostics) {
+		if (diagnostic.severity === "error") {
+			lines.push({ text: `✗ ${diagnostic.message}`, color: FAULT });
+		} else if (diagnostic.severity === "warning") {
+			lines.push({ text: `! ${diagnostic.message}`, color: WARNING });
+		}
+	}
+	if (scene.unplaced.length > 0) {
+		lines.push({
+			text: `unplaced: ${scene.unplaced.join(", ")}`,
+			color: "#475569",
+		});
+	}
+	return lines;
+}
+
+/** 0 on the floor, 1 on something on the floor, and so on. */
+function stackLevels(
+	objects: readonly PlacedSceneObject[],
+): Map<string, number> {
+	const support = new Map(
+		objects.map((object) => [object.id, object.supportedBy]),
+	);
+	const levels = new Map<string, number>();
+	for (const object of objects) {
+		let count = 0;
+		const seen = new Set<string>();
+		for (
+			let at = object.supportedBy;
+			at !== undefined && !seen.has(at);
+			at = support.get(at)
+		) {
+			seen.add(at);
+			count += 1;
+		}
+		levels.set(object.id, count);
+	}
+	return levels;
+}
+
+function fmt(value: number): string {
+	const rounded = Math.round(value * 100) / 100;
+	return String(rounded === 0 ? 0 : rounded);
+}
+
+function escapeXml(text: string): string {
+	return text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}

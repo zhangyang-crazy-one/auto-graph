@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### 3D scene: supports, turns, collision checks and a top view (#119, phases 1b + 1d)
+
+- `solveScene(spec)` places what needs no planar layout yet: `on`
+  relations form a support forest (z = top of the support; loops and
+  second supports are reported), and a pinned `position: [x, y]` /
+  `yaw` or the `at` spot on a support gives the floor-plan position.
+  Objects it cannot place are listed in `unplaced`.
+- Turns: pinned `yaw`, `rotate` or `facing` (conflicting values are an
+  error); otherwise `around` faces the center, `against wall` turns the
+  back to the wall, and an object on a support turns with it.
+- Checks, with the geometry still returned and `valid: false` on any
+  error: interpenetration (separating-axis test on oriented footprints
+  times height intervals), past the walls or ceiling, center off its
+  support, `keep clear`; warnings for overhangs and `minGap`.
+- Output per object: `position [x, y, z]`, `yaw`, `quaternion`, `size`,
+  `supportedBy`, world `aabb`, rounded to 4 decimals.
+- `sceneTopViewSvg(solved)`: plan view (north up, 0.5 m grid) with front
+  triangles, stacked objects tinted by level, failed objects outlined in
+  red and the diagnostics listed underneath. Golden SVGs in
+  `test/fixtures/scene/` (`UPDATE_SCENE_GOLDEN=1` rewrites them).
+
 ### 3D scene DSL and IR (#119, phase 1a)
 
 - New `src/scene/`: a `scene:` document (room `bounds`, `objects` with

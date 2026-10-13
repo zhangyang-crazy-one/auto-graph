@@ -33,6 +33,10 @@ const sceneObjectSchema = z
 		count: z.number().int().min(1).max(1000).optional(),
 		label: z.string().optional(),
 		asset: z.string().min(1).optional(),
+		/** Pinned footprint center [x, y]. */
+		position: z.tuple([z.number().finite(), z.number().finite()]).optional(),
+		/** Pinned turn in degrees, counter-clockwise seen from above. */
+		yaw: z.number().finite().optional(),
 	})
 	.strict();
 
@@ -164,11 +168,37 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			front: entry.front ?? "-y",
 			...(entry.label === undefined ? {} : { label: entry.label }),
 			...(entry.asset === undefined ? {} : { asset: entry.asset }),
+			...(entry.count !== undefined && entry.yaw !== undefined
+				? { yaw: entry.yaw }
+				: {}),
 		};
 		if (entry.count === undefined) {
 			taken.set(id, path);
-			objects.push({ id, ...base, path });
+			objects.push({
+				id,
+				...base,
+				...(entry.position === undefined
+					? {}
+					: {
+							position: entry.position.map((v) => v / perMeter) as [
+								number,
+								number,
+							],
+						}),
+				...(entry.yaw === undefined ? {} : { yaw: entry.yaw }),
+				path,
+			});
 			continue;
+		}
+		if (entry.position !== undefined) {
+			diagnostics.push(
+				error(
+					[...path, "position"],
+					"validate.scene.group-position",
+					`"${id}" makes ${entry.count} objects; one position cannot pin them all.`,
+					"Place the group with a relation (around, grid, distribute) or declare the objects one by one.",
+				),
+			);
 		}
 		const members: string[] = [];
 		const separator = /\d$/.test(id) ? "-" : "";

@@ -6,3 +6,6 @@ export {
 	sceneDslSchema,
 } from "./dsl.js";
 export type * from "./ir.js";
+export { solveScene } from "./solve.js";
+export type { SceneTopViewOptions } from "./top-view.js";
+export { sceneTopViewSvg } from "./top-view.js";

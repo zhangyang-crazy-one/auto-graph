@@ -52,6 +52,10 @@ export interface SceneObject {
 	label?: string;
 	/** Asset name an exporter may place instead of a box. */
 	asset?: string;
+	/** Pinned footprint center [x, y] (not for `count` groups). */
+	position?: [number, number];
+	/** Pinned turn in degrees, counter-clockwise seen from above. */
+	yaw?: number;
 	/** The `count` group this object was expanded from. */
 	group?: string;
 	path: ScenePath;
@@ -162,4 +166,47 @@ export interface SceneSpec {
 	relations: SceneRelation[];
 	/** `count` groups and the objects they expanded to. */
 	groups: Record<string, string[]>;
+}
+
+/** An object placed in the room. */
+export interface PlacedSceneObject {
+	id: string;
+	/** Footprint center on the floor plan and bottom height: [x, y, z]. */
+	position: [number, number, number];
+	/** Degrees, counter-clockwise seen from above, in (-180, 180]. */
+	yaw: number;
+	/** The turn about z as a unit quaternion [x, y, z, w]. */
+	quaternion: [number, number, number, number];
+	size: [number, number, number];
+	front: SceneAxis;
+	/** The object it stands on; absent on the floor. */
+	supportedBy?: string;
+	/** World-axis bounding box. */
+	aabb: { min: [number, number, number]; max: [number, number, number] };
+	label?: string;
+	asset?: string;
+	group?: string;
+}
+
+export interface SceneDiagnostic {
+	severity: "info" | "warning" | "error";
+	code: string;
+	message: string;
+	/** Objects involved. */
+	objects?: string[];
+	/** Document path of the object or relation at fault. */
+	path?: ScenePath;
+	hint?: string;
+	detail?: Record<string, number | string>;
+}
+
+export interface SolvedScene {
+	name: string;
+	bounds: SceneBounds;
+	objects: PlacedSceneObject[];
+	/** Objects that have no position yet, in declaration order. */
+	unplaced: string[];
+	/** No interpenetration, floating object, overhang past the edge or wall. */
+	valid: boolean;
+	diagnostics: SceneDiagnostic[];
 }

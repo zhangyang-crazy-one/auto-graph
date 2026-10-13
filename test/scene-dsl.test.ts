@@ -313,4 +313,27 @@ describe("scene DSL", () => {
 		});
 		expect(result.scene?.groups).toEqual({ row1: ["row1-1", "row1-2"] });
 	});
+
+	it("pins positions in document units, but not for groups", () => {
+		const result = normalizeSceneDsl({
+			scene: "x",
+			units: "cm",
+			bounds: { width: 400, depth: 400 },
+			objects: { a: { size: [10, 10, 10], position: [150, 20], yaw: 45 } },
+		});
+		expect(result.scene?.objects[0]).toMatchObject({
+			position: [1.5, 0.2],
+			yaw: 45,
+		});
+		expect(
+			normalizeSceneDsl({
+				scene: "x",
+				bounds: { width: 4, depth: 4 },
+				objects: { seat: { size: [1, 1, 1], count: 2, position: [1, 1] } },
+			}).diagnostics[0],
+		).toMatchObject({
+			code: "validate.scene.group-position",
+			path: ["objects", "seat", "position"],
+		});
+	});
 });
