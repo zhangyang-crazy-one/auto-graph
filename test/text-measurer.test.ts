@@ -213,3 +213,22 @@ describe("Pretext line breaks", () => {
 		}
 	});
 });
+
+describe("Pretext authored line breaks", () => {
+	const measurer = createDefaultTextMeasurer();
+	const style = { fontFamily: "Arial", fontSize: 16, lineHeight: 20 };
+	const lines = (text: string) =>
+		measurer
+			.layout(measurer.prepare(text, style), 1000, 20)
+			.lines.map((line) => line.text.trim());
+
+	it("keep the author's lines when the width is ample", () => {
+		expect(lines("Hello world\nNext line")).toEqual([
+			"Hello world",
+			"Next line",
+		]);
+		expect(lines("你好\n）test")).toEqual(["你好", "）test"]);
+		expect(lines("Alpha\r\nBeta")).toEqual(["Alpha", "Beta"]);
+		expect(lines("One\n\nThree")).toEqual(["One", "", "Three"]);
+	});
+});

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fixes from review: authored line breaks, sequence anchors, split-page fit, bar closing cost
+
+- Text (#108): the bad-break repair no longer touches a line the author
+  ended; `Hello world\nNext line` stays two lines.
+- Sequence (#105): `activate` / `deactivate` reuse the previous message's
+  y only right after it; after a note, divider, ref or fragment boundary
+  they start and end where they are written.
+- Page fit (#104): a diagram already split into pages for conflicts is
+  fitted page by page; scale, font size and readability are the worst
+  page's, and `pageCount` is reported.
+- Sequence (#109): closing a returned call no longer scans every bar drawn
+  so far; nested bottoms are kept as bars close (8000 calls: 666 → 384 ms
+  for the whole render).
+
 ### Channel tracks ordered against aligned runs; labels stay beside their own route
 
 - Global-layout channel routing: two bending segments whose runs would

@@ -15,6 +15,7 @@ import type {
 	RemediationPolicyMode,
 } from "../src/ir/index.js";
 import { solveDiagram } from "../src/solver/index.js";
+import { resolvePage, solveForPage } from "../src/solver/page-fit.js";
 import { DeterministicTextMeasurer } from "../src/text/index.js";
 
 /** 25 unconnected pairs: one dependency rail more than the page has (24). */
@@ -89,6 +90,35 @@ function longFlowSource(): string {
 }
 
 describe("executable page split (#75 / #86)", { timeout: 30_000 }, () => {
+	it("fits every page of a split it did for conflicts, not just the first", () => {
+		const resolved = resolvePage("A5");
+		if (!("page" in resolved)) throw new Error(resolved.error);
+		const { solved, fit } = solveForPage(
+			railOverflowPage(),
+			{
+				initialLayout: "positions",
+				routeKind: "obstacle-avoiding",
+				railRouting: "dependency",
+				textMeasurer: new DeterministicTextMeasurer(),
+				remediationPolicy: { pageSplit: "auto" },
+			},
+			{ ...resolved.page, orientation: "portrait", direction: "keep" },
+		);
+		const pages = solved.pages ?? [];
+		expect(pages.length).toBeGreaterThanOrEqual(2);
+		expect(fit.pageCount).toBe(pages.length);
+		// The scale is the smallest page's.
+		const width = fit.width - 2 * fit.margin;
+		const height = fit.height - 2 * fit.margin;
+		const smallest = Math.min(
+			1,
+			...pages.map((page) =>
+				Math.min(width / page.bounds.width, height / page.bounds.height),
+			),
+		);
+		expect(fit.scale).toBeCloseTo(smallest, 2);
+	});
+
 	it("only suggests the split unless pageSplit is auto", () => {
 		const suggested = solveRailOverflow("suggest");
 		expect(suggested.pages).toBeUndefined();

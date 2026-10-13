@@ -856,10 +856,23 @@ function layOutRows(
 			activation.top + MIN_ACTIVATION_HEIGHT,
 		);
 		activation.closed = true;
+		// The bar it was nested on runs on at least as far.
+		const parent = stack(index).at(-1);
+		if (parent !== undefined) {
+			nestedBottom.set(
+				parent,
+				Math.max(
+					nestedBottom.get(parent) ?? Number.NEGATIVE_INFINITY,
+					activation.bottom,
+				),
+			);
+		}
 		const frame = calls.indexOf(activation);
 		if (frame >= 0) calls.splice(frame, 1);
 		return true;
 	};
+	/** Lowest bottom of the bars closed while nested on a bar. */
+	const nestedBottom = new Map<Activation, number>();
 	// The bars sync calls open (autoActivate), innermost last, and the last
 	// y each one took part in a message. A message sent by a participant
 	// below the innermost call means the calls above it have returned:
@@ -875,13 +888,13 @@ function layOutRows(
 			// A bar opened on top of it (activate) keeps it open.
 			if (stack(frame.participant).at(-1) !== frame) break;
 			// It runs on under the bars nested on it.
-			let bottom = lastUse.get(frame) ?? frame.top;
-			for (const bar of pass.activations) {
-				if (bar.participant === frame.participant && bar.depth > frame.depth) {
-					if (bar.top >= frame.top) bottom = Math.max(bottom, bar.bottom);
-				}
-			}
-			deactivate(frame.participant, bottom);
+			deactivate(
+				frame.participant,
+				Math.max(
+					lastUse.get(frame) ?? frame.top,
+					nestedBottom.get(frame) ?? Number.NEGATIVE_INFINITY,
+				),
+			);
 		}
 	};
 	const use = (indices: readonly number[], y: number) => {
@@ -921,6 +934,15 @@ function layOutRows(
 	const visit = (steps: readonly SequenceStep[], path: (string | number)[]) => {
 		steps.forEach((step, stepIndex) => {
 			const at = [...path, stepIndex];
+			// Only a message right before activate / deactivate anchors it:
+			// anything else in between has moved time on.
+			if (
+				step.type !== "message" &&
+				step.type !== "activate" &&
+				step.type !== "deactivate"
+			) {
+				lastMessage = undefined;
+			}
 			switch (step.type) {
 				case "message": {
 					const from = indexOf.get(step.from);
@@ -1270,9 +1292,11 @@ function layOutRows(
 									Math.max(tagHeight, (guard?.box.height ?? 0) + 4) +
 									OPERAND_TOP_GAP
 								: top + 4 + (guard?.box.height ?? 0) + OPERAND_TOP_GAP;
+						lastMessage = undefined;
 						visit(operand.steps, [...at, "operands", operandIndex, "steps"]);
 					});
 					fragmentStack.pop();
+					lastMessage = undefined;
 					// The last row's gap is the fragment's bottom padding.
 					fragment.bottom = cursor;
 					cursor += ROW_GAP;
