@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Page split partition: linear memory, a work budget, shared preparation (#106)
+
+- The partition no longer builds a U² cut table: cut counts are computed
+  per run end from sorted edge reaches, in memory linear in units and
+  edges, with the same pages as before (checked against the table version
+  on random inputs).
+- Past 20 million DP transitions the units are coarsened into consecutive
+  blocks of about equal weight and the pages are cut between blocks:
+  deterministic, every node keeps its page, recorded as
+  `detail.partition: { units, blocks }` on the applied plan.
+- Unit weights and edge spans are prepared once per candidate order and
+  reused for every page count tried.
+- Partition stage, pages 2–6 together: 1,000 units 230 → 106 ms, 3,000
+  units 4.1 s → 0.75 s, 10,000 units 1.4 s (coarsened).
+  `DGE_PARTITION=1 npx vitest run test/benchmark/page-partition.test.ts`.
+
 ### Fixes from review: authored line breaks, sequence anchors, split-page fit, bar closing cost
 
 - Text (#108): the bad-break repair no longer touches a line the author

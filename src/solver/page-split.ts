@@ -132,9 +132,11 @@ export function createPageSplitter(
 } {
 	const units = splitUnits(diagram);
 	// Along the flow first; across it when that cuts fewer edges.
-	const orders = [false, true].map((across) =>
-		orderUnits(units, diagram, solved, across),
-	);
+	const orders = [false, true].map((across) => {
+		const order = orderUnits(units, diagram, solved, across);
+		// Prepared once per order and reused for every page count tried.
+		return { order, input: preparePartition(order, diagram.edges) };
+	});
 	const measurer = options.textMeasurer ?? createDefaultTextMeasurer();
 	// Pages never split again.
 	const pageOptions: SolveDiagramOptions = {
@@ -147,13 +149,16 @@ export function createPageSplitter(
 	return {
 		maxPages: Math.min(units.length, MAX_PAGES),
 		split(pageCount, solvePage) {
-			const { order, pageOfUnit } = orders
+			const { order, pageOfUnit, blocks } = orders
 				.map((candidate) => ({
-					order: candidate,
-					...partitionUnits(candidate, diagram.edges, pageCount),
+					order: candidate.order,
+					...partitionUnits(candidate.input, pageCount),
 				}))
 				.reduce((a, b) => (b.cost < a.cost - 1e-9 ? b : a));
 			const split = buildPages(diagram, order, pageOfUnit, pageCount, measurer);
+			if (blocks !== undefined) {
+				split.partition = { units: order.length, blocks };
+			}
 			return {
 				split,
 				pages: split.pages.map((page) => solvePage(page.diagram, pageOptions)),
@@ -166,7 +171,7 @@ export function createPageSplitter(
 // Units and their order
 // ---------------------------------------------------------------------------
 
-interface SplitUnit {
+export interface SplitUnit {
 	nodeIds: string[];
 	groupIds: string[];
 	/** Position of the unit's first node in the input. */
@@ -304,14 +309,25 @@ function orderUnits(
 }
 
 /**
- * Cut the ordered units into `pageCount` runs: fewest cut edges first,
- * then the most even pages. Returns the 1-based page of every unit.
+ * DP transitions (page count × run starts × run ends) the partition may
+ * take before the units are coarsened into blocks. Keeps the page split
+ * itself bounded on very large diagrams (#106).
  */
-function partitionUnits(
+const PARTITION_WORK_BUDGET = 20_000_000;
+
+/** An order of units, prepared once for every page count tried. */
+export interface PartitionInput {
+	/** Prefix sums of unit weights (nodes, plus half an edge end each). */
+	prefix: Float64Array;
+	/** For each unit, the later units its edges reach, ascending. */
+	reach: Int32Array[];
+}
+
+/** Weights and edge spans of `units` in this order (page-count independent). */
+export function preparePartition(
 	units: readonly SplitUnit[],
 	edges: readonly NormalizedEdge[],
-	pageCount: number,
-): { pageOfUnit: number[]; cost: number } {
+): PartitionInput {
 	const n = units.length;
 	const position = new Map<string, number>();
 	units.forEach((unit, index) => {
@@ -319,7 +335,6 @@ function partitionUnits(
 	});
 	const weight = units.map((unit) => unit.nodeIds.length);
 	const byLo: number[][] = Array.from({ length: n }, () => []);
-	const byHi: number[][] = Array.from({ length: n }, () => []);
 	for (const edge of edges) {
 		const a = position.get(edge.source.nodeId);
 		const b = position.get(edge.target.nodeId);
@@ -327,60 +342,140 @@ function partitionUnits(
 		weight[a] = (weight[a] as number) + 0.5;
 		weight[b] = (weight[b] as number) + 0.5;
 		if (a === b) continue;
-		const lo = Math.min(a, b);
-		const hi = Math.max(a, b);
-		(byLo[lo] as number[]).push(hi);
-		(byHi[hi] as number[]).push(lo);
+		(byLo[Math.min(a, b)] as number[]).push(Math.max(a, b));
 	}
-	const prefix = [0];
-	for (const value of weight) prefix.push((prefix.at(-1) as number) + value);
-	const total = prefix.at(-1) as number;
-	const target = total / pageCount;
-	// cut[a][b]: edges leaving the run a..b towards later units.
-	const cut: number[][] = [];
-	for (let a = 0; a < n; a += 1) {
-		const row: number[] = [];
-		let count = 0;
-		for (let b = a; b < n; b += 1) {
-			for (const hi of byLo[b] as number[]) if (hi > b) count += 1;
-			for (const lo of byHi[b] as number[]) if (lo >= a) count -= 1;
-			row[b] = count;
+	const prefix = new Float64Array(n + 1);
+	weight.forEach((value, index) => {
+		prefix[index + 1] = (prefix[index] as number) + value;
+	});
+	return {
+		prefix,
+		reach: byLo.map((list) => Int32Array.from(list.sort((x, y) => x - y))),
+	};
+}
+
+/**
+ * Cut the ordered units into `pageCount` runs: fewest cut edges first,
+ * then the most even pages. Returns the 1-based page of every unit, and
+ * the number of blocks the units were coarsened into when the exact
+ * partition would exceed PARTITION_WORK_BUDGET (consecutive units of
+ * about equal weight; every unit keeps its page, no node is dropped).
+ */
+export function partitionUnits(
+	input: PartitionInput,
+	pageCount: number,
+): { pageOfUnit: number[]; cost: number; blocks?: number } {
+	const n = input.prefix.length - 1;
+	const limit = Math.floor(
+		Math.sqrt((2 * PARTITION_WORK_BUDGET) / Math.max(1, pageCount)),
+	);
+	if (n <= limit) return exactPartition(input, pageCount);
+	const blocks = Math.max(pageCount, limit);
+	const total = input.prefix[n] as number;
+	const blockOf = new Int32Array(n);
+	for (let index = 0; index < n; index += 1) {
+		const middle =
+			((input.prefix[index] as number) + (input.prefix[index + 1] as number)) /
+			2;
+		blockOf[index] = Math.min(
+			blocks - 1,
+			Math.floor((middle / Math.max(total, 1e-9)) * blocks),
+		);
+	}
+	// Renumber so every block is used and the numbers stay consecutive.
+	const used: number[] = [];
+	for (let index = 0; index < n; index += 1) {
+		if (used.at(-1) !== blockOf[index]) used.push(blockOf[index] as number);
+		blockOf[index] = used.length - 1;
+	}
+	const m = used.length;
+	const prefix = new Float64Array(m + 1);
+	const byLo: number[][] = Array.from({ length: m }, () => []);
+	for (let index = 0; index < n; index += 1) {
+		const block = blockOf[index] as number;
+		prefix[block + 1] = input.prefix[index + 1] as number;
+		for (const hi of input.reach[index] as Int32Array) {
+			const other = blockOf[hi] as number;
+			if (other !== block) (byLo[block] as number[]).push(other);
 		}
-		cut.push(row);
 	}
+	const coarse = exactPartition(
+		{
+			prefix,
+			reach: byLo.map((list) => Int32Array.from(list.sort((x, y) => x - y))),
+		},
+		pageCount,
+	);
+	return {
+		pageOfUnit: Array.from(
+			blockOf,
+			(block) => coarse.pageOfUnit[block] as number,
+		),
+		cost: coarse.cost,
+		blocks: m,
+	};
+}
+
+/** How many of `sorted` (ascending) are greater than `value`. */
+function countAbove(sorted: Int32Array, value: number): number {
+	let lo = 0;
+	let hi = sorted.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if ((sorted[mid] as number) > value) hi = mid;
+		else lo = mid + 1;
+	}
+	return sorted.length - lo;
+}
+
+function exactPartition(
+	{ prefix, reach }: PartitionInput,
+	pageCount: number,
+): { pageOfUnit: number[]; cost: number } {
+	const n = prefix.length - 1;
+	const total = prefix[n] as number;
+	const target = total / pageCount;
+	// cut[a]: edges leaving the run a..b towards later units, for the
+	// current b only (filled from b down), so memory stays linear.
+	const cut = new Float64Array(n);
 	const segmentCost = (a: number, b: number, last: boolean) => {
 		const share = ((prefix[b + 1] as number) - (prefix[a] as number)) / target;
 		return (
-			(last ? 0 : ((cut[a] as number[])[b] as number)) +
+			(last ? 0 : (cut[a] as number)) +
 			BALANCE_WEIGHT * Math.abs(share - 1) +
 			(share > MAX_PAGE_SHARE ? 1000 * (share - MAX_PAGE_SHARE) : 0) +
 			(share < MIN_PAGE_SHARE ? 1000 * (MIN_PAGE_SHARE - share) : 0)
 		);
 	};
 	// best[p][b]: cheapest way to put units 0..b on p+1 pages.
-	const best: number[][] = Array.from({ length: pageCount }, () =>
-		new Array<number>(n).fill(Number.POSITIVE_INFINITY),
+	const best: Float64Array[] = Array.from({ length: pageCount }, () =>
+		new Float64Array(n).fill(Number.POSITIVE_INFINITY),
 	);
-	const from: number[][] = Array.from({ length: pageCount }, () =>
-		new Array<number>(n).fill(-1),
+	const from: Int32Array[] = Array.from({ length: pageCount }, () =>
+		new Int32Array(n).fill(-1),
 	);
 	for (let b = 0; b < n; b += 1) {
-		(best[0] as number[])[b] = segmentCost(
+		let count = 0;
+		for (let a = b; a >= 0; a -= 1) {
+			count += countAbove(reach[a] as Int32Array, b);
+			cut[a] = count;
+		}
+		(best[0] as Float64Array)[b] = segmentCost(
 			0,
 			b,
 			pageCount === 1 && b === n - 1,
 		);
-	}
-	for (let p = 1; p < pageCount; p += 1) {
-		for (let b = p; b < n; b += 1) {
+		for (let p = 1; p < pageCount && p <= b; p += 1) {
+			const row = best[p] as Float64Array;
+			const previous = best[p - 1] as Float64Array;
+			const last = p === pageCount - 1 && b === n - 1;
 			for (let a = p; a <= b; a += 1) {
-				const before = (best[p - 1] as number[])[a - 1] as number;
+				const before = previous[a - 1] as number;
 				if (!Number.isFinite(before)) continue;
-				const cost =
-					before + segmentCost(a, b, p === pageCount - 1 && b === n - 1);
-				if (cost < ((best[p] as number[])[b] as number) - 1e-9) {
-					(best[p] as number[])[b] = cost;
-					(from[p] as number[])[b] = a;
+				const cost = before + segmentCost(a, b, last);
+				if (cost < (row[b] as number) - 1e-9) {
+					row[b] = cost;
+					(from[p] as Int32Array)[b] = a;
 				}
 			}
 		}
@@ -388,19 +483,15 @@ function partitionUnits(
 	const pageOfUnit = new Array<number>(n).fill(1);
 	let end = n - 1;
 	for (let p = pageCount - 1; p >= 0; p -= 1) {
-		const start = p === 0 ? 0 : ((from[p] as number[])[end] as number);
+		const start = p === 0 ? 0 : ((from[p] as Int32Array)[end] as number);
 		for (let index = start; index <= end; index += 1) pageOfUnit[index] = p + 1;
 		end = start - 1;
 	}
 	return {
 		pageOfUnit,
-		cost: (best[pageCount - 1] as number[])[n - 1] as number,
+		cost: (best[pageCount - 1] as Float64Array)[n - 1] as number,
 	};
 }
-
-// ---------------------------------------------------------------------------
-// Page diagrams
-// ---------------------------------------------------------------------------
 
 export interface PageSplit {
 	pageCount: number;
@@ -410,6 +501,11 @@ export interface PageSplit {
 		edgeIds: string[];
 	}>;
 	crossPageEdgeIds: string[];
+	/**
+	 * Set when the units were too many to partition exactly within the
+	 * work budget and were coarsened into consecutive blocks first.
+	 */
+	partition?: { units: number; blocks: number };
 }
 
 interface Connector {
@@ -840,6 +936,9 @@ export function assemblePages(
 			edgeIds: [...page.edgeIds],
 		})),
 		crossPageEdgeIds: [...split.crossPageEdgeIds],
+		...(split.partition === undefined
+			? {}
+			: { partition: { ...split.partition } }),
 	};
 	const applied: RemediationPlan = {
 		...plan,
