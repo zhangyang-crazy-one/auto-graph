@@ -1603,8 +1603,10 @@ export function edgeLabelAnchor(
 	const backdropFirst = options.routeKind !== "obstacle-avoiding";
 	// Among the clear spots, the first one nearer its own route than any
 	// other wins; a spot nearer another route reads as that edge's label.
-	// Without one, the first clear spot stands. An explicit labelOffset
-	// pins the distance from the line: the first clear spot keeps it.
+	// Without one, a text-box spot beside its own route is looked for next,
+	// and only then does the first clear spot stand. An explicit
+	// labelOffset pins the distance from the line: the first clear spot
+	// keeps it.
 	const ownership = options.labelOffset === undefined;
 	const clearSpot = (center: Point): EdgeLabelAnchorResult => ({
 		center,
@@ -1665,10 +1667,12 @@ export function edgeLabelAnchor(
 		}
 		return clearSpot(candidate);
 	}
-	if (firstClear !== undefined) return clearSpot(firstClear);
+	// A clear spot nearer another route waits: the text-box pass may still
+	// find one beside its own route.
 	// Conflict-free by the text box: the first one nearer its own route,
 	// else the first one; else the best scored spot.
 	let firstFree: Point | undefined;
+	let firstOwnedSoft: Point | undefined;
 	for (const candidate of candidates) {
 		const labelBox = {
 			x: candidate.x - layout.box.width / 2,
@@ -1707,6 +1711,9 @@ export function edgeLabelAnchor(
 			placedLabelOverlaps === 0
 		) {
 			if (!nearerOther && !softHit) return clearSpot(candidate);
+			// Beside its own route over a soft obstacle reads better than
+			// clear of it beside another route.
+			if (!nearerOther) firstOwnedSoft ??= candidate;
 			firstFree ??= candidate;
 		}
 		const distanceFromDefault = Math.hypot(
@@ -1732,7 +1739,8 @@ export function edgeLabelAnchor(
 		}
 	}
 
-	if (firstFree !== undefined) return clearSpot(firstFree);
+	const deferred = firstOwnedSoft ?? firstClear ?? firstFree;
+	if (deferred !== undefined) return clearSpot(deferred);
 	const fallback = bestFallback ?? {
 		candidate: placement,
 		score: 0,

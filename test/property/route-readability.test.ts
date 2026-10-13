@@ -64,9 +64,14 @@ describe("route readability on random diagrams", () => {
 	});
 });
 
-/** Measured on main before the tidy pass: 38 touches, 1781 px, 6 labels. */
+/**
+ * Measured before the tidy pass reached global-layout routes: 38 touches,
+ * 1781 px, 6 labels; after it, 2 / 1021 px / 4; with the channel tracks
+ * ordered against aligned runs and labels kept beside their own route,
+ * 1 / 24 px / 1.
+ */
 const BUDGET = {
-	collinearTouches: 2,
-	nearParallelLength: 1100,
-	labelsNearerOtherRoute: 4,
+	collinearTouches: 1,
+	nearParallelLength: 50,
+	labelsNearerOtherRoute: 1,
 };

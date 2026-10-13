@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Channel tracks ordered against aligned runs; labels stay beside their own route
+
+- Global-layout channel routing: two bending segments whose runs would
+  share a line (one leaving at the cross position another arrives at,
+  within 6px) are ordered so the runs do not overlap, before any crossing
+  count; pairs whose spans only come within 6px are ordered too.
+- Edge labels: a clear spot nearer another route no longer wins outright;
+  a spot beside the label's own route is looked for first. Lane
+  dividers, group frame lines and the room beside group titles are soft
+  obstacles: a label straddles a divider beside its own short route
+  rather than sitting on another route.
+- On 90 random diagrams plus the examples: near-parallel pairs 43 → 2,
+  labels nearer another route 29 → 8. Route-readability budgets tightened
+  to 1 touch, 50px of near-parallel runs and 1 label.
+
 ### Route tidying reaches global-layout routes; route readability metrics
 
 - The tidy pass now also runs on routes taken from the global layout

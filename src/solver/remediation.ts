@@ -1086,11 +1086,13 @@ export function rerouteRemediationEdges(
 			...state.coordinatedNodes.map((node) => node.box),
 			...state.baseTextAnnotations.map(textAnnotationContentBox),
 			...state.frameTextAnnotation.map((annotation) => annotation.box),
+		],
+		options,
+		[
+			...groupTitleLabelGaps(state.baseTextAnnotations),
 			...laneBorderLabelObstacles(state.coordinatedSwimlanes),
 			...groupBorderLabelObstacles(state.coordinatedGroups),
 		],
-		options,
-		groupTitleLabelGaps(state.baseTextAnnotations),
 	);
 }
 
