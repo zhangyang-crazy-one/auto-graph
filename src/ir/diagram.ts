@@ -122,6 +122,12 @@ export interface PageSplitRemediationDetail {
 	}>;
 	/** When applied: edges cut at a page boundary (one connector per end). */
 	crossPageEdgeIds?: string[];
+	/**
+	 * When applied to more units than the exact partition's work budget
+	 * allows: the units were first coarsened into this many consecutive
+	 * blocks of about equal weight, and the pages cut between blocks.
+	 */
+	partition?: { units: number; blocks: number };
 }
 
 export type RemediationPlanDetail =
