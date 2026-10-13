@@ -1,0 +1,40 @@
+view: architecture
+title: 系统技术架构图
+boundary: 应急知识治理与现场协同平台
+layers:
+  - id: access
+    label: 接入层
+    components: { a1: 微信小程序端, a2: Web管理端, a3: 业务接口, a4: 模型接口 }
+  - id: apply
+    label: 应用层
+    components: { b1: 知识库管理, b2: 知识问答, b3: 现场辅助建议, b4: 现场报送与事件协同, b5: 培训考核与结果归档, b6: 反馈改进 }
+  - id: ai
+    label: 智能服务层
+    components: { c1: 检索增强召回与证据定位, c2: 知识图谱多跳, c3: 决策模型重排, c4: 多模态解析与打标 }
+  - id: data
+    label: 知识数据层
+    components:
+      d1: { label: 本体组织的知识库, kind: database }
+      d2: { label: 事件关联记录, kind: database }
+      d3: { label: 题库与学习台账, kind: database }
+      d4: { label: 操作与问答留痕, kind: database }
+columns:
+  right:
+    - id: support
+      label: 运行支撑层
+      components: { s1: 身份核验, s2: 分级权限, s3: 审批留痕, s4: 降级与业务连续性, s5: 安全审计 }
+links:
+  - a1 -> b2: 现场提问
+  - a1 -> b4: 现场报送
+  - a2 -> b1: 知识治理
+  - a2 -> b5: 培训组织
+  - a3 -> b4: 业务数据接入
+  - a4 -> b3: 模型能力
+  - b2 -> c1: 检索请求
+  - b3 -> c2: 多跳推理
+  - b3 -> c3: 重排与建议
+  - b1 -> c4: 解析与打标
+  - c1, c2 -> d1
+  - c4 -> d1: 打标入库
+  - c3 -> d2: 关联事件
+  - c4 -> d3: 题库素材

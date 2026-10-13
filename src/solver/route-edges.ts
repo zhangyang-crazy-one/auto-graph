@@ -2006,6 +2006,15 @@ export function tidyRouteEnds(
 			collinearOverlapLength(route, others);
 		const gainsOverlap = (before: readonly Point[], after: readonly Point[]) =>
 			overlap(after) > overlap(before) + 1e-6;
+		// Length run within NEAR_PARALLEL_GAP of another route.
+		const nearRun = (route: readonly Point[]) => {
+			const segments = axisSegments(route);
+			return others.reduce(
+				(sum, other) =>
+					sum + nearParallelOverlap(segments, axisSegments(other.points)),
+				0,
+			);
+		};
 		// The border side an end sits on (clear of the corners), if any.
 		const sideAt = (
 			point: Point,
@@ -2082,6 +2091,54 @@ export function tidyRouteEnds(
 				break;
 			}
 		}
+		// A Z route (end, jog, end) whose one end can slide along its side
+		// level with the other runs straight: the jog only reached the
+		// middle of a side the other end already faces.
+		if (points.length === 4) {
+			const straight = straightenZ(points, edge, nodes, others);
+			if (
+				straight !== undefined &&
+				hits(straight) <= hits(points) &&
+				!gainsObstacle(points, straight, edgeObstacles) &&
+				crossings(straight) <= crossings(points) &&
+				!gainsOverlap(points, straight)
+			) {
+				points = straight;
+			}
+		}
+		// A middle segment ending just short of another route's segment on
+		// the same line reads as one broken line: move it a pitch aside.
+		for (let k = 1; k + 2 < points.length; k += 1) {
+			if (!touchesCollinear(points, k, others)) continue;
+			const a = points[k] as Point;
+			const b = points[k + 1] as Point;
+			const horizontalSegment = Math.abs(a.y - b.y) < 1e-6;
+			for (const shift of [
+				UNCROSS_PITCH,
+				-UNCROSS_PITCH,
+				2 * UNCROSS_PITCH,
+				-2 * UNCROSS_PITCH,
+			]) {
+				const moved = points.map((point) => ({ ...point }));
+				for (const at of [k, k + 1]) {
+					const point = moved[at] as Point;
+					if (horizontalSegment) point.y += shift;
+					else point.x += shift;
+				}
+				if (
+					keepsNeighbours(points, moved, k) &&
+					!touchesCollinear(moved, k, others) &&
+					nearRun(moved) <= nearRun(points) + 1e-6 &&
+					hits(moved) <= hits(points) &&
+					!gainsObstacle(points, moved, edgeObstacles) &&
+					crossings(moved) <= crossings(points) &&
+					!gainsOverlap(points, moved)
+				) {
+					points = moved;
+					break;
+				}
+			}
+		}
 		// Short final segment: move the segment before it outward.
 		if (points.length >= 4) {
 			const n = points.length;
@@ -2112,6 +2169,98 @@ export function tidyRouteEnds(
 		result[edgeIndex] = { ...edge, points };
 	});
 	return result;
+}
+
+/** Gap under which two routes' segments on one line read as one line. */
+const COLLINEAR_TOUCH_GAP = 12;
+
+/**
+ * Whether segment `index` of a route lies on the same line as a segment
+ * of another route and ends less than {@link COLLINEAR_TOUCH_GAP} short
+ * of it (overlaps are counted elsewhere).
+ */
+function touchesCollinear(
+	points: readonly Point[],
+	index: number,
+	others: readonly CoordinatedEdge[],
+): boolean {
+	const segment = axisSegment(
+		points[index] as Point,
+		points[index + 1] as Point,
+	);
+	if (segment === undefined) return false;
+	return others.some((other) =>
+		axisSegments(other.points).some((candidate) => {
+			if (candidate.horizontal !== segment.horizontal) return false;
+			if (Math.abs(candidate.at - segment.at) > 1) return false;
+			const gap =
+				Math.max(candidate.lo, segment.lo) - Math.min(candidate.hi, segment.hi);
+			return gap > 0 && gap < COLLINEAR_TOUCH_GAP;
+		}),
+	);
+}
+
+/** How far a slid end keeps from its side's corners. */
+const STRAIGHTEN_CORNER = 12;
+
+/**
+ * The straight route a Z route (end segment, jog, end segment) becomes
+ * when one end slides along its node side level with the other: the
+ * target first, then the source. The slid end stays clear of the side's
+ * corners and of the other routes' ends on that side, and never moves a
+ * named port's end. Undefined when neither end can slide.
+ */
+function straightenZ(
+	points: readonly Point[],
+	edge: CoordinatedEdge,
+	nodes: ReadonlyMap<string, ReturnType<typeof computeShapeGeometry>>,
+	others: readonly CoordinatedEdge[],
+): Point[] | undefined {
+	const [p0, p1, p2, p3] = points as [Point, Point, Point, Point];
+	const vertical =
+		Math.abs(p0.x - p1.x) < 1e-6 &&
+		Math.abs(p2.x - p3.x) < 1e-6 &&
+		Math.abs(p1.y - p2.y) < 1e-6;
+	const horizontal =
+		Math.abs(p0.y - p1.y) < 1e-6 &&
+		Math.abs(p2.y - p3.y) < 1e-6 &&
+		Math.abs(p1.x - p2.x) < 1e-6;
+	if (!vertical && !horizontal) return undefined;
+	const along = (point: Point) => (vertical ? point.x : point.y);
+	const ends = [
+		{ point: p3, fixed: p0, end: edge.target },
+		{ point: p0, fixed: p3, end: edge.source },
+	];
+	for (const { point, fixed, end } of ends) {
+		if (end.portId !== undefined) continue;
+		const box = nodes.get(end.nodeId)?.box;
+		if (box === undefined) continue;
+		const value = along(fixed);
+		const start = vertical ? box.x : box.y;
+		const size = vertical ? box.width : box.height;
+		if (value < start + STRAIGHTEN_CORNER) continue;
+		if (value > start + size - STRAIGHTEN_CORNER) continue;
+		// Other ends on the same side of this node stay MIN_ATTACH_SPACING off.
+		const level = vertical ? point.y : point.x;
+		const crowded = others.some((other) =>
+			[
+				{ at: other.points[0], nodeId: other.source.nodeId },
+				{ at: other.points.at(-1), nodeId: other.target.nodeId },
+			].some(
+				({ at, nodeId }) =>
+					at !== undefined &&
+					nodeId === end.nodeId &&
+					Math.abs((vertical ? at.y : at.x) - level) < 0.5 &&
+					Math.abs(along(at) - value) < MIN_ATTACH_SPACING,
+			),
+		);
+		if (crowded) continue;
+		const moved = vertical
+			? { x: value, y: point.y }
+			: { x: point.x, y: value };
+		return point === p3 ? [{ ...p0 }, moved] : [moved, { ...p3 }];
+	}
+	return undefined;
 }
 
 /**

@@ -147,6 +147,7 @@ import {
 	applySwimlaneLayoutContracts,
 	coordinateSwimlanes,
 	groupBorderLabelObstacles,
+	groupTitleLabelGaps,
 	hasFixedSwimlaneGeometry,
 	laneBorderLabelObstacles,
 	laneSoftCorridors,
@@ -754,6 +755,7 @@ function solveOnePage(
 			...groupBorderLabelObstacles(coordinatedGroups),
 		],
 		options,
+		groupTitleLabelGaps(baseTextAnnotations),
 	);
 	const maxEdgeLabelReroutes = edgeLabelRerouteIterations(options);
 	let routeLabelFeedbackState: RouteLabelFeedbackState = {
@@ -883,6 +885,7 @@ function solveOnePage(
 					...groupBorderLabelObstacles(coordinatedGroups),
 				],
 				options,
+				groupTitleLabelGaps(baseTextAnnotations),
 			);
 			const candidateTextAnnotations = routeLabelFeedbackTextAnnotations(
 				baseTextAnnotations,
@@ -977,6 +980,7 @@ function solveOnePage(
 				...groupBorderLabelObstacles(coordinatedGroups),
 			],
 			options,
+			groupTitleLabelGaps(baseTextAnnotations),
 		);
 		const prunedRouteDiagnostics = [
 			...routeLabelFeedbackState.edgeRoutingDiagnostics,

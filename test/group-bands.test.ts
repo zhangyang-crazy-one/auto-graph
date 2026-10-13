@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderDiagramDsl } from "../src/dsl/index.js";
 import {
@@ -204,5 +205,76 @@ groups:
 `);
 		const group = diagram.groups.find((item) => item.id === "platform");
 		expect(group?.labelLayout?.lines).toHaveLength(1);
+	});
+});
+
+describe("architecture routes", () => {
+	// The emergency platform's architecture: lone ends facing nodes they
+	// overlap, two calls from one node, layer titles beside the routes.
+	const diagram = solve(
+		readFileSync(
+			new URL(
+				"./fixtures/architecture/emergency-platform.yaml",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
+	const edgeById = (id: string) => {
+		const edge = diagram.edges.find((item) => item.id === id);
+		if (edge === undefined) throw new Error(`no ${id}`);
+		return edge;
+	};
+
+	it("run straight where the ends already face each other", () => {
+		const edge = edgeById("a4-b3");
+		const xs = new Set(edge.points.map((point) => point.x.toFixed(3)));
+		expect(xs.size).toBe(1);
+	});
+
+	it("never end a run just short of another route's run on its line", () => {
+		const runs = diagram.edges.flatMap((edge) =>
+			edge.points.slice(1).flatMap((end, index) => {
+				const start = edge.points[index] as { x: number; y: number };
+				return Math.abs(start.y - end.y) < 1e-6 && start.x !== end.x
+					? [
+							{
+								id: edge.id,
+								y: end.y,
+								lo: Math.min(start.x, end.x),
+								hi: Math.max(start.x, end.x),
+							},
+						]
+					: [];
+			}),
+		);
+		for (const run of runs) {
+			for (const other of runs) {
+				if (other.id === run.id || Math.abs(other.y - run.y) > 1) continue;
+				const gap = Math.max(run.lo, other.lo) - Math.min(run.hi, other.hi);
+				expect(gap <= 0 || gap >= 12).toBe(true);
+			}
+		}
+	});
+
+	it("keep edge labels clear of the group titles beside them", () => {
+		const annotations = diagram.textAnnotations ?? [];
+		const titles = annotations.filter(
+			(annotation) => annotation.surfaceKind === "group-label",
+		);
+		for (const label of annotations) {
+			if (label.surfaceKind !== "edge-label") continue;
+			for (const title of titles) {
+				const sameRow =
+					label.box.y < title.box.y + title.box.height &&
+					label.box.y + label.box.height > title.box.y;
+				if (!sameRow) continue;
+				const gap = Math.max(
+					label.box.x - (title.box.x + title.box.width),
+					title.box.x - (label.box.x + label.box.width),
+				);
+				expect(gap).toBeGreaterThanOrEqual(8);
+			}
+		}
 	});
 });

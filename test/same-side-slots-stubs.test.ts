@@ -1021,7 +1021,56 @@ describe("route tidying and crossings", () => {
 			[],
 			new Set(["b", "c"]),
 		);
-		expect(tidied?.points).toEqual(a.points);
+		// The jog stays; its runs may step aside from the runs they end
+		// just short of, but never onto them.
+		const points = tidied?.points ?? [];
+		expect(points).toHaveLength(a.points.length);
+		const runs = (route: { x: number; y: number }[]) =>
+			route.slice(1).flatMap((end, index) => {
+				const start = route[index] as { x: number; y: number };
+				return start.y === end.y && start.x !== end.x
+					? [
+							{
+								y: end.y,
+								lo: Math.min(start.x, end.x),
+								hi: Math.max(start.x, end.x),
+							},
+						]
+					: [];
+			});
+		for (const run of runs(points)) {
+			for (const other of [...runs(b.points), ...runs(c.points)]) {
+				if (Math.abs(run.y - other.y) > 0.5) continue;
+				expect(
+					Math.min(run.hi, other.hi) - Math.max(run.lo, other.lo),
+				).toBeLessThan(0);
+			}
+		}
+	});
+
+	it("steps a middle run aside from a run it ends just short of", () => {
+		// "a" turns at y=50 and stops 6px short of "b"'s run on that line.
+		const a = edge("a", [
+			{ x: 0, y: 0 },
+			{ x: 0, y: 50 },
+			{ x: 40, y: 50 },
+			{ x: 40, y: 100 },
+		]);
+		const b = edge("b", [
+			{ x: 46, y: 20 },
+			{ x: 46, y: 50 },
+			{ x: 90, y: 50 },
+			{ x: 90, y: 100 },
+		]);
+		const [tidied] = tidyRouteEnds(
+			[a, b] as never,
+			new Map(),
+			[],
+			new Set(["b"]),
+		);
+		const run = tidied?.points[1];
+		expect(run?.y).not.toBe(50);
+		expect(tidied?.points[2]?.y).toBe(run?.y);
 	});
 });
 

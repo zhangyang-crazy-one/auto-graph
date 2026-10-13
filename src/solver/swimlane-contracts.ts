@@ -12,6 +12,7 @@ import type {
 	SwimlaneLane,
 } from "../ir/elements.js";
 import type { Box, Insets, Point } from "../ir/geometry.js";
+import type { SolvedTextAnnotation } from "../ir/label-layout.js";
 import {
 	CROSS_AXIS_SPREAD_THRESHOLD,
 	compactDetail,
@@ -142,6 +143,27 @@ export function groupBorderLabelObstacles(
 			{ x: box.x, y: box.y + box.height - 1, width: box.width, height: 2 },
 		];
 	});
+}
+
+/** Room an edge label keeps beside a group title, so the two never read as one. */
+const GROUP_TITLE_LABEL_GAP = 8;
+
+/**
+ * Group titles widened by {@link GROUP_TITLE_LABEL_GAP} on each side: an
+ * edge label set right after a title ("智能服务层重排与建议") reads as
+ * part of it.
+ */
+export function groupTitleLabelGaps(
+	annotations: readonly SolvedTextAnnotation[],
+): Box[] {
+	return annotations
+		.filter((annotation) => annotation.surfaceKind === "group-label")
+		.map((annotation) => ({
+			x: annotation.box.x - GROUP_TITLE_LABEL_GAP,
+			y: annotation.box.y,
+			width: annotation.box.width + 2 * GROUP_TITLE_LABEL_GAP,
+			height: annotation.box.height,
+		}));
 }
 
 export function applySwimlaneLayoutContracts(
