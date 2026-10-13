@@ -1936,6 +1936,36 @@ export function edgeLabelAnchorCandidates(
 		}
 	}
 
+	// Last, beside the middle of every straight segment long enough for the
+	// label: a route running in a bundle of parallel lines for most of its
+	// length still has a stretch of its own (a turn toward its node) where
+	// its label reads as its own.
+	for (let index = 1; index < points.length; index += 1) {
+		const a = points[index - 1] as Point;
+		const b = points[index] as Point;
+		const horizontal = a.y === b.y;
+		if (!horizontal && a.x !== b.x) continue;
+		const length = Math.abs(horizontal ? b.x - a.x : b.y - a.y);
+		const along = horizontal ? layout.box.width : layout.box.height;
+		if (length < along + 2 * EDGE_LABEL_CLEARANCE) continue;
+		const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+		const needed =
+			(horizontal ? layout.box.height : layout.box.width) / 2 +
+			EDGE_LABEL_CLEARANCE;
+		const steps = Math.max(12, Math.ceil(needed / EDGE_LABEL_CLEARANCE));
+		for (let step = 1; step <= steps; step += 1) {
+			const offset = EDGE_LABEL_CLEARANCE * step;
+			candidates.push(
+				horizontal
+					? { x: middle.x, y: middle.y - offset }
+					: { x: middle.x - offset, y: middle.y },
+				horizontal
+					? { x: middle.x, y: middle.y + offset }
+					: { x: middle.x + offset, y: middle.y },
+			);
+		}
+	}
+
 	return candidates;
 }
 

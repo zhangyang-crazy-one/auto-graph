@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Route tidying reaches global-layout routes; route readability metrics
+
+- The tidy pass now also runs on routes taken from the global layout
+  (every diagram large enough to use it), which it used to leave as they
+  were. On 90 random diagrams plus the examples, runs ending just short
+  of another route's run fell from 138 to 2, near-parallel pairs from 88
+  to 43 and labels nearer another route from 74 to 29.
+- A run that reads as one line with another route (on its line and
+  ending less than 12px short, or parallel under 6px apart) moves in line
+  with its own next parallel run, dropping a jog, or a pitch or two
+  aside; end runs move by sliding the end along its node side. Neither
+  measure may get worse.
+- Ends slide only on rectangles and rounded rectangles: a diamond's or
+  an ellipse's box side is off its outline.
+- Edge label candidates include the middle of each straight segment
+  long enough for the label, so a route bundled with others for most of
+  its length labels its own stretch.
+- New `measureRouteReadability(diagram)` (collinear touches, near-parallel
+  length, labels nearer another route, labels beside group titles, ends
+  off the outline), with a property test over random diagrams.
+
 ### Straight facing routes, runs off each other's lines, labels off group titles
 
 - A Z route (end, jog, end) whose end can slide along its node side level
