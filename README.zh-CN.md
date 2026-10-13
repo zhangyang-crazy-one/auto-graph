@@ -1,136 +1,133 @@
 # auto-graph
 
-[English README](./README.md)
+[![npm](https://img.shields.io/npm/v/@crazyhappyone/auto-graph?color=2563eb)](https://www.npmjs.com/package/@crazyhappyone/auto-graph)
+[![license](https://img.shields.io/npm/l/@crazyhappyone/auto-graph?color=16a34a)](./LICENSE)
+[English](./README.md)
 
-auto-graph 是一个确定性的图形几何计算引擎。它把高层 YAML 或 JSON 图表意图转换成稳定、避碰、文本安全的坐标，并导出为 SVG 或可编辑的 Excalidraw JSON。
+**写下图要表达什么，拿到精确的坐标。** auto-graph 是一个确定性的图表几何引擎：把几行 YAML 描述的图表意图，解算成不重叠、文字不溢出的版式，并导出为 SVG、可编辑的 draw.io、Excalidraw，或纯数字的几何契约。
 
-它不是可视化编辑器，也不是以渲染为中心的画图工具。auto-graph 解决的是“意图”和“可渲染坐标”之间的几何求解层，适合编码 Agent、LLM 自动化流程、CLI 管线和需要可重复图表输出的开发者。
+它为大模型、编码 Agent 和 CI 流水线而设计：不用手调 x/y，不依赖渲染器反馈，也不需要“看图再挪一挪”。同样的输入，永远得到逐字节相同的输出。
 
-## 安装
+<p align="center">
+  <img src="docs/images/architecture.svg" alt="auto-graph 绘制的分层架构图" width="48%">
+  &nbsp;
+  <img src="docs/images/swimlane.svg" alt="auto-graph 绘制的泳道流程图" width="48%">
+</p>
+<p align="center">
+  <img src="docs/images/sequence.svg" alt="auto-graph 绘制的时序图" width="72%">
+</p>
+<p align="center"><sub>上面每张图都是 <a href="examples/views"><code>examples/views/</code></a> 里一个约 20 行文件的 SVG 输出。</sub></p>
+
+## 核心特点
+
+- **只写内容，不画图。** 内置七种视图：流程图、泳道图、分层架构图、系统上下文图、状态机、树形图、时序图。你只需写图的内容，这类图的画法规范由视图负责。写错了会得到带修改建议的诊断，例如 `Unknown node "reveiw". Did you mean "review"?`。
+- **确定性输出。** 同样的输入，逐字节相同的输出。图可以做快照测试、在代码评审里比对差异，Agent 反复生成也不会漂移。把上一版结果传回去，一处小修改在图上也只是一处小变化。
+- **文字安全，中文友好。** 所有标签都在布局前测量：默认用 Pretext，传入实际字体时按真实字体精确测量。折行遵守避头尾规则，文字绝不溢出图形。像 `订单服务（FUN-144）` 这样中英混排的标签，断行位置和排版软件一致。
+- **线路清爽易读。** 全局分层布局配合通道走线，再经过一轮整理：去掉多余的拐弯，让并行的线保持间距，让每个标签贴着自己的线。在 90 张随机图加全部示例上，“读起来像一条断线”的情况从 138 处降到 1 处，近距离并行从 88 处降到 2 处，标签离别的线更近从 74 处降到 8 处，并由属性测试持续守住。
+- **懂图表的语义。** 架构图的各层横向拉通到同一宽度，横切能力以竖列贯穿各层；泳道之间的交接直接横穿泳道；时序图有专门的求解器（激活条、组合片段、备注、创建与销毁），画出来天然就是合法的 UML。
+- **处处可编辑。** SVG 用于文档；draw.io 输出原生可编辑的图形，时序图的生命线就是真正的 `umlLifeline`；还有 Excalidraw，以及带版本号的 JSON 几何契约，任何渲染器用约 100 行循环就能画出来。
+- **为 Agent 而生。** 可以把图适配到 A4 或幻灯片，得到一份 Agent 报告：结论、定位到原文的问题和具体建议（比如“拆成几页”“换个方向试试”），以及一组质量指标，用数字代替截图。
+
+## 快速上手
 
 ```bash
 npm install @crazyhappyone/auto-graph
 ```
 
-CLI 命令是 `agh`。
-
-```bash
-agh --input examples/architecture.yaml --format svg --output architecture.svg
-cat examples/architecture.yaml | agh --format excalidraw > architecture.excalidraw.json
-```
-
-本地开发时，先构建再直接运行编译后的 CLI：
-
-```bash
-npm run build
-node dist/cli/index.js --input examples/architecture.yaml --format svg --output architecture.svg
-```
-
-## 为什么需要它
-
-很多图表生成工具要么依赖渲染器反馈来确定布局，要么暴露坐标让人或 Agent 反复微调。auto-graph 保持几何求解的确定性和无头运行：
-
-1. 通过 `TextMeasurer` 抽象在布局前测量文本。
-2. 用 Dagre 生成有向初始布局，再叠加确定性约束。
-3. 从已解析的形状端口生成直线或正交连接线。
-4. 导出已求解的坐标，不在导出阶段重新排版。
-
-同样的输入应产生稳定的数值输出，方便快照测试、自动化生成和下游导出器复用。
-
-## TypeScript API
-
-```typescript
-import {
-  exportExcalidraw,
-  exportSvg,
-  normalizeDiagramDsl,
-  parseDiagramDsl,
-  solveDiagram,
-} from "@crazyhappyone/auto-graph";
-
-const source = `
-title: Architecture
-layout: { direction: LR }
-nodes:
-  api: { label: "API Gateway", shape: rounded-rectangle }
-  db: { label: "Database", shape: cylinder }
-edges:
-  - api -> db: "reads"
-constraints:
-  - kind: relative-position
-    source: db
-    reference: api
-    relation: right-of
-    offset: { x: 140, y: 0 }
-`;
-
-const parsed = parseDiagramDsl(source);
-if (parsed.value === undefined) {
-  throw new Error(parsed.diagnostics.map((d) => d.message).join("\n"));
-}
-
-const normalized = normalizeDiagramDsl(parsed.value);
-const coordinated = solveDiagram(normalized.diagram, {
-  routeKind: "obstacle-avoiding",
-  maxRoutingAttempts: 8,
-  labelPlacement: "beside",
-  labelOffset: 16,
-});
-
-const svg = exportSvg(coordinated, { title: "Architecture" });
-const excalidraw = exportExcalidraw(coordinated);
-```
-
-求解器按职责拆分（`ports`、`route-edges`、`labels`、`remediation` 等）。模块归属与默认管线阶段顺序见 [`src/solver/ARCHITECTURE.md`](./src/solver/ARCHITECTURE.md)。
-
-## DSL 示例
+写下这张图要表达的内容：
 
 ```yaml
-title: Architecture
-layout:
-  direction: LR
-nodes:
-  web:
-    label: Web App
-    shape: rounded-rectangle
-  api:
-    label: API
-    shape: hexagon
-  db:
-    label: Database
-    shape: cylinder
-edges:
-  - web -> api: calls
-  - api -> db: reads
-constraints:
-  - kind: relative-position
-    source: api
-    reference: web
-    relation: right-of
-    offset: { x: 160, y: 0 }
+# order.yaml
+view: swimlane
+title: 订单履约
+lanes:
+  customer:
+    label: 客户
+    steps: { order: 下单, pay: 付款, receive: 收货 }
+  shop:
+    label: 商家
+    steps: { check: 库存充足?, ship: 发货 }
+flow:
+  - order -> check
+  - check -> pay: 是
+  - check -> order: 否
+  - pay -> ship -> receive
 ```
 
-## 分层架构（分组条带）
+画出来：
 
-带 `direction` 的分组按条带排布成员。`vertical` 按列出顺序（先嵌套分组、后节点）自上而下堆叠，并把嵌套分组拉通到同一宽度，即架构图中各层横贯全图的画法；`horizontal` 左右并排并拉齐到同一高度，使安全、运维等横切能力以竖条形式贯通旁边的各层。有连线相连的成员保留布局给出的间距（为连线和标签留出空间），无连线的成员以 24px 间距紧凑排列。被父分组拉伸的条带列会把其节点沿新长度均匀铺开。
+```bash
+npx agh --input order.yaml --output order.svg                         # SVG
+npx agh --input order.yaml --format drawio --output order.drawio      # 可编辑的 draw.io
+npx agh --input order.yaml --page A4 --report report.json --output order.svg
+```
 
-`frame: false` 表示分组只作布局容器：未指定时不留内边距，任何格式都不绘制（无边框、无标题；draw.io 保留一个无样式的 `group` 容器单元，几何契约保留该容器并标注 `frame: false`，但不放入 `zOrder`）。
+或者在 TypeScript 中调用：
+
+```ts
+import { readFileSync } from "node:fs";
+import { renderDiagramDsl } from "@crazyhappyone/auto-graph";
+
+const result = renderDiagramDsl(readFileSync("order.yaml", "utf8"), { format: "svg" });
+if (result.content === undefined) throw new Error(result.diagnostics[0]?.message);
+console.log(result.content); // SVG 文本；result.diagram 是解算后的几何
+```
+
+## 视图
+
+用 `view:` 指明图的种类，然后只写内容：不用写形状、容器、方向和布局参数。视图会把内容展开成完整的 DSL，并检查这类图的规则。这是让大模型画出正确图表最简单的方式。
+
+| 视图 | 适用于 | 内容 |
+| --- | --- | --- |
+| `flowchart` | 由步骤和判断组成的流程 | `steps`、`flow` |
+| `swimlane` | 跨角色或跨系统的流程 | `lanes`（及各自的 `steps`）、`flow` |
+| `architecture` | 分层系统架构，各层拉通到同一宽度 | 有序的 `layers` 及其 `components`（`kind`：service、client、app、gateway、database、cache、storage、queue、user、external），`links`；可选 `columns.left` / `columns.right` 放贯穿各层的横切能力，`boundary` 给整体加外框 |
+| `system-context` | 一个系统及其用户和周边系统（C4 第一层） | `system`、`people`、`externals`、`relations` |
+| `state` | 一个对象的状态及其间的事件 | `states`、`transitions`（`[*]` 表示初始 / 终止）、`initial` |
+| `tree` | 组织架构、分解结构、分类体系 | `root`，写成嵌套大纲：`{ 公司: [财务, { 技术: [前端, 后端] }] }` |
+| `sequence` | 谁按什么顺序调用谁（UML / SysML 时序图，DoDAF OV-6c） | `participants`、`messages`（见[时序图](#时序图)） |
+
+所有视图的写法一致：
+
+- 条目写成 `id: 标签` 或 `id: { label: …, … }`。标签以 `?` 结尾的步骤是判断；`开始` / `结束`（或 `start` / `end`）是起止节点。
+- 关系用箭头字符串表示：`a -> b`，链式 `a -> b -> c`，扇入 `a, b -> c`，虚线 `a -.-> b`，带标签 `a -> b: 是`。两端可以写 id，也可以写节点的完整标签。
+- 写错时，诊断会指向原文中的位置并给出修改建议：未知或拼错的 id、只有一个分支的判断、不属于任何泳道的步骤、无法到达的状态、没有任何连线的层。
+- `title`、`layout`、`routing`、`output` 原样透传（例如 `layout: { direction: LR }` 可改变默认方向）。
+
+```bash
+agh --list-views                    # 列出所有视图（加 --json 输出数据）
+agh --view-example architecture     # 一份完整的示例文档
+agh --view-schema architecture      # 视图输入的 JSON Schema（用于结构化输出）
+agh --input order.yaml --expand     # 查看视图展开后的完整 DSL，便于手工调整
+```
+
+示例见 [`examples/views/`](examples/views)。也可以用 `registerView({ id, title, summary, schema, example, expand })` 注册自己的图表类型：`schema` 是输入的 zod 模式，`expand` 返回 DSL 数据，并通过上下文报告问题。
+
+### 分层架构
+
+各层横向拉通到同一宽度，和手工画架构图的习惯一致。服务于所有层的能力（安全、运维）放在侧边的竖列里，贯穿全部各层；`boundary` 给整个系统加上外框：
 
 ```yaml
-groups:
-  access: { label: 接入层, nodes: [web, mobile] }
-  apply: { label: 应用层, nodes: [qa, reporting, training] }
-  data: { label: 数据层, nodes: [kb, records] }
-  layers: { groups: [access, apply, data], direction: vertical, frame: false }
-  ops: { label: 运行支撑, nodes: [identity, audit], direction: vertical }
-  platform: { label: 平台, groups: [layers, ops], direction: horizontal }
+view: architecture
+boundary: 应急知识治理与现场协同平台
+layers:
+  - { label: 接入层, components: { mini: 微信小程序, web: Web 管理端 } }
+  - { label: 应用层, components: { qa: 知识问答, report: 现场报送 } }
+  - { label: 数据层, components: { kb: { label: 知识库, kind: database } } }
+columns:
+  right:
+    - { label: 运行支撑, components: { auth: 身份核验, audit: 安全审计 } }
+links:
+  - mini -> qa: 现场提问
+  - web -> report
+  - qa, report -> kb
 ```
 
-连线标签会像避开泳道边线一样避开绘出的分组边框。
+底层对应 DSL 的“分组条带”：`direction: vertical` 的分组把成员按同一宽度纵向堆叠，`horizontal` 则按同一高度横向并排；`frame: false` 让分组只作布局容器，不会被画出来。
 
-## 时序图
+### 时序图
 
-时序图有专门的求解器：参与者横向排开，每个参与者一条生命线，消息按书写顺序自上而下排列。它不走通用的图布局，所以画出来的天然是合法的时序图：消息水平且有序，激活条从调用开始、到返回结束，组合片段正确嵌套，生命线之间的间距刚好容得下其间的标签、自调用环、备注和片段边框。
+时序图有专门的求解器：参与者横向排开，每人一条生命线，消息按书写顺序自上而下排列。消息水平且有序，激活条从调用开始、在返回时结束，组合片段正确嵌套，生命线之间的间距刚好容得下其间的标签、自调用、备注和片段边框。
 
 ```yaml
 view: sequence
@@ -159,158 +156,182 @@ messages:
 
 | 写法 | 画出 |
 | --- | --- |
-| `a -> b: 文字` | 同步调用：实线、实心箭头；`b` 激活到对应的返回为止 |
-| `a ->> b: 文字` | 异步消息：实线、开口箭头 |
-| `b --> a: 文字` | 返回：虚线、开口箭头；结束 `b` 的激活 |
+| `a -> b: 文字` | 同步调用：实线、实心箭头；`b` 激活到调用返回为止 |
+| `a ->> b: 文字` | 异步消息：开口箭头 |
+| `b --> a: 文字` | 返回：虚线；结束 `b` 的激活 |
 | `a ->* b: 文字` | 创建 `b`：它的头部出现在这条消息处 |
 | `a ->+ b`、`b -->- a` | 额外激活接收方 / 结束发送方的激活 |
 | `a -> a: 文字` | 自调用：生命线上的回环，带一段嵌套激活条 |
 | `activate a`、`deactivate a`、`destroy a` | 手动控制激活条；生命线在 X 处结束 |
-| `note left of a: …`、`note right of a: …`、`note over a, b: …` | 备注 |
-| `ref over a, b: …` | 交互引用（指向另一张图的框） |
+| `note left of a: …`、`note right of a: …`、`note over a, b: …` | 备注（跨两条生命线的备注按整个宽度折行） |
+| `ref over a, b: …` | 交互引用 |
 | `== 文字 ==` | 横贯全图的分隔线 |
-| `alt: 条件` + `messages`、`else: [{ guard, messages }]` | 组合片段：`alt`、`opt`、`loop`、`par`（其余分支写在 `and` 下）、`break`、`critical`、`neg` |
+| `alt` / `opt` / `loop` / `par` / `break` / `critical` / `neg` + `messages` | 组合片段（其余分支写在 `else` / `and` 下） |
 
-`autonumber: true` 给消息编号；`autoActivate: false` 时激活条只由 `activate` / `deactivate` 控制。未声明就使用的参与者按首次出现的顺序加入；和已声明 id 只差一两个字母的会被当作笔误报错。
+`autonumber: true` 给消息编号。默认开启 `autoActivate`，即使流程只写调用、不写返回，激活条也是干净的：控制权回到调用栈上层后，被调用方的激活条随即结束，只有真正的回调才会嵌套。
 
-完整 DSL 里，时序图是一个 `sequence` 块，其中的 `participants` 就是节点（见 `examples/sequence.yaml`）：步骤写成 `{ type: message | note | fragment | ref | divider | activate | deactivate | destroy, … }`，`frame: { kind: sd, titleTab: … }` 会画出 UML 外框。所有导出器都支持：SVG；draw.io 使用原生可编辑的 `umlLifeline` 生命线（激活条是它的子单元，消息固定在生命线上）、`umlFrame` 片段和 `umlDestroy` 标记；Excalidraw；以及几何契约，其 `sequence` 块把生命线、激活条、片段、备注、分隔线和销毁标记都给成可以直接绘制的线段、矩形和路径。
+## 工作原理
 
-## 密集走线控制
+auto-graph 把**准备**、**解算**、**导出**三步分开：
 
-需要保留坐标的密集图可以通过 YAML `routing` 元数据启用避障走线控制。这些控制保持确定性和无头运行；如果布局无法满足约束，会返回结构化诊断，而不是依赖人工看图判断。
+1. **测量。** 布局前先通过 `TextMeasurer`（默认 Pretext）测量所有标签，按中文宽度计算，并按避头尾规则折行。图形随文字长大，而不是把文字塞进图形。
+2. **布局。** 带分组、泳道或长流程的图使用全局布局：层级感知的分层；尽量减少交叉、且保证每个容器连续不断的排序；再用带间距约束的二次规划（VPSC）把连线拉直、把容器收紧。小图则用 Dagre 生成初始布局，再叠加你写的约束。
+3. **走线。** 连线沿各层的位置直行，只在层间通道里转弯，轨道顺序以交叉和重叠最少为目标。随后的整理步骤去掉多余的拐弯，避免两条线读成一条；每一步移动都会检查，确保不新增交叉、重叠或穿越障碍。
+4. **标注。** 连线标签放在自己那条线旁边，避开节点、其他标签、分组标题和泳道分隔线，并垫一块贴合文字的白底。
+5. **导出。** 导出器直接绘制解算好的几何，不会重新排版。
+
+模块职责与管线顺序见 [`src/solver/ARCHITECTURE.md`](src/solver/ARCHITECTURE.md)。
+
+### 全局布局
+
+`layout.mode: global` 是整张画布的求解器。泳道图和长流程（连续 6 步以上）默认使用它；设置 `layout.mode: dagre` 可以关闭。
+
+- **分层**：按声明顺序打破环路，写在最后的“重试”连线会被反向。泳道之间的交接不推进流程，来回穿梭于泳道之间的流程依然紧凑。
+- **排序**：分组和泳道保持连续，并在各层之间顺序一致，每个容器都是一个完整的矩形。
+- **坐标**：长连线对齐成直线，层间距离按需要容纳的内容计算：每条转弯的线一条轨道，加上连线标签和容器边框。
+- **折行**：比页面比例长得多的流程，会像文字换行一样按阅读顺序折成多段；折行处尽量不切断连线，也绝不拆开分组。
+
+在基准测试集上（[`test/fixtures/benchmark/elk-comparison.md`](test/fixtures/benchmark/elk-comparison.md)），输入完全相同时，DGE 和 ELK layered 的硬性指标都保持为 0。DGE 的交叉总数约为 ELK 的一半，折点更少；涉及分组或泳道时也更快。
+
+### 增量稳定
+
+改一处，图不应该整体重排。把上一版结果传回去，小修改在图上也只是小变化：
+
+```bash
+agh --input diagram.yaml --format geometry --output diagram.geometry.json   # 第一次
+# … 修改 diagram.yaml …
+agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg
+```
+
+```ts
+const first = renderDiagramDsl(source);
+const next = renderDiagramDsl(edited, { previousLayout: previousLayoutOf(first.diagram!) });
+```
+
+排序从上一版的顺序出发，只有能减少的交叉多于打乱的顺序时才会调整（用 `--stability <权重>` 调节取舍）；坐标会被拉回原来的位置，没有改动的部分保持不动。
+
+## 输出
+
+| 格式 | 得到 |
+| --- | --- |
+| `svg` | 自包含的 SVG（默认）。 |
+| `drawio` | draw.io XML，保持解算后的几何，端点固定，交叉处为逐线跳线，时序图使用原生 UML 图形。在 diagrams.net 中打开即可编辑。 |
+| `excalidraw` | Excalidraw 场景 JSON。 |
+| `geometry` | 几何契约：纯数字形式的解算结果（见下）。 |
+
+格式优先级依次为 CLI `--format`、文档中的 `output.format`，最后默认 `svg`。
+
+### 几何契约
+
+`--format geometry`（TypeScript 中为 `exportGeometry(diagram)`）把解算结果输出为纯数字。Agent 或应用可以直接用任意渲染器绘制，不必再各自写一套布局。格式带版本号（`"format": "dge-geometry", "version": 1`），JSON Schema 见 [`schema/dge-geometry.v1.schema.json`](schema/dge-geometry.v1.schema.json)（也可调用 `geometryJsonSchema()`）。
+
+统一坐标系（px，原点在左上角，y 向下），所有数值保留 3 位小数，同一输入逐字节稳定：
+
+- `nodes`：外框，外形的图元表示（`rect` + 圆角、`ellipse`、`polygon`、`cylinder`）及路径命令，端口。
+- `containers`：分组、泳道与泳道行，含外框、表头和父子关系。
+- `edges`：起止点及所在边、路由点 `points`、描边路径 `path`（截到箭头处，交叉处切入跳线）、箭头、标签引用。
+- `texts`：每个标签的框、字体、逐行位置，以及需要垫在下面的白底。
+- `zOrder`（从后到前的绘制顺序）、`metrics` 与 `diagnostics`。
+
+渲染就是遍历 `zOrder`；`renderGeometrySvg(document)` 是只依赖这份文档、约 100 行的参考渲染器。
+
+## 面向 Agent
+
+**适配页面。** 在文档中写 `page:`（或使用 `--page`），图会按真实纸张排版，而不是一块抽象画布：
 
 ```yaml
-layout:
-  mode: positions
-  direction: LR
-routing:
-  kind: obstacle-avoiding
-  edgeLabelRerouting: { maxIterations: 2 }
-  compactTextObstacles: labels-only
-  textIntersectionTolerance: 2
-  textObstacleVertices: true
-  fixedSwimlaneGeometry: diagnose-overflow
-  anchorCapacity: { minSpacing: 16, grow: true }
-  railRouting: dependency
-  externalLabels: { edgeLabels: true }
-  deliverabilityMode: strict
-  remediationPolicy:
-    externalLabels: auto
-    routeRails: auto
-    growFixedGeometry: auto
-    pageSplit: suggest
+page: A4        # A3、A5、letter、legal、slide（16:9）、slide-4:3、"1200x800"、"A4-landscape"
+# page: { size: A4, orientation: auto, margin: 24, direction: auto }
 ```
 
-当下游需要保留容器几何时，在 swimlane 或 lane 上提供 `box` 并启用 `fixedSwimlaneGeometry`。高扇入/扇出节点使用 `anchorCapacity`，同层依赖密集页面使用 `railRouting: dependency`，需要把拥挤边标签交给下游 keyed callout 渲染时使用 `externalLabels`。
+页面的形状会引导折行；横竖版（以及 `direction: auto` 时的 LR / TB 两个方向）都会尝试，取能画得最大的方案。小图保持原始尺寸并居中。适配结果会报告标签在纸上的实际字号：小于 8px 视为不可读，小于 11px 视为偏小。仍然放不下的页面可以拆成多页，并用跨页连接符标注（`pageSplit: auto`）。
 
-`deliverabilityMode: strict`（等价于 `strict: true`）要求几何干净，或返回带 `remediationPlans` 的结构化 `unsatisfiable`。`deliverabilityMode: degraded-ok` 保留 advisory degraded 输出。
+**Agent 报告。** `--report report.json`（或 `buildAgentReport(...)`）输出 Agent 决定下一步所需的信息，渲染失败时也会输出：
 
-本地 route/label 反馈循环耗尽后，残余冲突进入有界 remediation 轮次（默认最多 2 次）。应用顺序为 grow → rails → external-label。设置 `pageSplit: auto` 后，之后仍不干净的页面会被拆成多页（见下文）。
+```json
+{
+  "verdict": "fail",
+  "summary": "Needs fixes: 200 nodes, 281 edges, 1443 crossings; 1 error(s), 0 warning(s); A4 landscape at 13% (labels 1.8px).",
+  "issues": [{ "severity": "error", "code": "page.unreadable", "where": "page", "message": "…", "fix": "…" }],
+  "page": { "size": "A4", "orientation": "landscape", "scale": 0.129, "fontPx": 1.8, "readable": false },
+  "suggestions": ["Split into about 38 page(s), e.g. one per group (g0_0, g0_1, …), each with the edges it needs.", "…"]
+}
+```
 
-### 连线分布默认行为
+**用数字检查，不用看图。** `--metrics metrics.json` 输出整张画布的质量指标（重叠、文字溢出、交叉、折点、共享端点、空白率、泳道填充率等）；`measureRouteReadability(diagram)` 统计线路可读性缺陷：读成一条线的走线、近距离并行、离别的线更近的标签、贴着分组标题的标签，以及不在节点轮廓上的端点。
 
-默认 `orthogonal` 路由下：
+## TypeScript API
 
-- 共享同一节点边的连线端口沿该边均分，按对端节点位置排序，并投影到真实形状轮廓（菱形 / 六边形 / 椭圆 / 平行四边形 / 圆柱）。某一流向侧连线较多的节点会在布局前自动增高/加宽。
-- 路由后，共用走线通道的连线会被分离成等距平行轨道（`routing.edgeSeparation: false` 关闭，`{ spacing: 16 }` 调整间距）。
-- `relative-position` 支持 `align: center`，`below` / `right-of` 会与参考节点中心对齐，不受节点尺寸影响。
+```ts
+import {
+  exportDrawio,
+  exportGeometry,
+  exportSvg,
+  measureLayoutQuality,
+  renderDiagramDsl,
+} from "@crazyhappyone/auto-graph";
 
-### `remediationPolicy` 应用矩阵
+const { diagram, diagnostics } = renderDiagramDsl(source); // 视图或完整 DSL，YAML 或 JSON 均可
+if (diagram === undefined) throw new Error(diagnostics.map((d) => d.message).join("\n"));
 
-| 键 | `suggest` / `off` | `auto` |
-|----|-------------------|--------|
-| `externalLabels` | 仅暂存 keyed callout 计划 | 应用确定性 keyed callout 并复查 clearance |
-| `routeRails` | 仅暂存 dependency rail 计划 | 强制 dependency rails、重路由，标记 `applied` 或 `blocked` |
-| `growFixedGeometry` | 仅暂存增长计划 | 应用 growth deltas / 扩展节点、重路由，标记 `applied` 或 `blocked` |
-| `pageSplit` | 暂存可读的 `required`/`available` 计划 | 拆成 2–6 页并逐页求解，标记 `applied`（附 `pages` 与 `crossPageEdgeIds`）或 `blocked` |
+const svg = exportSvg(diagram);
+const drawio = exportDrawio(diagram);
+const geometry = exportGeometry(diagram);
+const metrics = measureLayoutQuality(diagram);
+```
 
-#### 拆页（`pageSplit: auto`）
+底层管线同样公开：`parseDiagramDsl` → `normalizeDiagramDsl` → `solveDiagram(normalized.diagram, options)` → 任意导出器，可以配置走线方式、标签位置、约束、字体（`registerFonts`）以及自定义 `TextMeasurer`。
 
-其他补救措施之后仍有交付冲突（超容量）的页面，或在 `--page` 适配下标签会小于 8px 的页面，会被拆成多页。属于一起的节点不会被拆开：一个分组及其嵌套内容、一个节点及其子节点总在同一页。页面是这些单元按单页求解时的排列顺序（沿流向；若横向切割更少则横向）连续分段，互不相连的部分保持分开，使它们之间的分页边界不切断任何边；分段边界在保持各页均衡的前提下切断最少的边。之后每页独立求解；泳道池保留全部泳道；框架标题与图标题加上 “(2/3)”。被切断的边在两页上都画出，并止于一个**跨页连接符**，注明另一侧的页码和节点（“→ P2 · Billing”、“P1 · Orders →”；`metadata.offPageConnector`、`remotePage`、`remoteNodeId`）。
+### 完整 DSL
 
-只有当拆页后的冲突更少（或可读字号更大）时才采用拆页；否则计划标记为 `blocked` 并附原因，同时给出 `remediation.page-split.blocked` 警告。结果是第 1 页加上 `pages`（每页的求解结果）、合并后的 `deliverability`（各页计划带页前缀，如 `page-2-remediation-01-…`），以及带 `detail.page` 的全部诊断。在 `deliverabilityMode: strict` 下，任何一页残留的冲突仍然是错误（带页码的 `routing.deliverability.unsatisfiable`）。各导出器都会输出全部页面：SVG 纵向堆叠（每页一个嵌套的 `<svg class="page">`，各自适配纸张），draw.io 每页一个 `<diagram>` 标签页，Excalidraw 纵向堆叠并给 id 加 `page-N:` 前缀，geometry 文档带 `pages`。
+视图会展开成一套通用的 DSL：节点、连线、分组、泳道和约束。需要精确控制时可以直接编写：
 
-计划状态为 `suggested`、`applied` 或 `blocked`。在 full-auto strict 密集验收下，可自动执行的类型必须是 `applied` 或 `blocked`，不能停留在 `suggested`。
+```yaml
+title: 系统架构
+layout: { direction: LR }
+nodes:
+  web: { label: Web 应用, shape: rounded-rectangle }
+  api: { label: API, shape: hexagon }
+  db: { label: 数据库, shape: cylinder }
+edges:
+  - web -> api: 调用
+  - api -> db: 读取
+groups:
+  backend: { label: 后端, nodes: [api, db] }
+constraints:
+  - { kind: relative-position, source: api, reference: web, relation: right-of, offset: { x: 160, y: 0 } }
+```
 
-求解结果继续保留旧的 `degraded`、`deliverability.status` 和 `deliverability.remediationTypes` 字段。同时提供确定性的 `deliverability.remediationPlans` 对象，包含稳定 ID、类型、状态、诊断代码、edge/node ID 以及类型专属细节，strict 消费方可以直接应用或暂存 remediation，而不需要解析自由文本诊断。
+形状：rectangle、rounded-rectangle、ellipse、diamond、parallelogram、hexagon、cylinder。约束：exact、relative、align、distribute、containment。更多见 [`examples/`](examples)。
 
-### Issue 收口建议（密集 MBSE epic）
+对于需要保留坐标的密集页面（MBSE / DoDAF 风格），还有一组走线控制：避障走线与短正交走线、命名端口、依赖轨道、外置标签、严格交付模式和自动补救。详见 [`docs/advanced-routing.zh-CN.md`](docs/advanced-routing.zh-CN.md)。
 
-本契约在本地 fixture 落地后，建议人工操作：
-
-- 关闭 [#74](https://github.com/zhangyang-crazy-one/auto-graph/issues/74) — 回归守卫已存在（文本硬障碍不得升级为 evidence crossing）。
-- 将 [#71](https://github.com/zhangyang-crazy-one/auto-graph/issues/71)、[#73](https://github.com/zhangyang-crazy-one/auto-graph/issues/73)、[#69](https://github.com/zhangyang-crazy-one/auto-graph/issues/69) 并入 [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75)。
-- 保持 [#75](https://github.com/zhangyang-crazy-one/auto-graph/issues/75) 开放，直到本地密集契约（干净或带计划的结构化 unsat）满足为止——不以 live DoDAF Stage 5 critical 归零为关闭条件。
-
-## CLI
+## CLI 速查
 
 ```bash
-agh --input diagram.yaml --format svg --output diagram.svg
+agh --input diagram.yaml --output diagram.svg                    # 默认 SVG，除非 --format / output.format 另有指定
+agh --input diagram.yaml --format drawio --output diagram.drawio
 agh --input diagram.yaml --format excalidraw --output diagram.excalidraw.json
-agh --input diagram.yaml --font ./fonts/NotoSansSC-Regular.otf --output diagram.svg
-cat diagram.yaml | agh --json
+agh --input diagram.yaml --format geometry --output diagram.geometry.json
+cat diagram.yaml | agh --json > diagram.svg                      # 从标准输入读、写到标准输出，诊断以 JSON 输出
+agh --input diagram.yaml --page A4 --report report.json --metrics metrics.json --output diagram.svg
+agh --input diagram.yaml --font ./NotoSansSC-Regular.otf --output diagram.svg   # 用真实字体测量
+agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg  # 增量稳定
+agh --input diagram.yaml --padding 16 --output diagram.svg       # 图外留白
+agh --list-views | --view-example <视图> | --view-schema <视图> | --input view.yaml --expand
 ```
 
-支持的输出格式：
+`--json` 把诊断以 JSON 写到标准错误；`--verbose` 额外输出提示级诊断。
 
-- `svg`
-- `excalidraw`
-- `geometry` —— 解算后的几何契约（见下）
-
-格式优先级为 CLI `--format`、DSL 中的 `output.format`，最后默认 `svg`。
-
-## 几何契约
-
-`--format geometry`（TypeScript 中为 `exportGeometry(diagram)`）把解算结果输出为纯数字，智能体或应用可以用任意渲染器直接绘制，不必再各自手写一套 SVG 布局。格式带版本号（`"format": "dge-geometry", "version": 1`），JSON Schema 见 [`schema/dge-geometry.v1.schema.json`](schema/dge-geometry.v1.schema.json)（也可调用 `geometryJsonSchema()`）。
-
-统一坐标系（px，原点左上，y 向下），所有数值保留 3 位小数，同一输入逐字节稳定：
-
-- `nodes`：外框、外形（`rect` + 圆角、`ellipse`、`polygon`、`cylinder` 原语，**以及** `M`/`L`/`A`/`Z` 路径命令）、端口。
-- `containers`：分组、泳道与泳道行（框、表头、父子关系）。不绘制的分组（`frame: false`）标注 `frame: false`，不进入 `zOrder`。
-- `edges`：起止点与所在边、路由点 `points`、描边路径 `path`（截到箭头底边，并在从其他连线下方穿过处切入跳线弧或缺口）、箭头三角形、交叉点、标签引用。
-- `texts`：每个文字块的框、字体、逐行位置（左侧 `x`、基线 `y`、宽度、行框）、需要先画的白底框以及旋转角度。
-- `zOrder`：从后到前的绘制顺序；`metrics`：布局质量指标；`diagnostics`：诊断信息。
-
-渲染就是遍历 `zOrder`；`renderGeometrySvg(document)` 是只依赖该文档、约 100 行的参考渲染器。
-
-`--metrics <path>` 会额外输出整张画布的布局质量指标 JSON（节点/分组重叠、文字溢出外形、交叉、共享端点、空白率、泳道填充率等），智能体无需"看图"即可用数值自检：
+## 开发
 
 ```bash
-agh --input diagram.yaml --output diagram.svg --metrics diagram.metrics.json
+npm ci
+npm run verify      # 类型检查、构建、测试、代码检查（与 CI 一致）
 ```
 
-## 当前范围
-
-auto-graph v0.0.1 包含：
-
-- TypeScript 公共 API，支持 ESM 和 CJS 构建
-- YAML 和 JSON DSL 解析
-- parse、validate、solve、export、I/O 分层诊断
-- 基于 Pretext 的文本测量抽象和测试 fallback
-- Pretext 用画布上可用的字体测量。传入图实际使用的字体文件（`--font NotoSansSC.otf`，可重复，`字体名=文件` 可指定名称；或 `renderDiagramDsl` 的 `fonts` 选项、`registerFonts()`），标签就按真实字体精确测量，注册的中文字体会排在中文字体栈最前面。没有真实字体时（Node 画布会退到本机已有字体，这里汉字被少算约 25%），全角字符一律按 1 em（所有主流中文字体都如此），中文字体栈中的拉丁字母预留 6% 余量，保证不溢出。折行遵守避头尾规则（行首不出现 `，。）」…`，行尾不出现 `（「…`）。默认中文字体栈为 `'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif`。
-- 标签适配、形状几何、AABB 避碰工具和连接端口
-- Dagre 初始有向布局
-- exact、relative、align、distribute、containment 约束
-- 直线、正交、避障和密集依赖 rail 走线
-- 文本感知走线避让、边标签重路由、固定泳道几何和结构化拥堵诊断
-- SVG 和 Excalidraw 导出
-- Golden fixture 与确定性测试
-
-首个版本暂不包含：
-
-- 浏览器 UI
-- draw.io XML 导出
-- Mermaid 导入/导出
-- 完整样式系统
-
-## 验证
-
-```bash
-npm run verify
-```
-
-该命令会运行 TypeScript 类型检查、双格式构建、Vitest 测试和 Biome 检查。
+测试包括：golden 与确定性测试；随机图上的属性测试（硬性指标保持为 0，可读性不超出预算）；最多 1000 个节点的规模基准；以及与 ELK 的对比测试（`DGE_ELK=1 npx vitest run test/benchmark/elk-comparison.test.ts`）。每个版本的变化见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 致谢
 
-auto-graph 使用 `@chenglou/pretext` 做无渲染器文本准备，使用 `@dagrejs/dagre` 做有向图初始布局。
+auto-graph 使用 [`@chenglou/pretext`](https://github.com/chenglou/pretext) 做无需渲染器的文本测量，使用 [`@dagrejs/dagre`](https://github.com/dagrejs/dagre) 作为小图的初始布局。采用 MIT 许可证。

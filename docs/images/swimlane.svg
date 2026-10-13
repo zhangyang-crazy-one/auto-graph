@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="-54 -23 540.58 290">
+  <title>订单履约</title>
+  <rect class="background" x="-54" y="-23" width="540.58" height="290" fill="#ffffff"/>
+  <g class="swimlane" data-id="process">
+    <rect class="swimlane-frame" x="-44" y="-16" width="523.58" height="276" fill="#ffffff" stroke="#374151"/>
+    <rect class="swimlane-lane" data-lane="process.customer" x="-44" y="-16" width="523.58" height="92" fill="none" stroke="#374151"/>
+    <rect class="swimlane-header" data-lane-header="process.customer" x="-44" y="-16" width="28" height="92" fill="#f3f4f6" stroke="#374151"/>
+    <rect class="swimlane-content" data-lane-content="process.customer" x="-16" y="-16" width="495.58" height="92" fill="none" stroke="none"/>
+    <text class="swimlane-label" data-for="process.customer" data-text-surface="swimlane-label" data-owner-id="process.customer" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="-30" y="30" transform="rotate(-90 -30 30)">客户</text>
+    <rect class="swimlane-lane" data-lane="process.shop" x="-44" y="76" width="523.58" height="92" fill="none" stroke="#374151"/>
+    <rect class="swimlane-header" data-lane-header="process.shop" x="-44" y="76" width="28" height="92" fill="#f3f4f6" stroke="#374151"/>
+    <rect class="swimlane-content" data-lane-content="process.shop" x="-16" y="76" width="495.58" height="92" fill="none" stroke="none"/>
+    <text class="swimlane-label" data-for="process.shop" data-text-surface="swimlane-label" data-owner-id="process.shop" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="-30" y="122" transform="rotate(-90 -30 122)">商家</text>
+    <rect class="swimlane-lane" data-lane="process.bank" x="-44" y="168" width="523.58" height="92" fill="none" stroke="#374151"/>
+    <rect class="swimlane-header" data-lane-header="process.bank" x="-44" y="168" width="28" height="92" fill="#f3f4f6" stroke="#374151"/>
+    <rect class="swimlane-content" data-lane-content="process.bank" x="-16" y="168" width="495.58" height="92" fill="none" stroke="none"/>
+    <text class="swimlane-label" data-for="process.bank" data-text-surface="swimlane-label" data-owner-id="process.bank" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="-30" y="214" transform="rotate(-90 -30 214)">银行</text>
+  </g>
+  <path class="edge" data-id="charge-ship" d="M 287.58 212 L 351.58 212 L 351.58 131 L 373.58 131" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="charge-ship" points="383.58,131 373.58,135 373.58,127" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="check-pay" d="M 151.58 122 L 164.58 122 L 164.58 39 L 197.58 39" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="check-pay" points="207.58,39 197.58,43 197.58,35" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="check-refund" d="M 75.79 152 L 75.79 187.55" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="check-refund" points="75.79,197.55 71.79,187.55 79.79,187.55" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="order-check" d="M 75.79 42 L 75.79 82" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="order-check" points="75.79,92 71.79,82 79.79,82" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="pay-charge" d="M 287.58 39 L 319.58 39 L 319.58 198 L 297.58 198" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="pay-charge" points="287.58,198 297.58,194 297.58,202" fill="#111827" stroke="#111827"/>
+  <path class="edge" data-id="ship-receive" d="M 423.58 110 L 423.58 70" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <polygon class="edge-arrowhead" data-edge="ship-receive" points="423.58,60 427.58,70 419.58,70" fill="#111827" stroke="#111827"/>
+  <rect class="node node-rounded-rectangle" data-id="charge" fill="#f8fafc" stroke="#374151" rx="8" ry="8" x="207.58" y="184" width="80" height="42"/>
+  <polygon class="node node-diamond" data-id="check" fill="#f8fafc" stroke="#374151" points="75.79,92 151.58,122 75.79,152 0,122"/>
+  <rect class="node node-rounded-rectangle" data-id="order" fill="#f8fafc" stroke="#374151" rx="8" ry="8" x="35.79" y="0" width="80" height="42"/>
+  <rect class="node node-rounded-rectangle" data-id="pay" fill="#f8fafc" stroke="#374151" rx="8" ry="8" x="207.58" y="18" width="80" height="42"/>
+  <rect class="node node-rounded-rectangle" data-id="receive" fill="#f8fafc" stroke="#374151" rx="8" ry="8" x="383.58" y="18" width="80" height="42"/>
+  <rect class="node node-rounded-rectangle" data-id="refund" fill="#f8fafc" stroke="#374151" rx="8" ry="8" x="35.79" y="197.55" width="80" height="42"/>
+  <rect class="node node-rounded-rectangle" data-id="ship" fill="#f8fafc" stroke="#374151" rx="8" ry="8" x="383.58" y="110" width="80" height="42"/>
+  <text class="label" data-for="charge" data-text-surface="node-label" data-owner-id="charge" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="247.58" y="205">扣款</text>
+  <text class="label" data-for="check" data-text-surface="node-label" data-owner-id="check" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="75.79" y="122">库存充足?</text>
+  <text class="label" data-for="order" data-text-surface="node-label" data-owner-id="order" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="75.79" y="21">下单</text>
+  <text class="label" data-for="pay" data-text-surface="node-label" data-owner-id="pay" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="247.58" y="39">付款</text>
+  <text class="label" data-for="receive" data-text-surface="node-label" data-owner-id="receive" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="423.58" y="39">收货</text>
+  <text class="label" data-for="refund" data-text-surface="node-label" data-owner-id="refund" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="75.79" y="218.55">退款</text>
+  <text class="label" data-for="ship" data-text-surface="node-label" data-owner-id="ship" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="423.58" y="131">发货</text>
+  <rect class="label-backdrop" data-for="check-pay" data-text-surface="edge-label" x="172.58" y="97.8" width="20" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="check-pay" data-text-surface="edge-label" data-owner-id="check-pay" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="182.58" y="107.2">是</text>
+  <rect class="label-backdrop" data-for="check-refund" data-text-surface="edge-label" x="47.79" y="172.208" width="20" height="18.8" rx="2" fill="#ffffff"/>
+  <text class="edge-label" data-for="check-refund" data-text-surface="edge-label" data-owner-id="check-refund" data-text-backend="pretext" font-family="'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif" font-size="14" fill="#111827" text-anchor="middle" dominant-baseline="middle" x="57.79" y="181.608">否</text>
+</svg>
