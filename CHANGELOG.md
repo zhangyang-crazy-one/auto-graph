@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Straight facing routes, runs off each other's lines, labels off group titles
+
+- A Z route (end, jog, end) whose end can slide along its node side level
+  with the other end now runs straight, when that keeps it clear of
+  obstacles, crossings, overlaps, the side's corners and the other ends
+  there.
+- A middle run that stops less than 12px short of another route's run on
+  the same line steps a pitch aside, so two routes no longer read as one
+  broken line; the step adds no near-parallel run.
+- Edge labels keep 8px from a group title beside them when a spot allows
+  it ("智能服务层" / "重排与建议" no longer read as one title).
+
 ### Sequence bars that return, notes across their lifelines, label ownership
 
 - Sequence diagrams: with `autoActivate`, a message sent from below the

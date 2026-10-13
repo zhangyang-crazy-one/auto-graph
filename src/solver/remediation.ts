@@ -99,6 +99,7 @@ import type { SwimlaneContractLayout } from "./swimlane-contracts.js";
 import {
 	coordinateSwimlanes,
 	groupBorderLabelObstacles,
+	groupTitleLabelGaps,
 	laneBorderLabelObstacles,
 	laneSoftCorridors,
 	reserveLaneCorridors,
@@ -1089,6 +1090,7 @@ export function rerouteRemediationEdges(
 			...groupBorderLabelObstacles(state.coordinatedGroups),
 		],
 		options,
+		groupTitleLabelGaps(state.baseTextAnnotations),
 	);
 }
 

@@ -255,6 +255,7 @@ export function coordinateEdgeTextAnnotations(
 	edges: readonly CoordinatedEdge[],
 	obstacleBoxes: readonly Box[],
 	options: SolveDiagramOptions = {},
+	softObstacleBoxes: readonly Box[] = [],
 ): SolvedTextAnnotation[] {
 	const labelBaseOffset =
 		options.labelPlacement === "beside" ? (options.labelOffset ?? 16) : 10;
@@ -289,6 +290,7 @@ export function coordinateEdgeTextAnnotations(
 			placedLabelBoxes,
 			labelBaseOffset,
 			options,
+			softObstacleBoxes,
 		);
 		if (!anchor.externalized) {
 			placedLabelBoxes.push({
@@ -1547,6 +1549,8 @@ export function edgeLabelAnchor(
 	placedLabelBoxes: readonly Box[],
 	baseOffset = 10,
 	options: SolveDiagramOptions = {},
+	/** Kept clear when a spot allows it (room beside a group title). */
+	softObstacleBoxes: readonly Box[] = [],
 ): EdgeLabelAnchorResult {
 	const placement = labelPlacementOnPolyline(edge.points, baseOffset);
 	if (placement === undefined) {
@@ -1644,6 +1648,7 @@ export function edgeLabelAnchor(
 			// The opaque backdrop may not paint over a node border or an
 			// earlier label either.
 			obstacleBoxes.some((box) => intersectsAabb(backdrop, box)) ||
+			softObstacleBoxes.some((box) => intersectsAabb(backdrop, box)) ||
 			placedLabelBoxes.some((box) => intersectsAabb(backdrop, box))
 		) {
 			continue;
@@ -1692,13 +1697,16 @@ export function edgeLabelAnchor(
 			otherRoutes.some(
 				(other) => boxPolylineDistance(labelBox, other.points) < own,
 			);
+		const softHit = softObstacleBoxes.some((box) =>
+			intersectsAabb(labelBox, box),
+		);
 		if (
 			!crossesOwnRoute &&
 			otherRouteCrossings === 0 &&
 			nodeOverlaps === 0 &&
 			placedLabelOverlaps === 0
 		) {
-			if (!nearerOther) return clearSpot(candidate);
+			if (!nearerOther && !softHit) return clearSpot(candidate);
 			firstFree ??= candidate;
 		}
 		const distanceFromDefault = Math.hypot(
@@ -1710,6 +1718,7 @@ export function edgeLabelAnchor(
 			placedLabelOverlaps * 500_000 +
 			otherRouteCrossings * 100_000 +
 			(nearerOther ? 20_000 : 0) +
+			(softHit ? 5_000 : 0) +
 			(crossesOwnRoute ? 10_000 : 0) +
 			distanceFromDefault;
 		if (bestFallback === undefined || score < bestFallback.score) {
