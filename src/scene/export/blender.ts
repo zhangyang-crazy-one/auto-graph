@@ -188,6 +188,7 @@ def render(path, width=1200, height=900, samples=24):
     scene.cycles.device = "CPU"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
+    scene.cycles.seed = 0
     scene.render.resolution_x = width
     scene.render.resolution_y = height
     world = scene.world or bpy.data.worlds.new("dge.world")
@@ -197,6 +198,11 @@ def render(path, width=1200, height=900, samples=24):
     if background is not None:
         background.inputs["Color"].default_value = (0.9, 0.92, 0.95, 1.0)
         background.inputs["Strength"].default_value = 0.6
+    # No date, render time or file name in the image: the same scene
+    # gives the same bytes.
+    for name in dir(scene.render):
+        if name.startswith("use_stamp"):
+            setattr(scene.render, name, False)
     settings = scene.render.image_settings
     if path.lower().endswith((".jpg", ".jpeg")):
         settings.file_format = "JPEG"

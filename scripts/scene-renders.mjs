@@ -40,8 +40,27 @@ try {
 			[script, "--", "--render", out, "--size", "800x600", "--samples", "16"],
 			{ stdio: "ignore" },
 		);
+		writeFileSync(out, stripJpegComments(readFileSync(out)));
 		console.log(`docs/images/scene-${name}.jpg`);
 	}
 } finally {
 	rmSync(dir, { recursive: true, force: true });
+}
+
+/**
+ * Drop the JPEG comment segments where Blender writes render times, so the
+ * same scene gives the same file (the pixels already are the same).
+ */
+function stripJpegComments(jpeg) {
+	const parts = [jpeg.subarray(0, 2)];
+	let at = 2;
+	while (at + 4 <= jpeg.length && jpeg[at] === 0xff) {
+		const marker = jpeg[at + 1];
+		if (marker === 0xda) break; // start of scan: the rest is image data
+		const length = jpeg.readUInt16BE(at + 2);
+		if (marker !== 0xfe) parts.push(jpeg.subarray(at, at + 2 + length));
+		at += 2 + length;
+	}
+	parts.push(jpeg.subarray(at));
+	return Buffer.concat(parts);
 }
