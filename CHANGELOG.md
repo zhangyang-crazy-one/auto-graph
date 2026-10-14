@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### 3D scene: examples, README and docs (#119, phase 1g)
+
+- `examples/scene/` holds the study, meeting room and showroom; their top
+  views (`docs/images/scene-*.top.svg`, written by `npm run docs:images`)
+  are also the tests' golden files, and their Blender renders
+  (`docs/images/scene-*.jpg`) come from `npm run docs:scene-renders`
+  (needs `DGE_BLENDER_PYTHON`).
+- README (EN/ZH): a "3D scenes" section with the study's YAML beside its
+  top view, the three Blender renders, the relation vocabulary and the CLI;
+  `test/readme.test.ts` keeps the YAML shown equal to the example file and
+  checks it solves valid.
+- `docs/scenes.md` / `docs/scenes.zh-CN.md`: the full reference (frame,
+  document, relations, how it is solved, output, diagnostics, Blender
+  check, phase-1 limits).
+- Blender script: `--size WxH` and `--samples N` for headless renders, JPEG
+  when the path ends in `.jpg`, denoising, and a camera aimed above the
+  floor so tall objects at the back stay in view.
+
 ### 3D scene: review fixes (#124, #125, #126, #127)
 
 - `symmetric` takes the mirror distance from the side other relations

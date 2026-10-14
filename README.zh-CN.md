@@ -52,6 +52,7 @@ flow:
 - **懂图表的语义。** 架构图的各层横向拉通到同一宽度，横切能力以竖列贯穿各层；泳道之间的交接直接横穿泳道；时序图有专门的求解器（激活条、组合片段、备注、创建与销毁），画出来天然就是合法的 UML。
 - **处处可编辑。** SVG 用于文档；draw.io 输出原生可编辑的图形，时序图的生命线就是真正的 `umlLifeline`；还有 Excalidraw，以及带版本号的 JSON 几何契约，任何渲染器用约 100 行循环就能画出来。
 - **为 Agent 而生。** 可以把图适配到 A4 或幻灯片，得到一份 Agent 报告：结论、定位到原文的问题和具体建议（比如“拆成几页”“换个方向试试”），以及一组质量指标，用数字代替截图。
+- **也能解 3D 场景。** 用关系描述房间（`chair in-front-of desk, facing desk`、`seat around table, radius 0.9`），拿到每个物体的位置、朝向和包围盒，并已检查穿插、悬空和穿墙；可输出 JSON，或一个直接可运行的 Blender 脚本。
 
 ## 快速上手
 
@@ -214,6 +215,69 @@ messages:
 
 `autonumber: true` 给消息编号。默认开启 `autoActivate`，即使流程只写调用、不写返回，激活条也是干净的：控制权回到调用栈上层后，被调用方的激活条随即结束，只有真正的回调才会嵌套。
 
+## 3D 场景
+
+同样的思路用到三维：描述房间里有什么、它们之间是什么关系，auto-graph 解算出每个物体放在哪里、朝向哪边。全程是纯数学计算，agent 搭建 3D 场景时直接拿到精确坐标，不用猜，也不用看渲染图再调整。每个结果都会检查有没有物体互相穿插、悬空，或穿出墙壁和天花板。
+
+<table>
+<tr>
+<td width="50%">
+
+```yaml
+# study.yaml: relations only, no coordinates
+scene: study
+units: m
+bounds: { width: 4, depth: 5, height: 2.8 }
+minGap: 0.05
+objects:
+  desk:  { size: [1.4, 0.7, 0.75], front: -y }
+  chair: { size: [0.5, 0.5, 0.9],  front: -y }
+  lamp:  { size: [0.2, 0.2, 0.5] }
+  table: { size: [1.2, 1.2, 0.75] }
+  seat:  { size: [0.45, 0.45, 0.9], front: -y, count: 4 }
+relations:
+  - desk against wall north
+  - chair in-front-of desk, facing desk, gap 0.1
+  - lamp on desk, at right-back
+  - table center-of room
+  - seat around table, radius 0.9, evenly
+  - keep clear 0.8 between desk and table
+```
+
+</td>
+<td>
+
+<img src="docs/images/scene-study.top.svg" alt="左侧书房由 auto-graph 解算的结果（俯视图，上为北）" width="100%">
+
+</td>
+</tr>
+</table>
+
+| 上面的书房在 Blender 中 | 会议室 | 展厅 |
+| --- | --- | --- |
+| <img src="docs/images/scene-study.jpg" alt="书房的 Blender 渲染" width="100%"> | <img src="docs/images/scene-meeting.jpg" alt="会议室：每侧三把椅子自动排开" width="100%"> | <img src="docs/images/scene-showroom.jpg" alt="展厅：展台网格、沿墙长凳、对称的展位" width="100%"> |
+
+坐标系：x 朝东、y 朝北、z 朝上，单位是米，原点在房间西南角的地面。物体的正面 `front` 默认朝 `-y`；“左”“右”按站在参照物正面、看着它时的左右来算。
+
+| 关系 | 含义 |
+| --- | --- |
+| `a in-front-of b`、`behind`、`left-of`、`right-of`（`gap`、`distance`） | 在参照物某一侧，并与它对齐 |
+| `a against wall north`、`a corner ne`、`a center-of room` | 背靠某面墙、放在墙角、放在房间中央 |
+| `a on b, at right-back` | 放在 `b` 上（z 为其顶面）的某个位置 |
+| `a facing b`、`facing east`、`rotate 30` | 绕竖直轴转向（朝向 `b` 离自己最近的点） |
+| `seat around table, radius 0.9` | 绕中心均匀排一圈（极坐标），并朝向中心 |
+| `row grid 2x3, gap 1`、`bench distribute evenly along wall south` | 网格与成排 |
+| `a and b align x with c`、`a and b symmetric about room` | 对齐与镜像对称 |
+| `keep clear 0.8 between a and b`、`minGap: 0.05` | 通道与最小间距 |
+
+```bash
+agh --input study.yaml --output study.scene.json      # dge-scene JSON：每个物体的位置、朝向、四元数、包围盒
+agh --input study.yaml --format blender --output study.py   # blender -b --python study.py -- --render study.jpg
+agh --input study.yaml --format svg --output study.svg       # 上面的俯视图
+```
+
+关系之间互相矛盾，或者解出的场景没通过检查时，会返回诊断信息并指出涉及哪些物体；结果照样输出，标为 `valid: false`，方便直接看到问题在哪。场景的完整说明见 [`docs/scenes.zh-CN.md`](docs/scenes.zh-CN.md)。
+
 ## 工作原理
 
 auto-graph 把**准备**、**解算**、**导出**三步分开：
@@ -363,6 +427,7 @@ agh --input diagram.yaml --font ./NotoSansSC-Regular.otf --output diagram.svg   
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg  # 增量稳定
 agh --input diagram.yaml --padding 16 --output diagram.svg       # 图外留白
 agh --list-views | --view-example <视图> | --view-schema <视图> | --input view.yaml --expand
+agh --input room.yaml --format scene-json|blender|svg    # 场景文档（顶层有 `scene` 键）
 ```
 
 `--json` 把诊断以 JSON 写到标准错误；`--verbose` 额外输出提示级诊断。

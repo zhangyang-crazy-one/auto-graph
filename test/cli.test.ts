@@ -487,7 +487,7 @@ function phase05Fixture(name: string): string {
 
 describe("agh CLI with scene documents", () => {
 	const study = readFileSync(
-		new URL("./fixtures/scene/study.yaml", import.meta.url),
+		new URL("../examples/scene/study.yaml", import.meta.url),
 		"utf8",
 	);
 	const broken = readFileSync(

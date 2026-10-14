@@ -8,6 +8,7 @@ import {
 	sceneDocumentSchema,
 	sceneJsonSchema,
 } from "../src/index.js";
+import { sceneSource } from "./support/scene-files.js";
 
 const FIXTURES = [
 	"study",
@@ -16,11 +17,7 @@ const FIXTURES = [
 	"meeting",
 	"showroom",
 ];
-const source = (name: string) =>
-	readFileSync(
-		new URL(`./fixtures/scene/${name}.yaml`, import.meta.url),
-		"utf8",
-	);
+const source = sceneSource;
 
 describe("dge-scene export", () => {
 	it("matches the published JSON Schema", () => {

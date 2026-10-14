@@ -1,0 +1,154 @@
+# 3D scenes
+
+[中文](./scenes.zh-CN.md)
+
+A scene document describes a room, the objects in it and how they relate. auto-graph solves where every object stands and which way it faces, then checks the result. It is plain math with no 3D application in the loop, so an agent gets exact numbers it can hand to Blender, a game engine or a robot planner.
+
+Phase 1 covers rooms: a floor plan plus stacking (2.5D), with objects turning about the vertical axis only. Geographic anchoring (WGS84 → local ENU), terrain and trajectories are planned in #120–#122 and the follow-up issues.
+
+## The frame
+
+- x points east, y north and z up; lengths are meters.
+- The origin is the room's south-west floor corner, so the floor runs from `[0, 0]` to `[width, depth]`.
+- Compass words name the room's directions: `north` is +y. This is not geographic north.
+- Angles are degrees, counter-clockwise seen from above, with 0 pointing east.
+- An object's `size` is `[width, depth, height]` before it is turned: width along its own x, depth along its own y.
+- Its `front` is the side it faces before it is turned. The default is `-y`, which faces south, toward a viewer standing south of the room and looking north.
+- *Left* and *right* are as seen by someone standing in front of the reference and looking at it. With the default front, left is west (-x) and right is east (+x).
+
+## The document
+
+```yaml
+scene: study                 # the name
+units: m                     # m (default), cm or mm; every length below uses it
+bounds: { width: 4, depth: 5, height: 2.8 }   # height is optional (no ceiling check)
+minGap: 0.05                 # smallest clearance between objects on one surface (default 0)
+objects:
+  desk:  { size: [1.4, 0.7, 0.75] }
+  chair: { size: [0.5, 0.5, 0.9], front: -y, label: Chair, asset: office_chair }
+  seat:  { size: [0.45, 0.45, 0.9], count: 4 }     # seat1 … seat4, also usable as the group "seat"
+  plant: { size: [0.4, 0.4, 1.1], position: [0.35, 0.35], yaw: 30 }   # pinned
+relations:
+  - desk against wall north
+  - chair in-front-of desk, facing desk, gap 0.1
+```
+
+Object fields:
+
+| Field | |
+| --- | --- |
+| `size` | `[width, depth, height]`, positive |
+| `front` | `-y` (default), `+y`, `-x`, `+x` |
+| `count` | expands to `id1 … idN`; an id ending in a digit gets `id-1 …` |
+| `position` | pins the footprint center `[x, y]` (not with `count`) |
+| `yaw` | pins the turn in degrees |
+| `label` | the name drawn in the top view and Blender |
+| `asset` | a Blender collection to instance instead of a box |
+
+Lengths in relations take the document's units or a suffix: `gap 10cm`, `radius 0.9m`.
+
+## Relations
+
+A relation is one line: a subject, a verb, then clauses after commas. The subject is an object, a `count` group, or objects joined with `and`. A single-subject relation given a group applies to each member.
+
+| Relation | Means | Clauses |
+| --- | --- | --- |
+| `a in-front-of b` / `behind` / `left-of` / `right-of` | `a` beside that side of `b` (snapped to the nearest world axis), centered on `b` across it | `gap` (between the sides, default `minGap`) or `distance` (between centers) |
+| `a against wall north` (also `against north wall`, `n`/`s`/`e`/`w`) | `a`'s side at the wall; its back turns to the wall unless told otherwise | `gap` |
+| `a corner ne` (`nw`, `se`, `sw`) | in the corner, touching both walls | `gap` |
+| `a center-of room` / `a center-of b` | centered on the room or on `b`'s footprint | |
+| `a on b` | stands on top of `b` (z = top of `b`) and turns with it | `at center`, `front`, `back`, `left`, `right`, `front-left` … (`right-back` works too) |
+| `a facing b` / `facing north` | turns to face the nearest point of `b`, or a compass direction | |
+| `a rotate 30` | turns by an angle (also `30deg`) | |
+| `a and b align x with c` | same center x as `c` (`y` likewise) | |
+| `g distribute evenly along x` / `along wall south` | a row with equal gaps; along a wall it also stands against it | `gap` (fixed, row centered) |
+| `g grid 2x3` | rows × columns, north row first, west to east | `gap` |
+| `g around c, radius 0.9` | evenly on a circle round `c` (polar), each facing `c` | `start` (degrees, default 270 = south), `facing` / `rotate` instead of facing `c` |
+| `a and b symmetric about room` / `about c` | mirrored about the room's or `c`'s center line | `axis x` / `axis y` (default: the axis they are apart on) |
+| `keep clear 0.8 between a and b` | at least that far apart (an aisle) | |
+
+`facing` and `rotate` may also follow any other verb: `chair in-front-of desk, facing desk`.
+
+## How it is solved
+
+1. **Supports.** `on` relations form a forest. An object stands at the top of its support, at its `at` spot in the support's own frame; everything else stands on the floor.
+2. **Turns.** These set an object's turn, in priority order:
+   - a pinned `yaw`, `rotate` or `facing` (disagreeing values are an error);
+   - otherwise, `around` faces the center;
+   - otherwise, `against wall` turns the back to the wall;
+   - otherwise, an object on a support turns with it so their fronts agree.
+3. **Floor plan.** Each axis is a separation-constrained quadratic program on auto-graph's VPSC solver, with the walls as variables.
+   - Most relations become equalities on one axis.
+   - The beside relations also softly pull the two centers into line.
+   - Every object is kept inside the room.
+   - Overlaps (closer than `minGap`, or than a `keep clear` distance) are removed the way VPSC removes node overlaps. A separation goes on the axis that overlaps least, never on an axis where the pair's offset is already fixed. A pair still overlapping is moved to the other axis once.
+   - Objects nothing holds start on a grid over the room.
+4. **Rounds.** Facing an object needs both positions, and the spot on a support depends on the turn. So the floor plan and the supports are solved in rounds until no turn changes.
+5. **Checks.** The result is checked for:
+   - interpenetration (separating-axis test on the turned footprints times their height intervals);
+   - objects past the walls or the ceiling;
+   - objects whose center is off their support;
+   - relations that do not hold;
+   - `keep clear` distances;
+   - non-finite numbers.
+
+   Overhangs and `minGap` only warn.
+
+The same input gives the same output, byte for byte.
+
+## Output
+
+`renderSceneDsl(source, { format })`, or `agh --input room.yaml --format …`:
+
+- **`scene-json`** (default) is the `dge-scene` v1 document, described by [`schema/dge-scene.v1.schema.json`](../schema/dge-scene.v1.schema.json). Numbers are rounded to 4 decimals. Per object it gives:
+  - `position`: the footprint center and the bottom height `[x, y, z]`;
+  - `yaw` and the same turn as a `quaternion` `[x, y, z, w]`;
+  - `size` and `front`;
+  - `supportedBy`;
+  - the world `aabb`.
+
+  The document also carries `valid` and the diagnostics.
+- **`blender`** is a Python script for Blender (bpy) with the document embedded.
+  - Every box has its origin at the bottom center, so its location is exactly `position` and its z rotation the `yaw`.
+  - A triangle on top marks the front.
+  - An `asset` naming a collection in the open file is placed as an instance of it.
+  - Everything goes into one collection named after the scene, which is rebuilt when the script runs again.
+  - Headless render (Cycles on the CPU, no GPU needed): `blender -b --python room.py -- --render room.jpg [--size 1200x900] [--samples 24]`.
+- **`svg`** is a plan view for checking by eye:
+  - north up, on a 0.5 m grid;
+  - a triangle on each front;
+  - stacked objects tinted by level;
+  - failed objects outlined in red, with the diagnostics listed underneath.
+
+The CLI writes the output even when the scene is invalid (`valid: false`, exit code 1), so the problem can be seen. A document that does not validate writes nothing. Diagram-only options such as `--page` are rejected.
+
+## Diagnostics
+
+| Code | |
+| --- | --- |
+| `validate.scene.*` | the document: unknown object or verb (with "did you mean"), a clause the verb does not take, a bad value, a reserved id, a group used where one object is needed |
+| `scene.layout.conflict` | relations (or pins) that cannot hold together, with the objects involved |
+| `scene.collision` | two objects pass through each other (with the depth) |
+| `scene.out-of-bounds`, `scene.above-ceiling` | past a wall or the ceiling (with how far) |
+| `scene.support.unstable` / `scene.support.overhang` | center off the support (it would fall) / reaching past its edge |
+| `scene.keep-clear`, `scene.min-gap` | closer than an aisle / `minGap` |
+| `scene.yaw.conflict` | two turns given for one object |
+| `scene.support.multiple`, `scene.support.cycle` | two supports, or objects standing on each other in a loop |
+| `scene.relation.off-floor` | a floor-plan relation naming an object on a support (not applied) |
+
+## Checking in Blender
+
+`test/support/blender_check.py` runs a generated script in Blender and compares every object's world box (from its mesh vertices) and turn with the JSON, to 1e-4:
+
+```bash
+pip install bpy        # in a Python 3.11 environment
+DGE_BLENDER_PYTHON=$(which python) npx vitest run test/scene-export.test.ts
+DGE_BLENDER_PYTHON=$(which python) npm run docs:scene-renders   # the README renders
+```
+
+## Limits (phase 1)
+
+- Objects turn about the vertical axis only. Footprints are oriented rectangles, and an object's height is an interval.
+- Floor-plan relations apply between objects on the floor. Objects on a support are placed with `at`.
+- Beside relations snap the reference's side to the nearest world axis. A turned object is separated and walled by its world-axis bounding box (conservative); interpenetration is still tested on the turned shape.
+- The solver finds a layout that satisfies the relations, not one that is comfortable. Say what matters (`keep clear` for room to pull out a chair).

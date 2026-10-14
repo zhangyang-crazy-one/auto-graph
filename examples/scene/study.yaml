@@ -1,4 +1,4 @@
-# The #119 study: relations only, no coordinates.
+# study.yaml: relations only, no coordinates
 scene: study
 units: m
 bounds: { width: 4, depth: 5, height: 2.8 }

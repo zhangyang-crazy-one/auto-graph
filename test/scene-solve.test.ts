@@ -12,8 +12,7 @@ import {
 	overhang,
 	penetration,
 } from "../src/scene/geometry.js";
-
-const FIXTURES = new URL("./fixtures/scene/", import.meta.url);
+import { sceneSource, sceneTopViewUrl } from "./support/scene-files.js";
 
 type Solved = ReturnType<typeof solveScene>;
 
@@ -30,9 +29,7 @@ function apart(scene: Solved, a: string, b: string): boolean {
 }
 
 function solveFixture(name: string) {
-	const parsed = parseSceneDsl(
-		readFileSync(new URL(`${name}.yaml`, FIXTURES), "utf8"),
-	);
+	const parsed = parseSceneDsl(sceneSource(name));
 	expect(parsed.diagnostics).toEqual([]);
 	if (parsed.scene === undefined) throw new Error("no scene");
 	return solveScene(parsed.scene);
@@ -145,7 +142,7 @@ describe("scene solve", () => {
 			"showroom",
 		]) {
 			const svg = sceneTopViewSvg(solveFixture(name));
-			const golden = new URL(`${name}.top.svg`, FIXTURES);
+			const golden = sceneTopViewUrl(name);
 			if (process.env.UPDATE_SCENE_GOLDEN === "1") {
 				writeFileSync(golden, svg);
 			}
