@@ -25,6 +25,7 @@ import type {
 	WallSide,
 } from "./ir.js";
 import { type FloorLayoutResult, layoutFloor } from "./layout.js";
+import { planPaths } from "./paths.js";
 
 /** Lengths below this (0.1 mm) count as touching, not overlapping. */
 const TOLERANCE = 1e-4;
@@ -256,6 +257,8 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	diagnostics.push(...result.found);
 
 	check(spec, placed, diagnostics);
+	const planned = planPaths(spec, placed);
+	diagnostics.push(...planned.diagnostics);
 
 	const unplaced = spec.objects
 		.filter((object) => !placed.has(object.id))
@@ -315,6 +318,13 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			const placement = placed.get(object.id);
 			return placement === undefined ? [] : [output(placement)];
 		}),
+		openings: spec.openings.map(({ id, wall, at, width }) => ({
+			id,
+			wall,
+			at,
+			width,
+		})),
+		paths: planned.paths,
 		unplaced,
 		valid: !sorted.some((diagnostic) => diagnostic.severity === "error"),
 		diagnostics: sorted,

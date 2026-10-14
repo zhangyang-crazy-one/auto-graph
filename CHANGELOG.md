@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### 3D scene: paths for people and robots (#128, T1 + T2)
+
+- Scene documents take `openings` (gaps in the walls), `agents` (radius and
+  height; `person` is built in) and `paths`: `person from door to desk[, via
+  a and b][, clearance 0.05][, orthogonal]`, with the usual located
+  diagnostics and suggestions.
+- Planning in configuration space: the agent is a point, every object in
+  its way (bottom below the agent's height) grows by radius + clearance.
+  Any-angle shortest paths over the visibility graph of the grown corners
+  (A*), or right-angle paths through auto-graph's sparse-grid router.
+- Objects are reached from their front, else the first free side (sliding
+  along a side next to a wall); openings just inside the room.
+- Blocked paths name the bottleneck: the agent is shrunk until a path
+  exists, and the narrowest place on it is reported with the two things
+  that form it and the missing width. Openings narrower than the agent are
+  reported too.
+- `dge-scene` gains `openings` and `paths` (points, length, width,
+  clearance); the top view draws openings and each path as a band as wide
+  as its agent.
+- Tests: an independent 1 cm walk checks every path's clearance; random
+  scenes check that a blocked path's reported width is right (an agent a
+  little narrower gets through). 400 seeds locally, about 10 ms each.
+
 ### 3D scene: examples, README and docs (#119, phase 1g)
 
 - `examples/scene/` holds the study, meeting room and showroom; their top

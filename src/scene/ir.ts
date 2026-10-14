@@ -156,6 +156,42 @@ export type SceneRelation =
 
 export type SceneRelationKind = SceneRelation["kind"];
 
+/** A gap in a wall: where paths enter and leave the room. */
+export interface SceneOpening {
+	id: string;
+	wall: WallSide;
+	/** Center of the gap along the wall, from its west (or south) end. */
+	at: number;
+	width: number;
+	path: ScenePath;
+}
+
+/** Something that moves: a person, a robot, a cart. */
+export interface SceneAgent {
+	id: string;
+	/** Half its width: paths keep this far (plus `clearance`) from things. */
+	radius: number;
+	/** Objects lower than this are in its way; higher ones it passes under. */
+	height: number;
+	path: ScenePath;
+}
+
+/** A route an agent must be able to take. */
+export interface ScenePathSpec {
+	id: string;
+	agent: string;
+	/** An object (approached from its front if it can be) or an opening. */
+	from: string;
+	to: string;
+	/** Places to pass on the way, in order. */
+	via: string[];
+	/** Extra distance kept from everything, beyond the agent's radius. */
+	clearance: number;
+	/** Turn only at right angles (aisles, rails) instead of any angle. */
+	orthogonal: boolean;
+	path: ScenePath;
+}
+
 export interface SceneSpec {
 	name: string;
 	units: SceneUnits;
@@ -166,6 +202,9 @@ export interface SceneSpec {
 	relations: SceneRelation[];
 	/** `count` groups and the objects they expanded to. */
 	groups: Record<string, string[]>;
+	openings: SceneOpening[];
+	agents: SceneAgent[];
+	paths: ScenePathSpec[];
 }
 
 /** An object placed in the room. */
@@ -200,10 +239,29 @@ export interface SceneDiagnostic {
 	detail?: Record<string, number | string>;
 }
 
+/** A planned route: a polyline on the floor. */
+export interface PlannedScenePath {
+	id: string;
+	agent: string;
+	from: string;
+	to: string;
+	/** Corners from start to end, [x, y, z] (z = 0, on the floor). */
+	points: [number, number, number][];
+	length: number;
+	/** The agent's width (twice its radius). */
+	width: number;
+	/** Least distance from the agent's edge to anything along the way. */
+	clearance: number;
+}
+
 export interface SolvedScene {
 	name: string;
 	bounds: SceneBounds;
 	objects: PlacedSceneObject[];
+	/** Gaps in the walls. */
+	openings: { id: string; wall: WallSide; at: number; width: number }[];
+	/** Planned routes, in declaration order (only those that were found). */
+	paths: PlannedScenePath[];
 	/** Objects that have no position yet, in declaration order. */
 	unplaced: string[];
 	/** No interpenetration, floating object, overhang past the edge or wall. */

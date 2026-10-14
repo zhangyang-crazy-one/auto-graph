@@ -96,6 +96,32 @@ relations:
 
 同样的输入，逐字节相同的输出。
 
+## 路径
+
+路径是智能体必须能走通的路线，例如人从门口走到书桌、扫地机器人回到充电座。它在场景里对应图表中的连线，用的也是同一套路由方法（#128）。
+
+```yaml
+openings:
+  door: { wall: south, at: 0.6, width: 0.9 }   # 门中心距墙的西端（或南端）0.6 m
+agents:
+  robot: { radius: 0.18, height: 0.1 }          # 内置 person（半径 0.25，高 1.8）
+paths:
+  - person from door to desk
+  - person from door to shelf, clearance 0.05
+  - robot from door to shelf, orthogonal
+  - person from chair to door, via lamp and table
+```
+
+- **构型空间**：把智能体缩成一个点，挡路的物体都按“智能体半径 + `clearance`”外扩，墙也同样往里收。物体底部低于智能体高度才算挡路，所以矮机器人能从架在立柱上的桌面下方钻过去。
+- **起点和终点**：走到物体时，站在它正面；正面被占了，就改去左侧、右侧或背面。某一侧中间离墙太近时，站位会沿着这一侧滑动。走到门洞时，站在门内侧。
+- **路由**：
+  - 默认求任意角度的最短路：在外扩后的轮廓角点上建可见图，用 A* 搜索。
+  - 写了 `orthogonal` 时，改用 auto-graph 给图表连线布线的稀疏网格路由器，只走直角。
+- **检查**：每条路径都单独对照物体真实的旋转轮廓和墙壁检查一遍。输出里的 `clearance` 是智能体边缘到最近物体的距离。
+- **走不通时**：逐步缩小智能体，直到能走通为止。能通过的最宽智能体有多宽，路上最窄的地方就有多宽，于是报出这个瓶颈，例如：`"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).`。门洞比智能体窄时，单独报告。
+
+规划好的路径写进 `dge-scene` JSON 的 `paths`（折点、长度、宽度、净空），在俯视图里画成和智能体一样宽的色带；门洞在两处也都会出现。路径在过道中居中、平行路径分道、瓶颈反馈给布局、时间参数化和 Blender 导出，后续在 #128 中完成。
+
 ## 输出
 
 `renderSceneDsl(source, { format })`，或 `agh --input room.yaml --format …`：

@@ -28,6 +28,23 @@ const sceneObjectSchema = z
 	})
 	.strict();
 
+const pathSchema = z
+	.object({
+		id: z.string(),
+		agent: z.string(),
+		from: z.string(),
+		to: z.string(),
+		points: z
+			.array(vec3)
+			.describe("Corners from start to end, [x, y, z] on the floor."),
+		length: z.number(),
+		width: z.number().describe("The agent's width."),
+		clearance: z
+			.number()
+			.describe("Least distance from the agent's edge to anything."),
+	})
+	.strict();
+
 const diagnosticSchema = z
 	.object({
 		severity: z.enum(["info", "warning", "error"]),
@@ -68,6 +85,19 @@ export const sceneDocumentSchema = z
 				"No interpenetration, nothing past the walls or ceiling, nothing off its support, every relation held.",
 			),
 		objects: z.array(sceneObjectSchema),
+		openings: z.array(
+			z
+				.object({
+					id: z.string(),
+					wall: z.enum(["north", "south", "east", "west"]),
+					at: z
+						.number()
+						.describe("Center along the wall from its west (or south) end."),
+					width: z.number(),
+				})
+				.strict(),
+		),
+		paths: z.array(pathSchema),
 		diagnostics: z.array(diagnosticSchema),
 	})
 	.strict();
@@ -94,6 +124,8 @@ export function sceneToDocument(scene: SolvedScene): SceneDocument {
 		bounds: scene.bounds,
 		valid: scene.valid,
 		objects: scene.objects,
+		openings: scene.openings,
+		paths: scene.paths,
 		diagnostics: scene.diagnostics,
 	};
 }
