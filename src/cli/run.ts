@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { stringify } from "yaml";
 import { sortDslDiagnostics } from "../dsl/diagnostics.js";
-import { expandViewSource } from "../dsl/parse.js";
+import { expandViewSource, parseDslSource } from "../dsl/parse.js";
 import { renderDiagramDsl } from "../dsl/render.js";
 import type { DslDiagnostic } from "../dsl/types.js";
 import { previousLayoutFromGeometry } from "../exporters/geometry.js";
@@ -13,6 +13,7 @@ import {
 	measureLayoutQuality,
 } from "../quality/index.js";
 import { buildAgentReport } from "../report/index.js";
+import { isSceneDocument, renderSceneDsl } from "../scene/index.js";
 import { getView, listViews, viewJsonSchema } from "../views/index.js";
 import {
 	readInputFile,
@@ -168,6 +169,11 @@ export async function runCli(
 			else await writeFileAtomic(options.output, content);
 			return 0;
 		}
+		const sourceOptions =
+			options.input === undefined ? {} : { sourcePath: options.input };
+		if (isSceneDocument(parseDslSource(source, sourceOptions).value)) {
+			return await runScene(source, sourceOptions, options, stdout, stderr);
+		}
 		let previousLayout: PreviousLayout | undefined;
 		if (options.previous !== undefined) {
 			const read = readPreviousLayout(
@@ -253,6 +259,60 @@ export async function runCli(
 	}
 }
 
+/**
+ * A `scene:` document: solve it and write scene-json (default), blender
+ * or svg. The output is written even when the scene is invalid (it shows
+ * what is wrong), with exit code 1.
+ */
+async function runScene(
+	source: string,
+	sourceOptions: { sourcePath?: string },
+	options: CliOptions,
+	stdout: Writable,
+	stderr: Writable,
+): Promise<number> {
+	const unused = (
+		[
+			["--previous", options.previous],
+			["--page", options.page],
+			["--padding", options.padding],
+			["--metrics", options.metrics],
+			["--report", options.report],
+			["--font", options.font],
+		] as const
+	).filter(([, value]) => value !== undefined);
+	if (unused.length > 0) {
+		await writeDiagnostics(
+			stderr,
+			[
+				{
+					severity: "error",
+					layer: "io",
+					code: "io.scene-option",
+					message: `${unused.map(([name]) => name).join(", ")} ${unused.length === 1 ? "does" : "do"} not apply to scene documents.`,
+					hint: "Scenes take --format scene-json, blender or svg.",
+				},
+			],
+			options.json === true,
+		);
+		return 2;
+	}
+	const result = renderSceneDsl(source, {
+		...sourceOptions,
+		...(options.format === undefined ? {} : { format: options.format }),
+	});
+	const diagnostics = sortDslDiagnostics(result.diagnostics).filter(
+		(diagnostic) => options.verbose === true || diagnostic.severity !== "info",
+	);
+	if (diagnostics.length > 0) {
+		await writeDiagnostics(stderr, diagnostics, options.json === true);
+	}
+	if (result.content === undefined) return 1;
+	if (options.output === undefined) await writeStdout(stdout, result.content);
+	else await writeFileAtomic(options.output, result.content);
+	return hasErrors(diagnostics) ? 1 : 0;
+}
+
 function buildCommand(): Command {
 	return new Command()
 		.name("agh")
@@ -261,11 +321,14 @@ function buildCommand(): Command {
 			writeOut: () => {},
 			writeErr: () => {},
 		})
-		.option("--input <path>", "Read diagram DSL from a file")
+		.option(
+			"--input <path>",
+			"Read diagram DSL (or a scene document) from a file",
+		)
 		.option("--output <path>", "Write generated output to a file")
 		.option(
 			"--format <format>",
-			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON)",
+			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON); for scene documents scene-json, blender (a Blender Python script) or svg (top view)",
 		)
 		.option(
 			"--font <file>",

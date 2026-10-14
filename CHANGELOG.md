@@ -2,6 +2,141 @@
 
 ## Unreleased
 
+### 3D scene: examples, README and docs (#119, phase 1g)
+
+- `examples/scene/` holds the study, meeting room and showroom; their top
+  views (`docs/images/scene-*.top.svg`, written by `npm run docs:images`)
+  are also the tests' golden files, and their Blender renders
+  (`docs/images/scene-*.jpg`) come from `npm run docs:scene-renders`
+  (needs `DGE_BLENDER_PYTHON`).
+- README (EN/ZH): a "3D scenes" section with the study's YAML beside its
+  top view, the three Blender renders, the relation vocabulary and the CLI;
+  `test/readme.test.ts` keeps the YAML shown equal to the example file and
+  checks it solves valid.
+- `docs/scenes.md` / `docs/scenes.zh-CN.md`: the full reference (frame,
+  document, relations, how it is solved, output, diagnostics, Blender
+  check, phase-1 limits).
+- Blender script: `--size WxH` and `--samples N` for headless renders, JPEG
+  when the path ends in `.jpg`, denoising, and a camera aimed above the
+  floor so tall objects at the back stay in view.
+
+### 3D scene: review fixes (#124, #125, #126, #127)
+
+- `symmetric` takes the mirror distance from the side other relations
+  already fix (a pin, a wall) instead of freezing the first guess, so
+  `a` pinned at x = 1 mirrors to `b` at x = 9 in a 10 m room; pins that
+  truly cannot mirror still report `scene.layout.conflict` (#124).
+- Objects on supports face other objects, and are faced: each round
+  guesses the spot from the last turn, turns, and takes the spot again,
+  and rounds repeat (reading the previous round's positions) until no
+  turn changes; separations keep the previous pass's order so rounds
+  settle instead of flipping (#125).
+- Relation numbers that overflow (a 309-digit `rotate`, `gap`,
+  `radius`, grid size, …) are rejected as `validate.scene.relation-value`;
+  a solved scene with any non-finite position, turn or box is invalid
+  (`scene.non-finite`), and huge sizes are no longer rounded to null
+  (#126).
+- Relation words that are `Object.prototype` members (`constructor`,
+  `toString`, `__proto__`, …) are unknown words with the usual
+  diagnostics, never directions, verbs or groups; an object named
+  `__proto__` is rejected instead of silently dropped (#127).
+
+### 3D scene: dge-scene JSON, Blender script, CLI and API (#119, phases 1e + 1f)
+
+- `renderSceneDsl(source, { format })` parses, solves and exports a scene
+  in one call: `scene-json` (default), `blender` or `svg` (top view).
+- `dge-scene` v1 JSON: format/version, units `m`, the frame (x east,
+  y north, z up, origin at the south-west floor corner), bounds, `valid`,
+  every object (`position`, `yaw`, `quaternion`, `size`, `front`,
+  `supportedBy`, `aabb`) and the diagnostics; number arrays stay on one
+  line. Published as `schema/dge-scene.v1.schema.json`
+  (`sceneDocumentSchema`, `sceneJsonSchema()`).
+- Blender export (`sceneToBlenderScript`): a bpy script with the document
+  embedded. Boxes have their origin at the bottom center, so the Blender
+  location is the scene `position` and the z rotation the `yaw`; a
+  triangle on top marks the front, labels sit on top, objects with an
+  `asset` naming a collection are placed as instances of it. Everything
+  goes into one collection named after the scene (rebuilt on re-run),
+  with an orthographic camera and a sun. Headless render (Cycles on the
+  CPU, no GPU needed): `blender -b --python scene.py -- --render out.png`.
+- CLI: a document with a `scene` key is solved as a scene
+  (`--format scene-json|blender|svg`). The output is written even when
+  the scene is invalid, with its errors and exit code 1; diagram-only
+  options (`--page`, `--previous`, `--metrics`, …) are rejected.
+- Blender cross-check: `test/support/blender_check.py` builds a script in
+  Blender and compares every object's world box and turn with the JSON
+  (to 1e-4). Run with `DGE_BLENDER_PYTHON=<python with bpy>`; all
+  fixtures match.
+
+### 3D scene: floor-plan layout from relations (#119, phase 1c)
+
+- Objects no longer need a pinned position: `solveScene` lays out the
+  floor plan from the relations. Each axis is a separation-constrained
+  quadratic program on the existing VPSC solver; walls are variables.
+  - `against wall`, `corner`, `center-of`, `align`, `grid`, `around`
+    (r·cos θ, r·sin θ), `distribute` and pinned positions are equalities;
+    `in-front-of`/`behind`/`left-of`/`right-of` fix the gap along the
+    reference's side (snapped to the nearest axis) and pull the centers
+    in line on the other axis.
+  - Overlaps (with `minGap`, or a `keep clear` distance) are removed
+    VPSC-style: a separation on the axis that overlaps least, never on an
+    axis where equalities already fix the pair's offset; a pair still
+    overlapping after a solve moves to the other axis once.
+  - Objects nothing holds start on a grid over the room; objects beside
+    a reference drift to it.
+- `facing <object>` now faces the object's nearest point (the side of a
+  long table), not its center. Turns that depend on positions are settled
+  by re-running the layout (up to 4 passes).
+- New diagnostics: `scene.layout.conflict` (relations that cannot hold
+  together, with the objects involved) and `scene.relation.off-floor`
+  (floor relations naming an object on a support).
+- Fixtures `study` (the #119 scene, relations only), `meeting` and
+  `showroom` with golden top views; random-scene property test
+  (`test/property/scene-layout.test.ts`): 60 satisfiable scenes must
+  solve clean and conflicting ones must never be silently bad (500 seeds
+  clean locally, under 100 ms each).
+
+### 3D scene: supports, turns, collision checks and a top view (#119, phases 1b + 1d)
+
+- `solveScene(spec)` places what needs no planar layout yet: `on`
+  relations form a support forest (z = top of the support; loops and
+  second supports are reported), and a pinned `position: [x, y]` /
+  `yaw` or the `at` spot on a support gives the floor-plan position.
+  Objects it cannot place are listed in `unplaced`.
+- Turns: pinned `yaw`, `rotate` or `facing` (conflicting values are an
+  error); otherwise `around` faces the center, `against wall` turns the
+  back to the wall, and an object on a support turns with it.
+- Checks, with the geometry still returned and `valid: false` on any
+  error: interpenetration (separating-axis test on oriented footprints
+  times height intervals), past the walls or ceiling, center off its
+  support, `keep clear`; warnings for overhangs and `minGap`.
+- Output per object: `position [x, y, z]`, `yaw`, `quaternion`, `size`,
+  `supportedBy`, world `aabb`, rounded to 4 decimals.
+- `sceneTopViewSvg(solved)`: plan view (north up, 0.5 m grid) with front
+  triangles, stacked objects tinted by level, failed objects outlined in
+  red and the diagnostics listed underneath. Golden SVGs in
+  `test/fixtures/scene/` (`UPDATE_SCENE_GOLDEN=1` rewrites them).
+
+### 3D scene DSL and IR (#119, phase 1a)
+
+- New `src/scene/`: a `scene:` document (room `bounds`, `objects` with
+  `size [w, d, h]` and `front`, relation strings) is validated and turned
+  into the scene IR by `parseSceneDsl` / `normalizeSceneDsl`. Nothing is
+  solved yet; the diagram DSL is unchanged.
+- Frame: x east, y north, z up, origin at the room's south-west floor
+  corner; lengths in meters (`units: cm|mm` and `10cm`-style values are
+  converted). Default front is `-y`; left and right are as seen facing
+  the reference's front.
+- Relations: `in-front-of`/`behind`/`left-of`/`right-of` (`gap`,
+  `distance`), `against wall`, `corner`, `center-of`, `on … at <spot>`,
+  `facing`, `rotate`, `align`, `distribute`, `grid RxC`, `around …
+  radius` (polar, faces the center by default), `symmetric about`,
+  `keep clear … between`. Clauses follow the verb after commas;
+  `a and b` and `count` groups are subjects.
+- `count: 4` on `seat` makes `seat1` … `seat4` (a group id ending in a
+  digit gets `-1` …). Errors point at `objects.<id>` or `relations[i]`
+  with the relation text, and suggest the nearest object or verb.
+
 ### Page split partition: linear memory, a work budget, shared preparation (#106)
 
 - The partition no longer builds a U² cut table: cut counts are computed

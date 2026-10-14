@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="496" height="524" viewBox="0 0 496 524" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M98 348V48M148 348V48M198 348V48M248 348V48M298 348V48M348 348V48M398 348V48M48 298H448M48 248H448M48 198H448M48 148H448M48 98H448" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="400" height="300" fill="none" stroke="#334155" stroke-width="2"/>
+<text x="48" y="364" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="148" y="364" font-size="10" fill="#64748b" text-anchor="middle">1</text>
+<text x="248" y="364" font-size="10" fill="#64748b" text-anchor="middle">2</text>
+<text x="348" y="364" font-size="10" fill="#64748b" text-anchor="middle">3</text>
+<text x="448" y="364" font-size="10" fill="#64748b" text-anchor="middle">4</text>
+<text x="40" y="351" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="251" font-size="10" fill="#64748b" text-anchor="end">1</text>
+<text x="40" y="151" font-size="10" fill="#64748b" text-anchor="end">2</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">3</text>
+<path d="M472 14l-5 12h10z" fill="#334155"/>
+<text x="472" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="78,123 218,123 218,53 78,53" fill="#dbeafe" fill-opacity="0.9" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="6 3"/>
+<polygon points="148,130 153,123 143,123" fill="#dc2626"/>
+<polygon points="213,163 213,113 163,113 163,163" fill="#dbeafe" fill-opacity="0.9" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="6 3"/>
+<polygon points="220,138 213,133 213,143" fill="#dc2626"/>
+<polygon points="278,333 478,333 478,243 278,243" fill="#dbeafe" fill-opacity="0.9" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="6 3"/>
+<polygon points="378,340 383,333 373,333" fill="#dc2626"/>
+<polygon points="208,268 288,268 288,188 208,188" fill="#dbeafe" fill-opacity="0.9" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="6 3"/>
+<polygon points="248,275 253,268 243,268" fill="#dc2626"/>
+<polygon points="198,278 298,278 298,178 198,178" fill="#fde68a" fill-opacity="0.9" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="6 3"/>
+<polygon points="248,285 253,278 243,278" fill="#dc2626"/>
+<polygon points="208,93 308,93 308,83 208,83" fill="#fde68a" fill-opacity="0.9" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="6 3"/>
+<polygon points="258,100 263,93 253,93" fill="#dc2626"/>
+<text x="148" y="92" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk</text>
+<text x="188" y="142" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">chair</text>
+<text x="378" y="292" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">sofa</text>
+<text x="248" y="232" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">table</text>
+<text x="248" y="245" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">box</text>
+<text x="258" y="92" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">tv</text>
+<text x="48" y="384" font-size="11" fill="#dc2626">✗ "chair" is turned to 90° and to 180°.</text>
+<text x="48" y="400" font-size="11" fill="#dc2626">✗ "sofa" reaches 0.3 m past the walls.</text>
+<text x="48" y="416" font-size="11" fill="#dc2626">✗ "tv" stands with its center off "desk" and would fall.</text>
+<text x="48" y="432" font-size="11" fill="#dc2626">✗ "desk" and "chair" overlap by 0.1 m.</text>
+<text x="48" y="448" font-size="11" fill="#dc2626">✗ "sofa" and "table" overlap by 0.1 m.</text>
+<text x="48" y="464" font-size="11" fill="#dc2626">✗ "sofa" and "box" overlap by 0.2 m.</text>
+<text x="48" y="480" font-size="11" fill="#dc2626">✗ "sofa" and "table" are 0 m apart; 0.6 m must stay clear.</text>
+<text x="48" y="496" font-size="11" fill="#b45309">! "box" overhangs "table" by 0.1 m.</text>
+</svg>

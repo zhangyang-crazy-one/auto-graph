@@ -52,6 +52,7 @@ flow:
 - **Real diagram semantics.** Architecture layers run through at one width with cross-cutting columns beside them; swimlane hand-offs go straight across lanes; sequence diagrams have their own solver (activation bars, fragments, notes, creation and destruction) and are valid UML by construction.
 - **Editable everywhere.** SVG for documents; draw.io with native, editable shapes (sequence lifelines are real `umlLifeline` cells); Excalidraw; and a versioned JSON geometry contract that any renderer can draw with a ~100-line loop.
 - **Made for agents.** Fit a diagram to A4 or a slide, get an agent report with a verdict, located issues and concrete suggestions (split this page, try the other direction), and numeric quality metrics instead of a screenshot.
+- **3D scenes, too.** Describe a room in relations (`chair in-front-of desk, facing desk`, `seat around table, radius 0.9`) and get every object's position, turn and box, checked for interpenetration, floating objects and walls, as JSON or a ready-to-run Blender script.
 
 ## Quick start
 
@@ -214,6 +215,69 @@ messages:
 
 `autonumber: true` numbers the messages. With `autoActivate` (the default), a flow written as calls without replies still draws clean bars: a call's bar closes once control has returned to someone further up the call stack, and only real callbacks nest.
 
+## 3D scenes
+
+The same idea in three dimensions: describe a room and how things relate, and auto-graph solves where every object stands and which way it faces. It is pure math, so an agent building a 3D scene gets exact positions without guessing or looking at renders. Each result is checked for objects passing through each other, floating, or poking through a wall or the ceiling.
+
+<table>
+<tr>
+<td width="50%">
+
+```yaml
+# study.yaml: relations only, no coordinates
+scene: study
+units: m
+bounds: { width: 4, depth: 5, height: 2.8 }
+minGap: 0.05
+objects:
+  desk:  { size: [1.4, 0.7, 0.75], front: -y }
+  chair: { size: [0.5, 0.5, 0.9],  front: -y }
+  lamp:  { size: [0.2, 0.2, 0.5] }
+  table: { size: [1.2, 1.2, 0.75] }
+  seat:  { size: [0.45, 0.45, 0.9], front: -y, count: 4 }
+relations:
+  - desk against wall north
+  - chair in-front-of desk, facing desk, gap 0.1
+  - lamp on desk, at right-back
+  - table center-of room
+  - seat around table, radius 0.9, evenly
+  - keep clear 0.8 between desk and table
+```
+
+</td>
+<td>
+
+<img src="docs/images/scene-study.top.svg" alt="The study on the left, solved by auto-graph (top view, north up)" width="100%">
+
+</td>
+</tr>
+</table>
+
+| The study above in Blender | A meeting room | A showroom |
+| --- | --- | --- |
+| <img src="docs/images/scene-study.jpg" alt="The study rendered in Blender" width="100%"> | <img src="docs/images/scene-meeting.jpg" alt="Meeting room: three chairs per side spread out by themselves" width="100%"> | <img src="docs/images/scene-showroom.jpg" alt="Showroom: a grid of plinths, benches along a wall, mirrored kiosks" width="100%"> |
+
+The frame is x east, y north and z up, in meters, with the origin at the room's south-west floor corner. An object's `front` defaults to `-y`, and *left* and *right* are as seen by someone facing the reference's front.
+
+| Relation | Means |
+| --- | --- |
+| `a in-front-of b`, `behind`, `left-of`, `right-of` (`gap`, `distance`) | beside the reference's side, centred on it |
+| `a against wall north`, `a corner ne`, `a center-of room` | at a wall (back to it), in a corner, in the middle |
+| `a on b, at right-back` | stands on `b` (z = its top) at a spot |
+| `a facing b`, `facing east`, `rotate 30` | turns about z (to the nearest point of `b`) |
+| `seat around table, radius 0.9` | evenly round a centre (polar), facing it |
+| `row grid 2x3, gap 1`, `bench distribute evenly along wall south` | grids and rows |
+| `a and b align x with c`, `a and b symmetric about room` | shared lines and mirror pairs |
+| `keep clear 0.8 between a and b`, `minGap: 0.05` | aisles and clearances |
+
+```bash
+agh --input study.yaml --output study.scene.json      # dge-scene JSON: position, yaw, quaternion, box per object
+agh --input study.yaml --format blender --output study.py   # blender -b --python study.py -- --render study.jpg
+agh --input study.yaml --format svg --output study.svg       # the top view above
+```
+
+Relations that cannot all hold, and finished scenes that fail a check, come back as diagnostics naming the objects involved. The output is written anyway with `valid: false`, so the problem can be seen. Everything about scenes is in [`docs/scenes.md`](docs/scenes.md).
+
 ## How it works
 
 auto-graph separates *prepare*, *solve* and *export*:
@@ -363,6 +427,7 @@ agh --input diagram.yaml --font ./NotoSansSC-Regular.otf --output diagram.svg   
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg  # incremental
 agh --input diagram.yaml --padding 16 --output diagram.svg       # margin around the drawing
 agh --list-views | --view-example <view> | --view-schema <view> | --input view.yaml --expand
+agh --input room.yaml --format scene-json|blender|svg    # scene documents (a top-level `scene` key)
 ```
 
 `--json` writes diagnostics to stderr as JSON; `--verbose` also prints informational ones.

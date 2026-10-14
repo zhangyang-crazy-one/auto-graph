@@ -30,7 +30,7 @@ export function parseDiagramDsl(
 		};
 	}
 
-	const parsed = parseSource(source, options);
+	const parsed = parseDslSource(source, options);
 	if (parsed.value === undefined || hasErrorDiagnostics(parsed.diagnostics)) {
 		return { diagnostics: sortDslDiagnostics(parsed.diagnostics) };
 	}
@@ -74,7 +74,7 @@ export function expandViewSource(
 	source: string,
 	options: ParseDiagramDslOptions = {},
 ): { value?: Record<string, unknown>; diagnostics: DslDiagnostic[] } {
-	const parsed = parseSource(source, options);
+	const parsed = parseDslSource(source, options);
 	if (parsed.value === undefined || hasErrorDiagnostics(parsed.diagnostics)) {
 		return { diagnostics: sortDslDiagnostics(parsed.diagnostics) };
 	}
@@ -101,7 +101,8 @@ export function expandViewSource(
 	};
 }
 
-function parseSource(
+/** Parse YAML or JSON source text into a plain value (no validation). */
+export function parseDslSource(
 	source: string,
 	options: ParseDiagramDslOptions,
 ): { value?: unknown; diagnostics: DslDiagnostic[] } {

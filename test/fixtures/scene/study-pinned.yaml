@@ -1,0 +1,25 @@
+# Positions pinned by hand until the planar layout places objects.
+scene: study
+units: m
+bounds: { width: 4, depth: 5, height: 2.8 }
+minGap: 0.05
+objects:
+  desk:   { size: [1.4, 0.7, 0.75], position: [1.2, 4.65] }
+  chair:  { size: [0.5, 0.5, 0.9], position: [1.2, 3.9] }
+  lamp:   { size: [0.2, 0.2, 0.5] }
+  laptop: { size: [0.35, 0.25, 0.02] }
+  table:  { size: [1.2, 1.2, 0.75], position: [2.6, 1.8] }
+  seat_s: { size: [0.45, 0.45, 0.9], position: [2.6, 0.9] }
+  seat_n: { size: [0.45, 0.45, 0.9], position: [2.6, 2.7] }
+  seat_w: { size: [0.45, 0.45, 0.9], position: [1.7, 1.8] }
+  seat_e: { size: [0.45, 0.45, 0.9], position: [3.5, 1.8] }
+  shelf:  { size: [1.6, 0.4, 2.0], position: [3.8, 3.6] }
+  plant:  { size: [0.4, 0.4, 1.1], position: [0.35, 0.35], yaw: 30 }
+relations:
+  - desk against wall north
+  - chair facing desk
+  - lamp on desk, at right-back
+  - laptop on desk, at front
+  - seat_s and seat_e and seat_n and seat_w around table, radius 0.9
+  - shelf against wall east
+  - keep clear 0.8 between desk and table

@@ -8,6 +8,7 @@ export * from "./layout/index.js";
 export * from "./quality/index.js";
 export * from "./report/index.js";
 export * from "./routing/index.js";
+export * from "./scene/index.js";
 export * from "./serialization/index.js";
 export * from "./solver/index.js";
 export * from "./text/index.js";
