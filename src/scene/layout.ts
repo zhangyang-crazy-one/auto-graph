@@ -158,6 +158,7 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 		else eq(axis, low, i, offset, origin);
 	};
 
+	const mirrors: Extract<SceneRelation, { kind: "symmetric" }>[] = [];
 	for (const relation of spec.relations) {
 		const origin = { path: relation.path, what: `${relation.kind} relation` };
 		switch (relation.kind) {
@@ -296,50 +297,78 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 				}
 				break;
 			}
-			case "symmetric": {
-				const [a, b] = relation.subjects.map((subject) =>
-					floorIndex(subject, relation),
-				);
-				if (a === undefined || b === undefined) break;
-				const c =
-					relation.about === "room"
-						? undefined
-						: floorIndex(relation.about, relation);
-				if (relation.about !== "room" && c === undefined) break;
-				const previous = input.previous;
-				const pa = previous?.get(relation.subjects[0]);
-				const pb = previous?.get(relation.subjects[1]);
-				if (pa === undefined || pb === undefined) break;
-				const pc =
-					c === undefined
-						? { x: length.x / 2, y: length.y / 2 }
-						: previous?.get(relation.about);
-				if (pc === undefined) break;
-				const axis: Axis =
-					relation.axis ??
-					(Math.abs(pa.x - pb.x) >= Math.abs(pa.y - pb.y) ? "x" : "y");
-				const cross: Axis = axis === "x" ? "y" : "x";
-				const half = Math.max(
-					(Math.abs(pa[axis] - pc[axis]) + Math.abs(pb[axis] - pc[axis])) / 2,
-					((extent[a] as Vec2)[axis] +
-						(extent[b] as Vec2)[axis] +
-						spec.minGap) /
-						2,
-				);
-				const [first, second] = pa[axis] <= pb[axis] ? [a, b] : [b, a];
-				if (c === undefined) {
-					eq(axis, low, first, length[axis] / 2 - half, origin);
-					eq(axis, low, second, length[axis] / 2 + half, origin);
-				} else {
-					eq(axis, c, first, -half, origin);
-					eq(axis, c, second, half, origin);
-				}
-				eq(cross, a, b, 0, origin);
+			case "symmetric":
+				// After the other relations: the mirror distance comes from
+				// whichever side they already hold in place.
+				mirrors.push(relation);
 				break;
-			}
 			default:
 				break;
 		}
+	}
+
+	for (const relation of mirrors) {
+		const origin = { path: relation.path, what: "symmetric relation" };
+		const [a, b] = relation.subjects.map((subject) =>
+			floorIndex(subject, relation),
+		);
+		if (a === undefined || b === undefined) continue;
+		const c =
+			relation.about === "room"
+				? undefined
+				: floorIndex(relation.about, relation);
+		if (relation.about !== "room" && c === undefined) continue;
+		const previous = input.previous;
+		const pa = previous?.get(relation.subjects[0]);
+		const pb = previous?.get(relation.subjects[1]);
+		const pc =
+			c === undefined
+				? { x: length.x / 2, y: length.y / 2 }
+				: previous?.get(relation.about);
+		// The first pass places everything else; the mirror follows.
+		if (pa === undefined || pb === undefined || pc === undefined) continue;
+		const axis: Axis =
+			relation.axis ??
+			(Math.abs(pa.x - pb.x) >= Math.abs(pa.y - pb.y) ? "x" : "y");
+		const cross: Axis = axis === "x" ? "y" : "x";
+		// A side whose offset from the mirror line other equalities already
+		// fix (a pin, a wall) decides the distance and its side; otherwise
+		// keep the average distance the last pass found.
+		const groups = components(axis);
+		const reference = c ?? low;
+		const held = (i: number) => groups[i] === groups[reference];
+		const anchor =
+			held(a) && !held(b) ? pa : held(b) && !held(a) ? pb : undefined;
+		const half =
+			anchor !== undefined
+				? Math.abs(anchor[axis] - pc[axis])
+				: Math.max(
+						(Math.abs(pa[axis] - pc[axis]) + Math.abs(pb[axis] - pc[axis])) / 2,
+						((extent[a] as Vec2)[axis] +
+							(extent[b] as Vec2)[axis] +
+							spec.minGap) /
+							2,
+					);
+		const aSide =
+			anchor === pb
+				? pb[axis] - pc[axis] > 0
+					? -1
+					: 1
+				: anchor === pa
+					? pa[axis] - pc[axis] > 0
+						? 1
+						: -1
+					: pa[axis] <= pb[axis]
+						? -1
+						: 1;
+		if (c === undefined) {
+			eq(axis, low, a, length[axis] / 2 + aSide * half, origin);
+			eq(axis, low, b, length[axis] / 2 - aSide * half, origin);
+		} else {
+			eq(axis, c, a, aSide * half, origin);
+			eq(axis, c, b, -aSide * half, origin);
+		}
+		eq(cross, a, b, 0, origin);
 	}
 
 	const clearance = new Map<string, { gap: number; path: ScenePath }>();
@@ -451,9 +480,7 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 					}
 					axis = other;
 				}
-				const pi = positions[axis][i] ?? 0;
-				const pj = positions[axis][j] ?? 0;
-				const [left, right] = pi <= pj ? [i, j] : [j, i];
+				const [left, right] = goesFirst(axis, i, j) ? [i, j] : [j, i];
 				separations.set(key, {
 					axis,
 					constraint: {
@@ -515,6 +542,26 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 		});
 	});
 	return { centers, diagnostics };
+
+	/**
+	 * Whether i goes before j on an axis when they are pulled apart: as
+	 * they stood in the previous pass (so passes and rounds keep one order),
+	 * else as they stand now, else in declaration order. Objects pulled to
+	 * one spot land a rounding error apart, which must not decide.
+	 */
+	function goesFirst(axis: Axis, i: number, j: number): boolean {
+		const was = (k: number) =>
+			input.previous?.get((floor[k] as SceneObject).id)?.[axis];
+		const pi = was(i);
+		const pj = was(j);
+		if (pi !== undefined && pj !== undefined && Math.abs(pi - pj) > 1e-6) {
+			return pi < pj;
+		}
+		const ni = positions[axis][i] ?? 0;
+		const nj = positions[axis][j] ?? 0;
+		if (Math.abs(ni - nj) > 1e-6) return ni < nj;
+		return i < j;
+	}
 
 	/** Equality-connected component of every variable on one axis. */
 	function components(axis: Axis): number[] {

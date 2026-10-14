@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### 3D scene: review fixes (#124, #125, #126, #127)
+
+- `symmetric` takes the mirror distance from the side other relations
+  already fix (a pin, a wall) instead of freezing the first guess, so
+  `a` pinned at x = 1 mirrors to `b` at x = 9 in a 10 m room; pins that
+  truly cannot mirror still report `scene.layout.conflict` (#124).
+- Objects on supports face other objects, and are faced: each round
+  guesses the spot from the last turn, turns, and takes the spot again,
+  and rounds repeat (reading the previous round's positions) until no
+  turn changes; separations keep the previous pass's order so rounds
+  settle instead of flipping (#125).
+- Relation numbers that overflow (a 309-digit `rotate`, `gap`,
+  `radius`, grid size, …) are rejected as `validate.scene.relation-value`;
+  a solved scene with any non-finite position, turn or box is invalid
+  (`scene.non-finite`), and huge sizes are no longer rounded to null
+  (#126).
+- Relation words that are `Object.prototype` members (`constructor`,
+  `toString`, `__proto__`, …) are unknown words with the usual
+  diagnostics, never directions, verbs or groups; an object named
+  `__proto__` is rejected instead of silently dropped (#127).
+
 ### 3D scene: dge-scene JSON, Blender script, CLI and API (#119, phases 1e + 1f)
 
 - `renderSceneDsl(source, { format })` parses, solves and exports a scene

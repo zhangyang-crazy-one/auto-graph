@@ -429,3 +429,213 @@ describe("scene layout from relations", () => {
 		expect(codes(scene, "warning")).toEqual(["scene.relation.off-floor"]);
 	});
 });
+
+describe("review findings on #123", () => {
+	// #124: the mirror distance comes from the side other relations fix.
+	it.each([
+		[
+			"axis x about the room",
+			{ a: [1, 5] },
+			"room, axis x",
+			{ a: [1, 5], b: [9, 5] },
+		],
+		[
+			"axis y about the room",
+			{ a: [5, 2] },
+			"room, axis y",
+			{ a: [5, 2], b: [5, 8] },
+		],
+		[
+			"the pin on the second",
+			{ b: [8, 4] },
+			"room, axis x",
+			{ a: [2, 4], b: [8, 4] },
+		],
+	])("mirrors about %s", (_, pins, about, expected) => {
+		const objects: Record<string, unknown> = {};
+		for (const id of ["a", "b"]) {
+			const pin = (pins as Record<string, number[]>)[id];
+			objects[id] = {
+				size: [1, 1, 1],
+				...(pin === undefined ? {} : { position: pin }),
+			};
+		}
+		const scene = solve({
+			bounds: { width: 10, depth: 10, height: 5 },
+			objects,
+			relations: [`a and b symmetric about ${about}`],
+		});
+		expect(scene.diagnostics).toEqual([]);
+		expect(placed(scene, "a")?.position.slice(0, 2)).toEqual(expected.a);
+		expect(placed(scene, "b")?.position.slice(0, 2)).toEqual(expected.b);
+	});
+
+	it("mirrors about an object, and reports pins that cannot mirror", () => {
+		const about = solve({
+			bounds: { width: 10, depth: 10, height: 5 },
+			objects: {
+				c: { size: [1, 1, 1], position: [5, 5] },
+				a: { size: [1, 1, 1], position: [2, 5] },
+				b: { size: [1, 1, 1] },
+			},
+			relations: ["a and b symmetric about c"],
+		});
+		expect(about.valid).toBe(true);
+		expect(placed(about, "b")?.position.slice(0, 2)).toEqual([8, 5]);
+		const both = solve({
+			bounds: { width: 10, depth: 10, height: 5 },
+			objects: {
+				a: { size: [1, 1, 1], position: [1, 5] },
+				b: { size: [1, 1, 1], position: [7, 5] },
+			},
+			relations: ["a and b symmetric about room, axis x"],
+		});
+		expect(codes(both)).toContain("scene.layout.conflict");
+	});
+
+	// #125: objects on supports face other objects, and are faced.
+	it.each([
+		["supported → floor", ["lamp on desk", "lamp facing target"], "lamp", 90],
+		[
+			"floor → supported",
+			["lamp on desk", "target facing lamp"],
+			"target",
+			-90,
+		],
+		[
+			"facing declared first",
+			["lamp facing target", "lamp on desk"],
+			"lamp",
+			90,
+		],
+	])("resolves facing %s", (_, relations, id, yaw) => {
+		const scene = solve({
+			bounds: { width: 10, depth: 10, height: 5 },
+			objects: {
+				desk: { size: [2, 2, 1], position: [3, 3] },
+				lamp: { size: [0.2, 0.2, 0.5] },
+				target: { size: [1, 1, 1], position: [7, 3] },
+			},
+			relations,
+		});
+		expect(scene.diagnostics).toEqual([]);
+		expect(placed(scene, id)?.yaw).toBe(yaw);
+		expect(placed(scene, "lamp")?.position).toEqual([3, 3, 1]);
+	});
+
+	it("lets objects on one support face each other from off-center spots", () => {
+		const scene = solve({
+			bounds: { width: 10, depth: 10, height: 5 },
+			objects: {
+				desk: { size: [2, 1, 1], position: [5, 5] },
+				lamp: { size: [0.3, 0.2, 0.5] },
+				clock: { size: [0.2, 0.2, 0.3] },
+			},
+			relations: [
+				"lamp on desk, at left",
+				"clock on desk, at right",
+				"lamp facing clock",
+				"clock facing lamp",
+			],
+		});
+		expect(scene.diagnostics).toEqual([]);
+		// Turned to face east, the lamp is 0.2 wide along x.
+		expect(placed(scene, "lamp")).toMatchObject({
+			yaw: 90,
+			position: [4.1, 5, 1],
+		});
+		expect(placed(scene, "clock")).toMatchObject({
+			yaw: -90,
+			position: [5.9, 5, 1],
+		});
+	});
+
+	// #126: numbers too large for a double are rejected, never NaN.
+	it.each([
+		`a rotate ${"9".repeat(309)}`,
+		`a left-of b, gap ${"9".repeat(309)}`,
+		`a left-of b, distance ${"9".repeat(309)}`,
+		`keep clear ${"9".repeat(309)} between a and b`,
+		`seat around a, radius ${"9".repeat(309)}`,
+		`seat around a, radius 1, start ${"9".repeat(309)}`,
+		`seat grid ${"9".repeat(309)}x2`,
+	])("rejects %#: an overflowing number", (line) => {
+		const result = normalizeSceneDsl({
+			scene: "t",
+			bounds: { width: 10, depth: 10 },
+			objects: {
+				a: { size: [1, 1, 1] },
+				b: { size: [1, 1, 1] },
+				seat: { size: [0.4, 0.4, 0.4], count: 2 },
+			},
+			relations: [line],
+		});
+		expect(result.scene).toBeUndefined();
+		expect(result.diagnostics[0]).toMatchObject({
+			code: "validate.scene.relation-value",
+			path: ["relations", 0],
+		});
+	});
+
+	it("keeps huge sizes finite in the output and invalid", () => {
+		const scene = solve({
+			bounds: { width: 10, depth: 10 },
+			objects: { a: { size: [1e308, 1e308, 1] } },
+			relations: ["a center-of room"],
+		});
+		expect(scene.valid).toBe(false);
+		const numbers = JSON.stringify(scene.objects).match(/null|NaN|Infinity/g);
+		expect(numbers).toBeNull();
+		expect(scene.objects[0]?.size).toEqual([1e308, 1e308, 1]);
+	});
+
+	// #127: words that are Object.prototype members are just unknown words.
+	it.each([
+		"constructor",
+		"toString",
+		"valueOf",
+		"__proto__",
+		"hasOwnProperty",
+	])("treats %s as an unknown word everywhere", (word) => {
+		for (const line of [
+			`a facing ${word}`,
+			`a on ${word}`,
+			`a ${word} b`,
+			`${word} center-of room`,
+			`a against wall ${word}`,
+			`a in-front-of b, ${word} 1`,
+		]) {
+			const result = normalizeSceneDsl({
+				scene: "t",
+				bounds: { width: 10, depth: 10 },
+				objects: { a: { size: [1, 1, 1] }, b: { size: [1, 1, 1] } },
+				relations: [line],
+			});
+			expect(result.scene, line).toBeUndefined();
+			expect(result.diagnostics[0]?.code, line).toMatch(/^validate\.scene\./);
+		}
+	});
+
+	it("rejects an object called __proto__ instead of dropping it", () => {
+		const result = parseSceneDsl(
+			"scene: t\nbounds: { width: 10, depth: 10 }\nobjects:\n  __proto__: { size: [1, 1, 1] }\n",
+		);
+		expect(result.diagnostics[0]).toMatchObject({
+			code: "validate.scene.reserved-id",
+			path: ["objects", "__proto__"],
+		});
+	});
+
+	it("accepts a declared object called constructor", () => {
+		const scene = solve({
+			bounds: { width: 10, depth: 10 },
+			objects: {
+				constructor: { size: [1, 1, 1] },
+				b: { size: [1, 1, 1] },
+			},
+			relations: ["constructor center-of room", "b facing constructor"],
+		});
+		expect(scene.valid).toBe(true);
+		expect(placed(scene, "constructor")?.position).toEqual([5, 5, 0]);
+	});
+});

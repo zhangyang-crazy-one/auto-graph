@@ -32,6 +32,8 @@ const TOLERANCE = 1e-4;
 const YAW_TOLERANCE = 0.01;
 /** Turn-and-lay-out passes before the turns must have settled. */
 const MAX_PASSES = 4;
+/** Rounds of floor plan plus supports before turns must have settled. */
+const MAX_ROUNDS = 4;
 
 /** Compass directions as angles counter-clockwise from east. */
 const COMPASS: Record<WallSide, number> = {
@@ -98,8 +100,6 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			(order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
 	);
 
-	// Floor plan: turn, lay out, and turn again from the new positions
-	// (facing and around depend on where things are) until turns settle.
 	const floor = spec.objects.filter((object) => !supports.has(object.id));
 	const pinnedCenter = (id: string): Vec2 | undefined => {
 		const pinned = byId.get(id)?.position;
@@ -108,89 +108,152 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	const hasSymmetric = spec.relations.some(
 		(relation) => relation.kind === "symmetric",
 	);
-	let layout: FloorLayoutResult | undefined;
-	let yaws = new Map<string, number>();
-	for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-		const centers = layout?.centers;
-		const lookup = (id: string) => centers?.get(id) ?? pinnedCenter(id);
-		const next = new Map(
-			floor.map((object) => [
-				object.id,
-				resolveYaw(object, spec, undefined, lookup, [], (id) => {
-					const center = centers?.get(id);
-					const target = byId.get(id);
-					return center === undefined || target === undefined
-						? undefined
-						: footprint(center, target.size, yaws.get(id) ?? 0);
-				}),
-			]),
-		);
-		const settled =
-			layout !== undefined &&
-			(pass >= 2 || !hasSymmetric) &&
-			floor.every(
-				(object) =>
-					angleGap(next.get(object.id) ?? 0, yaws.get(object.id) ?? 0) <=
-					YAW_TOLERANCE,
-			);
-		if (settled) break;
-		yaws = next;
-		layout = layoutFloor({
-			spec,
-			floor,
-			yaw: yaws,
-			...(centers === undefined ? {} : { previous: centers }),
-		});
-	}
-	diagnostics.push(...(layout?.diagnostics ?? []));
-	const floorCenters = layout?.centers ?? new Map<string, Vec2>();
 
-	const placed = new Map<string, Placement>();
-	const centerOf = (id: string): Vec2 | undefined =>
-		placed.get(id)?.center ?? floorCenters.get(id) ?? pinnedCenter(id);
+	/**
+	 * One round: lay out the floor plan, then stand every object on its
+	 * support. Turns that face an object need that object's position, so a
+	 * round reads the positions of the previous one (`prior`) wherever the
+	 * current one has none yet; rounds repeat until no turn changes.
+	 */
+	const round = (prior: ReadonlyMap<string, Placement> | undefined) => {
+		const found: SceneDiagnostic[] = [];
+		const priorShape = (id: string) => prior?.get(id)?.shape;
+		const priorFloor =
+			prior === undefined
+				? undefined
+				: new Map(
+						floor.flatMap((object) => {
+							const center = prior.get(object.id)?.center;
+							return center === undefined ? [] : [[object.id, center]];
+						}),
+					);
 
-	for (const object of sequence) {
-		const supportId = supports.get(object.id);
-		const support = supportId === undefined ? undefined : placed.get(supportId);
-		if (supportId !== undefined && support === undefined) continue;
-		const yaw = resolveYaw(
-			object,
-			spec,
-			support,
-			centerOf,
-			diagnostics,
-			(id) => {
-				const done = placed.get(id)?.shape;
-				if (done !== undefined) return done;
-				const center = floorCenters.get(id);
-				const target = byId.get(id);
-				return center === undefined || target === undefined
-					? undefined
-					: footprint(center, target.size, yaws.get(id) ?? 0);
-			},
-		);
-		let center: Vec2 | undefined = centerOf(object.id);
-		if (center === undefined && support !== undefined) {
-			const spot = spec.relations.find(
-				(relation) => relation.kind === "on" && relation.subject === object.id,
-			) as Extract<SceneRelation, { kind: "on" }> | undefined;
-			center = spotCenter(
-				support,
-				byId.get(support.object.id) as SceneObject,
-				footprint({ x: 0, y: 0 }, object.size, yaw),
-				spot?.at ?? "center",
+		// Floor plan: turn, lay out, and turn again from the new positions
+		// (facing and around depend on where things are) until turns settle.
+		let layout: FloorLayoutResult | undefined;
+		let yaws = new Map<string, number>();
+		for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+			const centers = layout?.centers;
+			const lookup = (id: string) =>
+				centers?.get(id) ?? prior?.get(id)?.center ?? pinnedCenter(id);
+			const next = new Map(
+				floor.map((object) => [
+					object.id,
+					resolveYaw(object, spec, undefined, lookup, [], (id) => {
+						const center = centers?.get(id);
+						const target = byId.get(id);
+						return center === undefined || target === undefined
+							? priorShape(id)
+							: footprint(center, target.size, yaws.get(id) ?? 0);
+					}),
+				]),
 			);
+			const settled =
+				layout !== undefined &&
+				(pass >= 2 || !hasSymmetric) &&
+				floor.every(
+					(object) =>
+						angleGap(next.get(object.id) ?? 0, yaws.get(object.id) ?? 0) <=
+						YAW_TOLERANCE,
+				);
+			if (settled) break;
+			yaws = next;
+			// The first pass starts from the last round's floor plan, so a
+			// round only refines it.
+			const start = centers ?? priorFloor;
+			layout = layoutFloor({
+				spec,
+				floor,
+				yaw: yaws,
+				...(start === undefined ? {} : { previous: start }),
+			});
 		}
-		if (center === undefined) continue;
-		placed.set(object.id, {
-			object,
-			center,
-			z: support === undefined ? 0 : support.z + support.object.size[2],
-			yaw,
-			shape: footprint(center, object.size, yaw),
-			...(supportId === undefined ? {} : { support: supportId }),
+		found.push(...(layout?.diagnostics ?? []));
+		const floorCenters = layout?.centers ?? new Map<string, Vec2>();
+
+		const placed = new Map<string, Placement>();
+		const centerOf = (id: string): Vec2 | undefined =>
+			placed.get(id)?.center ??
+			floorCenters.get(id) ??
+			prior?.get(id)?.center ??
+			pinnedCenter(id);
+		const shapeOf = (id: string): Footprint | undefined => {
+			const done = placed.get(id)?.shape;
+			if (done !== undefined) return done;
+			const center = floorCenters.get(id);
+			const target = byId.get(id);
+			return center === undefined || target === undefined
+				? priorShape(id)
+				: footprint(center, target.size, yaws.get(id) ?? 0);
+		};
+
+		for (const object of sequence) {
+			const supportId = supports.get(object.id);
+			const support =
+				supportId === undefined ? undefined : placed.get(supportId);
+			if (supportId !== undefined && support === undefined) continue;
+			const pinned = floorCenters.get(object.id) ?? pinnedCenter(object.id);
+			const spot = (yaw: number): Vec2 | undefined => {
+				if (pinned !== undefined) return pinned;
+				if (support === undefined) return undefined;
+				const on = spec.relations.find(
+					(relation) =>
+						relation.kind === "on" && relation.subject === object.id,
+				) as Extract<SceneRelation, { kind: "on" }> | undefined;
+				return spotCenter(
+					support,
+					support.object,
+					footprint({ x: 0, y: 0 }, object.size, yaw),
+					on?.at ?? "center",
+				);
+			};
+			// Where it stands depends on its turn (its extent on the support),
+			// and a turn that faces something on where it stands: guess the
+			// spot from the last turn, turn, then take the spot again.
+			const guess =
+				spot(prior?.get(object.id)?.yaw ?? support?.yaw ?? 0) ??
+				prior?.get(object.id)?.center;
+			const yaw = resolveYaw(
+				object,
+				spec,
+				support,
+				(id) => (id === object.id ? guess : centerOf(id)),
+				found,
+				shapeOf,
+			);
+			const center = spot(yaw);
+			if (center === undefined) continue;
+			placed.set(object.id, {
+				object,
+				center,
+				z: support === undefined ? 0 : support.z + support.object.size[2],
+				yaw,
+				shape: footprint(center, object.size, yaw),
+				...(supportId === undefined ? {} : { support: supportId }),
+			});
+		}
+		return { placed, found };
+	};
+
+	let result = round(undefined);
+	for (let again = 1; again < MAX_ROUNDS; again += 1) {
+		const next = round(result.placed);
+		const settled = [...next.placed].every(([id, placement]) => {
+			const before = result.placed.get(id);
+			return (
+				before !== undefined &&
+				angleGap(before.yaw, placement.yaw) <= YAW_TOLERANCE &&
+				Math.hypot(
+					before.center.x - placement.center.x,
+					before.center.y - placement.center.y,
+				) <= 1e-9
+			);
 		});
+		result = next;
+		if (settled) break;
 	}
+	const placed = result.placed;
+	diagnostics.push(...result.found);
 
 	check(spec, placed, diagnostics);
 
@@ -211,6 +274,29 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			path: object.path,
 			hint: "Give its support a place, or remove the `on` relation.",
 		});
+	}
+	// Last line of defence: no valid scene carries a non-finite number.
+	for (const placement of placed.values()) {
+		const box = aabb(placement);
+		const numbers = [
+			placement.center.x,
+			placement.center.y,
+			placement.z,
+			placement.yaw,
+			...placement.object.size,
+			...box.min,
+			...box.max,
+		];
+		if (!numbers.every(Number.isFinite)) {
+			diagnostics.push({
+				severity: "error",
+				code: "scene.non-finite",
+				message: `"${placement.object.id}" ends up at a position or turn that is not a finite number.`,
+				objects: [placement.object.id],
+				path: placement.object.path,
+				hint: "Use sizes, gaps and angles of reasonable magnitude.",
+			});
+		}
 	}
 	const rank = { error: 0, warning: 1, info: 2 } as const;
 	const sorted = diagnostics
@@ -345,10 +431,10 @@ function resolveYaw(
 					diagnostics.push({
 						severity: "warning",
 						code: "scene.facing.unresolved",
-						message: `"${object.id}" cannot face "${relation.target.object}" before both have positions.`,
+						message: `"${object.id}" cannot face "${relation.target.object}": they stand at the same spot.`,
 						objects: [object.id, relation.target.object],
 						path: relation.path,
-						hint: "Pin both positions, or face a direction (north, south, east, west).",
+						hint: "Move one of them, or face a direction (north, south, east, west).",
 					});
 				}
 				continue;
@@ -592,8 +678,9 @@ function pathOf(path: ScenePath | undefined): { path?: ScenePath } {
 	return path === undefined ? {} : { path };
 }
 
-/** Four decimals, without -0. */
+/** Four decimals, without -0 (huge values as they are). */
 function round(value: number): number {
+	if (!Number.isFinite(value * 1e4)) return value;
 	const rounded = Math.round(value * 1e4) / 1e4;
 	return rounded === 0 ? 0 : rounded;
 }

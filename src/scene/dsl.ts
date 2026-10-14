@@ -120,6 +120,24 @@ export function parseSceneDsl(
  * relation string parsed. Diagnostics point back at the document path.
  */
 export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
+	// The schema would drop an object called __proto__ without a word.
+	const raw = (value as { objects?: unknown } | null)?.objects;
+	if (
+		raw !== null &&
+		typeof raw === "object" &&
+		Object.hasOwn(raw, "__proto__")
+	) {
+		return {
+			diagnostics: [
+				error(
+					["objects", "__proto__"],
+					"validate.scene.reserved-id",
+					'"__proto__" is a reserved word and cannot name an object.',
+					"Rename it.",
+				),
+			],
+		};
+	}
 	const result = sceneDslSchema.safeParse(value);
 	if (!result.success) {
 		return {
@@ -143,7 +161,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 	const diagnostics: DslDiagnostic[] = [];
 
 	const objects: SceneObject[] = [];
-	const groups: Record<string, string[]> = {};
+	const groups = new Map<string, string[]>();
 	const declared = new Set(Object.keys(dsl.objects));
 	const taken = new Map<string, ScenePath>();
 	for (const [id, entry] of Object.entries(dsl.objects)) {
@@ -219,7 +237,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			members.push(member);
 			objects.push({ id: member, ...base, group: id, path });
 		}
-		groups[id] = members;
+		groups.set(id, members);
 	}
 
 	const parser = new RelationParser(
@@ -249,7 +267,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			minGap: (dsl.minGap ?? 0) / perMeter,
 			objects,
 			relations,
-			groups,
+			groups: Object.fromEntries(groups),
 		},
 		diagnostics: sortDslDiagnostics(diagnostics),
 	};
@@ -258,42 +276,44 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 /** Units per meter: dividing (not multiplying by 0.01) keeps 280 cm at 2.8. */
 const PER_METER: Record<SceneUnits, number> = { m: 1, cm: 100, mm: 1000 };
 
-const SIDE_VERBS: Record<string, SceneSide> = {
-	"in-front-of": "front",
-	behind: "back",
-	"left-of": "left",
-	"right-of": "right",
-};
+// Maps, not object literals: a word like "constructor" must not find
+// Object.prototype members.
+const SIDE_VERBS = new Map<string, SceneSide>([
+	["in-front-of", "front"],
+	["behind", "back"],
+	["left-of", "left"],
+	["right-of", "right"],
+]);
 
-const WALLS: Record<string, WallSide> = {
-	north: "north",
-	n: "north",
-	south: "south",
-	s: "south",
-	east: "east",
-	e: "east",
-	west: "west",
-	w: "west",
-};
+const WALLS = new Map<string, WallSide>([
+	["north", "north"],
+	["n", "north"],
+	["south", "south"],
+	["s", "south"],
+	["east", "east"],
+	["e", "east"],
+	["west", "west"],
+	["w", "west"],
+]);
 
 const CORNERS = new Set<CornerSide>(["ne", "nw", "se", "sw"]);
 
 /** Modifier clauses each relation accepts (besides `facing` and `rotate`). */
-const MODIFIERS: Record<string, readonly string[]> = {
-	beside: ["gap", "distance"],
-	"against-wall": ["gap"],
-	corner: ["gap"],
-	"center-of": [],
-	on: ["at"],
-	facing: [],
-	rotate: [],
-	align: [],
-	distribute: ["gap", "evenly"],
-	grid: ["gap"],
-	around: ["radius", "evenly", "start"],
-	symmetric: ["axis"],
-	"keep-clear": [],
-};
+const MODIFIERS = new Map<string, readonly string[]>([
+	["beside", ["gap", "distance"]],
+	["against-wall", ["gap"]],
+	["corner", ["gap"]],
+	["center-of", []],
+	["on", ["at"]],
+	["facing", []],
+	["rotate", []],
+	["align", []],
+	["distribute", ["gap", "evenly"]],
+	["grid", ["gap"]],
+	["around", ["radius", "evenly", "start"]],
+	["symmetric", ["axis"]],
+	["keep-clear", []],
+]);
 
 const VERBS =
 	"in-front-of, behind, left-of, right-of, against wall, corner, center-of, on, facing, rotate, align, distribute, grid, around, symmetric, keep clear";
@@ -341,7 +361,7 @@ function fail(code: string, message: string, hint: string): never {
 class RelationParser {
 	constructor(
 		private readonly ids: ReadonlySet<string>,
-		private readonly groups: Readonly<Record<string, string[]>>,
+		private readonly groups: ReadonlyMap<string, string[]>,
 		private readonly units: SceneUnits,
 		private readonly diagnostics: DslDiagnostic[],
 	) {}
@@ -443,7 +463,7 @@ class RelationParser {
 			}
 			return args;
 		};
-		const side = SIDE_VERBS[verb ?? ""];
+		const side = SIDE_VERBS.get(verb ?? "");
 		if (side !== undefined) {
 			const [reference] = words(1, `<object> ${verb} <reference>`);
 			return { kind: "beside", side, reference: reference as string };
@@ -536,7 +556,10 @@ class RelationParser {
 				const match = /^(\d+)x(\d+)$/.exec(shape as string);
 				const rows = Number(match?.[1]);
 				const columns = Number(match?.[2]);
-				if (!(rows >= 1 && columns >= 1)) {
+				if (
+					!(rows >= 1 && columns >= 1) ||
+					!Number.isSafeInteger(rows * columns)
+				) {
 					fail(
 						"validate.scene.relation-value",
 						`Cannot read grid size "${shape}".`,
@@ -577,7 +600,7 @@ class RelationParser {
 	}
 
 	private modifiers(kind: Head["kind"], clauses: string[][]): Modifiers {
-		const allowed = MODIFIERS[kind] ?? [];
+		const allowed = MODIFIERS.get(kind) ?? [];
 		const out: Modifiers = {};
 		for (const clause of clauses) {
 			const [name, ...args] = clause;
@@ -841,7 +864,7 @@ class RelationParser {
 
 	/** An object or a `count` group (all its members). */
 	private subject(token: string): string[] {
-		const members = this.groups[token];
+		const members = this.groups.get(token);
 		if (members !== undefined) return members;
 		if (this.ids.has(token)) return [token];
 		return this.unknown(token);
@@ -850,7 +873,7 @@ class RelationParser {
 	/** One object: a group is not a reference. */
 	private reference(token: string): string {
 		if (this.ids.has(token)) return token;
-		const members = this.groups[token];
+		const members = this.groups.get(token);
 		if (members !== undefined) {
 			fail(
 				"validate.scene.group-reference",
@@ -862,7 +885,7 @@ class RelationParser {
 	}
 
 	private unknown(token: string): never {
-		const near = closest(token, [...this.ids, ...Object.keys(this.groups)]);
+		const near = closest(token, [...this.ids, ...this.groups.keys()]);
 		fail(
 			"validate.scene.unknown-object",
 			`Unknown object "${token}".`,
@@ -876,7 +899,7 @@ class RelationParser {
 		token: string,
 		subject: string,
 	): { object: string } | { direction: WallSide } {
-		const direction = WALLS[token];
+		const direction = WALLS.get(token);
 		if (direction !== undefined && token.length > 1) return { direction };
 		const object = this.reference(token);
 		this.notSelf(subject, object);
@@ -884,7 +907,7 @@ class RelationParser {
 	}
 
 	private wall(name: string | undefined): WallSide {
-		const wall = WALLS[name ?? ""];
+		const wall = WALLS.get(name ?? "");
 		if (wall === undefined) {
 			fail(
 				"validate.scene.relation-value",
@@ -917,7 +940,9 @@ class RelationParser {
 			);
 		}
 		const unit = (match[2] as SceneUnits | undefined) ?? this.units;
-		return Number(match[1]) / PER_METER[unit];
+		const value = Number(match[1]) / PER_METER[unit];
+		if (!Number.isFinite(value)) this.tooLarge(token, what);
+		return value;
 	}
 
 	/** Degrees, counter-clockwise; `deg` or `°` may follow. */
@@ -930,7 +955,17 @@ class RelationParser {
 				"Write a number of degrees, counter-clockwise seen from above.",
 			);
 		}
-		return Number(match[1]);
+		const value = Number(match[1]);
+		if (!Number.isFinite(value)) this.tooLarge(token, what);
+		return value;
+	}
+
+	private tooLarge(token: string | undefined, what: string): never {
+		fail(
+			"validate.scene.relation-value",
+			`\`${what}\` value "${(token ?? "").slice(0, 24)}${(token ?? "").length > 24 ? "…" : ""}" is too large.`,
+			"Write a number of reasonable size.",
+		);
 	}
 
 	private notSelf(subject: string, reference: string): void {
@@ -969,7 +1004,7 @@ class RelationParser {
 		kind: string,
 		clause: string[] | undefined,
 	): never {
-		const allowed = [...(MODIFIERS[kind] ?? [])];
+		const allowed = [...(MODIFIERS.get(kind) ?? [])];
 		if (kind !== "keep-clear" && kind !== "facing" && kind !== "rotate") {
 			allowed.push("facing", "rotate");
 		}
