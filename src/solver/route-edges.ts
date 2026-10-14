@@ -2031,8 +2031,33 @@ export function tidyRouteEnds(
 		if (fixed.has(edge.id) || edge.points.length < 3) return;
 		const edgeObstacles = obstaclesForEdge(edge, obstacles);
 		let points = edge.points.map((point) => ({ ...point }));
+		// The edge's own end nodes are left out of its obstacles (its ends
+		// sit on them), so count separately any segment that runs through
+		// their actual boxes: no move may route the middle of the edge
+		// through its own source or target.
+		const ends = [edge.source.nodeId, edge.target.nodeId].flatMap((id) => {
+			const box = nodes.get(id)?.box;
+			return box === undefined ? [] : [box];
+		});
+		const throughEnds = (route: readonly Point[]) => {
+			let count = 0;
+			for (let at = 0; at + 1 < route.length; at += 1) {
+				for (const box of ends) {
+					if (
+						segmentIntersectsBox(
+							route[at] as Point,
+							route[at + 1] as Point,
+							box,
+						)
+					) {
+						count += 1;
+					}
+				}
+			}
+			return count;
+		};
 		const hits = (route: readonly Point[]) =>
-			routeObstacleHits(route, edgeObstacles);
+			routeObstacleHits(route, edgeObstacles) + throughEnds(route);
 		const others = result.filter((_, at) => at !== edgeIndex);
 		// Counted pair by pair against the routes near it: a route only
 		// crosses one whose extent its own extent meets.

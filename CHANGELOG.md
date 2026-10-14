@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Review fixes on earlier PRs (#117, #118)
+
+- Sequence diagrams: an explicit `deactivate` that closes a bar above its
+  own nested bars now hands their bottoms down, so the auto-activated bar
+  it sits on no longer ends before a self call nested inside it (a
+  regression of the incremental `nestedBottom` in #115) (#117).
+- Routing: the route tidy pass counts a segment through the edge's own
+  source or target box as an obstacle hit, so the near-parallel move of
+  #111 can no longer push a middle segment through its own source (#118).
+  All examples render byte-identically.
+
 ### 3D scene: paths for people and robots (#128, T1 + T2)
 
 - Scene documents take `openings` (gaps in the walls), `agents` (radius and
