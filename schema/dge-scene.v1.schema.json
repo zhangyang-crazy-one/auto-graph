@@ -1,0 +1,259 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"format": {
+			"type": "string",
+			"const": "dge-scene"
+		},
+		"version": {
+			"type": "number",
+			"const": 1
+		},
+		"units": {
+			"type": "string",
+			"const": "m"
+		},
+		"frame": {
+			"type": "object",
+			"properties": {
+				"x": {
+					"type": "string",
+					"const": "east"
+				},
+				"y": {
+					"type": "string",
+					"const": "north"
+				},
+				"z": {
+					"type": "string",
+					"const": "up"
+				},
+				"origin": {
+					"type": "string",
+					"const": "south-west floor corner"
+				}
+			},
+			"required": ["x", "y", "z", "origin"],
+			"additionalProperties": false
+		},
+		"name": {
+			"type": "string"
+		},
+		"bounds": {
+			"type": "object",
+			"properties": {
+				"width": {
+					"type": "number"
+				},
+				"depth": {
+					"type": "number"
+				},
+				"height": {
+					"type": "number"
+				}
+			},
+			"required": ["width", "depth"],
+			"additionalProperties": false
+		},
+		"valid": {
+			"type": "boolean",
+			"description": "No interpenetration, nothing past the walls or ceiling, nothing off its support, every relation held."
+		},
+		"objects": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"position": {
+						"type": "array",
+						"prefixItems": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							}
+						],
+						"description": "Footprint center on the floor plan and bottom height [x, y, z], meters."
+					},
+					"yaw": {
+						"type": "number",
+						"description": "Turn about z, degrees counter-clockwise seen from above."
+					},
+					"quaternion": {
+						"type": "array",
+						"prefixItems": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							}
+						],
+						"description": "The same turn as a unit quaternion [x, y, z, w]."
+					},
+					"size": {
+						"type": "array",
+						"prefixItems": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							}
+						],
+						"description": "Width, depth and height before the turn."
+					},
+					"front": {
+						"type": "string",
+						"enum": ["+x", "-x", "+y", "-y"],
+						"description": "The object's own front before the turn."
+					},
+					"supportedBy": {
+						"type": "string"
+					},
+					"aabb": {
+						"type": "object",
+						"properties": {
+							"min": {
+								"type": "array",
+								"prefixItems": [
+									{
+										"type": "number"
+									},
+									{
+										"type": "number"
+									},
+									{
+										"type": "number"
+									}
+								]
+							},
+							"max": {
+								"type": "array",
+								"prefixItems": [
+									{
+										"type": "number"
+									},
+									{
+										"type": "number"
+									},
+									{
+										"type": "number"
+									}
+								]
+							}
+						},
+						"required": ["min", "max"],
+						"additionalProperties": false
+					},
+					"label": {
+						"type": "string"
+					},
+					"asset": {
+						"type": "string"
+					},
+					"group": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"position",
+					"yaw",
+					"quaternion",
+					"size",
+					"front",
+					"aabb"
+				],
+				"additionalProperties": false
+			}
+		},
+		"diagnostics": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"severity": {
+						"type": "string",
+						"enum": ["info", "warning", "error"]
+					},
+					"code": {
+						"type": "string"
+					},
+					"message": {
+						"type": "string"
+					},
+					"objects": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"path": {
+						"type": "array",
+						"items": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "number"
+								}
+							]
+						}
+					},
+					"hint": {
+						"type": "string"
+					},
+					"detail": {
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {
+							"anyOf": [
+								{
+									"type": "number"
+								},
+								{
+									"type": "string"
+								}
+							]
+						}
+					}
+				},
+				"required": ["severity", "code", "message"],
+				"additionalProperties": false
+			}
+		}
+	},
+	"required": [
+		"format",
+		"version",
+		"units",
+		"frame",
+		"name",
+		"bounds",
+		"valid",
+		"objects",
+		"diagnostics"
+	],
+	"additionalProperties": false
+}

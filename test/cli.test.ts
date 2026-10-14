@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -483,3 +484,58 @@ async function tempWorkspace() {
 function phase05Fixture(name: string): string {
 	return fileURLToPath(new URL(`./fixtures/phase-05/${name}`, import.meta.url));
 }
+
+describe("agh CLI with scene documents", () => {
+	const study = readFileSync(
+		new URL("./fixtures/scene/study.yaml", import.meta.url),
+		"utf8",
+	);
+	const broken = readFileSync(
+		new URL("./fixtures/scene/study-broken.yaml", import.meta.url),
+		"utf8",
+	);
+
+	it("writes scene-json by default", async () => {
+		const io = memoryIo(study);
+		expect(await runCli([], io.environment)).toBe(0);
+		const document = JSON.parse(io.stdout());
+		expect(document).toMatchObject({ format: "dge-scene", valid: true });
+		expect(io.stderr()).toBe("");
+	});
+
+	it("writes a Blender script or a top view", async () => {
+		const blender = memoryIo(study);
+		expect(await runCli(["--format", "blender"], blender.environment)).toBe(0);
+		expect(blender.stdout()).toContain("import bpy");
+		const svg = memoryIo(study);
+		expect(await runCli(["--format", "svg"], svg.environment)).toBe(0);
+		expect(svg.stdout()).toContain("<svg");
+	});
+
+	it("still writes an invalid scene, with its errors and exit code 1", async () => {
+		const io = memoryIo(broken);
+		expect(await runCli(["--json"], io.environment)).toBe(1);
+		expect(JSON.parse(io.stdout())).toMatchObject({ valid: false });
+		const { diagnostics } = JSON.parse(io.stderr());
+		expect(diagnostics[0]).toMatchObject({
+			severity: "error",
+			layer: "solve",
+		});
+	});
+
+	it("writes nothing for a scene that does not validate", async () => {
+		const io = memoryIo("scene: x\nbounds: { width: 4 }\nobjects: {}\n");
+		expect(await runCli([], io.environment)).toBe(1);
+		expect(io.stdout()).toBe("");
+		expect(io.stderr()).toContain("bounds.depth");
+	});
+
+	it("rejects diagram options and unknown formats", async () => {
+		const page = memoryIo(study);
+		expect(await runCli(["--page", "A4"], page.environment)).toBe(2);
+		expect(page.stderr()).toContain("io.scene-option");
+		const format = memoryIo(study);
+		expect(await runCli(["--format", "drawio"], format.environment)).toBe(1);
+		expect(format.stderr()).toContain("export.scene.format");
+	});
+});

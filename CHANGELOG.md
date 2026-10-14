@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### 3D scene: dge-scene JSON, Blender script, CLI and API (#119, phases 1e + 1f)
+
+- `renderSceneDsl(source, { format })` parses, solves and exports a scene
+  in one call: `scene-json` (default), `blender` or `svg` (top view).
+- `dge-scene` v1 JSON: format/version, units `m`, the frame (x east,
+  y north, z up, origin at the south-west floor corner), bounds, `valid`,
+  every object (`position`, `yaw`, `quaternion`, `size`, `front`,
+  `supportedBy`, `aabb`) and the diagnostics; number arrays stay on one
+  line. Published as `schema/dge-scene.v1.schema.json`
+  (`sceneDocumentSchema`, `sceneJsonSchema()`).
+- Blender export (`sceneToBlenderScript`): a bpy script with the document
+  embedded. Boxes have their origin at the bottom center, so the Blender
+  location is the scene `position` and the z rotation the `yaw`; a
+  triangle on top marks the front, labels sit on top, objects with an
+  `asset` naming a collection are placed as instances of it. Everything
+  goes into one collection named after the scene (rebuilt on re-run),
+  with an orthographic camera and a sun. Headless render (Cycles on the
+  CPU, no GPU needed): `blender -b --python scene.py -- --render out.png`.
+- CLI: a document with a `scene` key is solved as a scene
+  (`--format scene-json|blender|svg`). The output is written even when
+  the scene is invalid, with its errors and exit code 1; diagram-only
+  options (`--page`, `--previous`, `--metrics`, …) are rejected.
+- Blender cross-check: `test/support/blender_check.py` builds a script in
+  Blender and compares every object's world box and turn with the JSON
+  (to 1e-4). Run with `DGE_BLENDER_PYTHON=<python with bpy>`; all
+  fixtures match.
+
 ### 3D scene: floor-plan layout from relations (#119, phase 1c)
 
 - Objects no longer need a pinned position: `solveScene` lays out the
