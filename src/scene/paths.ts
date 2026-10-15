@@ -63,6 +63,21 @@ export interface PathObstacle {
 export interface PlanPathsResult {
 	paths: PlannedScenePath[];
 	diagnostics: SceneDiagnostic[];
+	/** Where blocked paths are too narrow, for the layout to widen. */
+	bottlenecks: PathBottleneck[];
+}
+
+/**
+ * The narrowest place on a blocked path's way: two objects, or an object
+ * and a wall (`wall:<side>`), that must stand `needs` apart.
+ */
+export interface PathBottleneck {
+	path: string;
+	agent: string;
+	between: [string, string];
+	needs: number;
+	/** Room the path would like beyond `needs`, on each side. */
+	comfort: number;
 }
 
 /** A place a path goes to: the points an agent may stand at, best first. */
@@ -95,6 +110,7 @@ export function planPaths(
 ): PlanPathsResult {
 	const paths: PlannedScenePath[] = [];
 	const diagnostics: SceneDiagnostic[] = [];
+	const bottlenecks: PathBottleneck[] = [];
 	const agents = new Map(spec.agents.map((agent) => [agent.id, agent]));
 	const openings = new Map(
 		spec.openings.map((opening) => [opening.id, opening]),
@@ -130,9 +146,25 @@ export function planPaths(
 			routed.push({ path, agent, obstacles, reach, ...found });
 			continue;
 		}
-		diagnostics.push(
-			bottleneck(spec, path, agent, obstacles, placed, openings, reach),
+		const blocked = bottleneck(
+			spec,
+			path,
+			agent,
+			obstacles,
+			placed,
+			openings,
+			reach,
 		);
+		diagnostics.push(blocked.diagnostic);
+		if (blocked.between !== undefined) {
+			bottlenecks.push({
+				path: path.id,
+				agent: agent.id,
+				between: blocked.between,
+				needs: 2 * reach,
+				comfort: path.comfort,
+			});
+		}
 	}
 
 	// Refine: walk mid-aisle rather than skimming corners, within a length
@@ -221,7 +253,7 @@ export function planPaths(
 			});
 		}
 	});
-	return { paths, diagnostics };
+	return { paths, diagnostics, bottlenecks };
 }
 
 /** The whole route through every place, or undefined when blocked. */
@@ -665,7 +697,7 @@ function bottleneck(
 	placed: ReadonlyMap<string, PathObstacle>,
 	openings: ReadonlyMap<string, SceneOpening>,
 	reach: number,
-): SceneDiagnostic {
+): { diagnostic: SceneDiagnostic; between?: [string, string] } {
 	const try_ = (r: number) => {
 		const found = route(spec, path, obstacles, placed, openings, r);
 		return found === undefined ? undefined : joinLegs(found.legs).points;
@@ -673,12 +705,14 @@ function bottleneck(
 	let thin = try_(1e-4);
 	if (thin === undefined) {
 		return {
-			severity: "error",
-			code: "scene.path.blocked",
-			message: `"${agent.id}" cannot get from "${path.from}" to "${path.to}" at all: one end is shut in.`,
-			objects: [path.from, path.to],
-			path: path.path,
-			hint: "Move what surrounds the ends, or pick other places.",
+			diagnostic: {
+				severity: "error",
+				code: "scene.path.blocked",
+				message: `"${agent.id}" cannot get from "${path.from}" to "${path.to}" at all: one end is shut in.`,
+				objects: [path.from, path.to],
+				path: path.path,
+				hint: "Move what surrounds the ends, or pick other places.",
+			},
 		};
 	}
 	let low = 1e-4;
@@ -699,7 +733,7 @@ function bottleneck(
 	const across = nearest(spec, [first.at], obstacles, new Set([first.what]));
 	const wide = 2 * low;
 	const needs = 2 * reach;
-	return {
+	const diagnostic: SceneDiagnostic = {
 		severity: "error",
 		code: "scene.path.blocked",
 		message: `"${agent.id}" cannot get from "${path.from}" to "${path.to}": the way between ${name(first.what)} and ${name(across.what)} is ${round(wide)} m wide; it needs ${round(needs)} m (${round(needs - wide)} m short).`,
@@ -714,6 +748,10 @@ function bottleneck(
 			needs: round(needs),
 		},
 	};
+	const wall = (what: string) =>
+		what.startsWith("the ") ? `wall:${what.split(" ")[1]}` : what;
+	if (first.what === "" || across.what === "") return { diagnostic };
+	return { diagnostic, between: [wall(first.what), wall(across.what)] };
 }
 
 function name(what: string): string {

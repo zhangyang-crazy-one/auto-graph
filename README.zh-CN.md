@@ -276,7 +276,7 @@ agh --input study.yaml --format blender --output study.py   # blender -b --pytho
 agh --input study.yaml --format svg --output study.svg       # 上面的俯视图
 ```
 
-**路径**：`person from door to desk` 规划一条人（或自定义的机器人）能走通的路线，按它的半径和一切保持距离。它像图表连线一样布线，并用同样的几道工序整理：拐点从所绕的物体旁移开，让人走在过道中间；直角路径在过道里居中；迎面相遇的路径靠右分道。走不通时会指出瓶颈，以及还差多少宽度。
+**路径**：`person from door to desk` 规划一条人（或自定义的机器人）能走通的路线，按它的半径和一切保持距离。它像图表连线一样布线，并用同样的几道工序整理：拐点从所绕的物体旁移开，让人走在过道中间；直角路径在过道里居中；迎面相遇的路径靠右分道。路径被挡时，会把瓶颈处没被约束住的物体挪开（`makeWay`）；仍然走不通时会指出瓶颈，以及还差多少宽度。
 
 <img src="docs/images/scene-office.top.svg" alt="examples/scene/office.yaml：人走在过道中间，迎面相遇时靠右；机器人走直角过道" width="100%">
 

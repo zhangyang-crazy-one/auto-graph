@@ -23,6 +23,7 @@ scene: study                 # 名称
 units: m                     # m（默认）、cm 或 mm；下面所有长度都用这个单位
 bounds: { width: 4, depth: 5, height: 2.8 }   # height 可省略（省略则不检查天花板）
 minGap: 0.05                 # 同一平面上物体之间的最小间距（默认 0）
+makeWay: true                # 路径被挡时把物体挪开（默认 true）
 objects:
   desk:  { size: [1.4, 0.7, 0.75] }
   chair: { size: [0.5, 0.5, 0.9], front: -y, label: Chair, asset: office_chair }
@@ -123,11 +124,16 @@ paths:
   - **分道**：两条路径在同一段上迎面相遇时靠右走：一条向自己行进方向的右侧让开，直到两条色带刚好相接（让不开就换另一条，或者各让一半）。端点不动，在端点之后才让开。同向的路径共用一条道（一前一后走）。窄到无法错身的地方保持单行，并给出提示性诊断说明位置。
   - **绕路**：路径长度超过各途经点之间直线距离的两倍（且多出 1 m 以上）时给出提示，说明有东西挡在直路上。
 - **检查**：每条路径都单独对照物体真实的旋转轮廓和墙壁检查一遍。输出里的 `clearance` 是智能体边缘到最近物体的距离。
+- **让路**：路径会反过来影响布局。某条路径走不通时，把它最窄处的两样东西（两个物体，或一个物体和一面墙）在平面布局里隔开，再重新求解。间距是路径宽度，放得下时两侧再各加 `comfort`。最多重复四次。只有被挡的路径变少、其他检查都没有变差时才采用新布局。关系和固定位置照样成立，只挪动没被约束住的物体。每处让出的过道都会报告（`scene.path.made-way`）。`makeWay: false` 保留仅由关系得到的布局。
 - **走不通时**：逐步缩小智能体，直到能走通为止。能通过的最宽智能体有多宽，路上最窄的地方就有多宽，于是报出这个瓶颈，例如：`"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).`。门洞比智能体窄时，单独报告。
 
-规划好的路径写进 `dge-scene` JSON 的 `paths`（折点、长度、宽度、净空），在俯视图里画成和智能体一样宽的色带；门洞在两处也都会出现。`clearance` 仍是全程（含端点）的最小距离：智能体会一直走到目标跟前。瓶颈反馈给布局、时间参数化和 Blender 导出，后续在 #128 中完成。
+规划好的路径写进 `dge-scene` JSON 的 `paths`（折点、长度、宽度、净空），在俯视图里画成和智能体一样宽的色带；门洞在两处也都会出现。`clearance` 仍是全程（含端点）的最小距离：智能体会一直走到目标跟前。时间参数化和 Blender 导出，后续在 #128 中完成。
 
 <img src="images/scene-office.top.svg" alt="examples/scene/office.yaml：人走在过道中间，迎面相遇时靠右；机器人走直角过道" width="100%">
+
+`examples/scene/storeroom.yaml` 里货架没有任何约束。只按关系摆放时两个货架相距 0.7 m，0.7 m 宽的推车留不出余量；求解器把它们挪到相距 1.02 m（0.7 m，两侧各加 0.15 m 的 comfort，再加 2 cm）：
+
+<img src="images/scene-storeroom.top.svg" alt="examples/scene/storeroom.yaml：货架被挪开，人和推车都能走到工作台" width="100%">
 
 ## 输出
 
@@ -171,6 +177,7 @@ paths:
 | `scene.path.blocked` | 走不通：瓶颈位置、宽度和所需宽度 |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.detour`（提示） | 路径长度超过途经点间直线距离的两倍 |
+| `scene.path.made-way`（提示） | 为让被挡的路径通过而隔开的两样东西 |
 
 ## 在 Blender 中核对
 

@@ -429,8 +429,22 @@ describe("random scene paths", () => {
 			}
 			const width = Number(diagnostic.detail.width);
 			const index = Number(diagnostic.path?.[1]);
+			// On the layout as solved (make-way may have moved things for
+			// other paths): every object pinned where it ended up.
 			const thinner = solveScene({
 				...spec,
+				makeWay: false,
+				relations: [],
+				objects: spec.objects.map((object) => {
+					const at = scene.objects.find((item) => item.id === object.id);
+					return at === undefined
+						? object
+						: {
+								...object,
+								position: [at.position[0], at.position[1]] as [number, number],
+								yaw: at.yaw,
+							};
+				}),
 				agents: spec.agents.map((agent) => ({
 					...agent,
 					radius: width / 2 - 0.002,
@@ -659,5 +673,128 @@ describe("refined paths (#128 T3)", () => {
 			paths: ["person from d to a, comfort wide"],
 		});
 		expect(bad.diagnostics[0]?.message).toContain("`comfort` needs a length");
+	});
+});
+
+describe("paths shape the layout (#128 T4)", () => {
+	const blocked = (makeWay?: boolean) =>
+		solve({
+			...(makeWay === undefined ? {} : { makeWay }),
+			openings: { door: { wall: "south", at: 0.5, width: 0.9 } },
+			objects: {
+				desk: { size: [1.2, 0.6, 0.75], position: [2, 3.6] },
+				cabinet: { size: [3.3, 0.5, 2] },
+			},
+			paths: ["person from door to desk"],
+		});
+
+	it("moves what blocks a path apart until it gets through", () => {
+		const scene = blocked();
+		expect(scene.valid).toBe(true);
+		expect(scene.paths).toHaveLength(1);
+		// The cabinet slides east: the way on its west side is as wide as a
+		// person needs (no room for comfort in a 4 m room).
+		const cabinet = scene.objects.find((object) => object.id === "cabinet");
+		expect(cabinet?.aabb.min[0]).toBeCloseTo(0.52, 4);
+		expect(
+			scene.diagnostics.find((d) => d.code === "scene.path.made-way"),
+		).toMatchObject({
+			severity: "info",
+			objects: ["cabinet"],
+			detail: { gap: 0.52 },
+		});
+		const spec = parse({
+			openings: { door: { wall: "south", at: 0.5, width: 0.9 } },
+			objects: {
+				desk: { size: [1.2, 0.6, 0.75], position: [2, 3.6] },
+				cabinet: { size: [3.3, 0.5, 2] },
+			},
+			paths: ["person from door to desk"],
+		}).scene as SceneSpec;
+		expect(clearanceFaults(scene, spec)).toEqual([]);
+	});
+
+	it("leaves the layout alone with makeWay: false", () => {
+		const scene = blocked(false);
+		expect(scene.valid).toBe(false);
+		expect(scene.diagnostics[0]?.code).toBe("scene.path.blocked");
+		expect(
+			scene.diagnostics.some((d) => d.code === "scene.path.made-way"),
+		).toBe(false);
+	});
+
+	it("does not move what is pinned or held", () => {
+		const scene = solve({
+			openings: { door: { wall: "south", at: 0.5, width: 0.9 } },
+			objects: {
+				desk: { size: [1.2, 0.6, 0.75], position: [2, 3.6] },
+				cabinet: { size: [3.3, 0.5, 2] },
+			},
+			relations: ["cabinet center-of room"],
+			paths: ["person from door to desk"],
+		});
+		expect(scene.diagnostics[0]?.code).toBe("scene.path.blocked");
+		expect(
+			scene.objects.find((object) => object.id === "cabinet")?.position,
+		).toEqual([2, 2, 0]);
+	});
+
+	it("opens a comfortable aisle between objects when there is room", () => {
+		const parsed = parseSceneDsl(
+			readFileSync(
+				new URL("../examples/scene/storeroom.yaml", import.meta.url),
+				"utf8",
+			),
+		);
+		const spec = parsed.scene as SceneSpec;
+		const scene = solveScene(spec);
+		expect(scene.valid).toBe(true);
+		expect(scene.paths).toHaveLength(2);
+		expect(clearanceFaults(scene, spec)).toEqual([]);
+		const box = (id: string) =>
+			scene.objects.find((object) => object.id === id)?.aabb;
+		// 0.7 m for the trolley, 0.15 m comfort each side, 2 cm slack.
+		expect(
+			(box("rack2")?.min[0] ?? 0) - (box("rack1")?.max[0] ?? 0),
+		).toBeCloseTo(1.02, 4);
+		// The relations still hold.
+		expect(box("bench")?.max[1]).toBeCloseTo(4, 6);
+		const off = solveScene({ ...spec, makeWay: false });
+		expect(off.diagnostics.map((d) => d.code)).toContain("scene.path.blocked");
+	});
+
+	it("never makes a random scene worse", () => {
+		for (let seed = 1; seed <= 25; seed += 1) {
+			const random = mulberry32(seed * 7919);
+			const between = (low: number, high: number) =>
+				Math.round((low + random() * (high - low)) * 20) / 20;
+			const objects: Record<string, unknown> = {};
+			const count = 5 + Math.floor(random() * 6);
+			for (let k = 1; k <= count; k += 1) {
+				objects[`o${k}`] = {
+					size: [between(0.3, 1.6), between(0.3, 1.2), between(0.4, 1.5)],
+				};
+			}
+			const spec = normalizeSceneDsl({
+				scene: `make-way-${seed}`,
+				bounds: { width: between(4, 6), depth: between(4, 6), height: 3 },
+				minGap: 0.05,
+				openings: { door: { wall: "south", at: 0.7, width: 0.9 } },
+				objects,
+				paths: Object.keys(objects).map((id) => `person from door to ${id}`),
+			}).scene as SceneSpec;
+			const on = solveScene(spec);
+			const off = solveScene({ ...spec, makeWay: false });
+			const count_ = (scene: SolvedScene, test: (code: string) => boolean) =>
+				scene.diagnostics.filter((d) => d.severity !== "info" && test(d.code))
+					.length;
+			const blockedPaths = (code: string) => code === "scene.path.blocked";
+			const others = (code: string) => !code.startsWith("scene.path.");
+			expect(count_(on, blockedPaths)).toBeLessThanOrEqual(
+				count_(off, blockedPaths),
+			);
+			expect(count_(on, others)).toBeLessThanOrEqual(count_(off, others));
+			expect(clearanceFaults(on, spec)).toEqual([]);
+		}
 	});
 });

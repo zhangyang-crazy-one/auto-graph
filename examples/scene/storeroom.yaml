@@ -1,0 +1,20 @@
+# Storeroom: racks and crates nothing holds in place. Left to the relations
+# alone they block the way to the workbench; the solver moves them apart
+# until a person and a trolley robot get through (makeWay, on by default).
+scene: storeroom
+bounds: { width: 5, depth: 4, height: 2.8 }
+minGap: 0.05
+openings:
+  door: { wall: south, at: 0.8, width: 1 }
+agents:
+  trolley: { radius: 0.35, height: 1.2 }
+objects:
+  bench: { size: [1.8, 0.7, 0.9] }
+  rack:  { size: [1.6, 0.5, 2.0], count: 2 }
+  crate: { size: [0.6, 0.6, 0.6], count: 3 }
+relations:
+  - bench against wall north
+  - crate distribute evenly along wall east
+paths:
+  - person from door to bench
+  - trolley from door to bench, orthogonal

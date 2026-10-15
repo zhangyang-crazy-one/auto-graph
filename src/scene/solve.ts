@@ -25,7 +25,7 @@ import type {
 	WallSide,
 } from "./ir.js";
 import { type FloorLayoutResult, layoutFloor } from "./layout.js";
-import { planPaths } from "./paths.js";
+import { type PathBottleneck, planPaths } from "./paths.js";
 
 /** Lengths below this (0.1 mm) count as touching, not overlapping. */
 const TOLERANCE = 1e-4;
@@ -35,6 +35,59 @@ const YAW_TOLERANCE = 0.01;
 const MAX_PASSES = 4;
 /** Rounds of floor plan plus supports before turns must have settled. */
 const MAX_ROUNDS = 4;
+/** Times the layout is solved again to make way for blocked paths. */
+const MAKE_WAY_ROUNDS = 4;
+/** Aisles are held this much wider than a path needs (stands, rounding). */
+const AISLE_SLACK = 0.02;
+
+/** Two things held apart for blocked paths (see `layoutFloor`). */
+interface Aisle {
+	between: [string, string];
+	gap: number;
+	paths: string[];
+}
+
+/** The aisles so far, widened or joined by new bottlenecks. */
+function widen(
+	aisles: readonly Aisle[],
+	bottlenecks: readonly PathBottleneck[],
+	comfortable: boolean,
+): Aisle[] {
+	const out = aisles.map((aisle) => ({ ...aisle, paths: [...aisle.paths] }));
+	for (const bottleneck of bottlenecks) {
+		const pair = [...bottleneck.between].sort() as [string, string];
+		const gap =
+			bottleneck.needs +
+			AISLE_SLACK +
+			(comfortable ? 2 * bottleneck.comfort : 0);
+		const known = out.find(
+			(aisle) => aisle.between[0] === pair[0] && aisle.between[1] === pair[1],
+		);
+		if (known === undefined) {
+			out.push({ between: pair, gap, paths: [bottleneck.path] });
+			continue;
+		}
+		known.gap = Math.max(known.gap, gap);
+		if (!known.paths.includes(bottleneck.path))
+			known.paths.push(bottleneck.path);
+	}
+	return out;
+}
+
+function blockedCount(diagnostics: readonly SceneDiagnostic[]): number {
+	return diagnostics.filter((d) => d.code === "scene.path.blocked").length;
+}
+
+/** Errors and warnings other than blocked paths. */
+function otherProblems(diagnostics: readonly SceneDiagnostic[]): number {
+	return diagnostics.filter(
+		(d) => d.severity !== "info" && !d.code.startsWith("scene.path."),
+	).length;
+}
+
+function round4(value: number): number {
+	return Math.round(value * 1e4) / 1e4;
+}
 
 /** Compass directions as angles counter-clockwise from east. */
 const COMPASS: Record<WallSide, number> = {
@@ -116,7 +169,10 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	 * round reads the positions of the previous one (`prior`) wherever the
 	 * current one has none yet; rounds repeat until no turn changes.
 	 */
-	const round = (prior: ReadonlyMap<string, Placement> | undefined) => {
+	const round = (
+		prior: ReadonlyMap<string, Placement> | undefined,
+		aisles: readonly Aisle[],
+	) => {
 		const found: SceneDiagnostic[] = [];
 		const priorShape = (id: string) => prior?.get(id)?.shape;
 		const priorFloor =
@@ -166,6 +222,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 				spec,
 				floor,
 				yaw: yaws,
+				aisles,
 				...(start === undefined ? {} : { previous: start }),
 			});
 		}
@@ -236,56 +293,108 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		return { placed, found };
 	};
 
-	let result = round(undefined);
-	for (let again = 1; again < MAX_ROUNDS; again += 1) {
-		const next = round(result.placed);
-		const settled = [...next.placed].every(([id, placement]) => {
-			const before = result.placed.get(id);
-			return (
-				before !== undefined &&
-				angleGap(before.yaw, placement.yaw) <= YAW_TOLERANCE &&
-				Math.hypot(
-					before.center.x - placement.center.x,
-					before.center.y - placement.center.y,
-				) <= 1e-9
-			);
-		});
-		result = next;
-		if (settled) break;
-	}
-	const placed = result.placed;
-	diagnostics.push(...result.found);
+	/** Lay out, check and plan paths, with the given aisles held open. */
+	const attempt = (aisles: readonly Aisle[]) => {
+		let result = round(undefined, aisles);
+		for (let again = 1; again < MAX_ROUNDS; again += 1) {
+			const next = round(result.placed, aisles);
+			const settled = [...next.placed].every(([id, placement]) => {
+				const before = result.placed.get(id);
+				return (
+					before !== undefined &&
+					angleGap(before.yaw, placement.yaw) <= YAW_TOLERANCE &&
+					Math.hypot(
+						before.center.x - placement.center.x,
+						before.center.y - placement.center.y,
+					) <= 1e-9
+				);
+			});
+			result = next;
+			if (settled) break;
+		}
+		const placed = result.placed;
+		const found = [...result.found];
 
-	// No output carries a number that is not finite: an object whose
-	// position, turn or box overflows (sizes near the largest double) is
-	// left out, listed as unplaced, and reported.
-	const broken = new Set<string>();
-	for (const placement of placed.values()) {
-		const out = output(placement);
-		const numbers = [
-			...out.position,
-			out.yaw,
-			...out.quaternion,
-			...out.size,
-			...out.aabb.min,
-			...out.aabb.max,
-		];
-		if (numbers.every(Number.isFinite)) continue;
-		broken.add(placement.object.id);
+		// No output carries a number that is not finite: an object whose
+		// position, turn or box overflows (sizes near the largest double) is
+		// left out, listed as unplaced, and reported.
+		const broken = new Set<string>();
+		for (const placement of placed.values()) {
+			const out = output(placement);
+			const numbers = [
+				...out.position,
+				out.yaw,
+				...out.quaternion,
+				...out.size,
+				...out.aabb.min,
+				...out.aabb.max,
+			];
+			if (numbers.every(Number.isFinite)) continue;
+			broken.add(placement.object.id);
+			found.push({
+				severity: "error",
+				code: "scene.non-finite",
+				message: `"${placement.object.id}" ends up at a position, turn or size that is not a finite number; it is left out.`,
+				objects: [placement.object.id],
+				path: placement.object.path,
+				hint: "Use sizes, gaps and angles of reasonable magnitude.",
+			});
+		}
+		for (const id of broken) placed.delete(id);
+
+		check(spec, placed, found);
+		const planned = planPaths(spec, placed);
+		found.push(...planned.diagnostics);
+		return { placed, broken, found, planned };
+	};
+
+	// Paths shape the layout: where a path is blocked, the two things at
+	// its bottleneck are held apart as wide as it needs, and the layout is
+	// solved again. A new layout is kept only if fewer paths are blocked
+	// and nothing else got worse.
+	type Attempt = ReturnType<typeof attempt>;
+	let best = attempt([]);
+	let aisles: Aisle[] = [];
+	for (let k = 0; spec.makeWay && k < MAKE_WAY_ROUNDS; k += 1) {
+		const wanted = best.planned.bottlenecks;
+		if (wanted.length === 0) break;
+		// A comfortable aisle first, the bare width if that does not fit.
+		let accepted: { aisles: Aisle[]; result: Attempt } | undefined;
+		for (const comfortable of [true, false]) {
+			const next = widen(aisles, wanted, comfortable);
+			const same =
+				next.length === aisles.length &&
+				next.every((aisle, i) => aisle.gap === aisles[i]?.gap);
+			if (same) continue;
+			const tried = attempt(next);
+			if (
+				blockedCount(tried.found) < blockedCount(best.found) &&
+				otherProblems(tried.found) <= otherProblems(best.found)
+			) {
+				accepted = { aisles: next, result: tried };
+				break;
+			}
+		}
+		if (accepted === undefined) break;
+		best = accepted.result;
+		aisles = accepted.aisles;
+	}
+	const { placed, broken } = best;
+	diagnostics.push(...best.found);
+	for (const aisle of aisles) {
+		const [a, b] = aisle.between.map((what) =>
+			what.startsWith("wall:") ? `the ${what.slice(5)} wall` : `"${what}"`,
+		);
 		diagnostics.push({
-			severity: "error",
-			code: "scene.non-finite",
-			message: `"${placement.object.id}" ends up at a position, turn or size that is not a finite number; it is left out.`,
-			objects: [placement.object.id],
-			path: placement.object.path,
-			hint: "Use sizes, gaps and angles of reasonable magnitude.",
+			severity: "info",
+			code: "scene.path.made-way",
+			message: `${a} and ${b} are kept ${round4(aisle.gap)} m apart so ${aisle.paths.map((id) => `"${id}"`).join(", ")} can get through.`,
+			objects: aisle.between.filter((what) => !what.startsWith("wall:")),
+			path: ["paths"],
+			hint: "Set `makeWay: false` to keep the layout as the relations alone leave it.",
+			detail: { gap: round4(aisle.gap) },
 		});
 	}
-	for (const id of broken) placed.delete(id);
-
-	check(spec, placed, diagnostics);
-	const planned = planPaths(spec, placed);
-	diagnostics.push(...planned.diagnostics);
 
 	const unplaced = spec.objects
 		.filter((object) => !placed.has(object.id))
@@ -329,7 +438,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			at,
 			width,
 		})),
-		paths: planned.paths,
+		paths: best.planned.paths,
 		unplaced,
 		valid: !sorted.some((diagnostic) => diagnostic.severity === "error"),
 		diagnostics: sorted,
