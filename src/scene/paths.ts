@@ -94,6 +94,8 @@ interface Routed {
 	reach: number;
 	legs: Vec2[][];
 	space: FreeSpace;
+	/** Length of the shortest route, before any refinement. */
+	shortest: number;
 }
 
 /** Points nudged this far off grown footprints so they count as outside. */
@@ -144,7 +146,14 @@ export function planPaths(
 		const reach = agent.radius + path.clearance;
 		const found = route(spec, path, obstacles, placed, openings, reach);
 		if (found !== undefined) {
-			routed.push({ path, agent, obstacles, reach, ...found });
+			routed.push({
+				path,
+				agent,
+				obstacles,
+				reach,
+				...found,
+				shortest: found.legs.reduce((sum, leg) => sum + pathLength(leg), 0),
+			});
 			continue;
 		}
 		const blocked = bottleneck(
@@ -212,23 +221,50 @@ export function planPaths(
 				width: 2 * item.agent.radius,
 				space: item.space,
 				orthogonal: item.path.orthogonal,
+				// The same budget as centring, on the shortest route: steps
+				// never add up past it.
+				budget: LENGTH_BUDGET * item.shortest,
+				movable: item.path.comfort > 0,
 			};
 		}),
 	);
 	for (const {
 		paths: [i, j],
 		at,
+		reason,
 	} of lanes.shared) {
 		const a = routed[i] as Routed;
 		const b = routed[j] as Routed;
-		diagnostics.push({
-			severity: "info",
-			code: "scene.path.single-file",
-			message: `"${a.path.id}" and "${b.path.id}" meet head-on where the way is too narrow to pass side by side (near ${round(at.x)}, ${round(at.y)}).`,
-			path: b.path.path,
-			hint: `Passing there needs ${round(2 * a.agent.radius + 2 * b.agent.radius)} m between things; widen it if they must pass each other.`,
-			detail: { at: `${round(at.x)}, ${round(at.y)}` },
-		});
+		const near = `${round(at.x)}, ${round(at.y)}`;
+		const pair = `"${a.path.id}" and "${b.path.id}"`;
+		diagnostics.push(
+			reason === "narrow"
+				? {
+						severity: "info",
+						code: "scene.path.single-file",
+						message: `${pair} meet head-on where the way is too narrow to pass side by side (near ${near}).`,
+						path: b.path.path,
+						hint: `Passing there needs ${round(2 * a.agent.radius + 2 * b.agent.radius)} m between things; widen it if they must pass each other.`,
+						detail: { at: near },
+					}
+				: {
+						severity: "info",
+						code: "scene.path.head-on",
+						message: `${pair} share a run head-on near ${near}: ${
+							reason === "budget"
+								? "stepping aside would take one more than 15 % over its shortest route"
+								: reason === "fixed"
+									? "both keep their shortest routes (comfort 0)"
+									: "the lanes were not worked out within the round limit"
+						}.`,
+						path: b.path.path,
+						hint:
+							reason === "fixed"
+								? "Give one of them some comfort to let it step aside."
+								: "Give them a start each if they must not meet, or route one another way.",
+						detail: { at: near, reason },
+					},
+		);
 	}
 
 	routed.forEach((item, index) => {

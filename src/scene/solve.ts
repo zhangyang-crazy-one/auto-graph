@@ -78,11 +78,65 @@ function blockedCount(diagnostics: readonly SceneDiagnostic[]): number {
 	return diagnostics.filter((d) => d.code === "scene.path.blocked").length;
 }
 
-/** Errors and warnings other than blocked paths. */
-function otherProblems(diagnostics: readonly SceneDiagnostic[]): number {
-	return diagnostics.filter(
-		(d) => d.severity !== "info" && !d.code.startsWith("scene.path."),
-	).length;
+/**
+ * Whether `after` is worse than `before` on any check other than paths:
+ * a problem that was not there (same check, same objects), a warning
+ * that became an error, or a measure that grew (how far past a wall, how
+ * deep a collision, how far an overhang, how short a gap). One problem
+ * going away never pays for another appearing.
+ */
+function worseOnOtherChecks(
+	before: readonly SceneDiagnostic[],
+	after: readonly SceneDiagnostic[],
+): boolean {
+	const known = new Map<string, { rank: number; badness: number }>();
+	for (const diagnostic of before) {
+		const key = problemKey(diagnostic);
+		if (key === undefined) continue;
+		const seen = known.get(key);
+		known.set(key, {
+			rank: Math.max(severityRank(diagnostic), seen?.rank ?? 0),
+			badness: Math.max(badness(diagnostic), seen?.badness ?? 0),
+		});
+	}
+	return after.some((diagnostic) => {
+		const key = problemKey(diagnostic);
+		if (key === undefined) return false;
+		const was = known.get(key);
+		return (
+			was === undefined ||
+			severityRank(diagnostic) > was.rank ||
+			badness(diagnostic) > was.badness + 1e-6
+		);
+	});
+}
+
+/** The check and the objects it is about; undefined for paths and info. */
+function problemKey(diagnostic: SceneDiagnostic): string | undefined {
+	if (
+		diagnostic.severity === "info" ||
+		diagnostic.code.startsWith("scene.path.")
+	) {
+		return undefined;
+	}
+	const objects = [...(diagnostic.objects ?? [])].sort().join(",");
+	return `${diagnostic.code}|${objects}`;
+}
+
+function severityRank(diagnostic: SceneDiagnostic): number {
+	return diagnostic.severity === "error" ? 2 : 1;
+}
+
+/** How bad a problem is, in meters (0 when it carries no measure). */
+function badness(diagnostic: SceneDiagnostic): number {
+	const detail = diagnostic.detail ?? {};
+	const number = (key: string) =>
+		typeof detail[key] === "number" ? (detail[key] as number) : undefined;
+	const past = number("past") ?? number("overhang") ?? number("depth");
+	if (past !== undefined) return past;
+	const gap = number("gap");
+	const need = number("minGap") ?? number("clearance");
+	return gap !== undefined && need !== undefined ? Math.max(need - gap, 0) : 0;
 }
 
 function round4(value: number): number {
@@ -351,7 +405,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	// Paths shape the layout: where a path is blocked, the two things at
 	// its bottleneck are held apart as wide as it needs, and the layout is
 	// solved again. A new layout is kept only if fewer paths are blocked
-	// and nothing else got worse.
+	// and no other check got worse (see `worseOnOtherChecks`).
 	type Attempt = ReturnType<typeof attempt>;
 	let best = attempt([]);
 	let aisles: Aisle[] = [];
@@ -369,7 +423,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			const tried = attempt(next);
 			if (
 				blockedCount(tried.found) < blockedCount(best.found) &&
-				otherProblems(tried.found) <= otherProblems(best.found)
+				!worseOnOtherChecks(best.found, tried.found)
 			) {
 				accepted = { aisles: next, result: tried };
 				break;

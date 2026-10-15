@@ -15,6 +15,11 @@ import type { Vec2 } from "./geometry.js";
 export interface PathTiming {
 	/** Seconds at each point, from the scene's time 0. */
 	times: number[];
+	/**
+	 * Seconds at each point from setting off. Motion is computed on these,
+	 * so a large `start` costs no precision.
+	 */
+	elapsed: number[];
 	/** Speed at each point, m/s. */
 	speeds: number[];
 	start: number;
@@ -60,7 +65,7 @@ export function timePath(
 			),
 		);
 	}
-	const times = [start];
+	const elapsed = [0];
 	lengths.forEach((length, k) => {
 		const profile = segmentProfile(
 			length,
@@ -69,13 +74,14 @@ export function timePath(
 			speed,
 			accel,
 		);
-		times.push((times[k] as number) + profile.total);
+		elapsed.push((elapsed[k] as number) + profile.total);
 	});
 	return {
-		times,
+		times: elapsed.map((e) => start + e),
+		elapsed,
 		speeds,
 		start,
-		duration: (times.at(-1) as number) - start,
+		duration: elapsed.at(-1) as number,
 		speed,
 		accel,
 	};
@@ -87,17 +93,26 @@ export function positionAt(
 	timing: PathTiming,
 	t: number,
 ): Vec2 | undefined {
-	const { times, speeds } = timing;
-	if (
-		t < (times[0] as number) - 1e-12 ||
-		t > (times.at(-1) as number) + 1e-12
-	) {
-		return undefined;
-	}
+	const since = t - timing.start;
+	if (since < -1e-9 || since > timing.duration + 1e-9) return undefined;
+	return positionAfter(points, timing, since);
+}
+
+/**
+ * Where the agent is `since` seconds after setting off (clamped to the
+ * walk: at the start before it, at the end after it).
+ */
+export function positionAfter(
+	points: readonly Vec2[],
+	timing: PathTiming,
+	since: number,
+): Vec2 {
+	const { elapsed, speeds } = timing;
+	const s = Math.min(Math.max(since, 0), timing.duration);
 	for (let k = 0; k + 1 < points.length; k += 1) {
-		const t0 = times[k] as number;
-		const t1 = times[k + 1] as number;
-		if (t > t1 + 1e-12 && k + 2 < points.length) continue;
+		const e0 = elapsed[k] as number;
+		const e1 = elapsed[k + 1] as number;
+		if (s > e1 && k + 2 < points.length) continue;
 		const a = points[k] as Vec2;
 		const b = points[k + 1] as Vec2;
 		const length = distance(a, b);
@@ -110,25 +125,36 @@ export function positionAt(
 				timing.speed,
 				timing.accel,
 			),
-			Math.min(Math.max(t - t0, 0), t1 - t0),
+			Math.min(Math.max(s - e0, 0), e1 - e0),
 			timing.accel,
 		);
 		const f = Math.min(1, along / length);
 		return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
 	}
-	return { ...(points.at(-1) as Vec2) };
+	return { ...(points[0] as Vec2) };
 }
 
+/** At most this many samples per path, however long the walk. */
+const MAX_SAMPLES = 20_000;
+
 /**
- * Times to sample a path at: every `step` seconds plus every corner, so
- * a piecewise-linear track through them passes through every corner.
+ * Seconds from setting off to sample a path at: evenly, at most `step`
+ * apart (and at most MAX_SAMPLES of them), plus every corner, so a
+ * piecewise-linear track through them passes through every corner.
  */
-export function sampleTimes(timing: PathTiming, step: number): number[] {
-	const out = new Set<number>(timing.times.map(roundTime));
-	const end = timing.start + timing.duration;
-	for (let t = timing.start; t < end; t += step) out.add(roundTime(t));
-	out.add(roundTime(end));
-	return [...out].sort((a, b) => a - b);
+export function sampleElapsed(timing: PathTiming, step: number): number[] {
+	const count = Math.min(
+		MAX_SAMPLES,
+		Math.max(1, Math.ceil(timing.duration / step)),
+	);
+	const all = [...timing.elapsed];
+	for (let k = 0; k <= count; k += 1) all.push((timing.duration * k) / count);
+	all.sort((a, b) => a - b);
+	const out: number[] = [];
+	for (const e of all) {
+		if (out.length === 0 || e - (out.at(-1) as number) > 1e-9) out.push(e);
+	}
+	return out;
 }
 
 export interface TimedPath {
@@ -148,13 +174,20 @@ export interface Meeting {
 	delay?: number;
 }
 
-/** Sampling step for meetings, seconds. */
-const STEP = 0.05;
+/** Intervals shorter than this (s) are decided by their middle. */
+const SHORTEST = 1e-4;
+/** Work limit per pair (interval visits). */
+const BUDGET = 400_000;
+/** Later starts tried for a suggestion, in half-second steps. */
+const DELAYS = 240;
 
 /**
  * Agents on paths that overlap in time touch when their centers come
- * closer than the sum of their radii. The later of the two is tried with
- * later starts in half-second steps to suggest a delay.
+ * closer than the sum of their radii. The check is continuous: an
+ * interval is safe when the two agents are far enough apart at its ends
+ * that, at their top speeds, they could not have met in between;
+ * otherwise it is halved, earliest half first. The later of the two is
+ * tried with later starts in half-second steps to suggest a delay.
  */
 export function findMeetings(paths: readonly TimedPath[]): Meeting[] {
 	const out: Meeting[] = [];
@@ -165,8 +198,11 @@ export function findMeetings(paths: readonly TimedPath[]): Meeting[] {
 			const first = firstTouch(a, b, 0);
 			if (first === undefined) continue;
 			let delay: number | undefined;
-			const limit = a.timing.start + a.timing.duration - b.timing.start + 0.5;
-			for (let d = 0.5; d <= limit + 1e-9; d += 0.5) {
+			for (let k = 1; k <= DELAYS; k += 1) {
+				const d = k * 0.5;
+				if (b.timing.start + d > a.timing.start + a.timing.duration + 0.5) {
+					break;
+				}
 				if (firstTouch(a, b, d) === undefined) {
 					delay = d;
 					break;
@@ -195,19 +231,46 @@ function firstTouch(
 		a.timing.start + a.timing.duration,
 		bStart + b.timing.duration,
 	);
-	const reach = a.radius + b.radius;
-	for (let t = from; t <= to + 1e-9; t += STEP) {
-		const p = positionAt(a.points, a.timing, Math.min(t, to));
-		const q = positionAt(b.points, b.timing, Math.min(t, to) - delay);
-		if (p === undefined || q === undefined) continue;
-		if (distance(p, q) < reach - 1e-6) {
-			return {
-				at: roundTime(t),
-				where: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 },
-			};
+	if (to < from) return undefined;
+	const reach = a.radius + b.radius - 1e-6;
+	const speed = a.timing.speed + b.timing.speed;
+	const at = (t: number) => {
+		const p = positionAfter(a.points, a.timing, t - a.timing.start);
+		const q = positionAfter(b.points, b.timing, t - bStart);
+		return { p, q, gap: distance(p, q) };
+	};
+	const touch = (t: number, p: Vec2, q: Vec2) => ({
+		at: roundTime(t),
+		where: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 },
+	});
+	const start = at(from);
+	if (start.gap < reach) return touch(from, start.p, start.q);
+	// Depth first, earliest half first, so intervals are settled in time
+	// order: the first one found touching holds the earliest touch (to
+	// within SHORTEST).
+	let best: { t: number; p: Vec2; q: Vec2 } | undefined;
+	const stack: [number, number, number, number][] = [
+		[from, to, start.gap, at(to).gap],
+	];
+	for (let visits = 0; stack.length > 0 && visits < BUDGET; visits += 1) {
+		const [t0, t1, g0, g1] = stack.pop() as [number, number, number, number];
+		if (best !== undefined && t0 >= best.t) continue;
+		// Closest the two can come in between, moving at top speed.
+		if ((g0 + g1 - speed * (t1 - t0)) / 2 >= reach) continue;
+		const middle = (t0 + t1) / 2;
+		const mid = at(middle);
+		if (mid.gap < reach) best = { t: middle, p: mid.p, q: mid.q };
+		if (t1 - t0 < SHORTEST) {
+			if (best !== undefined) break;
+			continue;
 		}
+		// A touch in the middle leaves only the first half to search.
+		if (mid.gap >= reach) stack.push([middle, t1, mid.gap, g1]);
+		stack.push([t0, middle, g0, mid.gap]);
 	}
-	return undefined;
+	if (best !== undefined) return touch(best.t, best.p, best.q);
+	const end = at(to);
+	return end.gap < reach ? touch(to, end.p, end.q) : undefined;
 }
 
 interface Profile {
@@ -252,7 +315,7 @@ function distanceAt(profile: Profile, t: number, accel: number): number {
 }
 
 function roundTime(t: number): number {
-	return Math.round(t * 1e6) / 1e6;
+	return Math.round(t * 1e4) / 1e4;
 }
 
 function distance(a: Vec2, b: Vec2): number {

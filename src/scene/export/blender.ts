@@ -1,5 +1,5 @@
 import type { SolvedScene } from "../ir.js";
-import { positionAt, sampleTimes, timePath } from "../path-timing.js";
+import { positionAfter, sampleElapsed, timePath } from "../path-timing.js";
 import { sceneToDocument } from "./json.js";
 
 /** Seconds between the keyframes of an agent walking its path. */
@@ -43,11 +43,11 @@ function agentTracks(scene: SolvedScene): Record<string, number[][]> {
 		if (agent === undefined) continue;
 		const corners = path.points.map(([x, y]) => ({ x, y }));
 		const timing = timePath(corners, agent.speed, agent.accel, path.start);
-		tracks[path.id] = sampleTimes(timing, TRACK_STEP).map((t) => {
-			const at =
-				positionAt(corners, timing, t) ??
-				(corners.at(-1) as { x: number; y: number });
-			return [round(t), round(at.x), round(at.y)];
+		// Sampled on time since setting off and rounded only when written,
+		// so the first key is the start and the last the end.
+		tracks[path.id] = sampleElapsed(timing, TRACK_STEP).map((since) => {
+			const at = positionAfter(corners, timing, since);
+			return [round(path.start + since), round(at.x), round(at.y)];
 		});
 	}
 	return tracks;

@@ -3,12 +3,14 @@ import {
 	normalizeSceneDsl,
 	type SceneSpec,
 	type SolvedScene,
+	sceneTopViewSvg,
 	solveScene,
 } from "../src/index.js";
+import { sceneToBlenderScript } from "../src/scene/export/blender.js";
 import {
 	findMeetings,
 	positionAt,
-	sampleTimes,
+	sampleElapsed,
 	timePath,
 } from "../src/scene/path-timing.js";
 
@@ -108,10 +110,8 @@ describe("path timing", () => {
 			expect(at?.x).toBeCloseTo(points[k]?.x ?? 0, 9);
 			expect(at?.y).toBeCloseTo(points[k]?.y ?? 0, 9);
 		});
-		const samples = sampleTimes(corner, 0.1);
-		for (const t of corner.times) {
-			expect(samples).toContain(Math.round(t * 1e6) / 1e6);
-		}
+		const samples = sampleElapsed(corner, 0.1);
+		for (const e of corner.elapsed) expect(samples).toContain(e);
 	});
 
 	it("puts times, start and duration on planned paths", () => {
@@ -199,5 +199,108 @@ describe("agents meeting on the way", () => {
 			paths: ["person from d to a, start soon"],
 		});
 		expect(result.diagnostics[0]?.message).toContain("`start` needs a time");
+	});
+});
+
+describe("review findings on #135", () => {
+	// #139: a huge start is refused, and long walks sample within bounds.
+	it("refuses a start too late to keep time precisely", () => {
+		const result = normalizeSceneDsl({
+			scene: "t",
+			bounds: { width: 8, depth: 4 },
+			objects: {},
+			openings: {
+				w: { wall: "west", at: 1, width: 1 },
+				e: { wall: "east", at: 1, width: 1 },
+			},
+			paths: ["person from w to e, start 10000000000000000"],
+		});
+		expect(result.diagnostics[0]?.message).toContain("latest start supported");
+	});
+
+	it("finishes for the latest start and for a very slow agent", () => {
+		const started = performance.now();
+		const scene = solve({
+			agents: {
+				snail: { radius: 0.05, height: 0.05, speed: 1e-6, accel: 1e-6 },
+			},
+			objects: {},
+			openings: {
+				w1: { wall: "west", at: 1, width: 1 },
+				e1: { wall: "east", at: 1, width: 1 },
+				w2: { wall: "west", at: 3, width: 1 },
+				e2: { wall: "east", at: 3, width: 1 },
+			},
+			paths: [
+				"person from w1 to e1, start 1000000",
+				"snail from w2 to e2, start 1000000",
+			],
+		});
+		expect(scene.paths).toHaveLength(2);
+		const snail = scene.paths[1];
+		const timing = timePath(
+			(snail?.points ?? []).map(([x, y]) => ({ x, y })),
+			1e-6,
+			1e-6,
+			1_000_000,
+		);
+		expect(sampleElapsed(timing, 0.1).length).toBeLessThanOrEqual(20_005);
+		sceneTopViewSvg(scene);
+		sceneToBlenderScript(scene);
+		expect(performance.now() - started).toBeLessThan(20_000);
+	});
+
+	// #140: the meeting check is continuous, not sampled.
+	it("finds agents crossing between samples", () => {
+		const scene = solve({
+			bounds: { width: 6.086, depth: 6.086, height: 2.5 },
+			objects: {},
+			openings: {
+				w: { wall: "west", at: 3.043, width: 1 },
+				e: { wall: "east", at: 3.043, width: 1 },
+				s: { wall: "south", at: 3.043, width: 1 },
+				n: { wall: "north", at: 3.043, width: 1 },
+			},
+			agents: { bot: { radius: 0.01, height: 0.01, speed: 1.2, accel: 1 } },
+			paths: ["bot from w to e, start 0", "bot from s to n, start 0"],
+		});
+		const meet = scene.diagnostics.find((d) => d.code === "scene.path.meet");
+		expect(meet).toBeDefined();
+		expect(Number(meet?.detail?.at)).toBeCloseTo(3.125, 1);
+	});
+
+	// #141: the first key is where the agent sets off, whatever the start.
+	it.each([
+		1 / 3,
+		2 / 3,
+		2,
+	])("keys the agent at its start first (start %s)", (start) => {
+		const scene = solve({
+			objects: {},
+			openings: {
+				w: { wall: "west", at: 1, width: 1 },
+				e: { wall: "east", at: 1, width: 1 },
+			},
+			paths: [`person from w to e, start ${start}`],
+		});
+		const script = sceneToBlenderScript(scene);
+		const line = script
+			.split("\n")
+			.find((text) => text.startsWith("TRACKS = "));
+		const literal = (line ?? "").slice("TRACKS = json.loads(".length, -1);
+		const tracks = JSON.parse(JSON.parse(literal)) as Record<
+			string,
+			number[][]
+		>;
+		const track = tracks[scene.paths[0]?.id ?? ""] ?? [];
+		expect(track[0]).toEqual([Math.round(start * 1e4) / 1e4, 0.253, 1]);
+		expect(track.at(-1)?.slice(1)).toEqual([7.747, 1]);
+		// Never more than a step's worth of walking between keys.
+		for (let k = 1; k < track.length; k += 1) {
+			const [, x0 = 0] = track[k - 1] ?? [];
+			const [, x1 = 0] = track[k] ?? [];
+			expect(x1 - x0).toBeGreaterThanOrEqual(0);
+			expect(x1 - x0).toBeLessThanOrEqual(1.2 * 0.1 + 1e-3);
+		}
 	});
 });

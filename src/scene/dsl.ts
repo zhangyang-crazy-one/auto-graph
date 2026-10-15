@@ -1288,6 +1288,12 @@ function parsePaths(
 	return out;
 }
 
+/**
+ * Latest `start`, seconds. Times are kept to 0.1 ms; well below this
+ * bound that precision holds.
+ */
+const MAX_START = 1_000_000;
+
 /** A time in seconds: `2`, `2.5s`. */
 function seconds(token: string): number {
 	const match = /^(\d+(?:\.\d+)?|\.\d+)s?$/.exec(token);
@@ -1297,6 +1303,13 @@ function seconds(token: string): number {
 			"validate.scene.relation-value",
 			`\`start\` needs a time; got "${token.slice(0, 24)}".`,
 			"Write a non-negative number of seconds, e.g. `start 2` or `start 2.5s`.",
+		);
+	}
+	if (value > MAX_START) {
+		fail(
+			"validate.scene.relation-value",
+			`\`start ${token.slice(0, 24)}\` is later than ${MAX_START} s (about 11.6 days), the latest start supported.`,
+			"Count time from the start of the schedule.",
 		);
 	}
 	return value;

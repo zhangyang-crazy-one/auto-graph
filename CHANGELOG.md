@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Review fixes (#136–#141)
+
+- Lanes keep to the 15 % length budget measured on the shortest route,
+  and a path with `comfort 0` never steps aside (#136).
+- Lanes run while anything moves (up to a limit that grows with the
+  paths), then every pair is checked again. A head-on run that is left is
+  reported: too narrow as `scene.path.single-file`; outside the budget,
+  both at `comfort 0` or out of rounds as the new `scene.path.head-on`
+  (#138).
+- Making way keeps a new layout only if no other check got worse: no new
+  problem on the same check and objects, no warning turned into an error,
+  no measure grown (past a wall, collision depth, overhang, gap
+  shortfall). It no longer compares counts (#137).
+- Timing works on time since setting off. Sampling is bounded (at most
+  20,000 keys per path, at most 200 ticks in the top view), and `start`
+  is limited to 1,000,000 s (#139).
+- Meetings are found by a continuous check (halving intervals until the
+  agents' top speeds rule a touch out), not 50 ms samples. The suggested
+  later start goes through the same check (#140).
+- Blender keys start exactly where the agent sets off, whatever the
+  `start` (#141).
+
 ### 3D scene: timed paths and Blender export of paths (#128, T5)
 
 - Paths are timed. An agent starts and stops at rest, speeds up and
