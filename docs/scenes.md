@@ -96,6 +96,32 @@ A relation is one line: a subject, a verb, then clauses after commas. The subjec
 
 The same input gives the same output, byte for byte.
 
+## Paths
+
+Paths are routes an agent must be able to take: a person from the door to the desk, a robot vacuum to its dock. They are the scene's counterpart of a diagram's edges, planned with the same machinery (#128).
+
+```yaml
+openings:
+  door: { wall: south, at: 0.6, width: 0.9 }   # center 0.6 m from the wall's west (or south) end
+agents:
+  robot: { radius: 0.18, height: 0.1 }          # person (0.25, 1.8) is built in
+paths:
+  - person from door to desk
+  - person from door to shelf, clearance 0.05
+  - robot from door to shelf, orthogonal
+  - person from chair to door, via lamp and table
+```
+
+- **Configuration space.** The agent is shrunk to a point. Every object in its way grows by the agent's radius plus `clearance`, and the walls move in by the same amount. An object is in the way when its bottom is below the agent's height, so a low robot passes under a table top resting on a pedestal.
+- **Ends.** An object is reached at the point in front of it. If something stands there, the agent goes to its left, right or back instead, sliding along that side when its middle is too close to a wall. An opening is reached just inside the room.
+- **Routing.**
+  - By default the path is the shortest any-angle route through the corners of the grown footprints: a visibility graph searched with A*.
+  - `orthogonal` uses auto-graph's sparse-grid router, the one that routes diagram edges, so the path turns only at right angles.
+- **Checks.** Every path is checked on its own against the turned footprints and the walls. `clearance` in the output is the least distance from the agent's edge to anything.
+- **Blocked.** When there is no way through, the agent is shrunk until one exists. The widest agent that gets through is as wide as the narrowest place on its way, and that place is reported: `"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).` An opening narrower than the agent is reported as such.
+
+Planned paths appear in the `dge-scene` JSON (`paths`: points, length, width, clearance) and in the top view as a band as wide as the agent. Openings appear in both too. Centring paths in their aisles, separating parallel paths, feeding bottlenecks back into the layout, timing and Blender export follow in #128.
+
 ## Output
 
 `renderSceneDsl(source, { format })`, or `agh --input room.yaml --format …`:
@@ -107,7 +133,7 @@ The same input gives the same output, byte for byte.
   - `supportedBy`;
   - the world `aabb`.
 
-  The document also carries `valid` and the diagnostics.
+  The document also carries `valid`, the diagnostics and `unplaced`: objects left out because their position, turn or size would not be a finite number (reported as `scene.non-finite`), so every document written is a valid v1 document.
 - **`blender`** is a Python script for Blender (bpy) with the document embedded.
   - Every box has its origin at the bottom center, so its location is exactly `position` and its z rotation the `yaw`.
   - A triangle on top marks the front.

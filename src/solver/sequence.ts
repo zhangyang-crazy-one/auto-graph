@@ -856,7 +856,9 @@ function layOutRows(
 			activation.top + MIN_ACTIVATION_HEIGHT,
 		);
 		activation.closed = true;
-		// The bar it was nested on runs on at least as far.
+		// The bar it was nested on runs on at least as far: as far as this
+		// bar, and as far as the bars nested on this one (which an explicit
+		// deactivate may close above them).
 		const parent = stack(index).at(-1);
 		if (parent !== undefined) {
 			nestedBottom.set(
@@ -864,6 +866,7 @@ function layOutRows(
 				Math.max(
 					nestedBottom.get(parent) ?? Number.NEGATIVE_INFINITY,
 					activation.bottom,
+					nestedBottom.get(activation) ?? Number.NEGATIVE_INFINITY,
 				),
 			);
 		}

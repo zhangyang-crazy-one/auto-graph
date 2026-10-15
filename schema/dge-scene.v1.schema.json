@@ -185,6 +185,97 @@
 				"additionalProperties": false
 			}
 		},
+		"openings": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"wall": {
+						"type": "string",
+						"enum": ["north", "south", "east", "west"]
+					},
+					"at": {
+						"type": "number",
+						"description": "Center along the wall from its west (or south) end."
+					},
+					"width": {
+						"type": "number"
+					}
+				},
+				"required": ["id", "wall", "at", "width"],
+				"additionalProperties": false
+			}
+		},
+		"paths": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"agent": {
+						"type": "string"
+					},
+					"from": {
+						"type": "string"
+					},
+					"to": {
+						"type": "string"
+					},
+					"points": {
+						"type": "array",
+						"items": {
+							"type": "array",
+							"prefixItems": [
+								{
+									"type": "number"
+								},
+								{
+									"type": "number"
+								},
+								{
+									"type": "number"
+								}
+							]
+						},
+						"description": "Corners from start to end, [x, y, z] on the floor."
+					},
+					"length": {
+						"type": "number"
+					},
+					"width": {
+						"type": "number",
+						"description": "The agent's width."
+					},
+					"clearance": {
+						"type": "number",
+						"description": "Least distance from the agent's edge to anything."
+					}
+				},
+				"required": [
+					"id",
+					"agent",
+					"from",
+					"to",
+					"points",
+					"length",
+					"width",
+					"clearance"
+				],
+				"additionalProperties": false
+			}
+		},
+		"unplaced": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"description": "Objects left out of `objects`: no finite position (see the diagnostics)."
+		},
 		"diagnostics": {
 			"type": "array",
 			"items": {
@@ -253,6 +344,9 @@
 		"bounds",
 		"valid",
 		"objects",
+		"openings",
+		"paths",
+		"unplaced",
 		"diagnostics"
 	],
 	"additionalProperties": false

@@ -10,8 +10,11 @@ import type { DslDiagnostic, ParseDiagramDslOptions } from "../dsl/types.js";
 import { closest } from "../views/common.js";
 import type {
 	CornerSide,
+	SceneAgent,
 	SceneObject,
+	SceneOpening,
 	ScenePath,
+	ScenePathSpec,
 	SceneRelation,
 	SceneSide,
 	SceneSpec,
@@ -40,6 +43,16 @@ const sceneObjectSchema = z
 	})
 	.strict();
 
+const idSchema = z
+	.string()
+	.regex(
+		/^[A-Za-z_][\w-]*$/,
+		"Ids start with a letter or _ and use letters, digits, _ and -.",
+	);
+
+/** The agent every scene has unless it declares its own `person`. */
+const DEFAULT_PERSON = { radius: 0.25, height: 1.8 };
+
 export const sceneDslSchema = z
 	.object({
 		scene: z.string().min(1),
@@ -52,16 +65,27 @@ export const sceneDslSchema = z
 			})
 			.strict(),
 		minGap: nonNegative.optional(),
-		objects: z.record(
-			z
-				.string()
-				.regex(
-					/^[A-Za-z_][\w-]*$/,
-					"Object ids start with a letter or _ and use letters, digits, _ and -.",
-				),
-			sceneObjectSchema,
-		),
+		objects: z.record(idSchema, sceneObjectSchema),
 		relations: z.array(z.string().min(1)).optional(),
+		openings: z
+			.record(
+				idSchema,
+				z
+					.object({
+						wall: z.enum(["north", "south", "east", "west"]),
+						at: nonNegative,
+						width: positive,
+					})
+					.strict(),
+			)
+			.optional(),
+		agents: z
+			.record(
+				idSchema,
+				z.object({ radius: positive, height: positive }).strict(),
+			)
+			.optional(),
+		paths: z.array(z.string().min(1)).optional(),
 	})
 	.strict();
 
@@ -251,6 +275,67 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 		relations.push(...parser.parse(text, ["relations", index]));
 	});
 
+	const width = dsl.bounds.width / perMeter;
+	const depth = dsl.bounds.depth / perMeter;
+	const objectIds = new Set(objects.map((object) => object.id));
+	const openings: SceneOpening[] = [];
+	for (const [id, entry] of Object.entries(dsl.openings ?? {})) {
+		const path: ScenePath = ["openings", id];
+		const opening = {
+			id,
+			wall: entry.wall,
+			at: entry.at / perMeter,
+			width: entry.width / perMeter,
+			path,
+		};
+		const along =
+			entry.wall === "north" || entry.wall === "south" ? width : depth;
+		if (objectIds.has(id) || groups.has(id)) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.duplicate-id",
+					`"${id}" names both an object and an opening.`,
+					"Give the opening its own id.",
+				),
+			);
+		} else if (
+			opening.at - opening.width / 2 < -1e-9 ||
+			opening.at + opening.width / 2 > along + 1e-9
+		) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.opening-outside",
+					`Opening "${id}" (${opening.width} m wide at ${opening.at} m) does not fit in the ${entry.wall} wall (${along} m).`,
+					"Move it along the wall or make it narrower.",
+				),
+			);
+		} else {
+			openings.push(opening);
+		}
+	}
+	const agents: SceneAgent[] = Object.entries({
+		person: DEFAULT_PERSON,
+		...(dsl.agents ?? {}),
+	}).map(([id, entry]) => ({
+		id,
+		radius: entry.radius / (dsl.agents?.[id] === undefined ? 1 : perMeter),
+		height: entry.height / (dsl.agents?.[id] === undefined ? 1 : perMeter),
+		path: ["agents", id],
+	}));
+	const paths = parsePaths(
+		dsl.paths ?? [],
+		{
+			objects: objectIds,
+			groups,
+			openings: new Set(openings.map((opening) => opening.id)),
+			agents: new Set(agents.map((agent) => agent.id)),
+		},
+		units,
+		diagnostics,
+	);
+
 	if (hasErrors(diagnostics)) {
 		return { diagnostics: sortDslDiagnostics(diagnostics) };
 	}
@@ -260,14 +345,17 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			name: dsl.scene,
 			units,
 			bounds: {
-				width: dsl.bounds.width / perMeter,
-				depth: dsl.bounds.depth / perMeter,
+				width,
+				depth,
 				...(height === undefined ? {} : { height: height / perMeter }),
 			},
 			minGap: (dsl.minGap ?? 0) / perMeter,
 			objects,
 			relations,
 			groups: Object.fromEntries(groups),
+			openings,
+			agents,
+			paths,
 		},
 		diagnostics: sortDslDiagnostics(diagnostics),
 	};
@@ -1036,6 +1124,160 @@ function spot(token: string): SupportSpot {
 		);
 	}
 	return [row, column].filter(Boolean).join("-") as SupportSpot;
+}
+
+interface PathNames {
+	objects: ReadonlySet<string>;
+	groups: ReadonlyMap<string, string[]>;
+	openings: ReadonlySet<string>;
+	agents: ReadonlySet<string>;
+}
+
+/**
+ * `<agent> from <place> to <place>[, via <place> and <place>][, clearance
+ * <length>][, orthogonal]`, where a place is an object or an opening.
+ */
+function parsePaths(
+	lines: readonly string[],
+	names: PathNames,
+	units: SceneUnits,
+	diagnostics: DslDiagnostic[],
+): ScenePathSpec[] {
+	const out: ScenePathSpec[] = [];
+	const ids = new Map<string, number>();
+	const place = (token: string | undefined): string => {
+		if (
+			token !== undefined &&
+			(names.objects.has(token) || names.openings.has(token))
+		) {
+			return token;
+		}
+		const members = token === undefined ? undefined : names.groups.get(token);
+		if (members !== undefined) {
+			fail(
+				"validate.scene.group-reference",
+				`"${token}" is a group of ${members.length} objects, not one place.`,
+				`Name one of them (${members.slice(0, 3).join(", ")}${members.length > 3 ? ", …" : ""}).`,
+			);
+		}
+		const near = closest(token ?? "", [...names.objects, ...names.openings]);
+		fail(
+			"validate.scene.unknown-place",
+			`Unknown place "${token ?? ""}".`,
+			near.length > 0
+				? `Did you mean ${near.map((id) => `"${id}"`).join(" or ")}? A path goes between objects and openings.`
+				: "A path goes between objects and openings (declare openings under `openings`).",
+		);
+	};
+	lines.forEach((text, index) => {
+		const path: ScenePath = ["paths", index];
+		try {
+			const clauses = text
+				.split(",")
+				.map((clause) => clause.trim().split(/\s+/).filter(Boolean));
+			const [head = [], ...rest] = clauses;
+			const [agent, fromWord, from, toWord, to, ...extra] = head;
+			if (
+				fromWord !== "from" ||
+				toWord !== "to" ||
+				to === undefined ||
+				extra.length > 0
+			) {
+				fail(
+					"validate.scene.path-syntax",
+					`Cannot read "${head.join(" ")}".`,
+					"Write `<agent> from <place> to <place>`, then clauses after commas.",
+				);
+			}
+			if (!names.agents.has(agent as string)) {
+				const near = closest(agent as string, [...names.agents]);
+				fail(
+					"validate.scene.unknown-agent",
+					`Unknown agent "${agent}".`,
+					near.length > 0
+						? `Did you mean "${near[0]}"? Declare agents under \`agents\` (person is built in).`
+						: "Declare agents under `agents` (person is built in).",
+				);
+			}
+			const spec: Omit<ScenePathSpec, "id"> = {
+				agent: agent as string,
+				from: place(from),
+				to: place(to),
+				via: [],
+				clearance: 0,
+				orthogonal: false,
+				path,
+			};
+			if (spec.from === spec.to) {
+				fail(
+					"validate.scene.path-syntax",
+					`The path starts and ends at "${spec.from}".`,
+					"Give two different places.",
+				);
+			}
+			const seen = new Set<string>();
+			for (const clause of rest) {
+				const [name, ...args] = clause;
+				if (name === undefined || seen.has(name)) {
+					fail(
+						"validate.scene.path-syntax",
+						name === undefined
+							? "An empty clause."
+							: `"${name}" is given twice.`,
+						"Separate clauses with single commas; give each once.",
+					);
+				}
+				seen.add(name);
+				if (name === "orthogonal" && args.length === 0) {
+					spec.orthogonal = true;
+				} else if (name === "clearance" && args.length === 1) {
+					spec.clearance = pathLength(args[0] as string, units);
+				} else if (name === "via" && args.length % 2 === 1) {
+					spec.via = args.filter((_, k) => k % 2 === 0).map(place);
+					if (args.some((word, k) => k % 2 === 1 && word !== "and")) {
+						fail(
+							"validate.scene.path-syntax",
+							`Cannot read "${clause.join(" ")}".`,
+							"Write `via <place> and <place>`.",
+						);
+					}
+				} else {
+					fail(
+						"validate.scene.path-syntax",
+						`Unknown clause "${clause.join(" ")}".`,
+						"Paths take: via <place> [and <place>], clearance <length>, orthogonal.",
+					);
+				}
+			}
+			const base = `${spec.agent}:${spec.from}->${spec.to}`;
+			const count = (ids.get(base) ?? 0) + 1;
+			ids.set(base, count);
+			out.push({ id: count === 1 ? base : `${base}#${count}`, ...spec });
+		} catch (failure) {
+			if (!(failure instanceof RelationFailure)) throw failure;
+			diagnostics.push(
+				error(path, failure.code, failure.message, failure.hint, text),
+			);
+		}
+	});
+	return out;
+}
+
+function pathLength(token: string, units: SceneUnits): number {
+	const match = /^(\d+(?:\.\d+)?|\.\d+)(m|cm|mm)?$/.exec(token);
+	const value =
+		match === null
+			? Number.NaN
+			: Number(match[1]) /
+				PER_METER[(match[2] as SceneUnits | undefined) ?? units];
+	if (!Number.isFinite(value)) {
+		fail(
+			"validate.scene.relation-value",
+			`\`clearance\` needs a length; got "${token.slice(0, 24)}".`,
+			`Write a non-negative number, in ${units} or with an m, cm or mm suffix.`,
+		);
+	}
+	return value;
 }
 
 function error(

@@ -16,6 +16,7 @@ export interface SceneTopViewOptions {
 const MARGIN = 48;
 const LEVEL_FILLS = ["#dbeafe", "#fde68a", "#fbcfe8", "#d9f99d"];
 const STROKE = "#1e3a8a";
+const PATH_COLORS = ["#0d9488", "#c2410c", "#7c3aed", "#0369a1", "#be123c"];
 const FAULT = "#dc2626";
 const WARNING = "#b45309";
 /** Diagnostics that mark an object as wrong in the drawing. */
@@ -69,6 +70,35 @@ export function sceneTopViewSvg(
 	out.push(
 		`<rect x="${px(0)}" y="${py(depth)}" width="${fmt(roomWidth)}" height="${fmt(roomDepth)}" fill="none" stroke="#334155" stroke-width="2"/>`,
 	);
+	// Openings: a gap in the wall with a tick at each jamb and the name
+	// just outside.
+	for (const opening of scene.openings) {
+		const horizontal = opening.wall === "north" || opening.wall === "south";
+		const along = (t: number): Vec2 =>
+			horizontal
+				? { x: t, y: opening.wall === "north" ? depth : 0 }
+				: { x: opening.wall === "east" ? width : 0, y: t };
+		const a = along(opening.at - opening.width / 2);
+		const b = along(opening.at + opening.width / 2);
+		const inward =
+			opening.wall === "south"
+				? { x: 0, y: 1 }
+				: opening.wall === "north"
+					? { x: 0, y: -1 }
+					: opening.wall === "west"
+						? { x: 1, y: 0 }
+						: { x: -1, y: 0 };
+		const tick = 8 / scale;
+		const label = along(opening.at);
+		out.push(
+			`<line x1="${px(a.x)}" y1="${py(a.y)}" x2="${px(b.x)}" y2="${py(b.y)}" stroke="#ffffff" stroke-width="4"/>`,
+			...[a, b].map(
+				(jamb) =>
+					`<line x1="${px(jamb.x)}" y1="${py(jamb.y)}" x2="${px(jamb.x + inward.x * tick)}" y2="${py(jamb.y + inward.y * tick)}" stroke="#334155" stroke-width="2"/>`,
+			),
+			`<text x="${px(label.x - inward.x * (14 / scale))}" y="${fmt(Number(py(label.y - inward.y * (14 / scale))) + 4)}" font-size="10" fill="#334155" text-anchor="middle">${escapeXml(opening.id)}</text>`,
+		);
+	}
 	for (let x = 0; x <= width + 1e-9; x += 1) {
 		out.push(
 			`<text x="${px(x)}" y="${fmt(MARGIN + roomDepth + 16)}" font-size="10" fill="#64748b" text-anchor="middle">${fmt(x)}</text>`,
@@ -134,6 +164,48 @@ export function sceneTopViewSvg(
 			y: Number(py(shape.center.y)) + 4,
 		});
 	}
+	// Paths: a band as wide as the agent, its center line, a dot where it
+	// starts and an arrowhead where it ends.
+	scene.paths.forEach((path, index) => {
+		const color = PATH_COLORS[index % PATH_COLORS.length] as string;
+		const line = path.points
+			.map(([x, y], k) => `${k === 0 ? "M" : "L"}${px(x)} ${py(y)}`)
+			.join("");
+		out.push(
+			`<path d="${line}" fill="none" stroke="${color}" stroke-opacity="0.16" stroke-width="${fmt(path.width * scale)}" stroke-linecap="round" stroke-linejoin="round"/>`,
+			`<path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`,
+		);
+		const [sx = 0, sy = 0] = path.points[0] ?? [];
+		out.push(`<circle cx="${px(sx)}" cy="${py(sy)}" r="4" fill="${color}"/>`);
+		const end = path.points.at(-1);
+		const before = path.points.at(-2);
+		if (end !== undefined && before !== undefined) {
+			const dx = end[0] - before[0];
+			const dy = end[1] - before[1];
+			const length = Math.hypot(dx, dy) || 1;
+			const forward = { x: dx / length, y: dy / length };
+			const side = { x: -forward.y, y: forward.x };
+			const tip = { x: end[0], y: end[1] };
+			const back = 9 / scale;
+			const wing = 5 / scale;
+			out.push(
+				`<polygon points="${[
+					tip,
+					{
+						x: tip.x - forward.x * back + side.x * wing,
+						y: tip.y - forward.y * back + side.y * wing,
+					},
+					{
+						x: tip.x - forward.x * back - side.x * wing,
+						y: tip.y - forward.y * back - side.y * wing,
+					},
+				]
+					.map(point)
+					.join(" ")}" fill="${color}"/>`,
+			);
+		}
+	});
+
 	// Labels go on top of every footprint; one that would cover an earlier
 	// label (a lamp centered on its desk) moves down a line.
 	const taken: { x: number; y: number; half: number }[] = [];

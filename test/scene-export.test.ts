@@ -4,9 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	normalizeSceneDsl,
 	renderSceneDsl,
+	type SceneSpec,
 	sceneDocumentSchema,
 	sceneJsonSchema,
+	sceneToBlenderScript,
+	sceneToJson,
+	solveScene,
 } from "../src/index.js";
 import { sceneSource } from "./support/scene-files.js";
 
@@ -92,4 +97,43 @@ describe("dge-scene export", () => {
 		},
 		120_000,
 	);
+});
+
+// #130: geometry that overflows is left out (listed as unplaced), so every
+// document written is a valid dge-scene v1 document.
+describe("dge-scene export of overflowing geometry", () => {
+	it.each([
+		[
+			"stacked heights",
+			{
+				bounds: { width: 10, depth: 10 },
+				objects: {
+					a: { size: [1, 1, 1e308], position: [3, 3] },
+					b: { size: [1, 1, 1e308] },
+				},
+				relations: ["b on a"],
+			},
+		],
+		[
+			"huge bounds",
+			{
+				bounds: { width: 1e308, depth: 1e308 },
+				objects: { a: { size: [1, 1, 1] } },
+			},
+		],
+	])("keeps the document valid with %s", (_, value) => {
+		const normalized = normalizeSceneDsl({ scene: "numeric", ...value });
+		const solved = solveScene(normalized.scene as SceneSpec);
+		const document = JSON.parse(sceneToJson(solved));
+		expect(() => sceneDocumentSchema.parse(document)).not.toThrow();
+		expect(JSON.stringify(document)).not.toMatch(/null/);
+		const script = sceneToBlenderScript(solved);
+		expect(script).not.toMatch(/null|NaN|Infinity/);
+		if (!solved.valid) {
+			expect(document.unplaced.length).toBeGreaterThan(0);
+			expect(solved.diagnostics.map((d) => d.code)).toContain(
+				"scene.non-finite",
+			);
+		}
+	});
 });

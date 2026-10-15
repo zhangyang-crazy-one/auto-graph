@@ -1,0 +1,27 @@
+# The study with a door: a person walks in to the desk, a robot vacuum
+# docks at the shelf through right-angle aisles.
+scene: study-paths
+units: m
+bounds: { width: 4, depth: 5, height: 2.8 }
+minGap: 0.05
+openings:
+  door: { wall: south, at: 0.6, width: 0.9 }
+agents:
+  robot: { radius: 0.18, height: 0.1 }
+objects:
+  desk:  { size: [1.4, 0.7, 0.75] }
+  chair: { size: [0.5, 0.5, 0.9] }
+  table: { size: [1.2, 1.2, 0.75] }
+  seat:  { size: [0.45, 0.45, 0.9], count: 4 }
+  shelf: { size: [1.6, 0.4, 2.0] }
+relations:
+  - desk against wall north
+  - chair in-front-of desk, facing desk, gap 0.1
+  - table center-of room
+  - seat around table, radius 0.9
+  - shelf against wall east
+  - keep clear 0.8 between desk and table
+paths:
+  - person from door to desk
+  - person from door to shelf, clearance 0.05
+  - robot from door to shelf, orthogonal

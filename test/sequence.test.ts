@@ -293,6 +293,41 @@ sequence:
 		expect(reply.style).toBe("dashed");
 	});
 
+	// #117: an explicit deactivate closing a bar above its own nested bars
+	// must still hand their bottoms down, or the auto-activated bar it sits
+	// on ends before the self call nested inside it.
+	it.each([
+		["one explicit level", ["activate"], ["deactivate"]],
+		[
+			"two explicit levels",
+			["activate", "activate"],
+			["deactivate", "deactivate"],
+		],
+	])("keeps the outer bar open under %s", (_, opens, closes) => {
+		const diagram = solve(`
+nodes: { a: { label: A }, b: { label: B } }
+sequence:
+  autoActivate: true
+  steps:
+    - { type: message, from: a, to: b, kind: sync }
+${opens.map(() => "    - { type: activate, participant: b }").join("\n")}
+    - { type: message, from: b, to: b, kind: sync }
+${closes.map(() => "    - { type: deactivate, participant: b }").join("\n")}
+    - { type: message, from: a, to: b, kind: sync }
+`);
+		const bars = sequenceOf(diagram).activations.filter(
+			(bar) => bar.participantId === "b",
+		);
+		const bottom = (bar: (typeof bars)[number]) => bar.box.y + bar.box.height;
+		const outer = bars.find((bar) => bar.depth === 0);
+		const selfCall = bars.find((bar) => bar.depth === opens.length + 1);
+		expect(outer).toBeDefined();
+		expect(selfCall).toBeDefined();
+		expect(bottom(outer as (typeof bars)[number])).toBeGreaterThanOrEqual(
+			bottom(selfCall as (typeof bars)[number]),
+		);
+	});
+
 	it("does not activate with autoActivate off", () => {
 		const diagram = solve(`
 nodes: { a: { label: A }, b: { label: B } }
