@@ -52,6 +52,8 @@ const idSchema = z
 
 /** The agent every scene has unless it declares its own `person`. */
 const DEFAULT_PERSON = { radius: 0.25, height: 1.8 };
+/** Room a path keeps beyond its clearance when it can (walks mid-aisle). */
+const DEFAULT_COMFORT = 0.15;
 
 export const sceneDslSchema = z
 	.object({
@@ -1135,7 +1137,8 @@ interface PathNames {
 
 /**
  * `<agent> from <place> to <place>[, via <place> and <place>][, clearance
- * <length>][, orthogonal]`, where a place is an object or an opening.
+ * <length>][, comfort <length>][, orthogonal]`, where a place is an object
+ * or an opening.
  */
 function parsePaths(
 	lines: readonly string[],
@@ -1206,6 +1209,7 @@ function parsePaths(
 				via: [],
 				clearance: 0,
 				orthogonal: false,
+				comfort: DEFAULT_COMFORT,
 				path,
 			};
 			if (spec.from === spec.to) {
@@ -1231,7 +1235,9 @@ function parsePaths(
 				if (name === "orthogonal" && args.length === 0) {
 					spec.orthogonal = true;
 				} else if (name === "clearance" && args.length === 1) {
-					spec.clearance = pathLength(args[0] as string, units);
+					spec.clearance = pathLength(args[0] as string, units, name);
+				} else if (name === "comfort" && args.length === 1) {
+					spec.comfort = pathLength(args[0] as string, units, name);
 				} else if (name === "via" && args.length % 2 === 1) {
 					spec.via = args.filter((_, k) => k % 2 === 0).map(place);
 					if (args.some((word, k) => k % 2 === 1 && word !== "and")) {
@@ -1245,7 +1251,7 @@ function parsePaths(
 					fail(
 						"validate.scene.path-syntax",
 						`Unknown clause "${clause.join(" ")}".`,
-						"Paths take: via <place> [and <place>], clearance <length>, orthogonal.",
+						"Paths take: via <place> [and <place>], clearance <length>, comfort <length>, orthogonal.",
 					);
 				}
 			}
@@ -1263,7 +1269,7 @@ function parsePaths(
 	return out;
 }
 
-function pathLength(token: string, units: SceneUnits): number {
+function pathLength(token: string, units: SceneUnits, clause: string): number {
 	const match = /^(\d+(?:\.\d+)?|\.\d+)(m|cm|mm)?$/.exec(token);
 	const value =
 		match === null
@@ -1273,7 +1279,7 @@ function pathLength(token: string, units: SceneUnits): number {
 	if (!Number.isFinite(value)) {
 		fail(
 			"validate.scene.relation-value",
-			`\`clearance\` needs a length; got "${token.slice(0, 24)}".`,
+			`\`${clause}\` needs a length; got "${token.slice(0, 24)}".`,
 			`Write a non-negative number, in ${units} or with an m, cm or mm suffix.`,
 		);
 	}

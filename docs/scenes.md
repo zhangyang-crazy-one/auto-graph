@@ -110,6 +110,7 @@ paths:
   - person from door to shelf, clearance 0.05
   - robot from door to shelf, orthogonal
   - person from chair to door, via lamp and table
+  - person from desk to door, comfort 0.3
 ```
 
 - **Configuration space.** The agent is shrunk to a point. Every object in its way grows by the agent's radius plus `clearance`, and the walls move in by the same amount. An object is in the way when its bottom is below the agent's height, so a low robot passes under a table top resting on a pedestal.
@@ -117,10 +118,16 @@ paths:
 - **Routing.**
   - By default the path is the shortest any-angle route through the corners of the grown footprints: a visibility graph searched with A*.
   - `orthogonal` uses auto-graph's sparse-grid router, the one that routes diagram edges, so the path turns only at right angles.
+- **Refinement.** The shortest route skims every corner it turns round. Like a diagram's edges after routing, each path is then tidied with auto-graph's own passes:
+  - **Mid-aisle.** Any-angle corners slide away from what they turn round, keeping up to `comfort` (default 0.15 m) beyond `clearance` where the aisle allows, and the path is pulled tight again. Right-angle paths go through the channel centring that diagram edges use: each run between two turns moves to the middle of its aisle, and runs sharing an aisle spread across it. Runs attached to an end stay on the end's line. The path never grows more than 15 % over the shortest route; `comfort 0` keeps the shortest route.
+  - **Lanes.** Two paths meeting head-on on a shared run keep right: one steps to the right of its direction of travel until the two bands just touch (failing that the other, or each half way). Ends stay put; the run steps aside just after them. Paths going the same way share a lane (one walks behind the other). Where the way is too narrow to pass, the paths stay in single file and an info diagnostic says where.
+  - **Detours.** A path more than twice as long as the straight line between its places (and over 1 m longer) is reported as information, so an agent can see that something stands in the direct way.
 - **Checks.** Every path is checked on its own against the turned footprints and the walls. `clearance` in the output is the least distance from the agent's edge to anything.
 - **Blocked.** When there is no way through, the agent is shrunk until one exists. The widest agent that gets through is as wide as the narrowest place on its way, and that place is reported: `"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).` An opening narrower than the agent is reported as such.
 
-Planned paths appear in the `dge-scene` JSON (`paths`: points, length, width, clearance) and in the top view as a band as wide as the agent. Openings appear in both too. Centring paths in their aisles, separating parallel paths, feeding bottlenecks back into the layout, timing and Blender export follow in #128.
+Planned paths appear in the `dge-scene` JSON (`paths`: points, length, width, clearance) and in the top view as a band as wide as the agent. Openings appear in both too. `clearance` stays the least distance anywhere, ends included: an agent walks right up to what it reaches. Feeding bottlenecks back into the layout, timing and Blender export follow in #128.
+
+<img src="images/scene-office.top.svg" alt="examples/scene/office.yaml: people walk mid-aisle and keep right where they meet; a robot takes right-angle aisles" width="100%">
 
 ## Output
 
@@ -161,6 +168,9 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.yaw.conflict` | two turns given for one object |
 | `scene.support.multiple`, `scene.support.cycle` | two supports, or objects standing on each other in a loop |
 | `scene.relation.off-floor` | a floor-plan relation naming an object on a support (not applied) |
+| `scene.path.blocked` | no way through: the bottleneck, its width and what it needs |
+| `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
+| `scene.path.detour` (info) | a path more than twice the straight line between its places |
 
 ## Checking in Blender
 

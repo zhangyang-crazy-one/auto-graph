@@ -17,6 +17,18 @@ import type {
 	ScenePathSpec,
 	SceneSpec,
 } from "./ir.js";
+import {
+	centreAnyAngle,
+	centreOrthogonal,
+	type FreeSpace,
+	insideOpen,
+	type LanePath,
+	LENGTH_BUDGET,
+	pathLength,
+	type Rect,
+	segmentEntersBox,
+	separateLanes,
+} from "./path-refine.js";
 
 /**
  * Paths for agents (people, robots, carts) between objects and openings.
@@ -53,17 +65,19 @@ export interface PlanPathsResult {
 	diagnostics: SceneDiagnostic[];
 }
 
-interface Rect {
-	x0: number;
-	y0: number;
-	x1: number;
-	y1: number;
-}
-
 /** A place a path goes to: the points an agent may stand at, best first. */
 interface Place {
 	id: string;
 	stands: Vec2[];
+}
+
+interface Routed {
+	path: ScenePathSpec;
+	agent: SceneAgent;
+	obstacles: PathObstacle[];
+	reach: number;
+	legs: Vec2[][];
+	space: FreeSpace;
 }
 
 /** Points nudged this far off grown footprints so they count as outside. */
@@ -86,6 +100,7 @@ export function planPaths(
 		spec.openings.map((opening) => [opening.id, opening]),
 	);
 
+	const routed: Routed[] = [];
 	for (const path of spec.paths) {
 		const agent = agents.get(path.agent) as SceneAgent;
 		const obstacles = [...placed.values()].filter(
@@ -112,13 +127,100 @@ export function planPaths(
 		const reach = agent.radius + path.clearance;
 		const found = route(spec, path, obstacles, placed, openings, reach);
 		if (found !== undefined) {
-			paths.push(planned(spec, path, agent, found, obstacles));
+			routed.push({ path, agent, obstacles, reach, ...found });
 			continue;
 		}
 		diagnostics.push(
 			bottleneck(spec, path, agent, obstacles, placed, openings, reach),
 		);
 	}
+
+	// Refine: walk mid-aisle rather than skimming corners, within a length
+	// budget over the shortest route.
+	for (const item of routed) {
+		if (item.path.orthogonal) continue;
+		item.legs = item.legs.map((leg) =>
+			centreAnyAngle(
+				leg,
+				item.space,
+				item.path.comfort,
+				LENGTH_BUDGET * pathLength(leg),
+			),
+		);
+	}
+	// Right-angle legs of agents that see the same free space are centred
+	// together, so legs sharing a channel spread across it.
+	const groups = new Map<string, Routed[]>();
+	for (const item of routed) {
+		if (!item.path.orthogonal || item.path.comfort <= 0) continue;
+		const key = `${item.reach}:${item.agent.height}`;
+		groups.set(key, [...(groups.get(key) ?? []), item]);
+	}
+	for (const group of groups.values()) {
+		const legs = group.flatMap((item) => item.legs);
+		const centred = centreOrthogonal(
+			legs,
+			(group[0] as Routed).space,
+			legs.map((leg) => LENGTH_BUDGET * pathLength(leg)),
+		);
+		let at = 0;
+		for (const item of group) {
+			item.legs = centred.slice(at, at + item.legs.length);
+			at += item.legs.length;
+		}
+	}
+
+	// Lanes: paths meeting head-on on a shared run keep right.
+	const lanes = separateLanes(
+		routed.map((item): LanePath => {
+			const joined = joinLegs(item.legs);
+			return {
+				...joined,
+				width: 2 * item.agent.radius,
+				space: item.space,
+				orthogonal: item.path.orthogonal,
+			};
+		}),
+	);
+	for (const {
+		paths: [i, j],
+		at,
+	} of lanes.shared) {
+		const a = routed[i] as Routed;
+		const b = routed[j] as Routed;
+		diagnostics.push({
+			severity: "info",
+			code: "scene.path.single-file",
+			message: `"${a.path.id}" and "${b.path.id}" meet head-on where the way is too narrow to pass side by side (near ${round(at.x)}, ${round(at.y)}).`,
+			path: b.path.path,
+			hint: `Passing there needs ${round(2 * a.agent.radius + 2 * b.agent.radius)} m between things; widen it if they must pass each other.`,
+			detail: { at: `${round(at.x)}, ${round(at.y)}` },
+		});
+	}
+
+	routed.forEach((item, index) => {
+		const points = simplifyKeeping(
+			(lanes.paths[index] as LanePath).points,
+			(lanes.paths[index] as LanePath).fixed,
+		);
+		const result = planned(spec, item.path, item.agent, points, item.obstacles);
+		paths.push(result);
+		const direct = pathLength(
+			item.legs
+				.map((leg) => leg[0] as Vec2)
+				.concat([item.legs.at(-1)?.at(-1) as Vec2]),
+		);
+		if (result.length > 2 * direct && result.length - direct > 1) {
+			diagnostics.push({
+				severity: "info",
+				code: "scene.path.detour",
+				message: `"${item.path.id}" is ${round(result.length)} m long, ${round(result.length / direct)} times the ${round(direct)} m of straight lines between its places.`,
+				path: item.path.path,
+				hint: "Something stands in the direct way; move it or add an opening if the detour matters.",
+				detail: { length: round(result.length), direct: round(direct) },
+			});
+		}
+	});
 	return { paths, diagnostics };
 }
 
@@ -130,7 +232,7 @@ function route(
 	placed: ReadonlyMap<string, PathObstacle>,
 	openings: ReadonlyMap<string, SceneOpening>,
 	reach: number,
-): Vec2[] | undefined {
+): { legs: Vec2[][]; space: FreeSpace } | undefined {
 	const room: Rect = {
 		x0: reach,
 		y0: reach,
@@ -151,7 +253,7 @@ function route(
 	const starts = (places[0] as Place).stands.filter(free);
 	if (starts.length === 0) return undefined;
 	let at = starts[0] as Vec2;
-	const points: Vec2[] = [at];
+	const legs: Vec2[][] = [];
 	for (const next of places.slice(1)) {
 		let leg: Vec2[] | undefined;
 		for (const stand of next.stands) {
@@ -162,10 +264,28 @@ function route(
 			if (leg !== undefined) break;
 		}
 		if (leg === undefined) return undefined;
-		points.push(...leg.slice(1));
-		at = points.at(-1) as Vec2;
+		const tight = simplify(leg);
+		legs.push(tight);
+		at = tight.at(-1) as Vec2;
 	}
-	return simplify(points);
+	return { legs, space: { boxes: grown, room } };
+}
+
+/** Legs joined into one polyline; the joints (vias) stay fixed. */
+function joinLegs(legs: readonly Vec2[][]): {
+	points: Vec2[];
+	fixed: boolean[];
+} {
+	const points: Vec2[] = [];
+	const fixed: boolean[] = [];
+	legs.forEach((leg, index) => {
+		leg.forEach((point, k) => {
+			if (index > 0 && k === 0) return;
+			points.push(point);
+			fixed.push(k === 0 || k === leg.length - 1);
+		});
+	});
+	return { points, fixed };
 }
 
 /** Where an agent stands to reach a place, best first. */
@@ -265,15 +385,6 @@ function grownBox(shape: Footprint, by: number): Rect {
 		x1: shape.center.x + ex,
 		y1: shape.center.y + ey,
 	};
-}
-
-function insideOpen(point: Vec2, box: Rect): boolean {
-	return (
-		point.x > box.x0 + EPS / 2 &&
-		point.x < box.x1 - EPS / 2 &&
-		point.y > box.y0 + EPS / 2 &&
-		point.y < box.y1 - EPS / 2
-	);
 }
 
 /**
@@ -397,37 +508,6 @@ function orthogonalLeg(
 		}
 	}
 	return points;
-}
-
-/** Whether segment ab passes through the open interior of a box. */
-function segmentEntersBox(a: Vec2, b: Vec2, box: Rect): boolean {
-	// Liang–Barsky clip against the box shrunk by a hair (touching is fine).
-	const shrink = EPS / 2;
-	const x0 = box.x0 + shrink;
-	const x1 = box.x1 - shrink;
-	const y0 = box.y0 + shrink;
-	const y1 = box.y1 - shrink;
-	if (x0 >= x1 || y0 >= y1) return false;
-	let low = 0;
-	let high = 1;
-	const dx = b.x - a.x;
-	const dy = b.y - a.y;
-	for (const [p, q] of [
-		[-dx, a.x - x0],
-		[dx, x1 - a.x],
-		[-dy, a.y - y0],
-		[dy, y1 - a.y],
-	] as const) {
-		if (p === 0) {
-			if (q <= 0) return false;
-			continue;
-		}
-		const t = q / p;
-		if (p < 0) low = Math.max(low, t);
-		else high = Math.min(high, t);
-		if (low >= high) return false;
-	}
-	return high - low > 1e-12;
 }
 
 function planned(
@@ -586,7 +666,10 @@ function bottleneck(
 	openings: ReadonlyMap<string, SceneOpening>,
 	reach: number,
 ): SceneDiagnostic {
-	const try_ = (r: number) => route(spec, path, obstacles, placed, openings, r);
+	const try_ = (r: number) => {
+		const found = route(spec, path, obstacles, placed, openings, r);
+		return found === undefined ? undefined : joinLegs(found.legs).points;
+	};
 	let thin = try_(1e-4);
 	if (thin === undefined) {
 		return {
@@ -635,6 +718,42 @@ function bottleneck(
 
 function name(what: string): string {
 	return what.startsWith("the ") ? what : `"${what}"`;
+}
+
+/** `simplify`, but never dropping a fixed point (stands, vias). */
+function simplifyKeeping(
+	points: readonly Vec2[],
+	fixed: readonly boolean[],
+): Vec2[] {
+	const out: Vec2[] = [];
+	const pinned: boolean[] = [];
+	points.forEach((point, k) => {
+		const last = out.at(-1);
+		const before = out.at(-2);
+		if (last !== undefined && distance(last, point) < 1e-9) {
+			pinned[pinned.length - 1] ||= fixed[k] === true;
+			return;
+		}
+		if (
+			last !== undefined &&
+			before !== undefined &&
+			pinned.at(-1) !== true &&
+			Math.abs(
+				(last.x - before.x) * (point.y - before.y) -
+					(last.y - before.y) * (point.x - before.x),
+			) < 1e-12 &&
+			(last.x - before.x) * (point.x - last.x) +
+				(last.y - before.y) * (point.y - last.y) >
+				0
+		) {
+			out[out.length - 1] = point;
+			pinned[pinned.length - 1] = fixed[k] === true;
+			return;
+		}
+		out.push(point);
+		pinned.push(fixed[k] === true);
+	});
+	return out;
 }
 
 function simplify(points: readonly Vec2[]): Vec2[] {
