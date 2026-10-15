@@ -203,6 +203,8 @@ export interface SceneSpec {
 	bounds: SceneBounds;
 	/** Smallest clearance between any two objects on the same surface. */
 	minGap: number;
+	/** Move objects apart where a path is blocked (default true). */
+	makeWay: boolean;
 	objects: SceneObject[];
 	relations: SceneRelation[];
 	/** `count` groups and the objects they expanded to. */

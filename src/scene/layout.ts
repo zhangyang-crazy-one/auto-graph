@@ -49,6 +49,11 @@ export interface FloorLayoutInput {
 	yaw: ReadonlyMap<string, number>;
 	/** Centers from the previous pass, for `symmetric` and tie-breaking. */
 	previous?: ReadonlyMap<string, Vec2>;
+	/**
+	 * Aisles paths need: two objects, or an object and a wall
+	 * (`wall:<side>`), kept at least `gap` apart where nothing fixes them.
+	 */
+	aisles?: readonly { between: readonly [string, string]; gap: number }[];
 }
 
 export interface FloorLayoutResult {
@@ -380,6 +385,25 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 		const gap = Math.max(relation.clearance, clearance.get(key)?.gap ?? 0);
 		clearance.set(key, { gap, path: relation.path });
 	}
+	// Aisles for paths: between objects like `keep clear`, between an object
+	// and a wall as a wider margin on that side.
+	const margin = new Map<string, number>();
+	for (const aisle of input.aisles ?? []) {
+		const [a, b] = aisle.between;
+		const wall = a.startsWith("wall:") ? a : b.startsWith("wall:") ? b : "";
+		if (wall !== "") {
+			const i = index.get(wall === a ? b : a);
+			if (i === undefined) continue;
+			const key = `${i}:${wall.slice(5)}`;
+			margin.set(key, Math.max(aisle.gap, margin.get(key) ?? 0));
+			continue;
+		}
+		const [i, j] = [index.get(a), index.get(b)];
+		if (i === undefined || j === undefined || i === j) continue;
+		const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+		const gap = Math.max(aisle.gap, clearance.get(key)?.gap ?? 0);
+		clearance.set(key, { gap, path: clearance.get(key)?.path ?? [] });
+	}
 	// Pairs whose offset on an axis is fixed by equalities cannot be
 	// separated on that axis (a separation there would only be dropped).
 	const fixed = { x: components("x"), y: components("y") };
@@ -597,10 +621,16 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 				equality: true,
 			});
 		}
+		const [lowWall, highWall] =
+			axis === "x" ? ["west", "east"] : ["south", "north"];
 		for (let i = 0; i < n; i += 1) {
 			const e = (extent[i] as Vec2)[axis];
-			add({ left: low, right: i, gap: e });
-			add({ left: i, right: high, gap: e });
+			// A wall margin only where nothing fixes the object to the walls.
+			const free = movable(axis, i, low);
+			const lowGap = free ? (margin.get(`${i}:${lowWall}`) ?? 0) : 0;
+			const highGap = free ? (margin.get(`${i}:${highWall}`) ?? 0) : 0;
+			add({ left: low, right: i, gap: e + lowGap });
+			add({ left: i, right: high, gap: e + highGap });
 		}
 		for (const separation of separations.values()) {
 			if (separation.axis === axis) add(separation.constraint);

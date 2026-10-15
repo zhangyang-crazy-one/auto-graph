@@ -23,6 +23,7 @@ scene: study                 # the name
 units: m                     # m (default), cm or mm; every length below uses it
 bounds: { width: 4, depth: 5, height: 2.8 }   # height is optional (no ceiling check)
 minGap: 0.05                 # smallest clearance between objects on one surface (default 0)
+makeWay: true                # move objects apart where a path is blocked (default true)
 objects:
   desk:  { size: [1.4, 0.7, 0.75] }
   chair: { size: [0.5, 0.5, 0.9], front: -y, label: Chair, asset: office_chair }
@@ -122,12 +123,17 @@ paths:
   - **Mid-aisle.** Any-angle corners slide away from what they turn round, keeping up to `comfort` (default 0.15 m) beyond `clearance` where the aisle allows, and the path is pulled tight again. Right-angle paths go through the channel centring that diagram edges use: each run between two turns moves to the middle of its aisle, and runs sharing an aisle spread across it. Runs attached to an end stay on the end's line. The path never grows more than 15 % over the shortest route; `comfort 0` keeps the shortest route.
   - **Lanes.** Two paths meeting head-on on a shared run keep right: one steps to the right of its direction of travel until the two bands just touch (failing that the other, or each half way). Ends stay put; the run steps aside just after them. Paths going the same way share a lane (one walks behind the other). Where the way is too narrow to pass, the paths stay in single file and an info diagnostic says where.
   - **Detours.** A path more than twice as long as the straight line between its places (and over 1 m longer) is reported as information, so an agent can see that something stands in the direct way.
-- **Checks.** Every path is checked on its own against the turned footprints and the walls. `clearance` in the output is the least distance from the agent's edge to anything.
+- **Checks.** Every path is checked on its own against the turned footprints and the walls.
+- **Making way.** Paths shape the layout. When a path is blocked, the two things at its narrowest place (two objects, or an object and a wall) are held apart in the floor plan, and the plan is solved again. The gap is the path's width plus `comfort` on each side if that fits, else just the width. This repeats up to four times. A new plan is kept only if fewer paths are blocked and no other check got worse. Relations and pins still hold: only what nothing fixes moves. Each aisle held open is reported (`scene.path.made-way`). `makeWay: false` keeps the plan the relations alone give. `clearance` in the output is the least distance from the agent's edge to anything.
 - **Blocked.** When there is no way through, the agent is shrunk until one exists. The widest agent that gets through is as wide as the narrowest place on its way, and that place is reported: `"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).` An opening narrower than the agent is reported as such.
 
-Planned paths appear in the `dge-scene` JSON (`paths`: points, length, width, clearance) and in the top view as a band as wide as the agent. Openings appear in both too. `clearance` stays the least distance anywhere, ends included: an agent walks right up to what it reaches. Feeding bottlenecks back into the layout, timing and Blender export follow in #128.
+Planned paths appear in the `dge-scene` JSON (`paths`: points, length, width, clearance) and in the top view as a band as wide as the agent. Openings appear in both too. `clearance` stays the least distance anywhere, ends included: an agent walks right up to what it reaches. Timing and Blender export follow in #128.
 
 <img src="images/scene-office.top.svg" alt="examples/scene/office.yaml: people walk mid-aisle and keep right where they meet; a robot takes right-angle aisles" width="100%">
+
+In `examples/scene/storeroom.yaml` nothing holds the racks in place. On their own they would stand 0.7 m apart, too narrow for a 0.7 m trolley with a margin. The solver moves them 1.02 m apart (0.7 m plus 0.15 m comfort on each side, plus 2 cm):
+
+<img src="images/scene-storeroom.top.svg" alt="examples/scene/storeroom.yaml: the racks moved apart so a person and a trolley get to the bench" width="100%">
 
 ## Output
 
@@ -171,6 +177,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.path.blocked` | no way through: the bottleneck, its width and what it needs |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.detour` (info) | a path more than twice the straight line between its places |
+| `scene.path.made-way` (info) | two things held apart so a blocked path gets through |
 
 ## Checking in Blender
 

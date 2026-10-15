@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### 3D scene: paths shape the layout (#128, T4)
+
+- A blocked path feeds its bottleneck back into the floor plan. The two
+  things at its narrowest place (two objects, or an object and a wall)
+  are held apart, as wide as the path plus `comfort` on each side if that
+  fits, else as wide as the path, and the plan is solved again (up to four
+  times). A new plan is kept only if fewer paths are blocked and no other
+  check got worse; relations and pins still hold. Each aisle is reported
+  as `scene.path.made-way` (info). The new top-level `makeWay: false`
+  turns this off.
+- On 400 random rooms, blocked paths drop from 576 to 130, with no room
+  worse on any other check.
+- New example `examples/scene/storeroom.yaml`, with its top view and
+  Blender render in the docs.
+
 ### 3D scene: refined paths (#128, T3)
 
 - Paths walk mid-aisle instead of skimming corners. Any-angle corners

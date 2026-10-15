@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="596" height="496" viewBox="0 0 596 496" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M98 448V48M148 448V48M198 448V48M248 448V48M298 448V48M348 448V48M398 448V48M448 448V48M498 448V48M48 398H548M48 348H548M48 298H548M48 248H548M48 198H548M48 148H548M48 98H548" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="500" height="400" fill="none" stroke="#334155" stroke-width="2"/>
+<line x1="78" y1="448" x2="178" y2="448" stroke="#ffffff" stroke-width="4"/>
+<line x1="78" y1="448" x2="78" y2="440" stroke="#334155" stroke-width="2"/>
+<line x1="178" y1="448" x2="178" y2="440" stroke="#334155" stroke-width="2"/>
+<text x="128" y="466" font-size="10" fill="#334155" text-anchor="middle">door</text>
+<text x="48" y="464" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="148" y="464" font-size="10" fill="#64748b" text-anchor="middle">1</text>
+<text x="248" y="464" font-size="10" fill="#64748b" text-anchor="middle">2</text>
+<text x="348" y="464" font-size="10" fill="#64748b" text-anchor="middle">3</text>
+<text x="448" y="464" font-size="10" fill="#64748b" text-anchor="middle">4</text>
+<text x="548" y="464" font-size="10" fill="#64748b" text-anchor="middle">5</text>
+<text x="40" y="451" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="351" font-size="10" fill="#64748b" text-anchor="end">1</text>
+<text x="40" y="251" font-size="10" fill="#64748b" text-anchor="end">2</text>
+<text x="40" y="151" font-size="10" fill="#64748b" text-anchor="end">3</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">4</text>
+<path d="M572 14l-5 12h10z" fill="#334155"/>
+<text x="572" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="208,118 388,118 388,48 208,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="298,125 303,118 293,118" fill="#1e3a8a"/>
+<polygon points="61,273 221,273 221,223 61,223" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="141,280 146,273 136,273" fill="#1e3a8a"/>
+<polygon points="323,273 483,273 483,223 323,223" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="403,280 408,273 398,273" fill="#1e3a8a"/>
+<polygon points="488,393 548,393 548,333 488,333" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="518,400 523,393 513,393" fill="#1e3a8a"/>
+<polygon points="488,278 548,278 548,218 488,218" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="518,285 523,278 513,278" fill="#1e3a8a"/>
+<polygon points="488,163 548,163 548,103 488,103" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="518,170 523,163 513,163" fill="#1e3a8a"/>
+<path d="M128 422.7L256.61 310.48L298 143.3" fill="none" stroke="#0d9488" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M128 422.7L256.61 310.48L298 143.3" fill="none" stroke="#0d9488" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="128" cy="422.7" r="4" fill="#0d9488"/>
+<polygon points="298,143.3 290.98,150.83 300.69,153.24" fill="#0d9488"/>
+<path d="M128 412.7L128 360.5L272 360.5L272 153.3L298 153.3" fill="none" stroke="#c2410c" stroke-opacity="0.16" stroke-width="70" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M128 412.7L128 360.5L272 360.5L272 153.3L298 153.3" fill="none" stroke="#c2410c" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="128" cy="412.7" r="4" fill="#c2410c"/>
+<polygon points="298,153.3 289,148.3 289,158.3" fill="#c2410c"/>
+<text x="298" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench</text>
+<text x="141" y="252" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">rack1</text>
+<text x="403" y="252" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">rack2</text>
+<text x="518" y="367" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">crate1</text>
+<text x="518" y="252" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">crate2</text>
+<text x="518" y="137" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">crate3</text>
+</svg>

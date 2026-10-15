@@ -67,6 +67,7 @@ export const sceneDslSchema = z
 			})
 			.strict(),
 		minGap: nonNegative.optional(),
+		makeWay: z.boolean().optional(),
 		objects: z.record(idSchema, sceneObjectSchema),
 		relations: z.array(z.string().min(1)).optional(),
 		openings: z
@@ -352,6 +353,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 				...(height === undefined ? {} : { height: height / perMeter }),
 			},
 			minGap: (dsl.minGap ?? 0) / perMeter,
+			makeWay: dsl.makeWay ?? true,
 			objects,
 			relations,
 			groups: Object.fromEntries(groups),
