@@ -51,7 +51,10 @@ const idSchema = z
 	);
 
 /** The agent every scene has unless it declares its own `person`. */
-const DEFAULT_PERSON = { radius: 0.25, height: 1.8 };
+const DEFAULT_PERSON = { radius: 0.25, height: 1.8, speed: 1.2, accel: 1 };
+/** Walking pace (m/s) and how quickly it is reached (m/s²) by default. */
+const DEFAULT_SPEED = 1;
+const DEFAULT_ACCEL = 1;
 /** Room a path keeps beyond its clearance when it can (walks mid-aisle). */
 const DEFAULT_COMFORT = 0.15;
 
@@ -85,7 +88,14 @@ export const sceneDslSchema = z
 		agents: z
 			.record(
 				idSchema,
-				z.object({ radius: positive, height: positive }).strict(),
+				z
+					.object({
+						radius: positive,
+						height: positive,
+						speed: positive.optional(),
+						accel: positive.optional(),
+					})
+					.strict(),
 			)
 			.optional(),
 		paths: z.array(z.string().min(1)).optional(),
@@ -321,12 +331,17 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 	const agents: SceneAgent[] = Object.entries({
 		person: DEFAULT_PERSON,
 		...(dsl.agents ?? {}),
-	}).map(([id, entry]) => ({
-		id,
-		radius: entry.radius / (dsl.agents?.[id] === undefined ? 1 : perMeter),
-		height: entry.height / (dsl.agents?.[id] === undefined ? 1 : perMeter),
-		path: ["agents", id],
-	}));
+	}).map(([id, entry]) => {
+		const scale = dsl.agents?.[id] === undefined ? 1 : perMeter;
+		return {
+			id,
+			radius: entry.radius / scale,
+			height: entry.height / scale,
+			speed: (entry.speed ?? DEFAULT_SPEED * scale) / scale,
+			accel: (entry.accel ?? DEFAULT_ACCEL * scale) / scale,
+			path: ["agents", id],
+		};
+	});
 	const paths = parsePaths(
 		dsl.paths ?? [],
 		{
@@ -1139,8 +1154,8 @@ interface PathNames {
 
 /**
  * `<agent> from <place> to <place>[, via <place> and <place>][, clearance
- * <length>][, comfort <length>][, orthogonal]`, where a place is an object
- * or an opening.
+ * <length>][, comfort <length>][, start <seconds>][, orthogonal]`, where a
+ * place is an object or an opening.
  */
 function parsePaths(
 	lines: readonly string[],
@@ -1240,6 +1255,8 @@ function parsePaths(
 					spec.clearance = pathLength(args[0] as string, units, name);
 				} else if (name === "comfort" && args.length === 1) {
 					spec.comfort = pathLength(args[0] as string, units, name);
+				} else if (name === "start" && args.length === 1) {
+					spec.start = seconds(args[0] as string);
 				} else if (name === "via" && args.length % 2 === 1) {
 					spec.via = args.filter((_, k) => k % 2 === 0).map(place);
 					if (args.some((word, k) => k % 2 === 1 && word !== "and")) {
@@ -1253,7 +1270,7 @@ function parsePaths(
 					fail(
 						"validate.scene.path-syntax",
 						`Unknown clause "${clause.join(" ")}".`,
-						"Paths take: via <place> [and <place>], clearance <length>, comfort <length>, orthogonal.",
+						"Paths take: via <place> [and <place>], clearance <length>, comfort <length>, start <seconds>, orthogonal.",
 					);
 				}
 			}
@@ -1269,6 +1286,33 @@ function parsePaths(
 		}
 	});
 	return out;
+}
+
+/**
+ * Latest `start`, seconds. Times are kept to 0.1 ms; well below this
+ * bound that precision holds.
+ */
+const MAX_START = 1_000_000;
+
+/** A time in seconds: `2`, `2.5s`. */
+function seconds(token: string): number {
+	const match = /^(\d+(?:\.\d+)?|\.\d+)s?$/.exec(token);
+	const value = match === null ? Number.NaN : Number(match[1]);
+	if (!Number.isFinite(value)) {
+		fail(
+			"validate.scene.relation-value",
+			`\`start\` needs a time; got "${token.slice(0, 24)}".`,
+			"Write a non-negative number of seconds, e.g. `start 2` or `start 2.5s`.",
+		);
+	}
+	if (value > MAX_START) {
+		fail(
+			"validate.scene.relation-value",
+			`\`start ${token.slice(0, 24)}\` is later than ${MAX_START} s (about 11.6 days), the latest start supported.`,
+			"Count time from the start of the schedule.",
+		);
+	}
+	return value;
 }
 
 function pathLength(token: string, units: SceneUnits, clause: string): number {

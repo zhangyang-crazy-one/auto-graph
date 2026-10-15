@@ -1,5 +1,6 @@
 // Renders the scene examples (examples/scene/*.yaml) in Blender into
-// docs/images/scene-<name>.jpg. Needs a Python with the bpy module
+// docs/images/scene-<name>.jpg (scenes with paths 3 s into their
+// agents' walk). Needs a Python with the bpy module
 // (`pip install bpy`): DGE_BLENDER_PYTHON=/path/to/python npm run docs:scene-renders
 // Run after `npm run build`.
 import { execFileSync } from "node:child_process";
@@ -35,9 +36,22 @@ try {
 		if (result.content === undefined) throw new Error(`${file} did not solve`);
 		writeFileSync(script, result.content);
 		const out = resolve(`docs/images/scene-${name}.jpg`);
+		// Scenes with paths show their agents 3 s in (frame 72 at 24 fps).
+		const moment =
+			(result.scene?.paths.length ?? 0) > 0 ? ["--frame", "72"] : [];
 		execFileSync(
 			python,
-			[script, "--", "--render", out, "--size", "800x600", "--samples", "16"],
+			[
+				script,
+				"--",
+				...moment,
+				"--render",
+				out,
+				"--size",
+				"800x600",
+				"--samples",
+				"16",
+			],
 			{ stdio: "ignore" },
 		);
 		writeFileSync(out, stripJpegComments(readFileSync(out)));

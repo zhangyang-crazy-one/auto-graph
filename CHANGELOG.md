@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### Review fixes (#136–#141)
+
+- Lanes keep to the 15 % length budget measured on the shortest route,
+  and a path with `comfort 0` never steps aside (#136).
+- Lanes run while anything moves (up to a limit that grows with the
+  paths), then every pair is checked again. A head-on run that is left is
+  reported: too narrow as `scene.path.single-file`; outside the budget,
+  both at `comfort 0` or out of rounds as the new `scene.path.head-on`
+  (#138).
+- Making way keeps a new layout only if no other check got worse: no new
+  problem on the same check and objects, no warning turned into an error,
+  no measure grown (past a wall, collision depth, overhang, gap
+  shortfall). It no longer compares counts (#137).
+- Timing works on time since setting off. Sampling is bounded (at most
+  20,000 keys per path, at most 200 ticks in the top view), and `start`
+  is limited to 1,000,000 s (#139).
+- Meetings are found by a continuous check (halving intervals until the
+  agents' top speeds rule a touch out), not 50 ms samples. The suggested
+  later start goes through the same check (#140).
+- Blender keys start exactly where the agent sets off, whatever the
+  `start` (#141).
+
+### 3D scene: timed paths and Blender export of paths (#128, T5)
+
+- Paths are timed. An agent starts and stops at rest, speeds up and
+  brakes at `accel` and goes no faster than `speed`; at a corner it slows
+  to `speed · (1 + cos θ) / 2`. Agents take `speed` and `accel`; the
+  built-in person walks at 1.2 m/s, 1 m/s², and others default to 1 m/s
+  and 1 m/s². A path may set off later with `start <seconds>`.
+- `dge-scene` JSON: paths gain `start`, `times` (at each point) and
+  `duration`; the document gains `agents` (size, speed, acceleration).
+  The schema is updated.
+- `scene.path.meet` (warning): two paths given a `start` whose agents
+  would touch on the way, with when, where and a later start that avoids
+  it.
+- Top view: a tick for every second along each path.
+- Blender script:
+  - openings are strips across the wall line;
+  - paths are curves on the floor;
+  - each agent is a cylinder keyframed along its path on the path's
+    times, at 24 fps;
+  - `--frame N` renders a moment of the walk and `--animation out.mp4`
+    renders the whole walk.
+- `blender_check.py` also checks the openings, the path curves and the
+  agents' positions at every corner time. It now runs over the path
+  scenes (study-paths, office, storeroom) too. It is run at milestones,
+  not on every change.
+
 ### 3D scene: paths shape the layout (#128, T4)
 
 - A blocked path feeds its bottleneck back into the floor plan. The two

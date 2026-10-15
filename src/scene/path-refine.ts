@@ -356,12 +356,23 @@ export interface LanePath {
 	space: FreeSpace;
 	/** Steps aside at right angles, keeping every turn square. */
 	orthogonal: boolean;
+	/** Longest it may become (15 % over its shortest route). */
+	budget: number;
+	/** False keeps it on its route (`comfort 0`). */
+	movable: boolean;
 }
+
+/**
+ * Why a head-on shared run was left: too narrow to step aside, stepping
+ * aside would break a length budget, neither path may move, or the lanes
+ * were not worked out within the round limit.
+ */
+export type SharedReason = "narrow" | "budget" | "fixed" | "unresolved";
 
 export interface LanesResult {
 	paths: LanePath[];
-	/** Pairs of paths left sharing a run too narrow to pass side by side. */
-	shared: { paths: [number, number]; at: Vec2 }[];
+	/** Pairs of paths left meeting head-on on a shared run. */
+	shared: { paths: [number, number]; at: Vec2; reason: SharedReason }[];
 }
 
 /** Segments closer than this to parallel run together. */
@@ -373,9 +384,11 @@ const SHARED_RUN = 0.2;
  * Paths meeting head-on on a shared run (antiparallel segments whose bands
  * overlap) pass each other: runs step to the right of their direction of
  * travel until the bands just touch (see `pass`). A fixed end (a stand)
- * keeps its place and the run steps aside just after it. Runs that cannot
- * move apart stay shared and are reported. Paths going the same way are
- * left alone: one walks behind the other.
+ * keeps its place and the run steps aside just after it. A path never
+ * grows past its budget, and one that may not move stays put. Rounds go
+ * on while anything moves (up to a limit that grows with the paths);
+ * every run still shared at the end is reported with the reason. Paths
+ * going the same way are left alone: one walks behind the other.
  */
 export function separateLanes(input: readonly LanePath[]): LanesResult {
 	const paths = input.map((path) => ({
@@ -383,8 +396,10 @@ export function separateLanes(input: readonly LanePath[]): LanesResult {
 		points: path.points.map((point) => ({ ...point })),
 		fixed: [...path.fixed],
 	}));
-	const shared = new Map<string, Vec2>();
-	for (let round = 0; round < 6; round += 1) {
+	const reasons = new Map<string, SharedReason>();
+	const rounds =
+		6 + input.reduce((sum, path) => sum + path.points.length, 0) * 2;
+	for (let round = 0; round < rounds; round += 1) {
 		let moved = false;
 		for (let i = 0; i < paths.length; i += 1) {
 			for (let j = i + 1; j < paths.length; j += 1) {
@@ -393,32 +408,41 @@ export function separateLanes(input: readonly LanePath[]): LanesResult {
 				const conflict = findSharedRun(a, b);
 				if (conflict === undefined) continue;
 				const passed = pass(a, b, conflict);
-				if (passed !== undefined) {
-					paths[i] = passed[0];
-					paths[j] = passed[1];
-				} else {
-					const p = b.points[conflict.segment] as Vec2;
-					const q = b.points[conflict.segment + 1] as Vec2;
-					shared.set(`${i}:${j}`, {
-						x: (p.x + q.x) / 2,
-						y: (p.y + q.y) / 2,
-					});
+				if ("reason" in passed) {
+					reasons.set(`${i}:${j}`, passed.reason);
 					continue;
 				}
-				shared.delete(`${i}:${j}`);
+				paths[i] = passed.paths[0];
+				paths[j] = passed.paths[1];
+				reasons.delete(`${i}:${j}`);
 				moved = true;
 			}
 		}
 		if (!moved) break;
 	}
-	return {
-		paths,
-		shared: [...shared].map(([key, at]) => ({
-			paths: key.split(":").map(Number) as [number, number],
-			at,
-		})),
-	};
+	// Every pair is checked again on the final paths, so a run left over
+	// (say when the rounds ran out) is never passed over in silence.
+	const shared: LanesResult["shared"] = [];
+	for (let i = 0; i < paths.length; i += 1) {
+		for (let j = i + 1; j < paths.length; j += 1) {
+			const b = paths[j] as LanePath;
+			const conflict = findSharedRun(paths[i] as LanePath, b);
+			if (conflict === undefined) continue;
+			const p = b.points[conflict.segment] as Vec2;
+			const q = b.points[conflict.segment + 1] as Vec2;
+			shared.push({
+				paths: [i, j],
+				at: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 },
+				reason: reasons.get(`${i}:${j}`) ?? "unresolved",
+			});
+		}
+	}
+	return { paths, shared };
 }
+
+type Step =
+	| { path: LanePath }
+	| { reason: Exclude<SharedReason, "unresolved"> };
 
 /**
  * The later path steps to its right; failing that, the earlier one to its
@@ -428,18 +452,30 @@ function pass(
 	a: LanePath,
 	b: LanePath,
 	conflict: SharedRun,
-): [LanePath, LanePath] | undefined {
+): { paths: [LanePath, LanePath] } | { reason: SharedReason } {
+	const failed: SharedReason[] = [];
 	const later = stepAside(b, conflict);
-	if (later !== undefined) return [a, later];
+	if ("path" in later) return { paths: [a, later.path] };
+	failed.push(later.reason);
 	const back = findSharedRun(b, a);
-	const earlier = back === undefined ? undefined : stepAside(a, back);
-	if (earlier !== undefined) return [earlier, b];
+	if (back !== undefined) {
+		const earlier = stepAside(a, back);
+		if ("path" in earlier) return { paths: [earlier.path, b] };
+		failed.push(earlier.reason);
+	}
 	const half = stepAside(b, { ...conflict, offset: conflict.offset / 2 });
-	if (half === undefined) return undefined;
-	const rest = findSharedRun(half, a);
-	if (rest === undefined) return [a, half];
-	const other = stepAside(a, rest);
-	return other === undefined ? undefined : [other, half];
+	if ("path" in half) {
+		const rest = findSharedRun(half.path, a);
+		if (rest === undefined) return { paths: [a, half.path] };
+		const other = stepAside(a, rest);
+		if ("path" in other) return { paths: [other.path, half.path] };
+		failed.push(other.reason);
+	} else {
+		failed.push(half.reason);
+	}
+	if (failed.includes("budget")) return { reason: "budget" };
+	if (failed.every((reason) => reason === "fixed")) return { reason: "fixed" };
+	return { reason: "narrow" };
 }
 
 interface SharedRun {
@@ -490,9 +526,20 @@ function findSharedRun(a: LanePath, b: LanePath): SharedRun | undefined {
 	return undefined;
 }
 
-/** The whole run steps aside; failing that, only its middle. */
-function stepAside(path: LanePath, run: SharedRun): LanePath | undefined {
-	return shiftRun(path, run, false) ?? shiftRun(path, run, true);
+/**
+ * The whole run steps aside; failing that, only its middle. A step that
+ * makes the path longer than its budget does not count.
+ */
+function stepAside(path: LanePath, run: SharedRun): Step {
+	if (!path.movable) return { reason: "fixed" };
+	let reason: "narrow" | "budget" = "narrow";
+	for (const middleOnly of [false, true]) {
+		const moved = shiftRun(path, run, middleOnly);
+		if (moved === undefined) continue;
+		if (pathLength(moved.points) <= path.budget + EPS) return { path: moved };
+		reason = "budget";
+	}
+	return { reason };
 }
 
 function shiftRun(

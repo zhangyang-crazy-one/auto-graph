@@ -21,6 +21,9 @@ const FIXTURES = [
 	"study-broken",
 	"meeting",
 	"showroom",
+	"study-paths",
+	"office",
+	"storeroom",
 ];
 const source = sceneSource;
 
@@ -91,6 +94,9 @@ describe("dge-scene export", () => {
 				const result = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 				expect(result.problems).toEqual([]);
 				expect(result.objects).toBeGreaterThan(0);
+				const document = JSON.parse(readFileSync(json, "utf8"));
+				expect(result.paths).toBe(document.paths.length);
+				expect(result.openings).toBe(document.openings.length);
 			} finally {
 				rmSync(dir, { recursive: true, force: true });
 			}

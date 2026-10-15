@@ -29,6 +29,7 @@ import {
 	segmentEntersBox,
 	separateLanes,
 } from "./path-refine.js";
+import { findMeetings, type TimedPath, timePath } from "./path-timing.js";
 
 /**
  * Paths for agents (people, robots, carts) between objects and openings.
@@ -93,6 +94,8 @@ interface Routed {
 	reach: number;
 	legs: Vec2[][];
 	space: FreeSpace;
+	/** Length of the shortest route, before any refinement. */
+	shortest: number;
 }
 
 /** Points nudged this far off grown footprints so they count as outside. */
@@ -143,7 +146,14 @@ export function planPaths(
 		const reach = agent.radius + path.clearance;
 		const found = route(spec, path, obstacles, placed, openings, reach);
 		if (found !== undefined) {
-			routed.push({ path, agent, obstacles, reach, ...found });
+			routed.push({
+				path,
+				agent,
+				obstacles,
+				reach,
+				...found,
+				shortest: found.legs.reduce((sum, leg) => sum + pathLength(leg), 0),
+			});
 			continue;
 		}
 		const blocked = bottleneck(
@@ -211,23 +221,50 @@ export function planPaths(
 				width: 2 * item.agent.radius,
 				space: item.space,
 				orthogonal: item.path.orthogonal,
+				// The same budget as centring, on the shortest route: steps
+				// never add up past it.
+				budget: LENGTH_BUDGET * item.shortest,
+				movable: item.path.comfort > 0,
 			};
 		}),
 	);
 	for (const {
 		paths: [i, j],
 		at,
+		reason,
 	} of lanes.shared) {
 		const a = routed[i] as Routed;
 		const b = routed[j] as Routed;
-		diagnostics.push({
-			severity: "info",
-			code: "scene.path.single-file",
-			message: `"${a.path.id}" and "${b.path.id}" meet head-on where the way is too narrow to pass side by side (near ${round(at.x)}, ${round(at.y)}).`,
-			path: b.path.path,
-			hint: `Passing there needs ${round(2 * a.agent.radius + 2 * b.agent.radius)} m between things; widen it if they must pass each other.`,
-			detail: { at: `${round(at.x)}, ${round(at.y)}` },
-		});
+		const near = `${round(at.x)}, ${round(at.y)}`;
+		const pair = `"${a.path.id}" and "${b.path.id}"`;
+		diagnostics.push(
+			reason === "narrow"
+				? {
+						severity: "info",
+						code: "scene.path.single-file",
+						message: `${pair} meet head-on where the way is too narrow to pass side by side (near ${near}).`,
+						path: b.path.path,
+						hint: `Passing there needs ${round(2 * a.agent.radius + 2 * b.agent.radius)} m between things; widen it if they must pass each other.`,
+						detail: { at: near },
+					}
+				: {
+						severity: "info",
+						code: "scene.path.head-on",
+						message: `${pair} share a run head-on near ${near}: ${
+							reason === "budget"
+								? "stepping aside would take one more than 15 % over its shortest route"
+								: reason === "fixed"
+									? "both keep their shortest routes (comfort 0)"
+									: "the lanes were not worked out within the round limit"
+						}.`,
+						path: b.path.path,
+						hint:
+							reason === "fixed"
+								? "Give one of them some comfort to let it step aside."
+								: "Give them a start each if they must not meet, or route one another way.",
+						detail: { at: near, reason },
+					},
+		);
 	}
 
 	routed.forEach((item, index) => {
@@ -253,6 +290,47 @@ export function planPaths(
 			});
 		}
 	});
+
+	// Paths given a start run on one clock: agents that would bump into
+	// each other on the way are reported, with a later start that avoids it.
+	const timed = routed.flatMap((item, index): TimedPath[] => {
+		if (item.path.start === undefined) return [];
+		const result = paths[index] as PlannedScenePath;
+		const corners = result.points.map(([x, y]) => ({ x, y }));
+		return [
+			{
+				id: item.path.id,
+				points: corners,
+				timing: timePath(
+					corners,
+					item.agent.speed,
+					item.agent.accel,
+					item.path.start,
+				),
+				radius: item.agent.radius,
+			},
+		];
+	});
+	const byId = new Map(spec.paths.map((path) => [path.id, path]));
+	for (const meeting of findMeetings(timed)) {
+		const later = byId.get(meeting.b) as ScenePathSpec;
+		const start = (later.start ?? 0) + (meeting.delay ?? 0);
+		diagnostics.push({
+			severity: "warning",
+			code: "scene.path.meet",
+			message: `"${meeting.a}" and "${meeting.b}" run into each other ${round(meeting.at)} s in, near ${round(meeting.where.x)}, ${round(meeting.where.y)}.`,
+			path: later.path,
+			hint:
+				meeting.delay === undefined
+					? "Route one of them another way."
+					: `Start "${meeting.b}" ${meeting.delay} s later (\`start ${round(start)}\`), or route one of them another way.`,
+			detail: {
+				at: round(meeting.at),
+				where: `${round(meeting.where.x)}, ${round(meeting.where.y)}`,
+				...(meeting.delay === undefined ? {} : { delay: meeting.delay }),
+			},
+		});
+	}
 	return { paths, diagnostics, bottlenecks };
 }
 
@@ -553,15 +631,23 @@ function planned(
 		.slice(1)
 		.reduce((sum, point, k) => sum + distance(points[k] as Vec2, point), 0);
 	const room = nearest(spec, points, obstacles).gap;
+	const corners = points.map((point) => ({
+		x: round(point.x),
+		y: round(point.y),
+	}));
+	const timing = timePath(corners, agent.speed, agent.accel, path.start ?? 0);
 	return {
 		id: path.id,
 		agent: agent.id,
 		from: path.from,
 		to: path.to,
-		points: points.map((point) => [round(point.x), round(point.y), 0]),
+		points: corners.map((point) => [point.x, point.y, 0]),
 		length: round(length),
 		width: round(2 * agent.radius),
 		clearance: round(Math.max(0, room - agent.radius)),
+		start: timing.start,
+		times: timing.times.map(round),
+		duration: round(timing.duration),
 	};
 }
 

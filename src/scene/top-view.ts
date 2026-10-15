@@ -7,6 +7,7 @@ import {
 	type Vec2,
 } from "./geometry.js";
 import type { PlacedSceneObject, SolvedScene } from "./ir.js";
+import { positionAt, timePath } from "./path-timing.js";
 
 export interface SceneTopViewOptions {
 	/** Pixels per meter (default 100). */
@@ -18,6 +19,8 @@ const LEVEL_FILLS = ["#dbeafe", "#fde68a", "#fbcfe8", "#d9f99d"];
 const STROKE = "#1e3a8a";
 const PATH_COLORS = ["#0d9488", "#c2410c", "#7c3aed", "#0369a1", "#be123c"];
 const FAULT = "#dc2626";
+/** Most time ticks drawn along one path. */
+const MAX_TICKS = 200;
 const WARNING = "#b45309";
 /** Diagnostics that mark an object as wrong in the drawing. */
 const FAULT_CODES = new Set([
@@ -165,7 +168,8 @@ export function sceneTopViewSvg(
 		});
 	}
 	// Paths: a band as wide as the agent, its center line, a dot where it
-	// starts and an arrowhead where it ends.
+	// starts, a tick for every second on the way and an arrowhead where it
+	// ends.
 	scene.paths.forEach((path, index) => {
 		const color = PATH_COLORS[index % PATH_COLORS.length] as string;
 		const line = path.points
@@ -177,6 +181,27 @@ export function sceneTopViewSvg(
 		);
 		const [sx = 0, sy = 0] = path.points[0] ?? [];
 		out.push(`<circle cx="${px(sx)}" cy="${py(sy)}" r="4" fill="${color}"/>`);
+		const agent = scene.agents.find((item) => item.id === path.agent);
+		if (agent !== undefined) {
+			const corners = path.points.map(([x, y]) => ({ x, y }));
+			const timing = timePath(corners, agent.speed, agent.accel, path.start);
+			// A tick every second, or every 2, 5, 10 … s on a long walk, so
+			// there are never more than MAX_TICKS.
+			let every = 1;
+			for (let k = 0; timing.duration / every > MAX_TICKS; k += 1) {
+				every = ([2, 5, 10][k % 3] as number) * 10 ** Math.floor(k / 3);
+			}
+			const first = Math.floor(path.start / every) + 1;
+			const count =
+				Math.floor((path.start + timing.duration - 0.05) / every) - first + 1;
+			for (let k = 0; k < count; k += 1) {
+				const at = positionAt(corners, timing, (first + k) * every);
+				if (at === undefined) continue;
+				out.push(
+					`<circle cx="${px(at.x)}" cy="${py(at.y)}" r="2.5" fill="#ffffff" stroke="${color}" stroke-width="1.5"/>`,
+				);
+			}
+		}
 		const end = path.points.at(-1);
 		const before = path.points.at(-2);
 		if (end !== undefined && before !== undefined) {

@@ -129,8 +129,8 @@ describe("scene path DSL", () => {
 		expect(
 			result.scene?.agents.map(({ path: _path, ...agent }) => agent),
 		).toEqual([
-			{ id: "person", radius: 0.25, height: 1.8 },
-			{ id: "robot", radius: 0.18, height: 0.1 },
+			{ id: "person", radius: 0.25, height: 1.8, speed: 1.2, accel: 1 },
+			{ id: "robot", radius: 0.18, height: 0.1, speed: 1, accel: 1 },
 		]);
 		expect(result.scene?.paths.map(({ path: _path, ...rest }) => rest)).toEqual(
 			[
@@ -587,7 +587,7 @@ describe("refined paths (#128 T3)", () => {
 				a: { size: [0.3, 0.3, 1], position: [0.5, depth / 2] },
 				b: { size: [0.3, 0.3, 1], position: [7.5, depth / 2] },
 			},
-			paths: ["person from a to b, comfort 0", "person from b to a, comfort 0"],
+			paths: ["person from a to b", "person from b to a"],
 		});
 		const value2 = value(2);
 		const scene = solve({
@@ -796,5 +796,140 @@ describe("paths shape the layout (#128 T4)", () => {
 			expect(count_(on, others)).toBeLessThanOrEqual(count_(off, others));
 			expect(clearanceFaults(on, spec)).toEqual([]);
 		}
+	});
+});
+
+describe("review findings on #133 and #134", () => {
+	// #136: lanes keep to the length budget, and comfort 0 keeps the
+	// shortest route.
+	const laneBudget = (clauses: string) =>
+		solve({
+			bounds: { width: 3, depth: 3, height: 2.5 },
+			makeWay: false,
+			objects: {},
+			openings: {
+				a: { wall: "west", at: 1.5, width: 0.8 },
+				b: { wall: "east", at: 1.5, width: 0.8 },
+			},
+			paths: [`person from a to b${clauses}`, `person from b to a${clauses}`],
+		});
+
+	it("never steps a lane past 15 % over the shortest route", () => {
+		const scene = laneBudget(", orthogonal");
+		for (const path of scene.paths) {
+			expect(path.length).toBeLessThanOrEqual(1.15 * 2.494 + 1e-3);
+		}
+		// Stepping aside here costs 41 %: the runs stay shared, said so.
+		expect(scene.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "scene.path.head-on",
+				detail: expect.objectContaining({ reason: "budget" }),
+			}),
+		);
+	});
+
+	it.each([
+		", orthogonal, comfort 0",
+		", comfort 0",
+	])("keeps the shortest route with comfort 0 (%s)", (clauses) => {
+		const scene = laneBudget(clauses);
+		for (const path of scene.paths) expect(path.length).toBeCloseTo(2.494, 3);
+		expect(scene.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "scene.path.head-on",
+				detail: expect.objectContaining({ reason: "fixed" }),
+			}),
+		);
+	});
+
+	// #138: no head-on shared run is left without a word.
+	it("works out lanes along many vias, or says which run is left", () => {
+		const scene = solve({
+			bounds: { width: 8, depth: 4, height: 2.5 },
+			objects: {},
+			makeWay: false,
+			openings: {
+				w1: { wall: "west", at: 1, width: 0.8 },
+				e1: { wall: "east", at: 1, width: 0.8 },
+				e2: { wall: "east", at: 2, width: 0.8 },
+				w2: { wall: "west", at: 2, width: 0.8 },
+				w3: { wall: "west", at: 3, width: 0.8 },
+				e3: { wall: "east", at: 3, width: 0.8 },
+			},
+			paths: [
+				"person from w1 to e3, via e1 and e2 and w2 and w3, orthogonal",
+				"person from e3 to w1, via w3 and w2 and e2 and e1, orthogonal",
+			],
+		});
+		const said = scene.diagnostics.some(
+			(d) =>
+				d.code === "scene.path.head-on" || d.code === "scene.path.single-file",
+		);
+		// Independent check: antiparallel runs of the two paths whose bands
+		// overlap for more than 0.5 m.
+		const runs = (k: number) => {
+			const points = scene.paths[k]?.points ?? [];
+			return points.slice(1).map((q, i) => [points[i] ?? q, q]);
+		};
+		let shared = false;
+		for (const [p, q] of runs(0)) {
+			for (const [u, v] of runs(1)) {
+				const [px = 0, py = 0] = p ?? [];
+				const [qx = 0, qy = 0] = q ?? [];
+				const [ux = 0, uy = 0] = u ?? [];
+				const [vx = 0, vy = 0] = v ?? [];
+				const horizontal = py === qy && uy === vy;
+				if (!horizontal || Math.abs(py - uy) >= 0.5) continue;
+				if (Math.sign(qx - px) === Math.sign(vx - ux)) continue;
+				const overlap =
+					Math.min(Math.max(px, qx), Math.max(ux, vx)) -
+					Math.max(Math.min(px, qx), Math.min(ux, vx));
+				if (overlap > 0.5) shared = true;
+			}
+		}
+		expect(shared && !said).toBe(false);
+		// The vias are still visited in order.
+		const xs = scene.paths[0]?.points.map(([x]) => x) ?? [];
+		expect(xs[0]).toBeCloseTo(0.253, 3);
+		expect(xs.at(-1)).toBeCloseTo(7.747, 3);
+	});
+
+	// #137: making way never trades one problem for another.
+	const cupScene = (x: number) => {
+		const spec = parse({
+			openings: { door: { wall: "south", at: 0.5, width: 0.9 } },
+			objects: {
+				desk: { size: [1.2, 0.6, 0.75], position: [2, 3.6] },
+				cabinet: { size: [3.3, 0.5, 2] },
+				cup: { size: [0.4, 0.2, 0.2], position: [x, 2] },
+			},
+			relations: ["cup on cabinet"],
+			paths: ["person from door to desk"],
+		}).scene as SceneSpec;
+		return {
+			on: solveScene(spec),
+			off: solveScene({ ...spec, makeWay: false }),
+		};
+	};
+
+	it("does not make way when that tips something off its support", () => {
+		const { on, off } = cupScene(0.4);
+		expect(on.diagnostics.map((d) => d.code)).not.toContain(
+			"scene.support.unstable",
+		);
+		expect(on.objects).toEqual(off.objects);
+		expect(on.objects.find((object) => object.id === "cup")?.position).toEqual([
+			0.4, 2, 2,
+		]);
+	});
+
+	it("does not make way when that worsens an overhang", () => {
+		const { on, off } = cupScene(0.53);
+		const overhang = (scene: SolvedScene) =>
+			Number(
+				scene.diagnostics.find((d) => d.code === "scene.support.overhang")
+					?.detail?.overhang ?? 0,
+			);
+		expect(overhang(on)).toBeLessThanOrEqual(overhang(off) + 1e-9);
 	});
 });
