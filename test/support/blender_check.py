@@ -3,7 +3,8 @@ the dge-scene JSON: every object's world bounding box (from its mesh
 vertices) and z rotation must match to 1e-4; every opening strip must sit
 on its wall; every path curve must run through the path's points; and
 every agent must stand on each corner at the time the JSON gives (its
-animation evaluated at that frame), to 1e-3. Prints one JSON line.
+animation evaluated at that frame, which must lie in the scene's frame
+range), to 1e-3. Prints one JSON line.
 
     python blender_check.py scene.py scene.json   (python with the bpy module)
 """
@@ -57,7 +58,9 @@ for opening in data.get("openings", []):
     if abs(x - want[0]) > 1e-4 or abs(y - want[1]) > 1e-4:
         problems.append(f"opening {opening['id']}: at {x},{y} != {want}")
 
-FPS = bpy.context.scene.render.fps
+scene = bpy.context.scene
+origin = float(scene.get("dge_time_origin", 0.0))
+rate = float(scene.get("dge_fps", scene.render.fps))
 corners = 0
 for path in data.get("paths", []):
     line = bpy.data.objects.get("path." + path["id"])
@@ -74,11 +77,15 @@ for path in data.get("paths", []):
     if body is None:
         problems.append(f"agent {path['id']}: missing")
         continue
-    curves = {fc.array_index: fc for fc in body.animation_data.action.fcurves if fc.data_path == "location"}
     for (x, y, _), t in zip(path["points"], path["times"]):
         corners += 1
-        frame = t * FPS
-        at = (curves[0].evaluate(frame), curves[1].evaluate(frame))
+        # Evaluate the animation at that moment (whole frame + subframe),
+        # as Blender plays it.
+        frame = (t - origin) * rate
+        if frame < scene.frame_start - 1e-6 or frame > scene.frame_end + 1e-6:
+            problems.append(f"agent {path['id']}: {t} s is frame {frame}, outside {scene.frame_start}..{scene.frame_end}")
+        scene.frame_set(int(math.floor(frame)), subframe=frame - math.floor(frame))
+        at = tuple(body.matrix_world.translation)[:2]
         if abs(at[0] - x) > 1e-3 or abs(at[1] - y) > 1e-3:
             problems.append(f"agent {path['id']}: at {at} at {t} s, not {x},{y}")
 

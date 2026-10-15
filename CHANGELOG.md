@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Self-review fixes on scene paths (#129, #133–#135)
+
+- A path to an object left out of the layout is reported
+  (`scene.path.unplaced`) instead of crashing the solver.
+- Openings must take the agent plus its `clearance` on both sides
+  (`scene.path.opening-narrow`), so the reported clearance holds through
+  doors and a corner door is no longer blamed on the walls.
+- Something standing on a support is reached from the support's sides,
+  every free stand at the start is tried, and a shut-in path names the
+  place (end or via) that is cut off.
+- A declared `person` keeps the built-in 1.2 m/s pace unless given.
+  Openings that overlap on a wall are refused
+  (`validate.scene.opening-overlap`). Specs built in code without
+  `comfort`, `speed` or `accel` get the defaults instead of NaN.
+- Making way passes one narrow place after another along a path,
+  never blocks a path that was clear, moves the support of what blocks
+  the way, keeps the best plan seen (the original on a tie), and reports
+  only aisles that hold and let a path through. Problems are matched by
+  check, objects and source when comparing plans.
+- Meetings are found exactly, on the polynomial distance between the
+  agents' motion phases. The interval search could stop early and report
+  a later meeting, or run out of work and miss one.
+- Lanes judge a shared run over the whole stretch, report its middle,
+  and blame a `comfort 0` path whenever one is involved.
+- Blender: the timeline starts when the first agent sets off, long walks
+  are slowed to fit Blender's frame range, new keys are linear through the
+  preferences (no F-curve access, which Blender 5 drops), and a scene
+  without walking agents leaves the frame range alone. The check also
+  requires every corner to lie inside the frame range.
+- Corners that round to the same point are one corner; agent sizes and
+  speeds in the JSON are rounded like every other number.
+
 ### Review fixes (#136–#141)
 
 - Lanes keep to the 15 % length budget measured on the shortest route,

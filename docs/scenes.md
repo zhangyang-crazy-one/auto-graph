@@ -105,7 +105,7 @@ Paths are routes an agent must be able to take: a person from the door to the de
 openings:
   door: { wall: south, at: 0.6, width: 0.9 }   # center 0.6 m from the wall's west (or south) end
 agents:
-  robot: { radius: 0.18, height: 0.1, speed: 0.5, accel: 0.5 }   # person (0.25, 1.8, 1.2 m/s, 1 m/s²) is built in
+  robot: { radius: 0.18, height: 0.1, speed: 0.5, accel: 0.5 }   # person (0.25, 1.8, 1.2 m/s, 1 m/s²) is built in; declaring person keeps its pace unless given
 paths:
   - person from door to desk
   - person from door to shelf, clearance 0.05
@@ -116,18 +116,18 @@ paths:
 ```
 
 - **Configuration space.** The agent is shrunk to a point. Every object in its way grows by the agent's radius plus `clearance`, and the walls move in by the same amount. An object is in the way when its bottom is below the agent's height, so a low robot passes under a table top resting on a pedestal.
-- **Ends.** An object is reached at the point in front of it. If something stands there, the agent goes to its left, right or back instead, sliding along that side when its middle is too close to a wall. An opening is reached just inside the room.
+- **Ends.** An object is reached at the point in front of it. If something stands there, the agent goes to its left, right or back instead, sliding along that side when its middle is too close to a wall; each free spot is tried in turn. Something standing on a support (a lamp on a desk) is reached from the support's sides. An opening is reached just inside the room, and must be as wide as the agent plus `clearance` on both sides. A path to an object left out of the layout is reported (`scene.path.unplaced`).
 - **Routing.**
   - By default the path is the shortest any-angle route through the corners of the grown footprints: a visibility graph searched with A*.
   - `orthogonal` uses auto-graph's sparse-grid router, the one that routes diagram edges, so the path turns only at right angles.
 - **Refinement.** The shortest route skims every corner it turns round. Like a diagram's edges after routing, each path is then tidied with auto-graph's own passes:
   - **Mid-aisle.** Any-angle corners slide away from what they turn round, keeping up to `comfort` (default 0.15 m) beyond `clearance` where the aisle allows, and the path is pulled tight again. Right-angle paths go through the channel centring that diagram edges use: each run between two turns moves to the middle of its aisle, and runs sharing an aisle spread across it. Runs attached to an end stay on the end's line. The path never grows more than 15 % over the shortest route; `comfort 0` keeps the shortest route.
-  - **Lanes.** Two paths meeting head-on on a shared run keep right: one steps to the right of its direction of travel until the two bands just touch (failing that the other, or each half way). Ends stay put; the run steps aside just after them. Paths going the same way share a lane (one walks behind the other). Stepping aside never takes a path past its 15 % length budget, and a path with `comfort 0` keeps its shortest route. Every head-on run left at the end is reported with where and why: too narrow to pass (`scene.path.single-file`), or outside the budget, both paths at `comfort 0`, or not worked out within the round limit (`scene.path.head-on`).
+  - **Lanes.** Two paths meeting head-on on a shared run keep right: one steps to the right of its direction of travel until the two bands just touch (failing that the other, or each half way). Ends stay put; the run steps aside just after them. Paths going the same way share a lane (one walks behind the other). Stepping aside never takes a path past its 15 % length budget, and a path with `comfort 0` keeps its shortest route. Every head-on run left at the end is reported with where and why: too narrow to pass (`scene.path.single-file`), or outside the budget, a path at `comfort 0`, or not worked out within the round limit (`scene.path.head-on`).
   - **Detours.** A path more than twice as long as the straight line between its places (and over 1 m longer) is reported as information, so an agent can see that something stands in the direct way.
 - **Timing.** An agent starts and stops at rest, speeds up and brakes at `accel` (default 1 m/s²) and goes no faster than `speed` (default 1 m/s; a person 1.2 m/s). At a corner it slows to `speed · (1 + cos θ) / 2`, where θ is how far it turns: full speed straight on, half speed round a right angle, a stop to turn back. Every path gets the time it reaches each corner and how long it takes. It sets off at `start` (default 0, at most 1,000,000 s).
-- **Meeting.** Paths that give a `start` run on one clock. Two agents that would touch on the way are reported (`scene.path.meet`, a warning; the check is continuous, not sampled) with when and where, and with how much later the second could set off to miss the first. Paths without a `start` are routes, not a schedule, and are not compared.
+- **Meeting.** Paths that give a `start` run on one clock. Two agents that would touch on the way are reported (`scene.path.meet`, a warning; the check is exact, not sampled: in each stretch where both agents speed up, cruise or brake, their distance is a polynomial in time) with when and where, and with how much later the second could set off to miss the first. Paths without a `start` are routes, not a schedule, and are not compared.
 - **Checks.** Every path is checked on its own against the turned footprints and the walls. `clearance` in the output is the least distance from the agent's edge to anything.
-- **Making way.** Paths shape the layout. When a path is blocked, the two things at its narrowest place (two objects, or an object and a wall) are held apart in the floor plan, and the plan is solved again. The gap is the path's width plus `comfort` on each side if that fits, else just the width. This repeats up to four times. A new plan is kept only if fewer paths are blocked and no other check got worse: no problem that was not there before, no warning turned into an error, no measure grown (how far past a wall, how deep a collision, how far an overhang, how short a gap). One problem going away never pays for another appearing. Relations and pins still hold: only what nothing fixes moves. Each aisle held open is reported (`scene.path.made-way`). `makeWay: false` keeps the plan the relations alone give.
+- **Making way.** Paths shape the layout. When a path is blocked, the two things at its narrowest place (two objects, or an object and a wall) are held apart in the floor plan, and the plan is solved again. The gap is the path's width plus `comfort` on each side if that fits, else just the width (both plus 2 cm). When the narrowest place is something standing on a support, its support is moved. This repeats up to four times, so a path with several narrow places can pass them in turn. A new plan is taken only if no path that was clear gets blocked, it is a step forward (fewer paths blocked, less width missing, or a narrow place passed for the next) and no other check got worse: no problem that was not there before, no warning turned into an error, no measure grown (how far past a wall, how deep a collision, how far an overhang, how short a gap). One problem going away never pays for another appearing. Relations and pins still hold: only what nothing fixes moves. In the end the best plan seen is kept, the original on a tie. Each aisle that holds in it and lets a path through is reported (`scene.path.made-way`). `makeWay: false` keeps the plan the relations alone give.
 - **Blocked.** When there is no way through, the agent is shrunk until one exists. The widest agent that gets through is as wide as the narrowest place on its way, and that place is reported: `"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).` An opening narrower than the agent is reported as such.
 
 Planned paths appear in the `dge-scene` JSON, the top view and the Blender script:
@@ -159,7 +159,7 @@ In `examples/scene/storeroom.yaml` nothing holds the racks in place. On their ow
   - An `asset` naming a collection in the open file is placed as an instance of it.
   - Openings are strips across the wall line. Each path is a curve on the floor, and its agent a cylinder (its radius and height) that walks it on the path's times, at 24 frames a second.
   - Everything goes into one collection named after the scene, which is rebuilt when the script runs again.
-  - Headless render (Cycles on the CPU, no GPU needed): `blender -b --python room.py -- --render room.jpg [--size 1200x900] [--samples 24] [--frame 72]`. `--frame` picks a moment of the walk (72 = 3 s). `--animation room.mp4` renders the whole walk as a video.
+  - Headless render (Cycles on the CPU, no GPU needed): `blender -b --python room.py -- --render room.jpg [--size 1200x900] [--samples 24] [--frame 72]`. `--frame` picks a moment of the walk: frame 0 is when the first agent sets off, at 24 frames a second (72 = 3 s later). A walk too long for Blender's frame range is slowed down to fit (`fps_base`), and the scene records `dge_time_origin` and `dge_fps`. `--animation room.mp4` renders the whole walk as a video.
 - **`svg`** is a plan view for checking by eye:
   - north up, on a 0.5 m grid;
   - a triangle on each front;
@@ -172,7 +172,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 
 | Code | |
 | --- | --- |
-| `validate.scene.*` | the document: unknown object or verb (with "did you mean"), a clause the verb does not take, a bad value, a reserved id, a group used where one object is needed |
+| `validate.scene.*` | the document (also openings that overlap on a wall): unknown object or verb (with "did you mean"), a clause the verb does not take, a bad value, a reserved id, a group used where one object is needed |
 | `scene.layout.conflict` | relations (or pins) that cannot hold together, with the objects involved |
 | `scene.collision` | two objects pass through each other (with the depth) |
 | `scene.out-of-bounds`, `scene.above-ceiling` | past a wall or the ceiling (with how far) |
@@ -181,7 +181,9 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.yaw.conflict` | two turns given for one object |
 | `scene.support.multiple`, `scene.support.cycle` | two supports, or objects standing on each other in a loop |
 | `scene.relation.off-floor` | a floor-plan relation naming an object on a support (not applied) |
-| `scene.path.blocked` | no way through: the bottleneck, its width and what it needs |
+| `scene.path.blocked` | no way through: the bottleneck, its width and what it needs; or the place (end or via) that is shut in |
+| `scene.path.opening-narrow` | an opening narrower than the agent plus its clearance on both sides |
+| `scene.path.unplaced` | a path to an object that is not in the layout |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |
 | `scene.path.detour` (info) | a path more than twice the straight line between its places |

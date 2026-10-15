@@ -174,20 +174,18 @@ export interface Meeting {
 	delay?: number;
 }
 
-/** Intervals shorter than this (s) are decided by their middle. */
-const SHORTEST = 1e-4;
-/** Work limit per pair (interval visits). */
-const BUDGET = 400_000;
 /** Later starts tried for a suggestion, in half-second steps. */
 const DELAYS = 240;
 
 /**
  * Agents on paths that overlap in time touch when their centers come
- * closer than the sum of their radii. The check is continuous: an
- * interval is safe when the two agents are far enough apart at its ends
- * that, at their top speeds, they could not have met in between;
- * otherwise it is halved, earliest half first. The later of the two is
- * tried with later starts in half-second steps to suggest a delay.
+ * closer than the sum of their radii. The check is exact: each agent's
+ * walk is a run of phases (speeding up, cruising, braking along one
+ * segment) in which its position is a quadratic in time, so over the time
+ * two phases share, the squared distance between the agents is a quartic
+ * whose first dip below the touching distance is found by splitting it
+ * where its slope turns. The later of the two is tried with later starts
+ * in half-second steps to suggest a delay.
  */
 export function findMeetings(paths: readonly TimedPath[]): Meeting[] {
 	const out: Meeting[] = [];
@@ -220,6 +218,60 @@ export function findMeetings(paths: readonly TimedPath[]): Meeting[] {
 	return out;
 }
 
+/** A stretch of a walk in which the position is p0 + u·(v0·τ + a·τ²/2). */
+interface Phase {
+	/** Scene time it begins and ends. */
+	t0: number;
+	t1: number;
+	p0: Vec2;
+	u: Vec2;
+	v0: number;
+	a: number;
+}
+
+function phases(
+	points: readonly Vec2[],
+	timing: PathTiming,
+	start: number,
+): Phase[] {
+	const out: Phase[] = [];
+	for (let k = 0; k + 1 < points.length; k += 1) {
+		const p = points[k] as Vec2;
+		const q = points[k + 1] as Vec2;
+		const length = distance(p, q);
+		if (length === 0) continue;
+		const u = { x: (q.x - p.x) / length, y: (q.y - p.y) / length };
+		const profile = segmentProfile(
+			length,
+			timing.speeds[k] as number,
+			timing.speeds[k + 1] as number,
+			timing.speed,
+			timing.accel,
+		);
+		const t = start + (timing.elapsed[k] as number);
+		const upTo = (profile.peak ** 2 - profile.v0 ** 2) / (2 * timing.accel);
+		const at = (s: number) => ({ x: p.x + u.x * s, y: p.y + u.y * s });
+		const pieces: [number, number, number, number][] = [
+			// duration, distance at its start, speed at its start, accel
+			[profile.up, 0, profile.v0, timing.accel],
+			[profile.cruise, upTo, profile.peak, 0],
+			[
+				profile.down,
+				upTo + profile.peak * profile.cruise,
+				profile.peak,
+				-timing.accel,
+			],
+		];
+		let t0 = t;
+		for (const [span, s0, v0, a] of pieces) {
+			if (span <= 0) continue;
+			out.push({ t0, t1: t0 + span, p0: at(s0), u, v0, a });
+			t0 += span;
+		}
+	}
+	return out;
+}
+
 function firstTouch(
 	a: TimedPath,
 	b: TimedPath,
@@ -233,44 +285,136 @@ function firstTouch(
 	);
 	if (to < from) return undefined;
 	const reach = a.radius + b.radius - 1e-6;
-	const speed = a.timing.speed + b.timing.speed;
-	const at = (t: number) => {
-		const p = positionAfter(a.points, a.timing, t - a.timing.start);
-		const q = positionAfter(b.points, b.timing, t - bStart);
-		return { p, q, gap: distance(p, q) };
-	};
-	const touch = (t: number, p: Vec2, q: Vec2) => ({
-		at: roundTime(t),
-		where: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 },
-	});
-	const start = at(from);
-	if (start.gap < reach) return touch(from, start.p, start.q);
-	// Depth first, earliest half first, so intervals are settled in time
-	// order: the first one found touching holds the earliest touch (to
-	// within SHORTEST).
-	let best: { t: number; p: Vec2; q: Vec2 } | undefined;
-	const stack: [number, number, number, number][] = [
-		[from, to, start.gap, at(to).gap],
+	// A standing agent (an empty walk) is a phase that never moves.
+	const still = (p: readonly Vec2[], t0: number, t1: number): Phase[] => [
+		{ t0, t1, p0: p[0] as Vec2, u: { x: 0, y: 0 }, v0: 0, a: 0 },
 	];
-	for (let visits = 0; stack.length > 0 && visits < BUDGET; visits += 1) {
-		const [t0, t1, g0, g1] = stack.pop() as [number, number, number, number];
-		if (best !== undefined && t0 >= best.t) continue;
-		// Closest the two can come in between, moving at top speed.
-		if ((g0 + g1 - speed * (t1 - t0)) / 2 >= reach) continue;
-		const middle = (t0 + t1) / 2;
-		const mid = at(middle);
-		if (mid.gap < reach) best = { t: middle, p: mid.p, q: mid.q };
-		if (t1 - t0 < SHORTEST) {
-			if (best !== undefined) break;
-			continue;
+	const pa = phases(a.points, a.timing, a.timing.start);
+	const pb = phases(b.points, b.timing, bStart);
+	const listA = pa.length > 0 ? pa : still(a.points, a.timing.start, to);
+	const listB = pb.length > 0 ? pb : still(b.points, bStart, to);
+	let i = 0;
+	let j = 0;
+	while (i < listA.length && j < listB.length) {
+		const x = listA[i] as Phase;
+		const y = listB[j] as Phase;
+		const w0 = Math.max(x.t0, y.t0, from);
+		const w1 = Math.min(x.t1, y.t1, to);
+		if (w1 >= w0) {
+			const tau = firstDip(x, y, w0, w1 - w0, reach);
+			if (tau !== undefined) {
+				const t = w0 + tau;
+				const p = phaseAt(x, t);
+				const q = phaseAt(y, t);
+				return {
+					at: roundTime(t),
+					where: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 },
+				};
+			}
 		}
-		// A touch in the middle leaves only the first half to search.
-		if (mid.gap >= reach) stack.push([middle, t1, mid.gap, g1]);
-		stack.push([t0, middle, g0, mid.gap]);
+		if (x.t1 < y.t1) i += 1;
+		else j += 1;
 	}
-	if (best !== undefined) return touch(best.t, best.p, best.q);
-	const end = at(to);
-	return end.gap < reach ? touch(to, end.p, end.q) : undefined;
+	return undefined;
+}
+
+function phaseAt(phase: Phase, t: number): Vec2 {
+	const tau = t - phase.t0;
+	const s = phase.v0 * tau + (phase.a * tau * tau) / 2;
+	return { x: phase.p0.x + phase.u.x * s, y: phase.p0.y + phase.u.y * s };
+}
+
+/**
+ * The first τ in [0, span] (from w0) at which two phases are closer than
+ * `reach`, or undefined. Their difference is D0 + D1·τ + D2·τ², so
+ * |d|² − reach² is a quartic; it is split where its derivative changes
+ * sign and each monotone piece is checked in order.
+ */
+function firstDip(
+	x: Phase,
+	y: Phase,
+	w0: number,
+	span: number,
+	reach: number,
+): number | undefined {
+	// Position over τ from w0: p0 + u·(c0 + c1·τ + c2·τ²).
+	const coeffs = (phase: Phase) => {
+		const k = w0 - phase.t0;
+		return [
+			phase.v0 * k + (phase.a * k * k) / 2,
+			phase.v0 + phase.a * k,
+			phase.a / 2,
+		];
+	};
+	const [a0, a1, a2] = coeffs(x) as [number, number, number];
+	const [b0, b1, b2] = coeffs(y) as [number, number, number];
+	const D0 = {
+		x: x.p0.x - y.p0.x + x.u.x * a0 - y.u.x * b0,
+		y: x.p0.y - y.p0.y + x.u.y * a0 - y.u.y * b0,
+	};
+	const D1 = { x: x.u.x * a1 - y.u.x * b1, y: x.u.y * a1 - y.u.y * b1 };
+	const D2 = { x: x.u.x * a2 - y.u.x * b2, y: x.u.y * a2 - y.u.y * b2 };
+	const dot = (p: Vec2, q: Vec2) => p.x * q.x + p.y * q.y;
+	const q4 = dot(D2, D2);
+	const q3 = 2 * dot(D1, D2);
+	const q2 = dot(D1, D1) + 2 * dot(D0, D2);
+	const q1 = 2 * dot(D0, D1);
+	const q0 = dot(D0, D0) - reach * reach;
+	const f = (t: number) => (((q4 * t + q3) * t + q2) * t + q1) * t + q0;
+	const df = (t: number) => ((4 * q4 * t + 3 * q3) * t + 2 * q2) * t + q1;
+	if (f(0) < 0) return 0;
+	// Roots of f' in (0, span): split f'' (a quadratic) first.
+	const turns = quadraticRoots(12 * q4, 6 * q3, 2 * q2).filter(
+		(t) => t > 0 && t < span,
+	);
+	const knots = [0, ...turns.sort((p, q) => p - q), span];
+	const stationary: number[] = [];
+	for (let k = 0; k + 1 < knots.length; k += 1) {
+		const lo = knots[k] as number;
+		const hi = knots[k + 1] as number;
+		const root = bisect(df, lo, hi);
+		if (root !== undefined) stationary.push(root);
+	}
+	const pieces = [0, ...stationary, span];
+	for (let k = 0; k + 1 < pieces.length; k += 1) {
+		const lo = pieces[k] as number;
+		const hi = pieces[k + 1] as number;
+		if (f(hi) < 0) return bisect(f, lo, hi) ?? hi;
+	}
+	return undefined;
+}
+
+/** A sign change of g on [lo, hi], by bisection; undefined if none. */
+function bisect(
+	g: (t: number) => number,
+	lo: number,
+	hi: number,
+): number | undefined {
+	let gl = g(lo);
+	const gh = g(hi);
+	if (gl === 0) return lo;
+	if (Math.sign(gl) === Math.sign(gh)) return gh === 0 ? hi : undefined;
+	let a = lo;
+	let b = hi;
+	for (let step = 0; step < 80 && b - a > 1e-12; step += 1) {
+		const m = (a + b) / 2;
+		const gm = g(m);
+		if (Math.sign(gm) === Math.sign(gl)) {
+			a = m;
+			gl = gm;
+		} else {
+			b = m;
+		}
+	}
+	return b;
+}
+
+function quadraticRoots(a: number, b: number, c: number): number[] {
+	if (Math.abs(a) < 1e-15) return Math.abs(b) < 1e-15 ? [] : [-c / b];
+	const disc = b * b - 4 * a * c;
+	if (disc < 0) return [];
+	const root = Math.sqrt(disc);
+	return [(-b - root) / (2 * a), (-b + root) / (2 * a)];
 }
 
 interface Profile {

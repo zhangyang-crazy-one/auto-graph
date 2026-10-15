@@ -324,6 +324,28 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 					"Move it along the wall or make it narrower.",
 				),
 			);
+		} else if (
+			openings.some(
+				(other) =>
+					other.wall === opening.wall &&
+					Math.abs(other.at - opening.at) <
+						(other.width + opening.width) / 2 - 1e-9,
+			)
+		) {
+			const other = openings.find(
+				(item) =>
+					item.wall === opening.wall &&
+					Math.abs(item.at - opening.at) <
+						(item.width + opening.width) / 2 - 1e-9,
+			) as SceneOpening;
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.opening-overlap",
+					`Openings "${other.id}" and "${id}" overlap on the ${entry.wall} wall.`,
+					"Move one along the wall or make them narrower; a wide gap is one opening.",
+				),
+			);
 		} else {
 			openings.push(opening);
 		}
@@ -333,12 +355,18 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 		...(dsl.agents ?? {}),
 	}).map(([id, entry]) => {
 		const scale = dsl.agents?.[id] === undefined ? 1 : perMeter;
+		// A declared person keeps the built-in walking pace unless it says
+		// otherwise; other agents default to 1 m/s and 1 m/s².
+		const pace =
+			id === "person"
+				? DEFAULT_PERSON
+				: { speed: DEFAULT_SPEED, accel: DEFAULT_ACCEL };
 		return {
 			id,
 			radius: entry.radius / scale,
 			height: entry.height / scale,
-			speed: (entry.speed ?? DEFAULT_SPEED * scale) / scale,
-			accel: (entry.accel ?? DEFAULT_ACCEL * scale) / scale,
+			speed: entry.speed === undefined ? pace.speed : entry.speed / scale,
+			accel: entry.accel === undefined ? pace.accel : entry.accel / scale,
 			path: ["agents", id],
 		};
 	});

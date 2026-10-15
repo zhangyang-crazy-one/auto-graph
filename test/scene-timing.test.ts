@@ -304,3 +304,62 @@ describe("review findings on #135", () => {
 		}
 	});
 });
+
+describe("meeting check against brute force", () => {
+	// The exact check finds the first touch whenever fine sampling (1 ms)
+	// finds one, never later than the sampled one, and finds none when
+	// the agents never come within reach.
+	it.each(Array.from({ length: 60 }, (_, k) => k + 1))("seed %i", (seed) => {
+		let state = seed * 2654435761;
+		const random = () => {
+			state = (state * 1103515245 + 12345) % 2147483648;
+			return state / 2147483648;
+		};
+		const walk = () =>
+			Array.from({ length: 2 + Math.floor(random() * 3) }, () => ({
+				x: Math.round(random() * 600) / 100,
+				y: Math.round(random() * 600) / 100,
+			}));
+		const a = walk();
+		const b = walk();
+		const ta = timePath(
+			a,
+			0.5 + random(),
+			0.5 + random(),
+			Math.round(random() * 20) / 10,
+		);
+		const tb = timePath(
+			b,
+			0.5 + random(),
+			0.5 + random(),
+			Math.round(random() * 20) / 10,
+		);
+		const radius = 0.05 + random() * 0.3;
+		const meetings = findMeetings([
+			{ id: "a", points: a, timing: ta, radius },
+			{ id: "b", points: b, timing: tb, radius },
+		]);
+		const from = Math.max(ta.start, tb.start);
+		const to = Math.min(ta.start + ta.duration, tb.start + tb.duration);
+		let sampled: number | undefined;
+		for (let k = 0; from + k * 0.001 <= to; k += 1) {
+			const t = from + k * 0.001;
+			const p = positionAt(a, ta, t);
+			const q = positionAt(b, tb, t);
+			if (p && q && Math.hypot(p.x - q.x, p.y - q.y) < 2 * radius - 1e-6) {
+				sampled = t;
+				break;
+			}
+		}
+		const exact = meetings[0]?.at;
+		if (sampled !== undefined) {
+			expect(exact).toBeDefined();
+			expect(exact as number).toBeLessThanOrEqual(sampled + 1e-3);
+		}
+		if (exact !== undefined) {
+			const p = positionAt(a, ta, exact) as { x: number; y: number };
+			const q = positionAt(b, tb, exact) as { x: number; y: number };
+			expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeLessThan(2 * radius + 1e-3);
+		}
+	});
+});
