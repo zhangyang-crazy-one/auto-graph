@@ -438,6 +438,13 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			at,
 			width,
 		})),
+		agents: spec.agents.map(({ id, radius, height, speed, accel }) => ({
+			id,
+			radius,
+			height,
+			speed,
+			accel,
+		})),
 		paths: best.planned.paths,
 		unplaced,
 		valid: !sorted.some((diagnostic) => diagnostic.severity === "error"),

@@ -42,6 +42,13 @@ const pathSchema = z
 		clearance: z
 			.number()
 			.describe("Least distance from the agent's edge to anything."),
+		start: z.number().describe("When the agent sets off, seconds."),
+		times: z
+			.array(z.number())
+			.describe(
+				"When the agent reaches each point, seconds (it starts and stops at rest, slows at corners).",
+			),
+		duration: z.number().describe("Seconds from setting off to arriving."),
 	})
 	.strict();
 
@@ -97,6 +104,17 @@ export const sceneDocumentSchema = z
 				})
 				.strict(),
 		),
+		agents: z.array(
+			z
+				.object({
+					id: z.string(),
+					radius: z.number(),
+					height: z.number(),
+					speed: z.number().describe("Top speed, m/s."),
+					accel: z.number().describe("Acceleration and braking, m/s²."),
+				})
+				.strict(),
+		),
 		paths: z.array(pathSchema),
 		unplaced: z
 			.array(z.string())
@@ -130,6 +148,7 @@ export function sceneToDocument(scene: SolvedScene): SceneDocument {
 		valid: scene.valid,
 		objects: scene.objects,
 		openings: scene.openings,
+		agents: scene.agents,
 		paths: scene.paths,
 		unplaced: scene.unplaced,
 		diagnostics: scene.diagnostics,

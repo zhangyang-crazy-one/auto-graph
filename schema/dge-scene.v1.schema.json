@@ -209,6 +209,33 @@
 				"additionalProperties": false
 			}
 		},
+		"agents": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"radius": {
+						"type": "number"
+					},
+					"height": {
+						"type": "number"
+					},
+					"speed": {
+						"type": "number",
+						"description": "Top speed, m/s."
+					},
+					"accel": {
+						"type": "number",
+						"description": "Acceleration and braking, m/s²."
+					}
+				},
+				"required": ["id", "radius", "height", "speed", "accel"],
+				"additionalProperties": false
+			}
+		},
 		"paths": {
 			"type": "array",
 			"items": {
@@ -254,6 +281,21 @@
 					"clearance": {
 						"type": "number",
 						"description": "Least distance from the agent's edge to anything."
+					},
+					"start": {
+						"type": "number",
+						"description": "When the agent sets off, seconds."
+					},
+					"times": {
+						"type": "array",
+						"items": {
+							"type": "number"
+						},
+						"description": "When the agent reaches each point, seconds (it starts and stops at rest, slows at corners)."
+					},
+					"duration": {
+						"type": "number",
+						"description": "Seconds from setting off to arriving."
 					}
 				},
 				"required": [
@@ -264,7 +306,10 @@
 					"points",
 					"length",
 					"width",
-					"clearance"
+					"clearance",
+					"start",
+					"times",
+					"duration"
 				],
 				"additionalProperties": false
 			}
@@ -345,6 +390,7 @@
 		"valid",
 		"objects",
 		"openings",
+		"agents",
 		"paths",
 		"unplaced",
 		"diagnostics"

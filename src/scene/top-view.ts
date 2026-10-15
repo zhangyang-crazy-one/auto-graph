@@ -7,6 +7,7 @@ import {
 	type Vec2,
 } from "./geometry.js";
 import type { PlacedSceneObject, SolvedScene } from "./ir.js";
+import { positionAt, timePath } from "./path-timing.js";
 
 export interface SceneTopViewOptions {
 	/** Pixels per meter (default 100). */
@@ -165,7 +166,8 @@ export function sceneTopViewSvg(
 		});
 	}
 	// Paths: a band as wide as the agent, its center line, a dot where it
-	// starts and an arrowhead where it ends.
+	// starts, a tick for every second on the way and an arrowhead where it
+	// ends.
 	scene.paths.forEach((path, index) => {
 		const color = PATH_COLORS[index % PATH_COLORS.length] as string;
 		const line = path.points
@@ -177,6 +179,19 @@ export function sceneTopViewSvg(
 		);
 		const [sx = 0, sy = 0] = path.points[0] ?? [];
 		out.push(`<circle cx="${px(sx)}" cy="${py(sy)}" r="4" fill="${color}"/>`);
+		const agent = scene.agents.find((item) => item.id === path.agent);
+		if (agent !== undefined) {
+			const corners = path.points.map(([x, y]) => ({ x, y }));
+			const timing = timePath(corners, agent.speed, agent.accel, path.start);
+			const end = path.start + timing.duration;
+			for (let t = Math.floor(path.start) + 1; t < end - 0.05; t += 1) {
+				const at = positionAt(corners, timing, t);
+				if (at === undefined) continue;
+				out.push(
+					`<circle cx="${px(at.x)}" cy="${py(at.y)}" r="2.5" fill="#ffffff" stroke="${color}" stroke-width="1.5"/>`,
+				);
+			}
+		}
 		const end = path.points.at(-1);
 		const before = path.points.at(-2);
 		if (end !== undefined && before !== undefined) {

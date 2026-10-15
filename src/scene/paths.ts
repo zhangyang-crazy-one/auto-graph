@@ -29,6 +29,7 @@ import {
 	segmentEntersBox,
 	separateLanes,
 } from "./path-refine.js";
+import { findMeetings, type TimedPath, timePath } from "./path-timing.js";
 
 /**
  * Paths for agents (people, robots, carts) between objects and openings.
@@ -253,6 +254,47 @@ export function planPaths(
 			});
 		}
 	});
+
+	// Paths given a start run on one clock: agents that would bump into
+	// each other on the way are reported, with a later start that avoids it.
+	const timed = routed.flatMap((item, index): TimedPath[] => {
+		if (item.path.start === undefined) return [];
+		const result = paths[index] as PlannedScenePath;
+		const corners = result.points.map(([x, y]) => ({ x, y }));
+		return [
+			{
+				id: item.path.id,
+				points: corners,
+				timing: timePath(
+					corners,
+					item.agent.speed,
+					item.agent.accel,
+					item.path.start,
+				),
+				radius: item.agent.radius,
+			},
+		];
+	});
+	const byId = new Map(spec.paths.map((path) => [path.id, path]));
+	for (const meeting of findMeetings(timed)) {
+		const later = byId.get(meeting.b) as ScenePathSpec;
+		const start = (later.start ?? 0) + (meeting.delay ?? 0);
+		diagnostics.push({
+			severity: "warning",
+			code: "scene.path.meet",
+			message: `"${meeting.a}" and "${meeting.b}" run into each other ${round(meeting.at)} s in, near ${round(meeting.where.x)}, ${round(meeting.where.y)}.`,
+			path: later.path,
+			hint:
+				meeting.delay === undefined
+					? "Route one of them another way."
+					: `Start "${meeting.b}" ${meeting.delay} s later (\`start ${round(start)}\`), or route one of them another way.`,
+			detail: {
+				at: round(meeting.at),
+				where: `${round(meeting.where.x)}, ${round(meeting.where.y)}`,
+				...(meeting.delay === undefined ? {} : { delay: meeting.delay }),
+			},
+		});
+	}
 	return { paths, diagnostics, bottlenecks };
 }
 
@@ -553,15 +595,23 @@ function planned(
 		.slice(1)
 		.reduce((sum, point, k) => sum + distance(points[k] as Vec2, point), 0);
 	const room = nearest(spec, points, obstacles).gap;
+	const corners = points.map((point) => ({
+		x: round(point.x),
+		y: round(point.y),
+	}));
+	const timing = timePath(corners, agent.speed, agent.accel, path.start ?? 0);
 	return {
 		id: path.id,
 		agent: agent.id,
 		from: path.from,
 		to: path.to,
-		points: points.map((point) => [round(point.x), round(point.y), 0]),
+		points: corners.map((point) => [point.x, point.y, 0]),
 		length: round(length),
 		width: round(2 * agent.radius),
 		clearance: round(Math.max(0, room - agent.radius)),
+		start: timing.start,
+		times: timing.times.map(round),
+		duration: round(timing.duration),
 	};
 }
 

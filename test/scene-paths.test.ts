@@ -129,8 +129,8 @@ describe("scene path DSL", () => {
 		expect(
 			result.scene?.agents.map(({ path: _path, ...agent }) => agent),
 		).toEqual([
-			{ id: "person", radius: 0.25, height: 1.8 },
-			{ id: "robot", radius: 0.18, height: 0.1 },
+			{ id: "person", radius: 0.25, height: 1.8, speed: 1.2, accel: 1 },
+			{ id: "robot", radius: 0.18, height: 0.1, speed: 1, accel: 1 },
 		]);
 		expect(result.scene?.paths.map(({ path: _path, ...rest }) => rest)).toEqual(
 			[

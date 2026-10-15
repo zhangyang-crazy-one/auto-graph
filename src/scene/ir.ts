@@ -173,6 +173,10 @@ export interface SceneAgent {
 	radius: number;
 	/** Objects lower than this are in its way; higher ones it passes under. */
 	height: number;
+	/** Top speed on a straight, m/s. */
+	speed: number;
+	/** Acceleration and braking, m/s². */
+	accel: number;
 	path: ScenePath;
 }
 
@@ -194,6 +198,11 @@ export interface ScenePathSpec {
 	 * instead of skimming corners; 0 keeps the shortest route.
 	 */
 	comfort: number;
+	/**
+	 * When the agent sets off, in seconds. Paths given a start are checked
+	 * against each other for agents meeting on the way.
+	 */
+	start?: number;
 	path: ScenePath;
 }
 
@@ -259,6 +268,12 @@ export interface PlannedScenePath {
 	width: number;
 	/** Least distance from the agent's edge to anything along the way. */
 	clearance: number;
+	/** When the agent sets off, seconds (0 unless the path gives a start). */
+	start: number;
+	/** When it reaches each point, seconds from the scene's time 0. */
+	times: number[];
+	/** Seconds from setting off to arriving. */
+	duration: number;
 }
 
 export interface SolvedScene {
@@ -267,6 +282,14 @@ export interface SolvedScene {
 	objects: PlacedSceneObject[];
 	/** Gaps in the walls. */
 	openings: { id: string; wall: WallSide; at: number; width: number }[];
+	/** Agents that paths are planned for. */
+	agents: {
+		id: string;
+		radius: number;
+		height: number;
+		speed: number;
+		accel: number;
+	}[];
 	/** Planned routes, in declaration order (only those that were found). */
 	paths: PlannedScenePath[];
 	/** Objects that have no position yet, in declaration order. */

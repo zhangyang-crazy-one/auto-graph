@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### 3D scene: timed paths and Blender export of paths (#128, T5)
+
+- Paths are timed. An agent starts and stops at rest, speeds up and
+  brakes at `accel` and goes no faster than `speed`; at a corner it slows
+  to `speed · (1 + cos θ) / 2`. Agents take `speed` and `accel`; the
+  built-in person walks at 1.2 m/s, 1 m/s², and others default to 1 m/s
+  and 1 m/s². A path may set off later with `start <seconds>`.
+- `dge-scene` JSON: paths gain `start`, `times` (at each point) and
+  `duration`; the document gains `agents` (size, speed, acceleration).
+  The schema is updated.
+- `scene.path.meet` (warning): two paths given a `start` whose agents
+  would touch on the way, with when, where and a later start that avoids
+  it.
+- Top view: a tick for every second along each path.
+- Blender script:
+  - openings are strips across the wall line;
+  - paths are curves on the floor;
+  - each agent is a cylinder keyframed along its path on the path's
+    times, at 24 fps;
+  - `--frame N` renders a moment of the walk and `--animation out.mp4`
+    renders the whole walk.
+- `blender_check.py` also checks the openings, the path curves and the
+  agents' positions at every corner time. It now runs over the path
+  scenes (study-paths, office, storeroom) too. It is run at milestones,
+  not on every change.
+
 ### 3D scene: paths shape the layout (#128, T4)
 
 - A blocked path feeds its bottleneck back into the floor plan. The two

@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 
 /** The README examples live in examples/scene; test-only scenes in test/fixtures/scene. */
-const EXAMPLES = new Set(["study", "meeting", "showroom"]);
+const EXAMPLES = new Set([
+	"study",
+	"meeting",
+	"showroom",
+	"office",
+	"storeroom",
+]);
 
 export function sceneSourceUrl(name: string): URL {
 	return EXAMPLES.has(name)
