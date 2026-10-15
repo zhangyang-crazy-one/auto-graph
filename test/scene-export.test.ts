@@ -105,6 +105,55 @@ describe("dge-scene export", () => {
 	);
 });
 
+// A walk late in the day still fits Blender's frames: the timeline starts
+// when the first agent sets off.
+describe("Blender timeline", () => {
+	const python = process.env.DGE_BLENDER_PYTHON;
+	it.skipIf(python === undefined)(
+		"keys agents that set off 50,000 s in",
+		() => {
+			const yaml = [
+				"scene: late",
+				"bounds: { width: 8, depth: 4, height: 2.5 }",
+				"objects: {}",
+				"openings:",
+				"  w: { wall: west, at: 1, width: 1 }",
+				"  e: { wall: east, at: 1, width: 1 }",
+				"  w2: { wall: west, at: 3, width: 1 }",
+				"  e2: { wall: east, at: 3, width: 1 }",
+				"paths:",
+				"  - person from w to e, start 50000",
+				"  - person from w2 to e2, start 50003.3333",
+			].join("\n");
+			const dir = mkdtempSync(join(tmpdir(), "dge-scene-"));
+			try {
+				const script = join(dir, "scene.py");
+				const json = join(dir, "scene.json");
+				writeFileSync(
+					script,
+					renderSceneDsl(yaml, { format: "blender" }).content ?? "",
+				);
+				writeFileSync(json, renderSceneDsl(yaml).content ?? "");
+				const output = execFileSync(
+					python as string,
+					[
+						new URL("./support/blender_check.py", import.meta.url).pathname,
+						script,
+						json,
+					],
+					{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+				);
+				const result = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
+				expect(result.problems).toEqual([]);
+				expect(result.corners).toBe(4);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		},
+		120_000,
+	);
+});
+
 // #130: geometry that overflows is left out (listed as unplaced), so every
 // document written is a valid dge-scene v1 document.
 describe("dge-scene export of overflowing geometry", () => {

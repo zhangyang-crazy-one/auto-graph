@@ -98,6 +98,30 @@ interface Routed {
 	shortest: number;
 }
 
+/** Room a path keeps beyond its clearance by default (as the DSL). */
+const DEFAULT_COMFORT = 0.15;
+
+/**
+ * Paths and agents built without the DSL (from code, or stored before a
+ * field existed) get the DSL's defaults instead of undefined.
+ */
+function withPathDefaults(path: ScenePathSpec): ScenePathSpec {
+	return {
+		...path,
+		via: path.via ?? [],
+		clearance: Number.isFinite(path.clearance) ? path.clearance : 0,
+		comfort: Number.isFinite(path.comfort) ? path.comfort : DEFAULT_COMFORT,
+	};
+}
+
+function withAgentDefaults(agent: SceneAgent): SceneAgent {
+	return {
+		...agent,
+		speed: agent.speed > 0 ? agent.speed : 1,
+		accel: agent.accel > 0 ? agent.accel : 1,
+	};
+}
+
 /** Points nudged this far off grown footprints so they count as outside. */
 const EPS = 1e-6;
 /** Where an agent stands is this much (3 mm) off what it reaches. */
@@ -114,36 +138,59 @@ export function planPaths(
 	const paths: PlannedScenePath[] = [];
 	const diagnostics: SceneDiagnostic[] = [];
 	const bottlenecks: PathBottleneck[] = [];
-	const agents = new Map(spec.agents.map((agent) => [agent.id, agent]));
+	const agents = new Map(
+		spec.agents.map((agent) => [agent.id, withAgentDefaults(agent)]),
+	);
 	const openings = new Map(
 		spec.openings.map((opening) => [opening.id, opening]),
 	);
 
 	const routed: Routed[] = [];
-	for (const path of spec.paths) {
+	for (const given of spec.paths) {
+		const path = withPathDefaults(given);
 		const agent = agents.get(path.agent) as SceneAgent;
 		const obstacles = [...placed.values()].filter(
 			(item) => item.z < agent.height,
 		);
-		const narrow = [path.from, ...path.via, path.to]
-			.map((id) => openings.get(id))
-			.find(
-				(opening): opening is SceneOpening =>
-					opening !== undefined && opening.width < 2 * agent.radius,
-			);
-		if (narrow !== undefined) {
+		const places = [path.from, ...path.via, path.to];
+		// A place without a position (left out of the layout) cannot be
+		// walked to.
+		const lost = places.filter((id) => !openings.has(id) && !placed.has(id));
+		if (lost.length > 0) {
 			diagnostics.push({
 				severity: "error",
-				code: "scene.path.opening-narrow",
-				message: `"${agent.id}" (${round(2 * agent.radius)} m wide) does not fit through "${narrow.id}" (${round(narrow.width)} m).`,
-				objects: [narrow.id],
+				code: "scene.path.unplaced",
+				message: `"${path.id}" goes to ${lost.map((id) => `"${id}"`).join(", ")}, which has no position.`,
+				objects: lost,
 				path: path.path,
-				hint: `Widen "${narrow.id}" or use a narrower agent.`,
-				detail: { width: round(narrow.width), needs: round(2 * agent.radius) },
+				hint: "Fix what keeps it out of the layout (see its diagnostic).",
 			});
 			continue;
 		}
 		const reach = agent.radius + path.clearance;
+		// An opening must take the agent and its clearance on both sides.
+		const narrow = places
+			.map((id) => openings.get(id))
+			.find(
+				(opening): opening is SceneOpening =>
+					opening !== undefined && opening.width < 2 * reach - EPS,
+			);
+		if (narrow !== undefined) {
+			const needs = 2 * reach;
+			diagnostics.push({
+				severity: "error",
+				code: "scene.path.opening-narrow",
+				message:
+					path.clearance > 0
+						? `"${agent.id}" (${round(2 * agent.radius)} m wide, ${round(path.clearance)} m clear each side) does not fit through "${narrow.id}" (${round(narrow.width)} m; it needs ${round(needs)} m).`
+						: `"${agent.id}" (${round(2 * agent.radius)} m wide) does not fit through "${narrow.id}" (${round(narrow.width)} m).`,
+				objects: [narrow.id],
+				path: path.path,
+				hint: `Widen "${narrow.id}" or use a narrower agent${path.clearance > 0 ? " or less clearance" : ""}.`,
+				detail: { width: round(narrow.width), needs: round(needs) },
+			});
+			continue;
+		}
 		const found = route(spec, path, obstacles, placed, openings, reach);
 		if (found !== undefined) {
 			routed.push({
@@ -254,7 +301,7 @@ export function planPaths(
 							reason === "budget"
 								? "stepping aside would take one more than 15 % over its shortest route"
 								: reason === "fixed"
-									? "both keep their shortest routes (comfort 0)"
+									? "a path with comfort 0 keeps its shortest route"
 									: "the lanes were not worked out within the round limit"
 						}.`,
 						path: b.path.path,
@@ -279,7 +326,11 @@ export function planPaths(
 				.map((leg) => leg[0] as Vec2)
 				.concat([item.legs.at(-1)?.at(-1) as Vec2]),
 		);
-		if (result.length > 2 * direct && result.length - direct > 1) {
+		if (
+			direct > 0.01 &&
+			result.length > 2 * direct &&
+			result.length - direct > 1
+		) {
 			diagnostics.push({
 				severity: "info",
 				code: "scene.path.detour",
@@ -361,24 +412,30 @@ function route(
 		place(id, spec, placed, openings, reach),
 	);
 	const starts = (places[0] as Place).stands.filter(free);
-	if (starts.length === 0) return undefined;
-	let at = starts[0] as Vec2;
-	const legs: Vec2[][] = [];
-	for (const next of places.slice(1)) {
-		let leg: Vec2[] | undefined;
-		for (const stand of next.stands) {
-			if (!free(stand)) continue;
-			leg = path.orthogonal
-				? orthogonalLeg(at, stand, grown, spec, reach)
-				: anyAngleLeg(at, stand, grown, room);
-			if (leg !== undefined) break;
+	// Every free stand at the start is tried in turn: the first may sit in
+	// a pocket the others are not in.
+	for (const first of starts) {
+		let at = first;
+		const legs: Vec2[][] = [];
+		for (const next of places.slice(1)) {
+			let leg: Vec2[] | undefined;
+			for (const stand of next.stands) {
+				if (!free(stand)) continue;
+				leg = path.orthogonal
+					? orthogonalLeg(at, stand, grown, spec, reach)
+					: anyAngleLeg(at, stand, grown, room);
+				if (leg !== undefined) break;
+			}
+			if (leg === undefined) break;
+			const tight = simplify(leg);
+			legs.push(tight);
+			at = tight.at(-1) as Vec2;
 		}
-		if (leg === undefined) return undefined;
-		const tight = simplify(leg);
-		legs.push(tight);
-		at = tight.at(-1) as Vec2;
+		if (legs.length === places.length - 1) {
+			return { legs, space: { boxes: grown, room } };
+		}
 	}
-	return { legs, space: { boxes: grown, room } };
+	return undefined;
 }
 
 /** Legs joined into one polyline; the joints (vias) stay fixed. */
@@ -396,6 +453,84 @@ function joinLegs(legs: readonly Vec2[][]): {
 		});
 	});
 	return { points, fixed };
+}
+
+/**
+ * Places that cannot reach the largest group of places that reach each
+ * other; empty when the groups tie (then nothing stands out).
+ */
+function cutOff(
+	places: readonly string[],
+	connected: (a: string, b: string) => boolean,
+): string[] {
+	const unique = [...new Set(places)];
+	const group = new Map(unique.map((id, k) => [id, k]));
+	const find = (id: string): number => {
+		let k = group.get(id) as number;
+		while (group.get(unique[k] as string) !== k)
+			k = group.get(unique[k] as string) as number;
+		return k;
+	};
+	for (let i = 0; i < unique.length; i += 1) {
+		for (let j = i + 1; j < unique.length; j += 1) {
+			const a = unique[i] as string;
+			const b = unique[j] as string;
+			if (find(a) === find(b)) continue;
+			if (connected(a, b)) group.set(unique[find(b)] as string, find(a));
+		}
+	}
+	const sizes = new Map<number, number>();
+	for (const id of unique) sizes.set(find(id), (sizes.get(find(id)) ?? 0) + 1);
+	const largest = Math.max(...sizes.values());
+	const leaders = [...sizes].filter(([, size]) => size === largest);
+	if (leaders.length !== 1) return [];
+	const main = (leaders[0] as [number, number])[0];
+	return unique.filter((id) => find(id) !== main);
+}
+
+/** Whether a place has a spot an agent of this reach can stand at. */
+function standsFree(
+	id: string,
+	spec: SceneSpec,
+	obstacles: readonly PathObstacle[],
+	placed: ReadonlyMap<string, PathObstacle>,
+	openings: ReadonlyMap<string, SceneOpening>,
+	reach: number,
+): boolean {
+	const grown = obstacles.map((item) => grownBox(item.shape, reach));
+	return place(id, spec, placed, openings, reach).stands.some(
+		(point) =>
+			point.x >= reach - EPS &&
+			point.x <= spec.bounds.width - reach + EPS &&
+			point.y >= reach - EPS &&
+			point.y <= spec.bounds.depth - reach + EPS &&
+			!grown.some((box) => insideOpen(point, box)),
+	);
+}
+
+/** What an object ultimately stands on (itself when on the floor). */
+function rootSupport(
+	id: string,
+	spec: SceneSpec,
+	placed: ReadonlyMap<string, PathObstacle>,
+): string {
+	const supportOf = new Map(
+		spec.relations.flatMap((relation) =>
+			relation.kind === "on" ? [[relation.subject, relation.support]] : [],
+		),
+	);
+	let at = id;
+	const seen = new Set<string>();
+	for (
+		let next = supportOf.get(at);
+		next !== undefined;
+		next = supportOf.get(at)
+	) {
+		if (seen.has(next) || !placed.has(next)) break;
+		seen.add(next);
+		at = next;
+	}
+	return at;
 }
 
 /** Where an agent stands to reach a place, best first. */
@@ -421,7 +556,9 @@ function place(
 						: { x: width - inset, y: at };
 		return { id, stands: [stand] };
 	}
-	const item = placed.get(id) as PathObstacle;
+	// Something standing on a support (a lamp on a desk) is reached from
+	// where one reaches the support it stands on.
+	const item = placed.get(rootSupport(id, spec, placed)) as PathObstacle;
 	const { shape } = item;
 	// The front first, snapped to the nearest world axis, then its left,
 	// right and back (as seen facing the front).
@@ -631,10 +768,16 @@ function planned(
 		.slice(1)
 		.reduce((sum, point, k) => sum + distance(points[k] as Vec2, point), 0);
 	const room = nearest(spec, points, obstacles).gap;
-	const corners = points.map((point) => ({
-		x: round(point.x),
-		y: round(point.y),
-	}));
+	// Corners that round to the same point are one corner.
+	const corners: Vec2[] = [];
+	for (const point of points) {
+		const at = { x: round(point.x), y: round(point.y) };
+		const last = corners.at(-1);
+		if (last === undefined || last.x !== at.x || last.y !== at.y) {
+			corners.push(at);
+		}
+	}
+
 	const timing = timePath(corners, agent.speed, agent.accel, path.start ?? 0);
 	return {
 		id: path.id,
@@ -790,14 +933,40 @@ function bottleneck(
 	};
 	let thin = try_(1e-4);
 	if (thin === undefined) {
+		// Even a point cannot get through: name the places (ends or vias)
+		// with no free spot to stand at; else those cut off from the rest.
+		const places = [path.from, ...path.via, path.to];
+		let shut = places.filter(
+			(id) => !standsFree(id, spec, obstacles, placed, openings, 1e-4),
+		);
+		if (shut.length === 0)
+			shut = cutOff(
+				places,
+				(a, b) =>
+					route(
+						spec,
+						{ ...path, from: a, via: [], to: b },
+						obstacles,
+						placed,
+						openings,
+						1e-4,
+					) !== undefined,
+			);
+		const named = shut.map((id) => `"${id}"`).join(", ");
 		return {
 			diagnostic: {
 				severity: "error",
 				code: "scene.path.blocked",
-				message: `"${agent.id}" cannot get from "${path.from}" to "${path.to}" at all: one end is shut in.`,
-				objects: [path.from, path.to],
+				message:
+					shut.length > 0
+						? `"${agent.id}" cannot get from "${path.from}" to "${path.to}" at all: ${named} ${shut.length === 1 ? "is" : "are"} shut in.`
+						: `"${agent.id}" cannot get from "${path.from}" to "${path.to}" at all: there is no way through between them.`,
+				objects: shut.length > 0 ? shut : [path.from, path.to],
 				path: path.path,
-				hint: "Move what surrounds the ends, or pick other places.",
+				hint:
+					shut.length > 0
+						? `Move what surrounds ${named}, or pick other places.`
+						: "Open a way between the places, or pick other places.",
 			},
 		};
 	}

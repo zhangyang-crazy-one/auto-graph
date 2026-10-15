@@ -794,6 +794,12 @@ describe("paths shape the layout (#128 T4)", () => {
 				count_(off, blockedPaths),
 			);
 			expect(count_(on, others)).toBeLessThanOrEqual(count_(off, others));
+			// A path routed without making way is routed with it.
+			const blocked = (scene: SolvedScene) =>
+				scene.diagnostics
+					.filter((d) => d.code === "scene.path.blocked")
+					.map((d) => JSON.stringify(d.path));
+			for (const key of blocked(on)) expect(blocked(off)).toContain(key);
 			expect(clearanceFaults(on, spec)).toEqual([]);
 		}
 	});
@@ -931,5 +937,207 @@ describe("review findings on #133 and #134", () => {
 					?.detail?.overhang ?? 0,
 			);
 		expect(overhang(on)).toBeLessThanOrEqual(overhang(off) + 1e-9);
+	});
+});
+
+describe("self-review findings on #129 and #133–#135", () => {
+	it("reports a path to an object left out of the layout instead of crashing", () => {
+		const result = normalizeSceneDsl({
+			scene: "t",
+			bounds: { width: 4, depth: 4 },
+			openings: { d: { wall: "south", at: 1, width: 1 } },
+			objects: { big: { size: [1e308, 1, 1] }, a: { size: [1, 1, 1] } },
+			paths: ["person from d to big"],
+		});
+		const scene = solveScene(result.scene as SceneSpec);
+		expect(scene.diagnostics.map((d) => d.code)).toContain(
+			"scene.path.unplaced",
+		);
+	});
+
+	it("checks clearance through openings and reports the doorway's own room", () => {
+		const blocked = solve({
+			openings: {
+				d: { wall: "south", at: 2, width: 0.6 },
+				e: { wall: "north", at: 2, width: 1 },
+			},
+			objects: {},
+			paths: ["person from d to e, clearance 0.2"],
+		});
+		expect(blocked.diagnostics[0]).toMatchObject({
+			code: "scene.path.opening-narrow",
+			detail: { width: 0.6, needs: 0.9 },
+		});
+		// Just enough: 0.5 m person and 0.05 m each side through 0.6 m.
+		const through = solve({
+			openings: {
+				d: { wall: "south", at: 2, width: 0.6 },
+				e: { wall: "north", at: 2, width: 1 },
+			},
+			objects: {},
+			paths: ["person from d to e, clearance 0.05"],
+		});
+		expect(through.paths).toHaveLength(1);
+		expect(through.paths[0]?.clearance).toBeGreaterThanOrEqual(0.05);
+	});
+
+	it("reaches something standing on a support from the support's sides", () => {
+		const scene = solve({
+			openings: { d: { wall: "south", at: 1, width: 1 } },
+			objects: {
+				desk: { size: [1.4, 0.7, 0.75] },
+				lamp: { size: [0.2, 0.2, 0.4] },
+			},
+			relations: ["desk against wall north", "lamp on desk"],
+			paths: ["person from d to lamp"],
+		});
+		expect(scene.paths).toHaveLength(1);
+		const desk = scene.objects.find((object) => object.id === "desk");
+		expect(scene.paths[0]?.points.at(-1)?.[1]).toBeLessThan(
+			desk?.aabb.min[1] ?? 0,
+		);
+	});
+
+	it("tries the other stands when the first one is boxed in", () => {
+		const scene = solve({
+			bounds: { width: 6, depth: 6, height: 2.5 },
+			openings: { d: { wall: "north", at: 3, width: 1 } },
+			objects: {
+				desk: { size: [1.2, 0.6, 0.75], position: [3, 3] },
+				w1: { size: [2.2, 0.2, 1], position: [3, 1.6] },
+				w2: { size: [0.2, 1.6, 1], position: [1.8, 2.3] },
+				w3: { size: [0.2, 1.6, 1], position: [4.2, 2.3] },
+			},
+			paths: ["person from desk to d"],
+		});
+		expect(scene.valid).toBe(true);
+		// Set off from the desk's back (north), not its boxed-in front.
+		expect(scene.paths[0]?.points[0]?.[1]).toBeGreaterThan(3.3);
+	});
+
+	it("names a via that is shut in", () => {
+		const scene = solve({
+			bounds: { width: 6, depth: 6, height: 2.5 },
+			openings: {
+				d: { wall: "south", at: 1, width: 1 },
+				e: { wall: "south", at: 5, width: 1 },
+			},
+			objects: {
+				box: { size: [0.4, 0.4, 1], position: [3, 3] },
+				n: { size: [2, 0.2, 1], position: [3, 4] },
+				s: { size: [2, 0.2, 1], position: [3, 2] },
+				w: { size: [0.2, 2.2, 1], position: [2, 3] },
+				ea: { size: [0.2, 2.2, 1], position: [4, 3] },
+			},
+			paths: ["person from d to e, via box"],
+		});
+		const blocked = scene.diagnostics.find(
+			(d) => d.code === "scene.path.blocked",
+		);
+		expect(blocked?.message).toContain('"box" is shut in');
+		expect(blocked?.objects).toEqual(["box"]);
+	});
+
+	it("keeps the built-in walking pace for a declared person", () => {
+		const scene = solve({
+			agents: { person: { radius: 0.3, height: 1.8 } },
+			objects: {},
+			openings: { d: { wall: "south", at: 2, width: 1 } },
+			paths: [],
+		});
+		expect(scene.agents.find((agent) => agent.id === "person")).toMatchObject({
+			radius: 0.3,
+			speed: 1.2,
+			accel: 1,
+		});
+	});
+
+	it("refuses openings that overlap on a wall", () => {
+		const result = parse({
+			openings: {
+				d1: { wall: "south", at: 1, width: 1 },
+				d2: { wall: "south", at: 1.2, width: 1 },
+			},
+			objects: {},
+		});
+		expect(result.diagnostics[0]?.code).toBe("validate.scene.opening-overlap");
+	});
+
+	it("solves specs built in code without the newer path and agent fields", () => {
+		const spec = parse({
+			openings: {
+				a: { wall: "west", at: 2, width: 1 },
+				b: { wall: "east", at: 2, width: 1 },
+			},
+			objects: {},
+			paths: ["person from a to b"],
+		}).scene as SceneSpec;
+		const old = {
+			...spec,
+			agents: spec.agents.map(({ speed: _s, accel: _a, ...agent }) => agent),
+			paths: spec.paths.map(({ comfort: _c, ...path }) => path),
+		} as unknown as SceneSpec;
+		const scene = solveScene(old);
+		const numbers = JSON.stringify(scene.paths);
+		expect(numbers).not.toContain("null");
+		expect(scene.paths[0]?.duration).toBeGreaterThan(0);
+	});
+
+	it("makes way at each narrow place of one path in turn", () => {
+		const value = (makeWay: boolean) => ({
+			makeWay,
+			bounds: { width: 8, depth: 4, height: 2.5 },
+			openings: {
+				w: { wall: "west", at: 2, width: 1 },
+				e: { wall: "east", at: 2, width: 1 },
+			},
+			objects: { c1: { size: [0.6, 3.3, 1] }, c2: { size: [0.6, 3.3, 1] } },
+			paths: ["person from w to e"],
+		});
+		expect(solve(value(false)).paths).toHaveLength(0);
+		const scene = solve(value(true));
+		expect(scene.paths).toHaveLength(1);
+		expect(
+			scene.diagnostics.filter((d) => d.code === "scene.path.made-way"),
+		).toHaveLength(2);
+	});
+
+	it("keeps the layout and claims nothing when no way can be made", () => {
+		const value = (makeWay: boolean) => ({
+			makeWay,
+			bounds: { width: 8, depth: 4, height: 2.5 },
+			openings: {
+				w: { wall: "west", at: 2, width: 1 },
+				e: { wall: "east", at: 2, width: 1 },
+			},
+			objects: { a: { size: [0.6, 3.75, 1] }, b: { size: [0.6, 3.75, 1] } },
+			relations: ["a align y with b"],
+			paths: ["person from w to e"],
+		});
+		const on = solve(value(true));
+		expect(on.objects).toEqual(solve(value(false)).objects);
+		expect(on.diagnostics.some((d) => d.code === "scene.path.made-way")).toBe(
+			false,
+		);
+	});
+
+	it("moves the support when what blocks the way stands on it", () => {
+		const value = (makeWay: boolean) => ({
+			makeWay,
+			openings: { door: { wall: "south", at: 0.5, width: 0.9 } },
+			objects: {
+				goal: { size: [1.2, 0.6, 0.75], position: [2, 3.6] },
+				desk: { size: [2.9, 0.5, 0.75] },
+				tray: { size: [3.3, 0.4, 0.05] },
+			},
+			relations: ["tray on desk"],
+			paths: ["person from door to goal"],
+		});
+		expect(solve(value(false)).paths).toHaveLength(0);
+		const scene = solve(value(true));
+		expect(scene.paths).toHaveLength(1);
+		expect(
+			scene.diagnostics.find((d) => d.code === "scene.path.made-way")?.objects,
+		).toEqual(["desk"]);
 	});
 });

@@ -47,15 +47,25 @@ interface Aisle {
 	paths: string[];
 }
 
-/** The aisles so far, widened or joined by new bottlenecks. */
+/**
+ * The aisles so far, widened or joined by new bottlenecks. A thing at a
+ * bottleneck that the floor plan cannot move itself (an object standing
+ * on a support) is replaced by what it stands on; pairs the floor plan
+ * cannot hold apart (two walls, a pinned object) are left out.
+ */
 function widen(
 	aisles: readonly Aisle[],
 	bottlenecks: readonly PathBottleneck[],
 	comfortable: boolean,
+	floorOf: (id: string) => string | undefined,
 ): Aisle[] {
 	const out = aisles.map((aisle) => ({ ...aisle, paths: [...aisle.paths] }));
 	for (const bottleneck of bottlenecks) {
-		const pair = [...bottleneck.between].sort() as [string, string];
+		const a = floorOf(bottleneck.between[0]);
+		const b = floorOf(bottleneck.between[1]);
+		if (a === undefined || b === undefined || a === b) continue;
+		if (a.startsWith("wall:") && b.startsWith("wall:")) continue;
+		const pair = [a, b].sort() as [string, string];
 		const gap =
 			bottleneck.needs +
 			AISLE_SLACK +
@@ -74,8 +84,99 @@ function widen(
 	return out;
 }
 
-function blockedCount(diagnostics: readonly SceneDiagnostic[]): number {
-	return diagnostics.filter((d) => d.code === "scene.path.blocked").length;
+/** Blocked paths, each with how much width it is missing (∞: shut in). */
+function blockage(
+	diagnostics: readonly SceneDiagnostic[],
+): Map<string, number> {
+	const out = new Map<string, number>();
+	for (const d of diagnostics) {
+		if (d.code !== "scene.path.blocked") continue;
+		const width = d.detail?.width;
+		const needs = d.detail?.needs;
+		out.set(
+			JSON.stringify(d.path ?? []),
+			typeof width === "number" && typeof needs === "number"
+				? needs - width
+				: Number.POSITIVE_INFINITY,
+		);
+	}
+	return out;
+}
+
+/**
+ * Whether `after` is a step forward from `before`: no path blocked that
+ * was clear, and fewer paths blocked, or less width missing, or (a path
+ * with several narrow places) the narrowest one passed for another.
+ */
+function progress(
+	before: readonly SceneDiagnostic[],
+	after: readonly SceneDiagnostic[],
+	aisles: readonly Aisle[],
+): boolean {
+	const was = blockage(before);
+	const now = blockage(after);
+	if ([...now.keys()].some((key) => !was.has(key))) return false;
+	if (now.size < was.size) return true;
+	const missing = (map: Map<string, number>) =>
+		[...map.values()].reduce((sum, value) => sum + value, 0);
+	if (missing(now) < missing(was) - 1e-6) return true;
+	// Same count and shortfall: progress only if the narrowest places are
+	// new ones (the old ones are held open now).
+	const held = new Set(aisles.map((aisle) => aisle.between.join("|")));
+	const places = (list: readonly SceneDiagnostic[]) =>
+		list
+			.filter((d) => d.code === "scene.path.blocked")
+			.map((d) => [...(d.objects ?? [])].sort().join("|"));
+	const before_ = new Set(places(before));
+	return places(after).some((key) => !before_.has(key) && !held.has(key));
+}
+
+/** Fewer paths blocked, or as many with less width missing. */
+function better(
+	before: readonly SceneDiagnostic[],
+	after: readonly SceneDiagnostic[],
+): boolean {
+	const was = blockage(before);
+	const now = blockage(after);
+	if (now.size !== was.size) return now.size < was.size;
+	const missing = (map: Map<string, number>) =>
+		[...map.values()].reduce((sum, value) => sum + value, 0);
+	return missing(now) < missing(was) - 1e-6;
+}
+
+/** Whether an aisle is as wide as it should be in the final layout. */
+function aisleHolds(
+	aisle: Aisle,
+	placed: ReadonlyMap<string, Placement>,
+	spec: SceneSpec,
+): boolean {
+	const box = (id: string) => {
+		const placement = placed.get(id);
+		return placement === undefined ? undefined : output(placement).aabb;
+	};
+	const [a, b] = aisle.between;
+	const need = aisle.gap - 1e-6;
+	if (b.startsWith("wall:") || a.startsWith("wall:")) {
+		const wall = (a.startsWith("wall:") ? a : b).slice(5);
+		const it = box(a.startsWith("wall:") ? b : a);
+		if (it === undefined) return false;
+		const { width, depth } = spec.bounds;
+		const gap =
+			wall === "west"
+				? it.min[0]
+				: wall === "east"
+					? width - it.max[0]
+					: wall === "south"
+						? it.min[1]
+						: depth - it.max[1];
+		return gap >= need;
+	}
+	const p = box(a);
+	const q = box(b);
+	if (p === undefined || q === undefined) return false;
+	const apart = (k: 0 | 1) =>
+		Math.max(p.min[k] - q.max[k], q.min[k] - p.max[k]);
+	return Math.max(apart(0), apart(1)) >= need;
 }
 
 /**
@@ -120,7 +221,7 @@ function problemKey(diagnostic: SceneDiagnostic): string | undefined {
 		return undefined;
 	}
 	const objects = [...(diagnostic.objects ?? [])].sort().join(",");
-	return `${diagnostic.code}|${objects}`;
+	return `${diagnostic.code}|${objects}|${JSON.stringify(diagnostic.path ?? [])}`;
 }
 
 function severityRank(diagnostic: SceneDiagnostic): number {
@@ -137,10 +238,6 @@ function badness(diagnostic: SceneDiagnostic): number {
 	const gap = number("gap");
 	const need = number("minGap") ?? number("clearance");
 	return gap !== undefined && need !== undefined ? Math.max(need - gap, 0) : 0;
-}
-
-function round4(value: number): number {
-	return Math.round(value * 1e4) / 1e4;
 }
 
 /** Compass directions as angles counter-clockwise from east. */
@@ -223,7 +320,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	 * round reads the positions of the previous one (`prior`) wherever the
 	 * current one has none yet; rounds repeat until no turn changes.
 	 */
-	const round = (
+	const solveRound = (
 		prior: ReadonlyMap<string, Placement> | undefined,
 		aisles: readonly Aisle[],
 	) => {
@@ -349,9 +446,9 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 
 	/** Lay out, check and plan paths, with the given aisles held open. */
 	const attempt = (aisles: readonly Aisle[]) => {
-		let result = round(undefined, aisles);
+		let result = solveRound(undefined, aisles);
 		for (let again = 1; again < MAX_ROUNDS; again += 1) {
-			const next = round(result.placed, aisles);
+			const next = solveRound(result.placed, aisles);
 			const settled = [...next.placed].every(([id, placement]) => {
 				const before = result.placed.get(id);
 				return (
@@ -404,25 +501,43 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 
 	// Paths shape the layout: where a path is blocked, the two things at
 	// its bottleneck are held apart as wide as it needs, and the layout is
-	// solved again. A new layout is kept only if fewer paths are blocked
-	// and no other check got worse (see `worseOnOtherChecks`).
+	// solved again. A new layout is kept only if it makes progress (fewer
+	// paths blocked, less width missing, or a narrow place passed for the
+	// next one), blocks no path that was clear, and no other check got
+	// worse (see `worseOnOtherChecks`).
 	type Attempt = ReturnType<typeof attempt>;
+	const floorOf = (id: string): string | undefined => {
+		if (id.startsWith("wall:")) return id;
+		let at = id;
+		const seen = new Set<string>();
+		for (let up = supports.get(at); up !== undefined; up = supports.get(at)) {
+			if (seen.has(up)) return undefined;
+			seen.add(up);
+			at = up;
+		}
+		return byId.has(at) && byId.get(at)?.position === undefined
+			? at
+			: undefined;
+	};
 	let best = attempt([]);
 	let aisles: Aisle[] = [];
+	// Steps may pass one narrow place to reach the next; what is kept in
+	// the end is the best layout seen (the original on a tie).
+	let kept = { result: best, aisles };
 	for (let k = 0; spec.makeWay && k < MAKE_WAY_ROUNDS; k += 1) {
 		const wanted = best.planned.bottlenecks;
 		if (wanted.length === 0) break;
 		// A comfortable aisle first, the bare width if that does not fit.
 		let accepted: { aisles: Aisle[]; result: Attempt } | undefined;
 		for (const comfortable of [true, false]) {
-			const next = widen(aisles, wanted, comfortable);
+			const next = widen(aisles, wanted, comfortable, floorOf);
 			const same =
 				next.length === aisles.length &&
 				next.every((aisle, i) => aisle.gap === aisles[i]?.gap);
 			if (same) continue;
 			const tried = attempt(next);
 			if (
-				blockedCount(tried.found) < blockedCount(best.found) &&
+				progress(best.found, tried.found, aisles) &&
 				!worseOnOtherChecks(best.found, tried.found)
 			) {
 				accepted = { aisles: next, result: tried };
@@ -432,21 +547,36 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		if (accepted === undefined) break;
 		best = accepted.result;
 		aisles = accepted.aisles;
+		if (better(kept.result.found, best.found)) kept = { result: best, aisles };
 	}
+	best = kept.result;
+	aisles = kept.aisles;
 	const { placed, broken } = best;
 	diagnostics.push(...best.found);
-	for (const aisle of aisles) {
+	const stillBlocked = new Set(
+		best.found
+			.filter((d) => d.code === "scene.path.blocked")
+			.map((d) => spec.paths[Number(d.path?.[1])]?.id),
+	);
+	// Only the aisles that hold in the final layout are reported.
+	for (const held of aisles) {
+		// Reported for the paths it lets through, where it holds.
+		const aisle = {
+			...held,
+			paths: held.paths.filter((id) => !stillBlocked.has(id)),
+		};
+		if (aisle.paths.length === 0 || !aisleHolds(aisle, placed, spec)) continue;
 		const [a, b] = aisle.between.map((what) =>
 			what.startsWith("wall:") ? `the ${what.slice(5)} wall` : `"${what}"`,
 		);
 		diagnostics.push({
 			severity: "info",
 			code: "scene.path.made-way",
-			message: `${a} and ${b} are kept ${round4(aisle.gap)} m apart so ${aisle.paths.map((id) => `"${id}"`).join(", ")} can get through.`,
+			message: `${a} and ${b} are kept ${round(aisle.gap)} m apart so ${aisle.paths.map((id) => `"${id}"`).join(", ")} can get through.`,
 			objects: aisle.between.filter((what) => !what.startsWith("wall:")),
 			path: ["paths"],
 			hint: "Set `makeWay: false` to keep the layout as the relations alone leave it.",
-			detail: { gap: round4(aisle.gap) },
+			detail: { gap: round(aisle.gap) },
 		});
 	}
 
@@ -494,10 +624,10 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		})),
 		agents: spec.agents.map(({ id, radius, height, speed, accel }) => ({
 			id,
-			radius,
-			height,
-			speed,
-			accel,
+			radius: round(radius),
+			height: round(height),
+			speed: round(speed),
+			accel: round(accel),
 		})),
 		paths: best.planned.paths,
 		unplaced,

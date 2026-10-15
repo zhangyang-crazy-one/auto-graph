@@ -428,11 +428,9 @@ export function separateLanes(input: readonly LanePath[]): LanesResult {
 			const b = paths[j] as LanePath;
 			const conflict = findSharedRun(paths[i] as LanePath, b);
 			if (conflict === undefined) continue;
-			const p = b.points[conflict.segment] as Vec2;
-			const q = b.points[conflict.segment + 1] as Vec2;
 			shared.push({
 				paths: [i, j],
-				at: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 },
+				at: conflict.at,
 				reason: reasons.get(`${i}:${j}`) ?? "unresolved",
 			});
 		}
@@ -474,7 +472,9 @@ function pass(
 		failed.push(half.reason);
 	}
 	if (failed.includes("budget")) return { reason: "budget" };
-	if (failed.every((reason) => reason === "fixed")) return { reason: "fixed" };
+	// A path kept on its route (comfort 0) is the cause whenever one is
+	// involved: giving it comfort may let the two pass.
+	if (failed.includes("fixed")) return { reason: "fixed" };
 	return { reason: "narrow" };
 }
 
@@ -485,6 +485,8 @@ interface SharedRun {
 	normal: Vec2;
 	/** How far to step. */
 	offset: number;
+	/** Middle of the stretch the two share. */
+	at: Vec2;
 }
 
 function findSharedRun(a: LanePath, b: LanePath): SharedRun | undefined {
@@ -513,14 +515,31 @@ function findSharedRun(a: LanePath, b: LanePath): SharedRun | undefined {
 				Math.max(along(u), along(v)),
 			);
 			if (hi - lo < SHARED_RUN) continue;
-			// Signed side of the moving segment relative to the other line.
-			const right = { x: dir.y, y: -dir.x };
-			const lateral = (p.x - u.x) * right.x + (p.y - u.y) * right.y;
-			if (Math.abs(lateral) >= need - 1e-3) continue;
 			// People going the same way walk one after the other; only those
 			// meeting head-on need room to pass.
 			if (dir.x * odir.x + dir.y * odir.y >= 0) continue;
-			return { segment: s, normal: right, offset: need - lateral };
+			// Signed side of the moving segment relative to the other line, at
+			// both ends of the shared stretch (runs up to 5° apart converge).
+			const right = { x: dir.y, y: -dir.x };
+			const sideAt = (d: number) => {
+				const point = { x: p.x + dir.x * d, y: p.y + dir.y * d };
+				const t = Math.max(
+					0,
+					Math.min(other, (point.x - u.x) * odir.x + (point.y - u.y) * odir.y),
+				);
+				const foot = { x: u.x + odir.x * t, y: u.y + odir.y * t };
+				return (point.x - foot.x) * right.x + (point.y - foot.y) * right.y;
+			};
+			const lateral = Math.min(sideAt(lo), sideAt(hi));
+			const far = Math.max(sideAt(lo), sideAt(hi));
+			if (lateral >= need - 1e-3 || far <= -(need - 1e-3)) continue;
+			const middle = (lo + hi) / 2;
+			return {
+				segment: s,
+				normal: right,
+				offset: need - lateral,
+				at: { x: p.x + dir.x * middle, y: p.y + dir.y * middle },
+			};
 		}
 	}
 	return undefined;
