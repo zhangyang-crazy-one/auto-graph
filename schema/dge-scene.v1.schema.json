@@ -269,6 +269,13 @@
 				"additionalProperties": false
 			}
 		},
+		"unplaced": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"description": "Objects left out of `objects`: no finite position (see the diagnostics)."
+		},
 		"diagnostics": {
 			"type": "array",
 			"items": {
@@ -339,6 +346,7 @@
 		"objects",
 		"openings",
 		"paths",
+		"unplaced",
 		"diagnostics"
 	],
 	"additionalProperties": false

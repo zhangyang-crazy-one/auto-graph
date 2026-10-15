@@ -133,7 +133,7 @@ paths:
   - `supportedBy`；
   - 世界坐标包围盒 `aabb`。
 
-  文档还包含 `valid` 和诊断信息。
+  文档还包含 `valid`、诊断信息和 `unplaced`：位置、转角或尺寸算不出有限数值的物体会被排除在外并列在这里（诊断为 `scene.non-finite`），所以写出的每份文档都符合 v1 schema。
 - **`blender`**：嵌入了场景数据的 Blender（bpy）Python 脚本。
   - 每个方块的原点在底面中心，所以它在 Blender 里的位置就等于 `position`，绕 z 轴的旋转就是 `yaw`。
   - 顶面画一个三角标出正面。

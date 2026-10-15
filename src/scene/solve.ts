@@ -256,6 +256,33 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	const placed = result.placed;
 	diagnostics.push(...result.found);
 
+	// No output carries a number that is not finite: an object whose
+	// position, turn or box overflows (sizes near the largest double) is
+	// left out, listed as unplaced, and reported.
+	const broken = new Set<string>();
+	for (const placement of placed.values()) {
+		const out = output(placement);
+		const numbers = [
+			...out.position,
+			out.yaw,
+			...out.quaternion,
+			...out.size,
+			...out.aabb.min,
+			...out.aabb.max,
+		];
+		if (numbers.every(Number.isFinite)) continue;
+		broken.add(placement.object.id);
+		diagnostics.push({
+			severity: "error",
+			code: "scene.non-finite",
+			message: `"${placement.object.id}" ends up at a position, turn or size that is not a finite number; it is left out.`,
+			objects: [placement.object.id],
+			path: placement.object.path,
+			hint: "Use sizes, gaps and angles of reasonable magnitude.",
+		});
+	}
+	for (const id of broken) placed.delete(id);
+
 	check(spec, placed, diagnostics);
 	const planned = planPaths(spec, placed);
 	diagnostics.push(...planned.diagnostics);
@@ -264,6 +291,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		.filter((object) => !placed.has(object.id))
 		.map((object) => object.id);
 	for (const id of unplaced) {
+		if (broken.has(id)) continue;
 		const object = byId.get(id) as SceneObject;
 		const supportId = supports.get(id);
 		diagnostics.push({
@@ -277,29 +305,6 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			path: object.path,
 			hint: "Give its support a place, or remove the `on` relation.",
 		});
-	}
-	// Last line of defence: no valid scene carries a non-finite number.
-	for (const placement of placed.values()) {
-		const box = aabb(placement);
-		const numbers = [
-			placement.center.x,
-			placement.center.y,
-			placement.z,
-			placement.yaw,
-			...placement.object.size,
-			...box.min,
-			...box.max,
-		];
-		if (!numbers.every(Number.isFinite)) {
-			diagnostics.push({
-				severity: "error",
-				code: "scene.non-finite",
-				message: `"${placement.object.id}" ends up at a position or turn that is not a finite number.`,
-				objects: [placement.object.id],
-				path: placement.object.path,
-				hint: "Use sizes, gaps and angles of reasonable magnitude.",
-			});
-		}
 	}
 	const rank = { error: 0, warning: 1, info: 2 } as const;
 	const sorted = diagnostics

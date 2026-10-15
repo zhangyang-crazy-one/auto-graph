@@ -430,3 +430,72 @@ describe("random scene paths", () => {
 		}
 	});
 });
+
+describe("review findings on #129", () => {
+	// #131: a path out to a via and back along the same line keeps the turn.
+	it.each([
+		false,
+		true,
+	])("keeps a u-turn at a via (orthogonal: %s)", (orthogonal) => {
+		const scene = solve({
+			openings: {
+				a: { wall: "south", at: 1, width: 0.8 },
+				b: { wall: "south", at: 3, width: 0.8 },
+				c: { wall: "south", at: 2, width: 0.8 },
+			},
+			objects: {},
+			paths: [`person from a to c, via b${orthogonal ? ", orthogonal" : ""}`],
+		});
+		expect(scene.valid).toBe(true);
+		const path = scene.paths[0];
+		expect(path?.points.map(([x]) => x)).toEqual([1, 3, 2]);
+		expect(path?.length).toBeCloseTo(3, 6);
+	});
+
+	it("visits several vias in order", () => {
+		const scene = solve({
+			openings: {
+				a: { wall: "south", at: 0.5, width: 0.8 },
+				b: { wall: "south", at: 3.5, width: 0.8 },
+				c: { wall: "south", at: 1.5, width: 0.8 },
+				d: { wall: "south", at: 2.5, width: 0.8 },
+			},
+			objects: {},
+			paths: ["person from a to d, via b and c"],
+		});
+		expect(scene.paths[0]?.points.map(([x]) => x)).toEqual([
+			0.5, 3.5, 1.5, 2.5,
+		]);
+		expect(scene.paths[0]?.length).toBeCloseTo(6, 6);
+	});
+
+	// #132: right-angle routing costs nothing for floor nobody walks on.
+	it("routes across a large empty hall at once", () => {
+		const scene = solve({
+			bounds: { width: 200, depth: 200, height: 3 },
+			openings: {
+				entry: { wall: "south", at: 100, width: 1 },
+				exit: { wall: "north", at: 100, width: 1 },
+			},
+			objects: {},
+			paths: ["person from entry to exit, orthogonal"],
+		});
+		expect(scene.paths[0]?.points).toEqual([
+			[100, 0.253, 0],
+			[100, 199.747, 0],
+		]);
+		// Before: the walls were boxes reaching far outside the room, indexed
+		// in 128 mm buckets: a 40 m hall took about 0.7 s and 200 MB.
+		const start = performance.now();
+		solve({
+			bounds: { width: 200, depth: 200, height: 3 },
+			openings: {
+				entry: { wall: "south", at: 100, width: 1 },
+				exit: { wall: "north", at: 100, width: 1 },
+			},
+			objects: { baffle: { size: [199.4, 0.2, 2], position: [100, 100] } },
+			paths: ["person from entry to exit, orthogonal"],
+		});
+		expect(performance.now() - start).toBeLessThan(2000);
+	});
+});

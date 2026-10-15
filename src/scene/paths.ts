@@ -361,23 +361,25 @@ function orthogonalLeg(
 		height: (rect.y1 - rect.y0) * MM,
 	});
 	const { width, depth } = spec.bounds;
-	const far = Math.max(width, depth);
-	// The walls, pulled in by the agent's reach, as boxes around the room.
-	const walls = [
-		{ x0: -far, y0: -far, x1: width + far, y1: reach },
-		{ x0: -far, y0: depth - reach, x1: width + far, y1: depth + far },
-		{ x0: -far, y0: -far, x1: reach, y1: depth + far },
-		{ x0: width - reach, y0: -far, x1: width + far, y1: depth + far },
-	];
+	// The room, pulled in by the agent's reach, is the router's window: its
+	// grid lines stay inside it, so the walls need no boxes (boxes reaching
+	// far outside the room would fill the router's bucket index with
+	// floor area nobody walks on).
+	const window = toBox({
+		x0: reach,
+		y0: reach,
+		x1: width - reach,
+		y1: depth - reach,
+	});
 	const found = findSparseGridPath(
 		{ x: from.x * MM, y: from.y * MM },
 		{ x: to.x * MM, y: to.y * MM },
-		[...boxes, ...walls].map(toBox),
-		{ clearance: 2, bendPenalty: 200 },
+		boxes.map(toBox),
+		{ clearance: 2, bendPenalty: 200, window },
 	);
 	if (found === null) return undefined;
 	const points = found.map((point) => ({ x: point.x / MM, y: point.y / MM }));
-	// Trust but verify: the router keeps 2 mm off walls it was given.
+	// Trust but verify: no box entered, nothing past the pulled-in walls.
 	const room = { x0: reach, y0: reach, x1: width - reach, y1: depth - reach };
 	for (let k = 0; k + 1 < points.length; k += 1) {
 		const a = points[k] as Vec2;
@@ -641,13 +643,18 @@ function simplify(points: readonly Vec2[]): Vec2[] {
 		const last = out.at(-1);
 		if (last !== undefined && distance(last, point) < 1e-9) continue;
 		const before = out.at(-2);
+		// Only a corner the path runs straight on through is dropped; a
+		// turn back on the same line (out to a `via` and back) is kept.
 		if (
 			last !== undefined &&
 			before !== undefined &&
 			Math.abs(
 				(last.x - before.x) * (point.y - before.y) -
 					(last.y - before.y) * (point.x - before.x),
-			) < 1e-12
+			) < 1e-12 &&
+			(last.x - before.x) * (point.x - last.x) +
+				(last.y - before.y) * (point.y - last.y) >
+				0
 		) {
 			out[out.length - 1] = point;
 			continue;

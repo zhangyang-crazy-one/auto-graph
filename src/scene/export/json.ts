@@ -98,6 +98,11 @@ export const sceneDocumentSchema = z
 				.strict(),
 		),
 		paths: z.array(pathSchema),
+		unplaced: z
+			.array(z.string())
+			.describe(
+				"Objects left out of `objects`: no finite position (see the diagnostics).",
+			),
 		diagnostics: z.array(diagnosticSchema),
 	})
 	.strict();
@@ -126,6 +131,7 @@ export function sceneToDocument(scene: SolvedScene): SceneDocument {
 		objects: scene.objects,
 		openings: scene.openings,
 		paths: scene.paths,
+		unplaced: scene.unplaced,
 		diagnostics: scene.diagnostics,
 	};
 }

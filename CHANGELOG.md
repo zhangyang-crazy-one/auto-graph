@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Review fixes (#130, #131, #132)
+
+- Scene export: an object whose position, turn or size overflows is left
+  out of `objects`, listed in the new `unplaced` field of the dge-scene
+  document and reported as `scene.non-finite`, so every document (and the
+  Blender script built from it) is valid v1 with finite numbers (#130).
+- Paths: simplification drops only corners a path runs straight on
+  through; a turn back on the same line (out to a `via` and back) is kept,
+  so vias are always visited and lengths are right (#131).
+- Right-angle paths: the room is the sparse-grid router's window instead
+  of four wall boxes reaching far outside it, whose floor area filled the
+  router's 128 mm bucket index; an empty 40 m hall drops from about 0.7 s
+  to 1 ms, a blocked 200 m hall from 50 s to milliseconds (#132).
+
 ### Review fixes on earlier PRs (#117, #118)
 
 - Sequence diagrams: an explicit `deactivate` that closes a bar above its

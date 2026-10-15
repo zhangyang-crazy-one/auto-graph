@@ -133,7 +133,7 @@ Planned paths appear in the `dge-scene` JSON (`paths`: points, length, width, cl
   - `supportedBy`;
   - the world `aabb`.
 
-  The document also carries `valid` and the diagnostics.
+  The document also carries `valid`, the diagnostics and `unplaced`: objects left out because their position, turn or size would not be a finite number (reported as `scene.non-finite`), so every document written is a valid v1 document.
 - **`blender`** is a Python script for Blender (bpy) with the document embedded.
   - Every box has its origin at the bottom center, so its location is exactly `position` and its z rotation the `yaw`.
   - A triangle on top marks the front.
