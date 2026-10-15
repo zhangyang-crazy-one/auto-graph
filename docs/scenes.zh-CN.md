@@ -110,6 +110,7 @@ paths:
   - person from door to shelf, clearance 0.05
   - robot from door to shelf, orthogonal
   - person from chair to door, via lamp and table
+  - person from desk to door, comfort 0.3
 ```
 
 - **构型空间**：把智能体缩成一个点，挡路的物体都按“智能体半径 + `clearance`”外扩，墙也同样往里收。物体底部低于智能体高度才算挡路，所以矮机器人能从架在立柱上的桌面下方钻过去。
@@ -117,10 +118,16 @@ paths:
 - **路由**：
   - 默认求任意角度的最短路：在外扩后的轮廓角点上建可见图，用 A* 搜索。
   - 写了 `orthogonal` 时，改用 auto-graph 给图表连线布线的稀疏网格路由器，只走直角。
+- **优化**：最短路会贴着每个拐过的角走。和图表连线布线之后一样，每条路径再经过 auto-graph 自己的几道整理：
+  - **走在过道中间**：任意角度路径的拐点从所绕的物体旁移开，在过道允许时多留出至多 `comfort`（默认 0.15 m，`clearance` 之外），再重新拉紧。直角路径使用图表连线的通道居中：两次转弯之间的每一段移到所在过道的中线，同一过道里的多段均匀分开；连着端点的段保持在端点所在的线上。路径长度最多比最短路长 15%；`comfort 0` 保留最短路。
+  - **分道**：两条路径在同一段上迎面相遇时靠右走：一条向自己行进方向的右侧让开，直到两条色带刚好相接（让不开就换另一条，或者各让一半）。端点不动，在端点之后才让开。同向的路径共用一条道（一前一后走）。窄到无法错身的地方保持单行，并给出提示性诊断说明位置。
+  - **绕路**：路径长度超过各途经点之间直线距离的两倍（且多出 1 m 以上）时给出提示，说明有东西挡在直路上。
 - **检查**：每条路径都单独对照物体真实的旋转轮廓和墙壁检查一遍。输出里的 `clearance` 是智能体边缘到最近物体的距离。
 - **走不通时**：逐步缩小智能体，直到能走通为止。能通过的最宽智能体有多宽，路上最窄的地方就有多宽，于是报出这个瓶颈，例如：`"person" cannot get from "door" to "desk": the way between "cabinet" and the west wall is 0.4 m wide; it needs 0.5 m (0.1 m short).`。门洞比智能体窄时，单独报告。
 
-规划好的路径写进 `dge-scene` JSON 的 `paths`（折点、长度、宽度、净空），在俯视图里画成和智能体一样宽的色带；门洞在两处也都会出现。路径在过道中居中、平行路径分道、瓶颈反馈给布局、时间参数化和 Blender 导出，后续在 #128 中完成。
+规划好的路径写进 `dge-scene` JSON 的 `paths`（折点、长度、宽度、净空），在俯视图里画成和智能体一样宽的色带；门洞在两处也都会出现。`clearance` 仍是全程（含端点）的最小距离：智能体会一直走到目标跟前。瓶颈反馈给布局、时间参数化和 Blender 导出，后续在 #128 中完成。
+
+<img src="images/scene-office.top.svg" alt="examples/scene/office.yaml：人走在过道中间，迎面相遇时靠右；机器人走直角过道" width="100%">
 
 ## 输出
 
@@ -161,6 +168,9 @@ paths:
 | `scene.yaw.conflict` | 同一物体被指定了两个不同的转角 |
 | `scene.support.multiple`、`scene.support.cycle` | 一个物体放在两个物体上，或几个物体互相叠放成环 |
 | `scene.relation.off-floor` | 平面关系涉及放在其他物体上的物体（该关系不生效） |
+| `scene.path.blocked` | 走不通：瓶颈位置、宽度和所需宽度 |
+| `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
+| `scene.path.detour`（提示） | 路径长度超过途经点间直线距离的两倍 |
 
 ## 在 Blender 中核对
 

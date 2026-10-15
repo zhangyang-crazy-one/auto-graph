@@ -189,6 +189,11 @@ export interface ScenePathSpec {
 	clearance: number;
 	/** Turn only at right angles (aisles, rails) instead of any angle. */
 	orthogonal: boolean;
+	/**
+	 * Room the path tries to keep beyond `clearance`, walking mid-aisle
+	 * instead of skimming corners; 0 keeps the shortest route.
+	 */
+	comfort: number;
 	path: ScenePath;
 }
 

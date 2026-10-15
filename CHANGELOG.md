@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### 3D scene: refined paths (#128, T3)
+
+- Paths walk mid-aisle instead of skimming corners. Any-angle corners
+  slide away from what they turn round, keeping up to `comfort` (a new
+  path clause, default 0.15 m) beyond `clearance`, then are pulled tight.
+  Right-angle paths go through the channel centring that diagram edges
+  use, so runs move to the middle of their aisle and runs sharing an aisle
+  spread across it. No path grows more than 15 % over the shortest route;
+  `comfort 0` keeps the shortest route.
+- Lanes: two paths meeting head-on on a shared run keep right until their
+  bands just touch; ends and vias stay put. Paths going the same way share
+  a lane. Where the way is too narrow to pass, `scene.path.single-file`
+  (info) says where.
+- `scene.path.detour` (info): a path more than twice the straight line
+  between its places.
+- New example `examples/scene/office.yaml` with its top view in the docs.
+
 ### Review fixes (#130, #131, #132)
 
 - Scene export: an object whose position, turn or size overflows is left

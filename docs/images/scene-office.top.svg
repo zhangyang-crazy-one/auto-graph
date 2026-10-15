@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="896" height="696" viewBox="0 0 896 696" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M98 648V48M148 648V48M198 648V48M248 648V48M298 648V48M348 648V48M398 648V48M448 648V48M498 648V48M548 648V48M598 648V48M648 648V48M698 648V48M748 648V48M798 648V48M48 598H848M48 548H848M48 498H848M48 448H848M48 398H848M48 348H848M48 298H848M48 248H848M48 198H848M48 148H848M48 98H848" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="800" height="600" fill="none" stroke="#334155" stroke-width="2"/>
+<line x1="118" y1="648" x2="218" y2="648" stroke="#ffffff" stroke-width="4"/>
+<line x1="118" y1="648" x2="118" y2="640" stroke="#334155" stroke-width="2"/>
+<line x1="218" y1="648" x2="218" y2="640" stroke="#334155" stroke-width="2"/>
+<text x="168" y="666" font-size="10" fill="#334155" text-anchor="middle">door</text>
+<line x1="848" y1="243" x2="848" y2="153" stroke="#ffffff" stroke-width="4"/>
+<line x1="848" y1="243" x2="840" y2="243" stroke="#334155" stroke-width="2"/>
+<line x1="848" y1="153" x2="840" y2="153" stroke="#334155" stroke-width="2"/>
+<text x="862" y="202" font-size="10" fill="#334155" text-anchor="middle">side</text>
+<text x="48" y="664" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="148" y="664" font-size="10" fill="#64748b" text-anchor="middle">1</text>
+<text x="248" y="664" font-size="10" fill="#64748b" text-anchor="middle">2</text>
+<text x="348" y="664" font-size="10" fill="#64748b" text-anchor="middle">3</text>
+<text x="448" y="664" font-size="10" fill="#64748b" text-anchor="middle">4</text>
+<text x="548" y="664" font-size="10" fill="#64748b" text-anchor="middle">5</text>
+<text x="648" y="664" font-size="10" fill="#64748b" text-anchor="middle">6</text>
+<text x="748" y="664" font-size="10" fill="#64748b" text-anchor="middle">7</text>
+<text x="848" y="664" font-size="10" fill="#64748b" text-anchor="middle">8</text>
+<text x="40" y="651" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="551" font-size="10" fill="#64748b" text-anchor="end">1</text>
+<text x="40" y="451" font-size="10" fill="#64748b" text-anchor="end">2</text>
+<text x="40" y="351" font-size="10" fill="#64748b" text-anchor="end">3</text>
+<text x="40" y="251" font-size="10" fill="#64748b" text-anchor="end">4</text>
+<text x="40" y="151" font-size="10" fill="#64748b" text-anchor="end">5</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">6</text>
+<path d="M872 14l-5 12h10z" fill="#334155"/>
+<text x="872" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="108,118 248,118 248,48 108,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="178,125 183,118 173,118" fill="#1e3a8a"/>
+<polygon points="288,118 428,118 428,48 288,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="358,125 363,118 353,118" fill="#1e3a8a"/>
+<polygon points="468,118 608,118 608,48 468,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="538,125 543,118 533,118" fill="#1e3a8a"/>
+<polygon points="648,118 788,118 788,48 648,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="718,125 723,118 713,118" fill="#1e3a8a"/>
+<polygon points="328,403 568,403 568,293 328,293" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="448,410 453,403 443,403" fill="#1e3a8a"/>
+<polygon points="93,483 93,363 48,363 48,483" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="100,423 93,418 93,428" fill="#1e3a8a"/>
+<polygon points="93,333 93,213 48,213 48,333" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="100,273 93,268 93,278" fill="#1e3a8a"/>
+<polygon points="808,648 848,648 848,618 808,618" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="828,655 833,648 823,648" fill="#1e3a8a"/>
+<polygon points="798,98 848,98 848,48 798,48" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="823,105 828,98 818,98" fill="#1e3a8a"/>
+<path d="M168 622.7L292.39 242.39L538 143.3" fill="none" stroke="#0d9488" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M168 622.7L292.39 242.39L538 143.3" fill="none" stroke="#0d9488" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="168" cy="622.7" r="4" fill="#0d9488"/>
+<polygon points="538,143.3 527.78,142.03 531.52,151.3" fill="#0d9488"/>
+<path d="M358 143.3L240.61 231.6L152.32 505.21L168 622.7" fill="none" stroke="#c2410c" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M358 143.3L240.61 231.6L152.32 505.21L168 622.7" fill="none" stroke="#c2410c" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="358" cy="143.3" r="4" fill="#c2410c"/>
+<polygon points="168,622.7 171.77,613.12 161.85,614.44" fill="#c2410c"/>
+<path d="M822.7 198L178 143.3" fill="none" stroke="#7c3aed" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M822.7 198L178 143.3" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="822.7" cy="198" r="4" fill="#7c3aed"/>
+<polygon points="178,143.3 186.55,149.04 187.39,139.08" fill="#7c3aed"/>
+<path d="M118.3 273L822.7 198" fill="none" stroke="#0369a1" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M118.3 273L822.7 198" fill="none" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="118.3" cy="273" r="4" fill="#0369a1"/>
+<polygon points="822.7,198 813.22,193.98 814.28,203.92" fill="#0369a1"/>
+<path d="M789.7 629.7L789.7 423L111.3 423" fill="none" stroke="#be123c" stroke-opacity="0.16" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M789.7 629.7L789.7 423L111.3 423" fill="none" stroke="#be123c" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="789.7" cy="629.7" r="4" fill="#be123c"/>
+<polygon points="111.3,423 120.3,428 120.3,418" fill="#be123c"/>
+<text x="178" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk1</text>
+<text x="358" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk2</text>
+<text x="538" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk3</text>
+<text x="718" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk4</text>
+<text x="448" y="352" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">table</text>
+<text x="70.5" y="427" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">cabinet1</text>
+<text x="70.5" y="277" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">cabinet2</text>
+<text x="828" y="637" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">dock</text>
+<text x="823" y="77" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">plant</text>
+</svg>

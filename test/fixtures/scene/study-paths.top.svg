@@ -35,16 +35,16 @@
 <polygon points="187.5,298 180.5,293 180.5,303" fill="#1e3a8a"/>
 <polygon points="408,218 408,378 448,378 448,218" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
 <polygon points="401,298 408,303 408,293" fill="#1e3a8a"/>
-<path d="M108 522.7L110.5 250.5L152.7 83" fill="none" stroke="#0d9488" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M108 522.7L110.5 250.5L152.7 83" fill="none" stroke="#0d9488" stroke-width="2" stroke-linejoin="round"/>
+<path d="M108 522.7L95.5 250.5L152.7 83" fill="none" stroke="#0d9488" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M108 522.7L95.5 250.5L152.7 83" fill="none" stroke="#0d9488" stroke-width="2" stroke-linejoin="round"/>
 <circle cx="108" cy="522.7" r="4" fill="#0d9488"/>
-<polygon points="152.7,83 145.65,90.51 155.35,92.95" fill="#0d9488"/>
+<polygon points="152.7,83 145.06,89.9 154.52,93.13" fill="#0d9488"/>
 <path d="M108 517.7L417.7 408.3" fill="none" stroke="#c2410c" stroke-opacity="0.16" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M108 517.7L417.7 408.3" fill="none" stroke="#c2410c" stroke-width="2" stroke-linejoin="round"/>
 <circle cx="108" cy="517.7" r="4" fill="#c2410c"/>
 <polygon points="417.7,408.3 407.55,406.58 410.88,416.01" fill="#c2410c"/>
-<path d="M108 529.7L108 428.7L389.7 428.7L389.7 298" fill="none" stroke="#7c3aed" stroke-opacity="0.16" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M108 529.7L108 428.7L389.7 428.7L389.7 298" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linejoin="round"/>
+<path d="M108 529.7L108 479.25L389.7 479.25L389.7 298" fill="none" stroke="#7c3aed" stroke-opacity="0.16" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M108 529.7L108 479.25L389.7 479.25L389.7 298" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linejoin="round"/>
 <circle cx="108" cy="529.7" r="4" fill="#7c3aed"/>
 <polygon points="389.7,298 384.7,307 394.7,307" fill="#7c3aed"/>
 <text x="248" y="87" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">desk</text>

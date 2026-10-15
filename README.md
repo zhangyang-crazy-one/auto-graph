@@ -276,6 +276,10 @@ agh --input study.yaml --format blender --output study.py   # blender -b --pytho
 agh --input study.yaml --format svg --output study.svg       # the top view above
 ```
 
+**Paths.** `person from door to desk` plans a route a person (or a declared robot) can walk, kept clear of everything by its radius. It is routed like a diagram edge and tidied by the same passes: corners move off what they turn round so people walk mid-aisle, right-angle paths are centred in their aisles, and paths meeting head-on keep right. A path that cannot get through names the bottleneck and how much width is missing.
+
+<img src="docs/images/scene-office.top.svg" alt="examples/scene/office.yaml: people walk mid-aisle and keep right where they meet; a robot takes right-angle aisles" width="100%">
+
 Relations that cannot all hold, and finished scenes that fail a check, come back as diagnostics naming the objects involved. The output is written anyway with `valid: false`, so the problem can be seen. Everything about scenes is in [`docs/scenes.md`](docs/scenes.md).
 
 ## How it works

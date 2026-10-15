@@ -113,7 +113,7 @@ describe("scene path DSL", () => {
 			paths: [
 				"person from door to desk",
 				"robot from desk to door, via bin, clearance 5, orthogonal",
-				"person from door to desk",
+				"person from door to desk, comfort 0",
 			],
 		});
 		expect(result.diagnostics).toEqual([]);
@@ -142,6 +142,7 @@ describe("scene path DSL", () => {
 					via: [],
 					clearance: 0,
 					orthogonal: false,
+					comfort: 0.15,
 				},
 				{
 					id: "robot:desk->door",
@@ -151,6 +152,7 @@ describe("scene path DSL", () => {
 					via: ["bin"],
 					clearance: 0.05,
 					orthogonal: true,
+					comfort: 0.15,
 				},
 				{
 					id: "person:door->desk#2",
@@ -160,6 +162,7 @@ describe("scene path DSL", () => {
 					via: [],
 					clearance: 0,
 					orthogonal: false,
+					comfort: 0,
 				},
 			],
 		);
@@ -401,9 +404,17 @@ describe("random scene paths", () => {
 			minGap: 0.05,
 			openings: { door: { wall: "south", at: 0.7, width: 0.9 } },
 			objects,
+			// Some come back the other way (lanes), some turn at right angles.
 			paths: Object.keys(objects)
 				.filter(() => random() < 0.5)
-				.map((id) => `person from door to ${id}`),
+				.flatMap((id) => {
+					const roll = random();
+					if (roll < 0.25) {
+						return [`person from door to ${id}`, `person from ${id} to door`];
+					}
+					if (roll < 0.4) return [`person from door to ${id}, orthogonal`];
+					return [`person from door to ${id}`];
+				}),
 		};
 		const normalized = normalizeSceneDsl(value);
 		const spec = normalized.scene as SceneSpec;
@@ -497,5 +508,156 @@ describe("review findings on #129", () => {
 			paths: ["person from entry to exit, orthogonal"],
 		});
 		expect(performance.now() - start).toBeLessThan(2000);
+	});
+});
+
+describe("refined paths (#128 T3)", () => {
+	/** Least distance from a path's corners (not its ends) to any footprint. */
+	const cornerRoom = (scene: SolvedScene, index: number) => {
+		const points = scene.paths[index]?.points ?? [];
+		let least = Number.POSITIVE_INFINITY;
+		for (const [x = 0, y = 0] of points.slice(1, -1)) {
+			for (const object of scene.objects) {
+				const polygon = corners(
+					footprint(
+						{ x: object.position[0], y: object.position[1] },
+						object.size,
+						object.yaw,
+					),
+				);
+				least = Math.min(least, pointPolygon({ x, y }, polygon));
+			}
+		}
+		return least;
+	};
+	const study = (comfort?: string) => {
+		const parsed = parseSceneDsl(
+			comfort === undefined
+				? sceneSource("study-paths")
+				: sceneSource("study-paths").replace(/^(\s+- .+)$/gm, (line) =>
+						line.includes(" from ") ? `${line}, comfort ${comfort}` : line,
+					),
+		);
+		expect(parsed.diagnostics).toEqual([]);
+		const spec = parsed.scene as SceneSpec;
+		return { spec, scene: solveScene(spec) };
+	};
+
+	it("walks mid-aisle instead of skimming corners, within the length budget", () => {
+		const tight = study("0").scene;
+		const { spec, scene } = study();
+		expect(scene.valid).toBe(true);
+		expect(clearanceFaults(scene, spec)).toEqual([]);
+		// The person's turn beside seat4 sat on the corner of its footprint
+		// grown by the radius (0.25·√2 from the corner); now it keeps the
+		// default comfort, 0.15 m, more to the side.
+		expect(cornerRoom(tight, 0)).toBeCloseTo(0.25 * Math.SQRT2, 3);
+		expect(cornerRoom(scene, 0)).toBeGreaterThan(0.45);
+		// The robot's run past seat1 moves to the middle of the aisle south of
+		// it, with no extra turn.
+		expect(scene.paths[2]?.points).toHaveLength(
+			tight.paths[2]?.points.length ?? 0,
+		);
+		expect(scene.paths[2]?.points[1]?.[1]).toBeCloseTo(0.6875, 3);
+		scene.paths.forEach((path, index) => {
+			expect(path.length).toBeLessThanOrEqual(
+				1.15 * (tight.paths[index]?.length ?? 0) + 1e-6,
+			);
+		});
+	});
+
+	it("keeps right where two paths meet head-on", () => {
+		const value = (depth: number) => ({
+			bounds: { width: 8, depth, height: 2.5 },
+			objects: {
+				a: { size: [0.3, 0.3, 1], position: [0.5, depth / 2] },
+				b: { size: [0.3, 0.3, 1], position: [7.5, depth / 2] },
+			},
+			paths: ["person from a to b, comfort 0", "person from b to a, comfort 0"],
+		});
+		const value2 = value(2);
+		const scene = solve({
+			...value2,
+			objects: {
+				a: { ...value2.objects.a, front: "+x" },
+				b: { ...value2.objects.b, front: "-x" },
+			},
+		});
+		expect(scene.valid).toBe(true);
+		const [east, west] = scene.paths;
+		// Ends stay at the stands; the second path steps to its right (north
+		// when walking west) until the two bands just touch.
+		expect(west?.points[0]).toEqual(east?.points.at(-1));
+		const lane = (path: typeof east) => {
+			const points = path?.points ?? [];
+			for (let k = 0; k + 1 < points.length; k += 1) {
+				const [ax = 0, ay = 0] = points[k] ?? [];
+				const [bx = 0, by = 0] = points[k + 1] ?? [];
+				if ((ax - 4) * (bx - 4) <= 0 && ax !== bx) {
+					return ay + ((by - ay) * (4 - ax)) / (bx - ax);
+				}
+			}
+			return Number.NaN;
+		};
+		expect(lane(west) - lane(east)).toBeGreaterThanOrEqual(0.5 - 1e-6);
+		expect(
+			scene.diagnostics.filter((d) => d.code === "scene.path.single-file"),
+		).toEqual([]);
+
+		// A corridor too narrow to pass: single file, said so.
+		const narrow = solve({
+			...value(0.9),
+			objects: {
+				a: { size: [0.3, 0.3, 1], position: [0.5, 0.45], front: "+x" },
+				b: { size: [0.3, 0.3, 1], position: [7.5, 0.45], front: "-x" },
+			},
+		});
+		expect(narrow.paths).toHaveLength(2);
+		expect(narrow.diagnostics.map((d) => d.code)).toContain(
+			"scene.path.single-file",
+		);
+	});
+
+	it("leaves paths going the same way in one lane", () => {
+		const scene = solve({
+			bounds: { width: 8, depth: 2, height: 2.5 },
+			openings: { door: { wall: "west", at: 1, width: 0.9 } },
+			objects: {
+				a: { size: [0.3, 0.3, 1], position: [7.5, 1], front: "-x" },
+			},
+			paths: ["person from door to a", "person from door to a"],
+		});
+		expect(scene.paths[1]?.points).toEqual(scene.paths[0]?.points);
+	});
+
+	it("says when a path goes far round", () => {
+		const scene = solve({
+			bounds: { width: 6, depth: 6, height: 2.5 },
+			objects: {
+				screen: { size: [5, 0.2, 2], position: [3.5, 3] },
+				a: { size: [0.4, 0.4, 1], position: [5, 1.5], front: "+y" },
+				b: { size: [0.4, 0.4, 1], position: [5, 4.5] },
+			},
+			paths: ["person from a to b"],
+		});
+		const detour = scene.diagnostics.find(
+			(d) => d.code === "scene.path.detour",
+		);
+		expect(detour?.severity).toBe("info");
+		expect(detour?.message).toContain('"person:a->b"');
+		expect(scene.valid).toBe(true);
+	});
+
+	it("reads comfort and keeps the shortest route with comfort 0", () => {
+		const { scene } = study("0");
+		const { scene: before } = study("0");
+		expect(scene.paths).toEqual(before.paths);
+		expect(scene.paths[0]?.points[1]?.[0]).toBeCloseTo(0.625, 3);
+		const bad = parse({
+			objects: { a: { size: [1, 1, 1] } },
+			openings: { d: { wall: "south", at: 2, width: 1 } },
+			paths: ["person from d to a, comfort wide"],
+		});
+		expect(bad.diagnostics[0]?.message).toContain("`comfort` needs a length");
 	});
 });
