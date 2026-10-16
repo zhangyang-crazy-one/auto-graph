@@ -392,9 +392,61 @@
 				"heading": {
 					"type": "number",
 					"description": "True bearing of the scene's +y axis, degrees clockwise from north."
+				},
+				"projection": {
+					"oneOf": [
+						{
+							"type": "object",
+							"properties": {
+								"kind": {
+									"type": "string",
+									"const": "enu"
+								}
+							},
+							"required": ["kind"],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"kind": {
+									"type": "string",
+									"const": "utm"
+								},
+								"zone": {
+									"type": "number"
+								},
+								"hemisphere": {
+									"type": "string",
+									"enum": ["N", "S"]
+								},
+								"epsg": {
+									"type": "number"
+								}
+							},
+							"required": ["kind", "zone", "hemisphere", "epsg"],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"kind": {
+									"type": "string",
+									"const": "web-mercator"
+								},
+								"epsg": {
+									"type": "number",
+									"const": 3857
+								}
+							},
+							"required": ["kind", "epsg"],
+							"additionalProperties": false
+						}
+					],
+					"description": "How scene metres map to the Earth: a local east-north-up frame, or a map projection's grid (scene metres are its metres from the origin)."
 				}
 			},
-			"required": ["origin", "datum", "anchor", "heading"],
+			"required": ["origin", "datum", "anchor", "heading", "projection"],
 			"additionalProperties": false
 		},
 		"landmarks": {
