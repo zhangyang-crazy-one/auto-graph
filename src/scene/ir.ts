@@ -104,7 +104,10 @@ export type SceneRelation =
 	| (RelationBase & {
 			kind: "facing";
 			subject: string;
-			target: { object: string } | { direction: WallSide };
+			target:
+				| { object: string }
+				| { direction: WallSide }
+				| { landmark: string; point: { x: number; y: number } };
 	  })
 	| (RelationBase & {
 			kind: "rotate";
@@ -134,7 +137,9 @@ export type SceneRelation =
 	| (RelationBase & {
 			kind: "around";
 			subjects: string[];
+			/** An object, or a landmark (then `point` is where it is). */
 			center: string;
+			point?: { x: number; y: number };
 			/** Center-to-center distance. */
 			radius: number;
 			/** Angle of the first subject, counter-clockwise from east. */
@@ -152,6 +157,22 @@ export type SceneRelation =
 			kind: "keep-clear";
 			between: [string, string];
 			clearance: number;
+	  })
+	| (RelationBase & {
+			/** Stands at a fixed spot of the floor plan (a landmark, a geodesic). */
+			kind: "at-point";
+			subject: string;
+			point: { x: number; y: number };
+			/** What the spot is, for messages. */
+			from: string;
+	  })
+	| (RelationBase & {
+			/** Stands a fixed offset from another object's center. */
+			kind: "offset";
+			subject: string;
+			reference: string;
+			dx: number;
+			dy: number;
 	  });
 
 export type SceneRelationKind = SceneRelation["kind"];
@@ -206,6 +227,39 @@ export interface ScenePathSpec {
 	path: ScenePath;
 }
 
+/** WGS84 latitude, longitude (degrees) and height (metres). */
+export interface GeoPoint {
+	lat: number;
+	lon: number;
+	alt: number;
+}
+
+/**
+ * Where the scene sits on the Earth. The scene's own frame (x, y, z in
+ * metres) is tied to a local east-north-up frame at `origin`: the scene
+ * point `anchor` is at the origin, and the scene's +y axis points along
+ * true bearing `heading` (degrees clockwise from north; 0 means the
+ * scene's north is true north).
+ */
+export interface SceneFrame {
+	origin: GeoPoint;
+	/** The datum the document's coordinates were given in (all are stored as WGS84). */
+	datum: "WGS84" | "GCJ02" | "BD09";
+	anchor: { x: number; y: number };
+	heading: number;
+	path: ScenePath;
+}
+
+/** A fixed point given by latitude and longitude, for relations to refer to. */
+export interface SceneLandmark {
+	id: string;
+	/** WGS84. */
+	geo: GeoPoint;
+	/** Where it is in the scene's frame (metres). */
+	position: { x: number; y: number };
+	path: ScenePath;
+}
+
 export interface SceneSpec {
 	name: string;
 	units: SceneUnits;
@@ -221,6 +275,9 @@ export interface SceneSpec {
 	openings: SceneOpening[];
 	agents: SceneAgent[];
 	paths: ScenePathSpec[];
+	/** Where the scene sits on the Earth; absent for a scene not placed there. */
+	frame?: SceneFrame;
+	landmarks?: SceneLandmark[];
 }
 
 /** An object placed in the room. */
@@ -241,6 +298,8 @@ export interface PlacedSceneObject {
 	label?: string;
 	asset?: string;
 	group?: string;
+	/** WGS84 position of `position` (scenes with a `frame`). */
+	geo?: GeoPoint;
 }
 
 export interface SceneDiagnostic {
@@ -294,6 +353,15 @@ export interface SolvedScene {
 	paths: PlannedScenePath[];
 	/** Objects that have no position yet, in declaration order. */
 	unplaced: string[];
+	/** Where the scene sits on the Earth (scenes with a `frame`). */
+	geo?: {
+		origin: GeoPoint;
+		datum: SceneFrame["datum"];
+		anchor: [number, number];
+		heading: number;
+	};
+	/** Landmarks, in the scene frame and WGS84 (scenes with a `frame`). */
+	landmarks?: { id: string; position: [number, number]; geo: GeoPoint }[];
 	/** No interpenetration, floating object, overhang past the edge or wall. */
 	valid: boolean;
 	diagnostics: SceneDiagnostic[];

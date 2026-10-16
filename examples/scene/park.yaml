@@ -1,0 +1,21 @@
+# A small park placed on the Earth. The scene's south-west corner sits at
+# the given latitude and longitude; objects are placed by latitude and
+# longitude, or by distance and true bearing from landmarks and objects.
+scene: park
+bounds: { width: 120, depth: 90, height: 20 }
+frame:
+  origin: { lat: 39.99, lon: 116.39, alt: 45 }
+landmarks:
+  gate:     { lat: 39.99009, lon: 116.39035 }
+  fountain: { lat: 39.99045, lon: 116.39070 }
+objects:
+  pavilion: { size: [12, 10, 6], geo: { lat: 39.99070, lon: 116.39110 } }
+  kiosk:    { size: [4, 3, 3] }
+  info:     { size: [1.5, 0.4, 2] }
+  bench:    { size: [2, 0.6, 0.8], count: 6 }
+  lamp:     { size: [0.4, 0.4, 4] }
+relations:
+  - kiosk 25m bearing 60 from gate
+  - info at gate, facing fountain
+  - bench around fountain, radius 12
+  - lamp 8m north-of pavilion

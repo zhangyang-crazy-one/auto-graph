@@ -13,6 +13,7 @@ export {
 	sceneToDocument,
 	sceneToJson,
 } from "./export/json.js";
+export * as geo from "./geo/index.js";
 export type * from "./ir.js";
 export type {
 	RenderSceneDslOptions,

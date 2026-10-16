@@ -8,9 +8,18 @@ import {
 import { DEFAULT_DSL_MAX_BYTES, parseDslSource } from "../dsl/parse.js";
 import type { DslDiagnostic, ParseDiagramDslOptions } from "../dsl/types.js";
 import { closest } from "../views/common.js";
+import {
+	bd09ToWgs84,
+	type Geodetic,
+	gcj02ToWgs84,
+	SceneGeoFrame,
+} from "./geo/index.js";
 import type {
 	CornerSide,
+	GeoPoint,
 	SceneAgent,
+	SceneFrame,
+	SceneLandmark,
 	SceneObject,
 	SceneOpening,
 	ScenePath,
@@ -29,6 +38,14 @@ const nonNegative = z.number().finite().min(0);
 /** Words a relation reads specially; no object may be called one. */
 const RESERVED_IDS = new Set(["room", "north", "south", "east", "west"]);
 
+const geoPointSchema = z
+	.object({
+		lat: z.number().finite().min(-90).max(90),
+		lon: z.number().finite().min(-180).max(180),
+		alt: z.number().finite().optional(),
+	})
+	.strict();
+
 const sceneObjectSchema = z
 	.object({
 		size: z.tuple([positive, positive, positive]),
@@ -40,6 +57,8 @@ const sceneObjectSchema = z
 		position: z.tuple([z.number().finite(), z.number().finite()]).optional(),
 		/** Pinned turn in degrees, counter-clockwise seen from above. */
 		yaw: z.number().finite().optional(),
+		/** Pinned footprint center by latitude and longitude (needs a frame). */
+		geo: geoPointSchema.omit({ alt: true }).optional(),
 	})
 	.strict();
 
@@ -99,6 +118,18 @@ export const sceneDslSchema = z
 			)
 			.optional(),
 		paths: z.array(z.string().min(1)).optional(),
+		frame: z
+			.object({
+				origin: geoPointSchema,
+				datum: z.enum(["WGS84", "GCJ02", "BD09"]).optional(),
+				/** The scene point at the origin (default the south-west corner). */
+				anchor: z.tuple([z.number().finite(), z.number().finite()]).optional(),
+				/** True bearing of the scene's +y axis, degrees (default 0). */
+				heading: z.number().finite().optional(),
+			})
+			.strict()
+			.optional(),
+		landmarks: z.record(idSchema, geoPointSchema).optional(),
 	})
 	.strict();
 
@@ -197,6 +228,39 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 	const perMeter = PER_METER[units];
 	const diagnostics: DslDiagnostic[] = [];
 
+	// Where the scene sits on the Earth: every latitude and longitude in
+	// the document is in the frame's datum and is stored as WGS84.
+	const datum = dsl.frame?.datum ?? "WGS84";
+	// A point given without a height is on the ground: at the origin's.
+	const ground = dsl.frame?.origin.alt ?? 0;
+	const toWgs84 = (point: Geodetic): GeoPoint => {
+		const wgs =
+			datum === "GCJ02"
+				? gcj02ToWgs84(point)
+				: datum === "BD09"
+					? bd09ToWgs84(point)
+					: point;
+		return { lat: wgs.lat, lon: wgs.lon, alt: point.alt ?? ground };
+	};
+	const frame: SceneFrame | undefined =
+		dsl.frame === undefined
+			? undefined
+			: {
+					origin: toWgs84(dsl.frame.origin),
+					datum,
+					anchor: {
+						x: (dsl.frame.anchor?.[0] ?? 0) / perMeter,
+						y: (dsl.frame.anchor?.[1] ?? 0) / perMeter,
+					},
+					heading: dsl.frame.heading ?? 0,
+					path: ["frame"],
+				};
+	const geoFrame = frame === undefined ? undefined : new SceneGeoFrame(frame);
+	const sceneAt = (point: Geodetic): [number, number] => {
+		const at = (geoFrame as SceneGeoFrame).toScene(toWgs84(point));
+		return [at.x, at.y];
+	};
+
 	const objects: SceneObject[] = [];
 	const groups = new Map<string, string[]>();
 	const declared = new Set(Object.keys(dsl.objects));
@@ -227,28 +291,47 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 				? { yaw: entry.yaw }
 				: {}),
 		};
+		if (entry.geo !== undefined && geoFrame === undefined) {
+			diagnostics.push(
+				error(
+					[...path, "geo"],
+					"validate.scene.geo-without-frame",
+					`"${id}" is placed by latitude and longitude, but the scene has no \`frame\`.`,
+					"Add `frame: { origin: { lat, lon } }` to place the scene on the Earth.",
+				),
+			);
+		}
+		if (entry.geo !== undefined && entry.position !== undefined) {
+			diagnostics.push(
+				error(
+					[...path, "geo"],
+					"validate.scene.relation-conflict",
+					`"${id}" is pinned twice, by \`position\` and by \`geo\`.`,
+					"Keep one of them.",
+				),
+			);
+		}
+		const pinned =
+			entry.position !== undefined
+				? (entry.position.map((v) => v / perMeter) as [number, number])
+				: entry.geo !== undefined && geoFrame !== undefined
+					? sceneAt(entry.geo)
+					: undefined;
 		if (entry.count === undefined) {
 			taken.set(id, path);
 			objects.push({
 				id,
 				...base,
-				...(entry.position === undefined
-					? {}
-					: {
-							position: entry.position.map((v) => v / perMeter) as [
-								number,
-								number,
-							],
-						}),
+				...(pinned === undefined ? {} : { position: pinned }),
 				...(entry.yaw === undefined ? {} : { yaw: entry.yaw }),
 				path,
 			});
 			continue;
 		}
-		if (entry.position !== undefined) {
+		if (entry.position !== undefined || entry.geo !== undefined) {
 			diagnostics.push(
 				error(
-					[...path, "position"],
+					[...path, entry.position !== undefined ? "position" : "geo"],
 					"validate.scene.group-position",
 					`"${id}" makes ${entry.count} objects; one position cannot pin them all.`,
 					"Place the group with a relation (around, grid, distribute) or declare the objects one by one.",
@@ -277,11 +360,47 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 		groups.set(id, members);
 	}
 
+	const landmarks: SceneLandmark[] = [];
+	for (const [id, point] of Object.entries(dsl.landmarks ?? {})) {
+		const path: ScenePath = ["landmarks", id];
+		if (geoFrame === undefined) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.geo-without-frame",
+					`Landmark "${id}" is given by latitude and longitude, but the scene has no \`frame\`.`,
+					"Add `frame: { origin: { lat, lon } }` to place the scene on the Earth.",
+				),
+			);
+			continue;
+		}
+		if (
+			RESERVED_IDS.has(id) ||
+			taken.has(id) ||
+			groups.has(id) ||
+			dsl.openings?.[id] !== undefined
+		) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.duplicate-id",
+					`"${id}" names both a landmark and an object or opening (or is a reserved word).`,
+					"Give the landmark its own id.",
+				),
+			);
+			continue;
+		}
+		const [x, y] = sceneAt(point);
+		landmarks.push({ id, geo: toWgs84(point), position: { x, y }, path });
+	}
+
 	const parser = new RelationParser(
 		new Set(objects.map((object) => object.id)),
 		groups,
 		units,
 		diagnostics,
+		new Map(landmarks.map((landmark) => [landmark.id, landmark])),
+		geoFrame,
 	);
 	const relations: SceneRelation[] = [];
 	(dsl.relations ?? []).forEach((text, index) => {
@@ -403,6 +522,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			openings,
 			agents,
 			paths,
+			...(frame === undefined ? {} : { frame, landmarks }),
 		},
 		diagnostics: sortDslDiagnostics(diagnostics),
 	};
@@ -448,10 +568,32 @@ const MODIFIERS = new Map<string, readonly string[]>([
 	["around", ["radius", "evenly", "start"]],
 	["symmetric", ["axis"]],
 	["keep-clear", []],
+	["at", []],
+	["distance", []],
+]);
+
+/** True bearings of the compass words in `<length> north-of <place>`. */
+const BEARINGS = new Map<string, number>([
+	["north", 0],
+	["north-east", 45],
+	["northeast", 45],
+	["ne", 45],
+	["east", 90],
+	["south-east", 135],
+	["southeast", 135],
+	["se", 135],
+	["south", 180],
+	["south-west", 225],
+	["southwest", 225],
+	["sw", 225],
+	["west", 270],
+	["north-west", 315],
+	["northwest", 315],
+	["nw", 315],
 ]);
 
 const VERBS =
-	"in-front-of, behind, left-of, right-of, against wall, corner, center-of, on, facing, rotate, align, distribute, grid, around, symmetric, keep clear";
+	"in-front-of, behind, left-of, right-of, against wall, corner, center-of, on, facing, rotate, align, distribute, grid, around, symmetric, keep clear, at <landmark>, <length> bearing <degrees> from <place>, <length> north-of <place>";
 
 type Head =
 	| { kind: "beside"; side: SceneSide; reference: string }
@@ -465,7 +607,9 @@ type Head =
 	| { kind: "distribute"; along: "x" | "y" | WallSide }
 	| { kind: "grid"; rows: number; columns: number }
 	| { kind: "around"; center: string }
-	| { kind: "symmetric"; about: string };
+	| { kind: "symmetric"; about: string }
+	| { kind: "at"; landmark: string }
+	| { kind: "distance"; length: number; bearing: number; reference: string };
 
 interface Modifiers {
 	gap?: number;
@@ -499,6 +643,8 @@ class RelationParser {
 		private readonly groups: ReadonlyMap<string, string[]>,
 		private readonly units: SceneUnits,
 		private readonly diagnostics: DslDiagnostic[],
+		private readonly landmarks: ReadonlyMap<string, SceneLandmark> = new Map(),
+		private readonly geoFrame?: SceneGeoFrame,
 	) {}
 
 	parse(text: string, path: ScenePath): SceneRelation[] {
@@ -598,6 +744,47 @@ class RelationParser {
 			}
 			return args;
 		};
+		// <length> bearing <degrees> from <place> | <length> north-of <place>
+		if (/^(\d+(?:\.\d+)?|\.\d+)(m|cm|mm|km)?$/.test(verb ?? "")) {
+			const length = this.distance(verb);
+			if (args[0] === "bearing") {
+				const [, degrees, from, reference] = words(
+					4,
+					"<object> <length> bearing <degrees> from <place>",
+				);
+				if (from !== "from") {
+					fail(
+						"validate.scene.relation-syntax",
+						`Cannot read "${tokens.join(" ")}".`,
+						"Write `<object> <length> bearing <degrees> from <place>`.",
+					);
+				}
+				return {
+					kind: "distance",
+					length,
+					bearing: this.bearing(degrees),
+					reference: reference as string,
+				};
+			}
+			const [direction, reference] = words(
+				2,
+				"<object> <length> north-of <place>",
+			);
+			const bearing = BEARINGS.get((direction ?? "").replace(/-of$/, ""));
+			if (bearing === undefined || !(direction ?? "").endsWith("-of")) {
+				fail(
+					"validate.scene.relation-value",
+					`Cannot read direction "${direction}".`,
+					"Write `<length> bearing <degrees> from <place>`, or a compass word such as north-of, north-east-of, sw-of.",
+				);
+			}
+			return {
+				kind: "distance",
+				length,
+				bearing,
+				reference: reference as string,
+			};
+		}
 		const side = SIDE_VERBS.get(verb ?? "");
 		if (side !== undefined) {
 			const [reference] = words(1, `<object> ${verb} <reference>`);
@@ -704,8 +891,15 @@ class RelationParser {
 				return { kind: "grid", rows, columns };
 			}
 			case "around": {
-				const [center] = words(1, "<group> around <object>, radius <length>");
+				const [center] = words(
+					1,
+					"<group> around <object|landmark>, radius <length>",
+				);
 				return { kind: "around", center: center as string };
+			}
+			case "at": {
+				const [landmark] = words(1, "<object> at <landmark>");
+				return { kind: "at", landmark: landmark as string };
 			}
 			case "symmetric": {
 				const [about, reference] = words(
@@ -951,7 +1145,8 @@ class RelationParser {
 				});
 				break;
 			case "around": {
-				const center = this.reference(head.center);
+				const landmark = this.landmarks.get(head.center);
+				const center = landmark?.id ?? this.reference(head.center);
 				for (const subject of subjects) this.notSelf(subject, center);
 				if (modifiers.radius === undefined) {
 					fail(
@@ -964,6 +1159,9 @@ class RelationParser {
 					kind: "around",
 					subjects,
 					center,
+					...(landmark === undefined
+						? {}
+						: { point: { ...landmark.position } }),
 					radius: modifiers.radius,
 					start: modifiers.start ?? 270,
 					faceCenter:
@@ -971,6 +1169,48 @@ class RelationParser {
 					path,
 				});
 				break;
+			}
+			case "at": {
+				const landmark = this.landmark(head.landmark);
+				return each((subject) => ({
+					kind: "at-point",
+					subject,
+					point: { ...landmark.position },
+					from: landmark.id,
+					path,
+				}));
+			}
+			case "distance": {
+				// From a landmark: along the ellipsoid's geodesic. From an object:
+				// on the local plane (true bearings, turned into the scene frame).
+				const landmark = this.landmarks.get(head.reference);
+				if (landmark !== undefined) {
+					const frame = this.geoFrame as SceneGeoFrame;
+					const point = frame.along(landmark.geo, head.bearing, head.length);
+					return each((subject) => ({
+						kind: "at-point",
+						subject,
+						point,
+						from: `${round(head.length)} m at ${round(head.bearing)}° from "${landmark.id}"`,
+						path,
+					}));
+				}
+				const reference = this.reference(head.reference);
+				const offset = this.geoFrame?.offset(head.bearing, head.length) ?? {
+					x: head.length * Math.sin((head.bearing * Math.PI) / 180),
+					y: head.length * Math.cos((head.bearing * Math.PI) / 180),
+				};
+				return each((subject) => {
+					this.notSelf(subject, reference);
+					return {
+						kind: "offset",
+						subject,
+						reference,
+						dx: offset.x,
+						dy: offset.y,
+						path,
+					};
+				});
 			}
 			case "symmetric": {
 				const about =
@@ -1033,9 +1273,16 @@ class RelationParser {
 	private facingTarget(
 		token: string,
 		subject: string,
-	): { object: string } | { direction: WallSide } {
+	):
+		| { object: string }
+		| { direction: WallSide }
+		| { landmark: string; point: { x: number; y: number } } {
 		const direction = WALLS.get(token);
 		if (direction !== undefined && token.length > 1) return { direction };
+		const landmark = this.landmarks.get(token);
+		if (landmark !== undefined) {
+			return { landmark: landmark.id, point: { ...landmark.position } };
+		}
 		const object = this.reference(token);
 		this.notSelf(subject, object);
 		return { object };
@@ -1078,6 +1325,45 @@ class RelationParser {
 		const value = Number(match[1]) / PER_METER[unit];
 		if (!Number.isFinite(value)) this.tooLarge(token, what);
 		return value;
+	}
+
+	private landmark(token: string): SceneLandmark {
+		const landmark = this.landmarks.get(token);
+		if (landmark !== undefined) return landmark;
+		const near = closest(token, [...this.landmarks.keys()]);
+		fail(
+			"validate.scene.unknown-landmark",
+			`Unknown landmark "${token}".`,
+			near.length > 0
+				? `Did you mean "${near[0]}"? Declare landmarks under \`landmarks\`.`
+				: "Declare landmarks (with latitude and longitude) under `landmarks`, in a scene with a `frame`.",
+		);
+	}
+
+	/** A length that may also be in km (for distances on a site). */
+	private distance(token: string | undefined): number {
+		const match = /^(\d+(?:\.\d+)?|\.\d+)km$/.exec(token ?? "");
+		if (match !== null) {
+			const value = Number(match[1]) * 1000;
+			if (!Number.isFinite(value)) this.tooLarge(token, "distance");
+			return value;
+		}
+		return this.length(token, "distance");
+	}
+
+	/** A true bearing in degrees clockwise from north; `deg` or `°` may follow. */
+	private bearing(token: string | undefined): number {
+		const match = /^(-?(?:\d+(?:\.\d+)?|\.\d+))(?:deg|°)?$/.exec(token ?? "");
+		if (match === null) {
+			fail(
+				"validate.scene.relation-value",
+				`\`bearing\` needs degrees; got "${token ?? ""}".`,
+				"Write degrees clockwise from north, e.g. `bearing 30`.",
+			);
+		}
+		const value = Number(match[1]);
+		if (!Number.isFinite(value)) this.tooLarge(token, "bearing");
+		return ((value % 360) + 360) % 360;
 	}
 
 	/** Degrees, counter-clockwise; `deg` or `°` may follow. */
@@ -1380,4 +1666,8 @@ function error(
 
 function hasErrors(diagnostics: readonly DslDiagnostic[]): boolean {
 	return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+
+function round(value: number): number {
+	return Math.round(value * 1e4) / 1e4;
 }

@@ -4,7 +4,7 @@
 
 A scene document describes a room, the objects in it and how they relate. auto-graph solves where every object stands and which way it faces, then checks the result. It is plain math with no 3D application in the loop, so an agent gets exact numbers it can hand to Blender, a game engine or a robot planner.
 
-Phase 1 covers rooms: a floor plan plus stacking (2.5D), with objects turning about the vertical axis only. Geographic anchoring (WGS84 → local ENU), terrain and trajectories are planned in #120–#122 and the follow-up issues.
+It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis only, paths for people and robots, and placing a scene on the Earth by latitude and longitude. Terrain and projected frames for large areas follow in #121–#122.
 
 ## The frame
 
@@ -141,6 +141,39 @@ In `examples/scene/storeroom.yaml` nothing holds the racks in place. On their ow
 
 <img src="images/scene-storeroom.top.svg" alt="examples/scene/storeroom.yaml: the racks moved apart so a person and a trolley get to the bench" width="100%">
 
+## On the Earth
+
+A scene can be placed on the Earth. The solver still works in metres in the scene's own frame; latitude and longitude come in through `frame` and `landmarks` and go out with every object.
+
+```yaml
+frame:
+  origin: { lat: 39.99, lon: 116.39, alt: 45 }   # WGS84 degrees, height in metres
+  datum: WGS84          # or GCJ02 / BD09: every latitude and longitude in the document is read in it
+  anchor: [0, 0]        # the scene point at the origin (default the south-west corner)
+  heading: 0            # true bearing of the scene's +y axis, degrees clockwise (default 0)
+landmarks:
+  gate:     { lat: 39.99009, lon: 116.39035 }      # fixed points for relations to refer to
+  fountain: { lat: 39.99045, lon: 116.39070 }
+objects:
+  pavilion: { size: [12, 10, 6], geo: { lat: 39.99070, lon: 116.39110 } }   # pinned by latitude and longitude
+relations:
+  - kiosk 25m bearing 60 from gate        # true bearing, degrees clockwise from north
+  - lamp 8m north-of pavilion             # also north-east-of, ne-of, south-of, …
+  - info at gate, facing fountain
+  - bench around fountain, radius 12
+```
+
+- **Frames.** Scene metres are tied to a local east-north-up frame at `origin`: the scene point `anchor` is at the origin and the scene's +y axis points along true bearing `heading`. The scene's floor is the level surface at the origin's height, so latitude and longitude round-trip exactly and an object's height is the origin's plus its z. With `heading: 0` the scene's north (its compass words, `against wall north`) is true north; otherwise those words stay the scene's own and the top view's arrow points to true north.
+- **Landmarks** are fixed points. `at`, distance-and-bearing, `around` and `facing` accept them in place of an object. A landmark given without a height is on the ground (the origin's height).
+- **Distances.** From a landmark, `<length> bearing <degrees> from` and `<length> north-of` follow the WGS84 geodesic exactly. From an object they are taken on the site's plane, whose north is true north at the origin; meridians converge by about 0.001° per 100 m east or west of it, so the bearing may differ from true north there by that much. Lengths also take `km`. Without a frame, bearings are from the scene's north.
+- **Datums.** GCJ-02 and BD-09 coordinates (Chinese map services) are converted with the widely published formulas, approximations of the official transform good to a few metres; the inverses are solved to well under a millimetre of those formulas. Everything is stored and output in WGS84.
+- **Reach.** One local frame is meant for sites within 10 km of the origin; a scene reaching further gets `scene.geo.extent`.
+- **Output.** Every object gets `geo` (latitude, longitude, height of its `position`), and the document gets `geo` (the frame) and `landmarks`. The Blender script records them as custom properties (`dge_geo` on objects, `dge_geo_origin` on the collection).
+
+The geodesic and frame mathematics (`src/scene/geo`) is checked against GeographicLib (distances and bearings to 1e-6 m and degrees within 10 km) and the GCJ-02/BD-09 formulas against the coordtransform package; frame round trips stay under 1 mm within 10 km.
+
+<img src="images/scene-park.top.svg" alt="examples/scene/park.yaml: a park placed by latitude and longitude, with landmarks" width="100%">
+
 ## Output
 
 `renderSceneDsl(source, { format })`, or `agh --input room.yaml --format …`:
@@ -172,7 +205,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 
 | Code | |
 | --- | --- |
-| `validate.scene.*` | the document (also openings that overlap on a wall): unknown object or verb (with "did you mean"), a clause the verb does not take, a bad value, a reserved id, a group used where one object is needed |
+| `validate.scene.*` | the document (also openings that overlap on a wall, latitude and longitude without a `frame`, unknown landmarks): unknown object or verb (with "did you mean"), a clause the verb does not take, a bad value, a reserved id, a group used where one object is needed |
 | `scene.layout.conflict` | relations (or pins) that cannot hold together, with the objects involved |
 | `scene.collision` | two objects pass through each other (with the depth) |
 | `scene.out-of-bounds`, `scene.above-ceiling` | past a wall or the ceiling (with how far) |
@@ -184,6 +217,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.path.blocked` | no way through: the bottleneck, its width and what it needs; or the place (end or via) that is shut in |
 | `scene.path.opening-narrow` | an opening narrower than the agent plus its clearance on both sides |
 | `scene.path.unplaced` | a path to an object that is not in the layout |
+| `scene.geo.extent` (warning) | the scene reaches more than 10 km from its frame's origin |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |
 | `scene.path.detour` (info) | a path more than twice the straight line between its places |

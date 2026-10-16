@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1096" height="846" viewBox="0 0 1096 846" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M89.67 798V48M131.33 798V48M173 798V48M214.67 798V48M256.33 798V48M298 798V48M339.67 798V48M381.33 798V48M423 798V48M464.67 798V48M506.33 798V48M548 798V48M589.67 798V48M631.33 798V48M673 798V48M714.67 798V48M756.33 798V48M798 798V48M839.67 798V48M881.33 798V48M923 798V48M964.67 798V48M1006.33 798V48M48 756.33H1048M48 714.67H1048M48 673H1048M48 631.33H1048M48 589.67H1048M48 548H1048M48 506.33H1048M48 464.67H1048M48 423H1048M48 381.33H1048M48 339.67H1048M48 298H1048M48 256.33H1048M48 214.67H1048M48 173H1048M48 131.33H1048M48 89.67H1048" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="1000" height="750" fill="none" stroke="#334155" stroke-width="2"/>
+<text x="48" y="814" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="89.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">5</text>
+<text x="131.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">10</text>
+<text x="173" y="814" font-size="10" fill="#64748b" text-anchor="middle">15</text>
+<text x="214.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">20</text>
+<text x="256.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">25</text>
+<text x="298" y="814" font-size="10" fill="#64748b" text-anchor="middle">30</text>
+<text x="339.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">35</text>
+<text x="381.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">40</text>
+<text x="423" y="814" font-size="10" fill="#64748b" text-anchor="middle">45</text>
+<text x="464.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">50</text>
+<text x="506.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">55</text>
+<text x="548" y="814" font-size="10" fill="#64748b" text-anchor="middle">60</text>
+<text x="589.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">65</text>
+<text x="631.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">70</text>
+<text x="673" y="814" font-size="10" fill="#64748b" text-anchor="middle">75</text>
+<text x="714.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">80</text>
+<text x="756.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">85</text>
+<text x="798" y="814" font-size="10" fill="#64748b" text-anchor="middle">90</text>
+<text x="839.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">95</text>
+<text x="881.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">100</text>
+<text x="923" y="814" font-size="10" fill="#64748b" text-anchor="middle">105</text>
+<text x="964.67" y="814" font-size="10" fill="#64748b" text-anchor="middle">110</text>
+<text x="1006.33" y="814" font-size="10" fill="#64748b" text-anchor="middle">115</text>
+<text x="1048" y="814" font-size="10" fill="#64748b" text-anchor="middle">120</text>
+<text x="40" y="801" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="759.33" font-size="10" fill="#64748b" text-anchor="end">5</text>
+<text x="40" y="717.67" font-size="10" fill="#64748b" text-anchor="end">10</text>
+<text x="40" y="676" font-size="10" fill="#64748b" text-anchor="end">15</text>
+<text x="40" y="634.33" font-size="10" fill="#64748b" text-anchor="end">20</text>
+<text x="40" y="592.67" font-size="10" fill="#64748b" text-anchor="end">25</text>
+<text x="40" y="551" font-size="10" fill="#64748b" text-anchor="end">30</text>
+<text x="40" y="509.33" font-size="10" fill="#64748b" text-anchor="end">35</text>
+<text x="40" y="467.67" font-size="10" fill="#64748b" text-anchor="end">40</text>
+<text x="40" y="426" font-size="10" fill="#64748b" text-anchor="end">45</text>
+<text x="40" y="384.33" font-size="10" fill="#64748b" text-anchor="end">50</text>
+<text x="40" y="342.67" font-size="10" fill="#64748b" text-anchor="end">55</text>
+<text x="40" y="301" font-size="10" fill="#64748b" text-anchor="end">60</text>
+<text x="40" y="259.33" font-size="10" fill="#64748b" text-anchor="end">65</text>
+<text x="40" y="217.67" font-size="10" fill="#64748b" text-anchor="end">70</text>
+<text x="40" y="176" font-size="10" fill="#64748b" text-anchor="end">75</text>
+<text x="40" y="134.33" font-size="10" fill="#64748b" text-anchor="end">80</text>
+<text x="40" y="92.67" font-size="10" fill="#64748b" text-anchor="end">85</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">90</text>
+<path d="M1072 14l-5 12h10z" fill="#334155"/>
+<text x="1072" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="780.89,191.96 880.89,191.96 880.89,108.62 780.89,108.62" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="830.89,198.96 835.89,191.96 825.89,191.96" fill="#1e3a8a"/>
+<polygon points="460.86,623.05 494.19,623.05 494.19,598.05 460.86,598.05" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="477.53,630.05 482.53,623.05 472.53,623.05" fill="#1e3a8a"/>
+<polygon points="303.11,717.13 293.1,709.65 291.1,712.32 301.11,719.8" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="302.29,707.78 294.1,710.39 302.11,716.38" fill="#1e3a8a"/>
+<polygon points="554.54,479.12 537.87,479.12 537.87,484.12 554.54,484.12" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="546.2,472.12 541.2,479.12 551.2,479.12" fill="#1e3a8a"/>
+<polygon points="634.81,423.15 626.47,437.58 630.81,440.08 639.14,425.65" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="624.58,426.87 628.14,434.7 633.14,426.04" fill="#1e3a8a"/>
+<polygon points="626.47,325.65 634.81,340.08 639.14,337.58 630.81,323.15" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="624.58,336.37 633.14,337.2 628.14,328.54" fill="#1e3a8a"/>
+<polygon points="537.87,284.12 554.54,284.12 554.54,279.12 537.87,279.12" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="546.2,291.12 551.2,284.12 541.2,284.12" fill="#1e3a8a"/>
+<polygon points="457.6,340.08 465.93,325.65 461.6,323.15 453.27,337.58" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="467.83,336.37 464.27,328.54 459.27,337.2" fill="#1e3a8a"/>
+<polygon points="465.93,437.58 457.6,423.15 453.27,425.65 461.6,440.08" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="467.83,426.87 459.27,426.04 464.27,434.7" fill="#1e3a8a"/>
+<polygon points="829.22,85.29 832.56,85.29 832.56,81.96 829.22,81.96" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="830.89,92.29 835.89,85.29 825.89,85.29" fill="#1e3a8a"/>
+<path d="M297.1 708.72l6 6l-6 6l-6 -6z" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+<text x="297.1" y="705.72" font-size="10" fill="#b45309" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">gate</text>
+<path d="M546.2 375.62l6 6l-6 6l-6 -6z" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+<text x="546.2" y="372.62" font-size="10" fill="#b45309" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">fountain</text>
+<text x="830.89" y="154.29" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">pavilion</text>
+<text x="477.53" y="614.55" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">kiosk</text>
+<text x="297.1" y="718.72" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">info</text>
+<text x="546.2" y="485.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench1</text>
+<text x="632.81" y="435.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench2</text>
+<text x="632.81" y="335.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench3</text>
+<text x="546.2" y="285.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench4</text>
+<text x="459.6" y="335.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench5</text>
+<text x="459.6" y="435.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench6</text>
+<text x="830.89" y="87.62" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp</text>
+</svg>

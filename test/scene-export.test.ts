@@ -24,6 +24,7 @@ const FIXTURES = [
 	"study-paths",
 	"office",
 	"storeroom",
+	"park",
 ];
 const source = sceneSource;
 
