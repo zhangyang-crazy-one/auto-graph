@@ -22,5 +22,6 @@ export type {
 } from "./render.js";
 export { renderSceneDsl, SCENE_OUTPUT_FORMATS } from "./render.js";
 export { solveScene } from "./solve.js";
+export * as terrain from "./terrain/index.js";
 export type { SceneTopViewOptions } from "./top-view.js";
 export { sceneTopViewSvg } from "./top-view.js";

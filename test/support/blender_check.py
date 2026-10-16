@@ -1,10 +1,17 @@
 """Run a generated scene script in Blender and compare what it built with
 the dge-scene JSON: every object's world bounding box (from its mesh
-vertices) and z rotation must match to 1e-4; every opening strip must sit
-on its wall; every path curve must run through the path's points; and
-every agent must stand on each corner at the time the JSON gives (its
-animation evaluated at that frame, which must lie in the scene's frame
-range), to 1e-3. Prints one JSON line.
+vertices) and rotation must match to 1e-4 (z rotation, or for an object
+leaning with the slope its quaternion and up axis); every opening strip
+must sit on its wall; every path curve must run through the path's points
+in order; and every agent must stand on each corner at the time the JSON
+gives (its animation evaluated at that frame, which must lie in the
+scene's frame range), to 1e-3.
+
+With terrain, the ground is evaluated here on its own (bilinear in the
+document's grid): every terrain mesh vertex must lie on it, every object
+on the ground must stand on it at its center to 1 cm, every path point and
+agent corner must be on it, and every landmark must have its pin. Prints
+one JSON line.
 
     python blender_check.py scene.py scene.json   (python with the bpy module)
 """
@@ -23,7 +30,36 @@ with open(script, encoding="utf-8") as handle:
 with open(document, encoding="utf-8") as handle:
     data = json.load(handle)
 
+terrain = data.get("terrain")
+
+
+def ground(x, y):
+    ox, oy = terrain["origin"]
+    dx, dy = terrain["spacing"]
+    rows = terrain["heights"]
+    i = max(0, min(len(rows[0]) - 2, math.floor((x - ox) / dx)))
+    j = max(0, min(len(rows) - 2, math.floor((y - oy) / dy)))
+    u, v = (x - ox) / dx - i, (y - oy) / dy - j
+    a, b = rows[j][i], rows[j][i + 1]
+    c, d = rows[j + 1][i], rows[j + 1][i + 1]
+    return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v - terrain["base"]
+
+
 problems = []
+grounded = 0
+if terrain is not None:
+    mesh = bpy.data.objects.get("terrain")
+    if mesh is None:
+        problems.append("terrain: missing")
+    else:
+        worst = max(abs(v.co.z - ground(v.co.x, v.co.y)) for v in mesh.data.vertices)
+        if worst > 1e-4:
+            problems.append(f"terrain: a mesh vertex is {worst} m off the ground")
+for landmark in data.get("landmarks", []):
+    pin = bpy.data.objects.get("landmark." + landmark["id"])
+    x, y = landmark["position"]
+    if pin is None or abs(pin.location.x - x) > 1e-4 or abs(pin.location.y - y) > 1e-4:
+        problems.append(f"landmark {landmark['id']}: no pin at {x},{y}")
 for item in data["objects"]:
     obj = bpy.data.objects.get(item["id"])
     if obj is None:
@@ -37,9 +73,22 @@ for item in data["objects"]:
         if abs(low[k] - item["aabb"]["min"][k]) > 1e-4 or abs(high[k] - item["aabb"]["max"][k]) > 1e-4:
             problems.append(f"{item['id']}: box {low}..{high} != {item['aabb']}")
             break
-    yaw = math.degrees(obj.rotation_euler[2])
-    if abs((yaw - item["yaw"] + 180) % 360 - 180) > 1e-4:
-        problems.append(f"{item['id']}: yaw {yaw} != {item['yaw']}")
+    if item.get("up"):
+        q = obj.matrix_world.to_quaternion()
+        want = item["quaternion"]
+        dot = abs(q.x * want[0] + q.y * want[1] + q.z * want[2] + q.w * want[3])
+        up = obj.matrix_world.to_3x3() @ Vector((0.0, 0.0, 1.0))
+        if dot < 1 - 1e-8 or (up - Vector(item["up"])).length > 1e-4:
+            problems.append(f"{item['id']}: rotation {tuple(q)} / up {tuple(up)} != {want} / {item['up']}")
+    else:
+        yaw = math.degrees(obj.rotation_euler[2])
+        if abs((yaw - item["yaw"] + 180) % 360 - 180) > 1e-4:
+            problems.append(f"{item['id']}: yaw {yaw} != {item['yaw']}")
+    if terrain is not None and not item.get("supportedBy"):
+        grounded += 1
+        x, y, z = obj.matrix_world.translation
+        if abs(z - ground(x, y)) > 0.01:
+            problems.append(f"{item['id']}: stands at z {z}, the ground is at {ground(x, y)}")
 
 width, depth = data["bounds"]["width"], data["bounds"]["depth"]
 for opening in data.get("openings", []):
@@ -67,12 +116,22 @@ for path in data.get("paths", []):
     if line is None:
         problems.append(f"path {path['id']}: missing")
         continue
-    built = [tuple(point.co)[:2] for point in line.data.splines[0].points]
+    built = [tuple(point.co)[:3] for point in line.data.splines[0].points]
     want = [tuple(point[:2]) for point in path["points"]]
-    if len(built) != len(want) or any(
-        abs(a[0] - b[0]) > 1e-4 or abs(a[1] - b[1]) > 1e-4 for a, b in zip(built, want)
-    ):
-        problems.append(f"path {path['id']}: curve {built} != {want}")
+    # Every corner on the curve, in order (on terrain, points between them
+    # follow the ground).
+    at = 0
+    for corner in want:
+        while at < len(built) and (abs(built[at][0] - corner[0]) > 1e-4 or abs(built[at][1] - corner[1]) > 1e-4):
+            at += 1
+        if at == len(built):
+            problems.append(f"path {path['id']}: corner {corner} is not on its curve")
+            break
+    if terrain is not None:
+        lift = line.data.bevel_depth / 2
+        worst = max(abs(z - lift - ground(x, y)) for x, y, z in built)
+        if worst > 1e-3:
+            problems.append(f"path {path['id']}: the curve is {worst} m off the ground")
     body = bpy.data.objects.get("agent." + path["id"])
     if body is None:
         problems.append(f"agent {path['id']}: missing")
@@ -85,14 +144,18 @@ for path in data.get("paths", []):
         if frame < scene.frame_start - 1e-6 or frame > scene.frame_end + 1e-6:
             problems.append(f"agent {path['id']}: {t} s is frame {frame}, outside {scene.frame_start}..{scene.frame_end}")
         scene.frame_set(int(math.floor(frame)), subframe=frame - math.floor(frame))
-        at = tuple(body.matrix_world.translation)[:2]
+        at = tuple(body.matrix_world.translation)
         if abs(at[0] - x) > 1e-3 or abs(at[1] - y) > 1e-3:
-            problems.append(f"agent {path['id']}: at {at} at {t} s, not {x},{y}")
+            problems.append(f"agent {path['id']}: at {at[:2]} at {t} s, not {x},{y}")
+        floor = ground(x, y) if terrain is not None else 0.0
+        if abs(at[2] - floor) > 1e-3:
+            problems.append(f"agent {path['id']}: at height {at[2]} at {t} s, the ground is at {floor}")
 
 print(json.dumps({
     "objects": len(data["objects"]),
     "openings": len(data.get("openings", [])),
     "paths": len(data.get("paths", [])),
     "corners": corners,
+    "grounded": grounded,
     "problems": problems,
 }))

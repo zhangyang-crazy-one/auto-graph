@@ -30,6 +30,7 @@ import {
 	separateLanes,
 } from "./path-refine.js";
 import { findMeetings, type TimedPath, timePath } from "./path-timing.js";
+import { GridTerrain } from "./terrain/index.js";
 
 /**
  * Paths for agents (people, robots, carts) between objects and openings.
@@ -59,6 +60,8 @@ export interface PathObstacle {
 	shape: Footprint;
 	/** Bottom height. */
 	z: number;
+	/** Height of the ground under it (0 on a flat floor). */
+	ground?: number;
 }
 
 export interface PlanPathsResult {
@@ -150,7 +153,7 @@ export function planPaths(
 		const path = withPathDefaults(given);
 		const agent = agents.get(path.agent) as SceneAgent;
 		const obstacles = [...placed.values()].filter(
-			(item) => item.z < agent.height,
+			(item) => item.z - (item.ground ?? 0) < agent.height,
 		);
 		const places = [path.from, ...path.via, path.to];
 		// A place without a position (left out of the layout) cannot be
@@ -779,12 +782,19 @@ function planned(
 	}
 
 	const timing = timePath(corners, agent.speed, agent.accel, path.start ?? 0);
+	// On terrain the corners lie on the ground.
+	const ground =
+		spec.terrain === undefined ? undefined : new GridTerrain(spec.terrain);
 	return {
 		id: path.id,
 		agent: agent.id,
 		from: path.from,
 		to: path.to,
-		points: corners.map((point) => [point.x, point.y, 0]),
+		points: corners.map((point) => [
+			point.x,
+			point.y,
+			ground === undefined ? 0 : round(ground.heightNear(point.x, point.y)),
+		]),
 		length: round(length),
 		width: round(2 * agent.radius),
 		clearance: round(Math.max(0, room - agent.radius)),

@@ -1,5 +1,6 @@
 import type { SolvedScene } from "../ir.js";
 import { positionAfter, sampleElapsed, timePath } from "../path-timing.js";
+import { type GridTerrain, sceneTerrain } from "../terrain/index.js";
 import { sceneToDocument } from "./json.js";
 
 /** Seconds between the keyframes of an agent walking its path. */
@@ -21,22 +22,73 @@ const TRACK_STEP = 0.1;
  * 0.1 s and at every corner, at 24 frames a second, so the cylinder is at
  * each corner exactly at the time the JSON gives.
  *
+ * With terrain, the floor is the ground: a mesh through the grid's
+ * samples, each cell cut finer so the triangles follow the bilinear
+ * surface; objects on it stand at its height, those aligned to the slope
+ * lean with it (their rotation is the document's quaternion); paths and
+ * agents follow it. Landmarks are marked with a pin.
+ *
  * Everything goes into one collection named after the scene, which is
  * rebuilt when the script runs again. Run it in Blender's text editor, or
  * headless: `blender -b --python scene.py -- --render scene.png`.
  */
 export function sceneToBlenderScript(scene: SolvedScene): string {
 	const data = JSON.stringify(JSON.stringify(sceneToDocument(scene)));
-	const tracks = JSON.stringify(JSON.stringify(agentTracks(scene)));
+	const ground = sceneTerrain(scene);
+	const tracks = JSON.stringify(JSON.stringify(agentTracks(scene, ground)));
+	const lines = JSON.stringify(JSON.stringify(pathLines(scene, ground)));
 	return `${HEADER}
 DATA = json.loads(${data})
-# Where each path's agent is over time: [seconds, x, y].
+# Where each path's agent is over time: [seconds, x, y, z].
 TRACKS = json.loads(${tracks})
+# Each path's line: its corners, and on terrain points between them on
+# the ground.
+LINES = json.loads(${lines})
 ${BODY}`;
 }
 
+/** Each path's polyline, along the ground between corners on terrain. */
+function pathLines(
+	scene: SolvedScene,
+	ground: GridTerrain | undefined,
+): Record<string, number[][]> {
+	const lines: Record<string, number[][]> = {};
+	for (const path of scene.paths) {
+		if (ground === undefined) {
+			lines[path.id] = path.points.map((point) => [...point]);
+			continue;
+		}
+		const step = Math.min(ground.grid.spacing.x, ground.grid.spacing.y) / 4;
+		const line: number[][] = [];
+		path.points.forEach(([x, y, z], k) => {
+			if (k > 0) {
+				const [px, py] = path.points[k - 1] as [number, number, number];
+				const count = Math.min(
+					1000,
+					Math.ceil(Math.hypot(x - px, y - py) / step),
+				);
+				for (let n = 1; n < count; n += 1) {
+					const t = n / count;
+					const at = [px + (x - px) * t, py + (y - py) * t];
+					line.push([
+						round(at[0] as number),
+						round(at[1] as number),
+						round(ground.heightNear(at[0] as number, at[1] as number)),
+					]);
+				}
+			}
+			line.push([x, y, z]);
+		});
+		lines[path.id] = line;
+	}
+	return lines;
+}
+
 /** Each path's agent sampled over time, for keyframes. */
-function agentTracks(scene: SolvedScene): Record<string, number[][]> {
+function agentTracks(
+	scene: SolvedScene,
+	ground: GridTerrain | undefined,
+): Record<string, number[][]> {
 	const tracks: Record<string, number[][]> = {};
 	for (const path of scene.paths) {
 		const agent = scene.agents.find((item) => item.id === path.agent);
@@ -47,7 +99,8 @@ function agentTracks(scene: SolvedScene): Record<string, number[][]> {
 		// so the first key is the start and the last the end.
 		tracks[path.id] = sampleElapsed(timing, TRACK_STEP).map((since) => {
 			const at = positionAfter(corners, timing, since);
-			return [round(path.start + since), round(at.x), round(at.y)];
+			const z = ground === undefined ? 0 : ground.heightNear(at.x, at.y);
+			return [round(path.start + since), round(at.x), round(at.y), round(z)];
 		});
 	}
 	return tracks;
@@ -148,6 +201,79 @@ def cylinder_mesh(name, radius, height, sides=24):
     return mesh
 
 
+def ground_height(terrain, x, y):
+    # Scene z of the ground: bilinear in the grid cell, as the solver has it.
+    ox, oy = terrain["origin"]
+    dx, dy = terrain["spacing"]
+    heights = terrain["heights"]
+    rows, cols = len(heights), len(heights[0])
+    x = min(max(x, ox), ox + (cols - 1) * dx)
+    y = min(max(y, oy), oy + (rows - 1) * dy)
+    i = max(0, min(cols - 2, math.floor((x - ox) / dx)))
+    j = max(0, min(rows - 2, math.floor((y - oy) / dy)))
+    u = (x - ox) / dx - i
+    v = (y - oy) / dy - j
+    h00, h10 = heights[j][i], heights[j][i + 1]
+    h01, h11 = heights[j + 1][i], heights[j + 1][i + 1]
+    h = h00 + (h10 - h00) * u + (h01 - h00) * v + (h00 - h10 - h01 + h11) * u * v
+    return h - terrain["base"]
+
+
+def add_terrain(data, collection):
+    # The ground: each grid cell cut into k x k quads on the bilinear
+    # surface (k up to 4, fewer on a large grid), so the mesh follows it.
+    terrain = data["terrain"]
+    ox, oy = terrain["origin"]
+    dx, dy = terrain["spacing"]
+    rows, cols = len(terrain["heights"]), len(terrain["heights"][0])
+    cells = (rows - 1) * (cols - 1)
+    k = max(1, min(4, int(math.sqrt(200_000 / cells))))
+    nx, ny = (cols - 1) * k + 1, (rows - 1) * k + 1
+    verts = []
+    for j in range(ny):
+        for i in range(nx):
+            x, y = ox + i * dx / k, oy + j * dy / k
+            verts.append((x, y, ground_height(terrain, x, y)))
+    faces = [
+        (j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i)
+        for j in range(ny - 1)
+        for i in range(nx - 1)
+    ]
+    mesh = bpy.data.meshes.new("terrain")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("terrain", mesh)
+    mat = material("dge.ground", (0.42, 0.56, 0.32, 1.0))
+    obj.data.materials.append(mat)
+    obj.color = mat.diffuse_color
+    obj["dge_terrain_subdivision"] = k
+    collection.objects.link(obj)
+
+
+def add_landmarks(data, collection, span):
+    # A pin at each landmark, on the ground, with its name above.
+    mat = material("dge.landmark", (0.71, 0.33, 0.04, 1.0))
+    radius, height = max(0.03, span * 0.004), max(0.4, span * 0.03)
+    for landmark in data.get("landmarks", []):
+        x, y = landmark["position"]
+        z = ground_height(data["terrain"], x, y) if data.get("terrain") else 0.0
+        name = "landmark." + landmark["id"]
+        pin = bpy.data.objects.new(name, cylinder_mesh(name, radius, height, sides=12))
+        pin.location = (x, y, z)
+        pin.data.materials.append(mat)
+        pin.color = mat.diffuse_color
+        pin["dge_landmark"] = landmark["id"]
+        collection.objects.link(pin)
+        label = bpy.data.curves.new(name + ".label", "FONT")
+        label.body = landmark["id"]
+        label.size = max(0.12, span * 0.015)
+        label.align_x = "CENTER"
+        text = bpy.data.objects.new(name + ".label", label)
+        text.location = (x, y, z + height + label.size * 0.3)
+        text.data.materials.append(mat)
+        collection.objects.link(text)
+
+
 def add_openings(data, collection):
     width = data["bounds"]["width"]
     depth = data["bounds"]["depth"]
@@ -170,8 +296,10 @@ def add_openings(data, collection):
         collection.objects.link(obj)
 
 
-def add_paths(data, collection):
+def add_paths(data, collection, span):
     agents = {agent["id"]: agent for agent in data.get("agents", [])}
+    # Lines thick enough to see on a large site.
+    thickness = max(0.02, span * 0.002)
     tracks = [track for track in TRACKS.values() if track]
     # The timeline starts when the first agent sets off; a walk too long
     # for Blender's frame range at 24 fps is slowed down (fps_base) so it
@@ -192,11 +320,12 @@ def add_paths(data, collection):
             name = "path." + path["id"]
             curve = bpy.data.curves.new(name, "CURVE")
             curve.dimensions = "3D"
-            curve.bevel_depth = 0.02
+            curve.bevel_depth = thickness
+            line_points = LINES.get(path["id"]) or path["points"]
             spline = curve.splines.new("POLY")
-            spline.points.add(len(path["points"]) - 1)
-            for point, (x, y, z) in zip(spline.points, path["points"]):
-                point.co = (x, y, z + 0.01, 1.0)
+            spline.points.add(len(line_points) - 1)
+            for point, (x, y, z) in zip(spline.points, line_points):
+                point.co = (x, y, z + thickness / 2, 1.0)
             line = bpy.data.objects.new(name, curve)
             line.data.materials.append(mat)
             line.color = color
@@ -214,8 +343,8 @@ def add_paths(data, collection):
             body["dge_path"] = path["id"]
             body["dge_agent"] = agent["id"]
             collection.objects.link(body)
-            for t, x, y in track:
-                body.location = (x, y, 0.0)
+            for t, x, y, z in track:
+                body.location = (x, y, z)
                 body.keyframe_insert("location", frame=(t - origin) * rate)
     finally:
         edit.keyframe_new_interpolation_type = interpolation
@@ -256,11 +385,15 @@ def build(data):
 
     width = data["bounds"]["width"]
     depth = data["bounds"]["depth"]
-    # A 5 cm slab whose top is the floor (z = 0).
-    floor = bpy.data.objects.new("floor", box_mesh("floor", width, depth, 0.05))
-    floor.location = (width / 2, depth / 2, -0.05)
-    floor.data.materials.append(material("dge.floor", (0.82, 0.80, 0.76, 1.0)))
-    collection.objects.link(floor)
+    span = max(width, depth)
+    if data.get("terrain"):
+        add_terrain(data, collection)
+    else:
+        # A 5 cm slab whose top is the floor (z = 0).
+        floor = bpy.data.objects.new("floor", box_mesh("floor", width, depth, 0.05))
+        floor.location = (width / 2, depth / 2, -0.05)
+        floor.data.materials.append(material("dge.floor", (0.82, 0.80, 0.76, 1.0)))
+        collection.objects.link(floor)
 
     marker_mat = material("dge.front", (0.12, 0.23, 0.54, 1.0))
     by_id = {item["id"]: item for item in data["objects"]}
@@ -279,7 +412,13 @@ def build(data):
             obj.data.materials.append(material("dge.level." + str(level_of(item, by_id)), color))
             obj.color = color
         obj.location = (x, y, z)
-        obj.rotation_euler = (0.0, 0.0, math.radians(item["yaw"]))
+        if item.get("up"):
+            # Leaning with the slope: the turn, then the tilt.
+            qx, qy, qz, qw = item["quaternion"]
+            obj.rotation_mode = "QUATERNION"
+            obj.rotation_quaternion = (qw, qx, qy, qz)
+        else:
+            obj.rotation_euler = (0.0, 0.0, math.radians(item["yaw"]))
         obj["dge_id"] = item["id"]
         obj["dge_front"] = item["front"]
         if item.get("supportedBy"):
@@ -299,28 +438,32 @@ def build(data):
 
         label = bpy.data.curves.new(item["id"] + ".label", "FONT")
         label.body = item.get("label") or item["id"]
-        label.size = max(0.08, min(0.18, min(w, d) * 0.3))
+        label.size = max(0.08, min(0.18, min(w, d) * 0.3), span * 0.012)
         label.align_x = "CENTER"
         label.align_y = "CENTER"
         text = bpy.data.objects.new(item["id"] + ".label", label)
-        text.location = (x, y, z + h + 0.01)
+        text.location = (x, y, item["aabb"]["max"][2] + 0.01)
         text.data.materials.append(material("dge.label", (0.03, 0.03, 0.08, 1.0)))
         collection.objects.link(text)
 
     add_openings(data, collection)
-    add_paths(data, collection)
+    add_paths(data, collection, span)
+    add_landmarks(data, collection, span)
 
     # An orthographic camera from the south-west, above, and a sun.
-    span = max(width, depth)
     target = bpy.data.objects.new("dge.target", None)
-    # Aim a little above the floor so tall objects at the back stay in view.
-    top = max([item["aabb"]["max"][2] for item in data["objects"]] + [0.0])
-    target.location = (width / 2, depth / 2, top * 0.4)
+    # Aim a little above the floor (the lowest ground) so tall objects at
+    # the back stay in view.
+    low = 0.0
+    if data.get("terrain"):
+        low = min(min(row) for row in data["terrain"]["heights"]) - data["terrain"]["base"]
+    top = max([item["aabb"]["max"][2] for item in data["objects"]] + [low])
+    target.location = (width / 2, depth / 2, low + (top - low) * 0.4)
     collection.objects.link(target)
     camera = bpy.data.objects.new("dge.camera", bpy.data.cameras.new("dge.camera"))
     camera.data.type = "ORTHO"
     camera.data.ortho_scale = span * 1.6
-    camera.location = (width / 2 - span, depth / 2 - span * 1.2, span * 1.3)
+    camera.location = (width / 2 - span, depth / 2 - span * 1.2, low + span * 1.3)
     track = camera.constraints.new("TRACK_TO")
     track.target = target
     track.track_axis = "TRACK_NEGATIVE_Z"

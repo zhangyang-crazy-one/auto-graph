@@ -4,7 +4,7 @@
 
 场景文档描述一个房间、里面的物体，以及物体之间的关系。auto-graph 解算出每个物体放在哪里、朝向哪边，并检查结果。全程是纯数学计算，不依赖任何 3D 软件，agent 拿到的是精确数值，可以直接交给 Blender、游戏引擎或机器人规划器。
 
-目前覆盖：平面布局加上下叠放（2.5D），物体只能绕竖直轴转动；人和机器人的路径；以及用经纬度把场景放到地球上。地形和大范围的投影坐标在 #121–#122 中完成。
+目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制。大范围的投影坐标、沿道路布置和阵列在 #121–#122 中完成。
 
 ## 坐标系
 
@@ -67,6 +67,9 @@ relations:
 | `g around c, radius 0.9` | 绕 `c` 均匀排成一圈（极坐标），各自朝向 `c` | `start`（起始角度，默认 270，即南）；写 `facing` / `rotate` 时不再自动朝向 `c` |
 | `a and b symmetric about room` / `about c` | 关于房间或 `c` 的中线镜像对称 | `axis x` / `axis y`（默认取两者分开的那个轴） |
 | `keep clear 0.8 between a and b` | 两者至少相距这么远（通道） | |
+| `a on terrain` / `a align to slope` | 站在地面上（有地形的场景里，地面上的物体都是如此）/ 贴合坡面倾斜 | `align to slope`（跟在 `on terrain` 后） |
+| `a slope below 8` | 脚下地面的坡度不超过该值（度，也可写 `<`、`<=`） | |
+| `a elevation between 100 and 300` / `above 100` / `below 300` | 脚下地面的高程在这个范围内 | |
 
 `facing` 和 `rotate` 也可以跟在其他动词后面，例如 `chair in-front-of desk, facing desk`。
 
@@ -174,13 +177,43 @@ relations:
 
 <img src="images/scene-park.top.svg" alt="examples/scene/park.yaml：用经纬度和地标布置的园区" width="100%">
 
+## 地形
+
+场景可以放在起伏的地面上，地面用一张高程网格给出。
+
+```yaml
+terrain:
+  grid:
+    origin: [0, 0]      # 西南角采样点的场景 x、y（默认 [0, 0]）
+    spacing: 10         # 采样间距（米），也可以写 [x, y]
+    heights:            # 高程，行从南到北，每行从西到东
+      - [1400.1, 1400.3, 1400.9]
+      - [1400.6, 1401.2, 1402.0]
+  base: 1400            # 场景 z = 0 处的高程（默认 0；有 frame 的场景取坐标原点的高度）
+relations:
+  - panel on terrain, align to slope      # 随坡面倾斜
+  - turbine slope below 8                 # 坡度上限（度，相对水平），底面下处处适用
+  - turbine elevation above 1425          # 也可以写 below <b>、between <a> and <b>
+```
+
+- **地面**：采样点之间是每个网格单元四个角点的双线性曲面，连续，对平面精确。场景 z 等于高程减去 `base`。有 `frame` 的场景里 `base` 就是坐标原点的高度，所以物体 `geo` 里的高度就是它脚下地面的高程。
+- **贴地**：地面上的每个物体都以底面中心站在地面上（`on terrain` 是显式写法）。直立物体保持直立；脚下地面起伏超过 10 cm 时给出 `scene.terrain.uneven`（提示），说明最低边悬空多少、最高边埋入多少。`align to slope` 让物体贴合坡面：它的上方向是脚下地面拟合平面的法线，旋转是先绕 z 转，再做这次倾斜（输出 `quaternion`，并给出 `up`）。放在支撑物上的物体照旧站在支撑面上；支撑物本身倾斜时会报错。
+- **限制条件**：`slope below` 和 `elevation above / below / between` 对整个底面成立，并且精确计算：底面按它跨过的每个网格单元裁剪，最陡坡度出现在裁剪片的角点（双线性单元的梯度平方是凸函数），极端高程出现在裁剪片的边上。物体脚下的地面不满足条件时，会被移到最近的满足条件的位置：在场地范围内、与地面上其他物体保持 `minGap` 和 `keep clear` 的距离，并且只移动没有被约束住的物体；被钉住或被关系固定的物体不动，由 `scene.terrain.slope` / `scene.terrain.elevation`（错误）说明问题。每次移动都会报告（`scene.terrain.moved`）。搜索是贪心的，逐个物体、就近优先；合适的地面很少时可能放不下所有物体，此时错误会保留。
+- **路径**沿地面走：折点和智能体都在地面高度。智能体能否从物体下方通过，按物体离地高度判断；天花板（`bounds.height`）也从每个物体脚下的地面量起。
+- **数据**：`terrain.parseAsciiGrid(text)`（从包里导入） 读取 ESRI ASCII 栅格（`.asc`，GIS 软件从 DEM 导出的格式），得到可直接用于 `terrain.grid` 的 `{ origin, spacing, heights }`，坐标是文件自己的（用 `origin` 放到场景里）。`terrain.sampleTerrain(fn, …)` 按函数生成网格（测试用的合成地形）。
+- **输出**：文档给出 `terrain`（origin、spacing、base 和 heights）。俯视图画等高线（每第五条加深并标出高程）。Blender 脚本在双线性曲面上生成地面网格（每个单元最多切成 4 × 4 个四边形），让贴坡物体倾斜，路径和智能体贴着地面，地标用标杆标出。
+
+<img src="images/scene-hillside.top.svg" alt="examples/scene/hillside.yaml：等高线；风机被移到山脊上；光伏板随坡面倾斜" width="100%">
+
+<img src="images/scene-hillside.jpg" alt="examples/scene/hillside.yaml 的 Blender 渲染" width="100%">
+
 ## 输出
 
 `renderSceneDsl(source, { format })`，或 `agh --input room.yaml --format …`：
 
 - **`scene-json`**（默认）：`dge-scene` v1 文档，格式见 [`schema/dge-scene.v1.schema.json`](../schema/dge-scene.v1.schema.json)，数值保留 4 位小数。每个物体给出：
   - `position`：底面中心和底面高度 `[x, y, z]`；
-  - `yaw`，以及同一个转角的四元数 `quaternion` `[x, y, z, w]`；
+  - `yaw`，以及旋转四元数 `quaternion` `[x, y, z, w]`（先转角，再加上随坡面的倾斜，倾斜时同时给出 `up`）；
   - `size` 和 `front`；
   - `supportedBy`；
   - 世界坐标包围盒 `aabb`。
@@ -219,6 +252,12 @@ relations:
 | `scene.path.unplaced` | 路径去往不在布局里的物体 |
 | `scene.geo.extent`（警告） | 场景离坐标原点超过 10 km |
 | `validate.scene.geo-extent`（错误） | 用经纬度给出的点离坐标原点超过 10 km |
+| `scene.terrain.slope`、`scene.terrain.elevation` | 物体脚下的地面比 `slope below` 更陡，或超出高程限制（附测量值） |
+| `scene.terrain.outside` | 地面上的物体伸出了地形网格 |
+| `scene.terrain.leaning-support` | 物体放在随坡倾斜的支撑物上 |
+| `scene.terrain.off-ground`（警告） | 对放在支撑物上的物体写了 `on terrain` 或 `align to slope` |
+| `scene.terrain.uneven`（提示） | 直立物体脚下地面起伏超过 10 cm：悬空和埋入各多少 |
+| `scene.terrain.moved`（提示） | 物体被移到最近的满足限制条件的地面 |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.head-on`（提示） | 两条路径仍迎面共用一段：让道会超出长度上限、有一条是 `comfort 0`，或轮数用完 |
 | `scene.path.detour`（提示） | 路径长度超过途经点间直线距离的两倍 |
@@ -230,7 +269,8 @@ relations:
 `test/support/blender_check.py` 在 Blender 里运行生成的脚本，与 JSON 比对：
 - 每个物体的世界坐标包围盒（由网格顶点算出）和转角，精度 1e-4；
 - 每个门洞色条在墙上的位置、每条路径曲线的折点，精度 1e-4；
-- 每个智能体在各折点时刻所处的位置（在对应帧上求动画曲线的值），精度 1e-3。
+- 每个智能体在各折点时刻所处的位置（在对应帧上求动画曲线的值），精度 1e-3；
+- 有地形时，按文档里的网格独立计算地面：每个网格顶点都在地面上，地面上每个物体的底面中心站在地面上（误差 1 cm 内），路径和智能体贴着地面，倾斜物体的四元数和上方向一致，每个地标都有标杆。
 
 这项核对在关键节点运行（改动 Blender 导出、阶段收尾、发版前），不是每次改动都跑：
 
@@ -242,7 +282,7 @@ DGE_BLENDER_PYTHON=$(which python) npm run docs:scene-renders   # 生成 README 
 
 ## 第一阶段的限制
 
-- 物体只能绕竖直轴转动。底面轮廓是带方向的矩形，高度是一个区间。
+- 物体绕竖直轴转动；在地形上还可以随坡面倾斜。底面轮廓是带方向的矩形，高度是一个区间；倾斜物体按直立时的底面轮廓和倾斜后盒子的高度范围检查。
 - 平面关系只在地面上的物体之间生效；放在其他物体上的物体用 `at` 定位。
 - “在某物旁边”类关系会把参照物的那一侧就近对齐到世界坐标轴。转了角度的物体，分离和贴墙都按它的外包矩形算（偏保守）；穿插检测仍用真实的旋转轮廓。
 - 求解器只保证关系成立，不保证布局舒适。重要的要求需要写明，例如用 `keep clear` 留出拉椅子的空间。

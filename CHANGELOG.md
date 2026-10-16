@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### 3D scene: terrain (#121, work packages 3a–3c)
+
+- `terrain: { grid: { origin, spacing, heights }, base }`: the ground as a
+  grid of elevations, bilinear between samples (`GridTerrain`). In a scene
+  with a frame, `base` is the origin's height, so `geo` heights are
+  ground elevations.
+- Objects on the floor stand on the ground; `align to slope` leans one
+  square to it (its rotation in `quaternion`, its up axis in `up`, both to
+  1e-9). Upright objects on uneven ground get `scene.terrain.uneven`.
+- `slope below <deg>` and `elevation above / below / between` hold over
+  the whole footprint, computed exactly per grid cell. Objects off limits
+  move to the nearest ground that meets them where nothing holds them
+  (`scene.terrain.moved`); otherwise `scene.terrain.slope` /
+  `scene.terrain.elevation` errors.
+- Paths and agents follow the ground; headroom and the ceiling are measured
+  from it. `scene.terrain.outside`, `scene.terrain.leaning-support` and
+  `scene.terrain.off-ground` report the rest.
+- `terrain.parseAsciiGrid` reads ESRI ASCII DEM grids; `terrain.sampleTerrain` builds
+  synthetic ones.
+- Output: `terrain` in the document; contour lines in the top view; in
+  Blender a ground mesh on the bilinear surface, leaning objects, paths and
+  agents on the ground, and pins at landmarks (labels and path lines now
+  scale with the site). Agent tracks carry z.
+- New example `examples/scene/hillside.yaml`.
+
 ### 3D scene: on the Earth (#120)
 
 - `frame: { origin: { lat, lon, alt }, datum, anchor, heading }` places a

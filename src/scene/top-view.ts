@@ -8,6 +8,7 @@ import {
 } from "./geometry.js";
 import type { PlacedSceneObject, SolvedScene } from "./ir.js";
 import { positionAt, timePath } from "./path-timing.js";
+import { contourSegments, sceneTerrain } from "./terrain/index.js";
 
 export interface SceneTopViewOptions {
 	/** Pixels per meter (default 100). */
@@ -39,6 +40,10 @@ const FAULT_CODES = new Set([
 	"scene.support.unstable",
 	"scene.keep-clear",
 	"scene.yaw.conflict",
+	"scene.terrain.slope",
+	"scene.terrain.elevation",
+	"scene.terrain.outside",
+	"scene.terrain.leaning-support",
 ]);
 
 /**
@@ -82,6 +87,61 @@ export function sceneTopViewSvg(
 		out.push(
 			`<path d="${grid.join("")}" stroke="#e2e8f0" stroke-width="1" fill="none"/>`,
 		);
+	}
+	// Terrain: contour lines (every fifth one darker, with its elevation).
+	const ground = sceneTerrain(scene);
+	if (ground !== undefined) {
+		const all = ground.grid.heights.flat();
+		const low = Math.min(...all);
+		const high = Math.max(...all);
+		if (high > low) {
+			const interval = niceStep((high - low) / 12, 0.1);
+			const thin: string[] = [];
+			const thick: string[] = [];
+			const labels: string[] = [];
+			for (
+				let k = Math.ceil(low / interval);
+				k * interval <= high + 1e-9;
+				k += 1
+			) {
+				const level = k * interval;
+				const segments = contourSegments(ground.grid, level);
+				const index = k % 5 === 0;
+				const into = index ? thick : thin;
+				for (const [a, b] of segments) into.push(`M${point(a)}L${point(b)}`);
+				const longest = segments.reduce<[Vec2, Vec2] | undefined>(
+					(best, segment) =>
+						best === undefined ||
+						Math.hypot(
+							segment[1].x - segment[0].x,
+							segment[1].y - segment[0].y,
+						) > Math.hypot(best[1].x - best[0].x, best[1].y - best[0].y)
+							? segment
+							: best,
+					undefined,
+				);
+				if (index && longest !== undefined) {
+					const at = {
+						x: (longest[0].x + longest[1].x) / 2,
+						y: (longest[0].y + longest[1].y) / 2,
+					};
+					labels.push(
+						`<text x="${px(at.x)}" y="${fmt(Number(py(at.y)) + 3)}" font-size="9" fill="#78716c" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">${fmt(level)}</text>`,
+					);
+				}
+			}
+			if (thin.length > 0) {
+				out.push(
+					`<path d="${thin.join("")}" stroke="#d6c7a8" stroke-width="0.8" fill="none"/>`,
+				);
+			}
+			if (thick.length > 0) {
+				out.push(
+					`<path d="${thick.join("")}" stroke="#a8956d" stroke-width="1.4" fill="none"/>`,
+				);
+			}
+			out.push(...labels);
+		}
 	}
 	out.push(
 		`<rect x="${px(0)}" y="${py(depth)}" width="${fmt(roomWidth)}" height="${fmt(roomDepth)}" fill="none" stroke="#334155" stroke-width="2"/>`,

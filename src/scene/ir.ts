@@ -4,7 +4,8 @@
  *
  * Frame: x points east, y north, z up; the origin is the room's south-west
  * floor corner, and every length is in meters (the DSL's `units` are
- * converted on the way in). Objects turn only about the vertical axis.
+ * converted on the way in). Objects turn about the vertical axis; on
+ * terrain, an object can also lean with the slope (`align to slope`).
  */
 
 export type ScenePath = Array<string | number>;
@@ -173,6 +174,28 @@ export type SceneRelation =
 			reference: string;
 			dx: number;
 			dy: number;
+	  })
+	| (RelationBase & {
+			/**
+			 * Stands on the terrain (every object on the floor of a scene with
+			 * terrain does); `align` leans it with the slope under it.
+			 */
+			kind: "ground";
+			subject: string;
+			align: boolean;
+	  })
+	| (RelationBase & {
+			/** The ground under it may be no steeper than `max` degrees. */
+			kind: "slope-limit";
+			subject: string;
+			max: number;
+	  })
+	| (RelationBase & {
+			/** The ground under it lies between these elevations (metres). */
+			kind: "elevation-range";
+			subject: string;
+			min?: number;
+			max?: number;
 	  });
 
 export type SceneRelationKind = SceneRelation["kind"];
@@ -260,6 +283,19 @@ export interface SceneLandmark {
 	path: ScenePath;
 }
 
+/**
+ * The ground: a grid of elevations (see `GridTerrain`). Sample (i, j) is
+ * at origin + (i·spacing.x, j·spacing.y); rows run south to north.
+ */
+export interface SceneTerrain {
+	origin: { x: number; y: number };
+	spacing: { x: number; y: number };
+	heights: number[][];
+	/** Elevation at scene z = 0 (the frame origin's height in a scene on the Earth). */
+	base: number;
+	path: ScenePath;
+}
+
 export interface SceneSpec {
 	name: string;
 	units: SceneUnits;
@@ -278,6 +314,8 @@ export interface SceneSpec {
 	/** Where the scene sits on the Earth; absent for a scene not placed there. */
 	frame?: SceneFrame;
 	landmarks?: SceneLandmark[];
+	/** The ground; absent for a flat floor at z = 0. */
+	terrain?: SceneTerrain;
 }
 
 /** An object placed in the room. */
@@ -287,8 +325,14 @@ export interface PlacedSceneObject {
 	position: [number, number, number];
 	/** Degrees, counter-clockwise seen from above, in (-180, 180]. */
 	yaw: number;
-	/** The turn about z as a unit quaternion [x, y, z, w]. */
+	/**
+	 * Its rotation as a unit quaternion [x, y, z, w]: the turn about z,
+	 * then, for an object aligned to the slope, the tilt that takes z to
+	 * `up`.
+	 */
 	quaternion: [number, number, number, number];
+	/** The object's up axis in the world, when it leans with the slope. */
+	up?: [number, number, number];
 	size: [number, number, number];
 	front: SceneAxis;
 	/** The object it stands on; absent on the floor. */
@@ -320,7 +364,7 @@ export interface PlannedScenePath {
 	agent: string;
 	from: string;
 	to: string;
-	/** Corners from start to end, [x, y, z] (z = 0, on the floor). */
+	/** Corners from start to end, [x, y, z] (z on the floor or the ground). */
 	points: [number, number, number][];
 	length: number;
 	/** The agent's width (twice its radius). */
@@ -362,6 +406,13 @@ export interface SolvedScene {
 	};
 	/** Landmarks, in the scene frame and WGS84 (scenes with a `frame`). */
 	landmarks?: { id: string; position: [number, number]; geo: GeoPoint }[];
+	/** The ground (scenes with terrain); z = elevation - base. */
+	terrain?: {
+		origin: [number, number];
+		spacing: [number, number];
+		base: number;
+		heights: number[][];
+	};
 	/** No interpenetration, floating object, overhang past the edge or wall. */
 	valid: boolean;
 	diagnostics: SceneDiagnostic[];
