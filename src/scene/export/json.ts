@@ -2,6 +2,13 @@ import { z } from "zod";
 import type { SolvedScene } from "../ir.js";
 
 const vec3 = z.tuple([z.number(), z.number(), z.number()]);
+const geoPoint = z
+	.object({
+		lat: z.number().describe("WGS84 latitude, degrees."),
+		lon: z.number().describe("WGS84 longitude, degrees."),
+		alt: z.number().describe("Height above the WGS84 ellipsoid, metres."),
+	})
+	.strict();
 const path = z.array(z.union([z.string(), z.number()]));
 
 const sceneObjectSchema = z
@@ -25,6 +32,9 @@ const sceneObjectSchema = z
 		label: z.string().optional(),
 		asset: z.string().optional(),
 		group: z.string().optional(),
+		geo: geoPoint
+			.optional()
+			.describe("Where `position` is on the Earth (scenes with a frame)."),
 	})
 	.strict();
 
@@ -116,6 +126,41 @@ export const sceneDocumentSchema = z
 				.strict(),
 		),
 		paths: z.array(pathSchema),
+		geo: z
+			.object({
+				origin: geoPoint,
+				datum: z
+					.enum(["WGS84", "GCJ02", "BD09"])
+					.describe(
+						"The datum the document was written in; every output coordinate is WGS84.",
+					),
+				anchor: z
+					.tuple([z.number(), z.number()])
+					.describe("The scene point at the origin, metres."),
+				heading: z
+					.number()
+					.describe(
+						"True bearing of the scene's +y axis, degrees clockwise from north.",
+					),
+			})
+			.strict()
+			.optional()
+			.describe(
+				"Where the scene sits on the Earth: scene metres are a local east-north-up frame at `origin`, turned by `heading`.",
+			),
+		landmarks: z
+			.array(
+				z
+					.object({
+						id: z.string(),
+						position: z
+							.tuple([z.number(), z.number()])
+							.describe("In the scene frame, metres."),
+						geo: geoPoint,
+					})
+					.strict(),
+			)
+			.optional(),
 		unplaced: z
 			.array(z.string())
 			.describe(
@@ -150,6 +195,8 @@ export function sceneToDocument(scene: SolvedScene): SceneDocument {
 		openings: scene.openings,
 		agents: scene.agents,
 		paths: scene.paths,
+		...(scene.geo === undefined ? {} : { geo: scene.geo }),
+		...(scene.landmarks === undefined ? {} : { landmarks: scene.landmarks }),
 		unplaced: scene.unplaced,
 		diagnostics: scene.diagnostics,
 	};

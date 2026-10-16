@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### 3D scene: on the Earth (#120)
+
+- `frame: { origin: { lat, lon, alt }, datum, anchor, heading }` places a
+  scene on the Earth: scene metres are a local east-north-up frame at the
+  origin, turned by `heading`, with the floor at the origin's height.
+- `landmarks` are fixed points by latitude and longitude. Objects can be
+  pinned with `geo: { lat, lon }`, and placed with `at <landmark>`,
+  `<length> bearing <degrees> from <place>` and `<length> north-of <place>`
+  (exact geodesics from landmarks, the site plane from objects). `around`
+  and `facing` accept landmarks.
+- GCJ-02 and BD-09 input (`datum`), converted to WGS84.
+- Output: `geo` on every object, plus the frame and landmarks on the
+  document. The Blender script records them as custom properties.
+  `scene.geo.extent` warns when a scene reaches past 10 km; a point given
+  by latitude and longitude more than 10 km from the origin is refused
+  (`validate.scene.geo-extent`, measured before projection, #146).
+- The frame's scene → WGS84 inverse solves for the origin's height along
+  the local up axis, so it round-trips to well under a millimetre at the
+  poles too (#145).
+- `src/scene/geo`: WGS84 ↔ ECEF ↔ ENU, Vincenty geodesics, and GCJ-02/BD-09,
+  tested against GeographicLib and coordtransform (dev dependencies).
+- The top view scales large sites to about 1000 px, spaces its grid and
+  axis numbers to suit, marks landmarks, and points its arrow to true
+  north.
+- New example `examples/scene/park.yaml`.
+
+### Agents' pace in the output (#144)
+
+- Agents' `speed` and `accel` are written exactly, not rounded: the
+  Blender keys recompute the path timing from them, and rounding moved
+  corners off their times (or, for tiny values, gave no keys at all).
+
 ### Self-review fixes on scene paths (#129, #133–#135)
 
 - A path to an object left out of the layout is reported

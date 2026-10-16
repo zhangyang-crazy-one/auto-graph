@@ -4,7 +4,7 @@
 
 场景文档描述一个房间、里面的物体，以及物体之间的关系。auto-graph 解算出每个物体放在哪里、朝向哪边，并检查结果。全程是纯数学计算，不依赖任何 3D 软件，agent 拿到的是精确数值，可以直接交给 Blender、游戏引擎或机器人规划器。
 
-第一阶段只覆盖室内：平面布局加上下叠放（2.5D），物体只能绕竖直轴转动。地理锚定（WGS84 → 局部 ENU）、地形和轨迹规划安排在 #120–#122 及后续 issue 中。
+目前覆盖：平面布局加上下叠放（2.5D），物体只能绕竖直轴转动；人和机器人的路径；以及用经纬度把场景放到地球上。地形和大范围的投影坐标在 #121–#122 中完成。
 
 ## 坐标系
 
@@ -141,6 +141,39 @@ paths:
 
 <img src="images/scene-storeroom.top.svg" alt="examples/scene/storeroom.yaml：货架被挪开，人和推车都能走到工作台" width="100%">
 
+## 放到地球上
+
+场景可以放到地球上。求解器仍在场景自己的坐标系里以米为单位计算；经纬度通过 `frame` 和 `landmarks` 输入，并随每个物体一起输出。
+
+```yaml
+frame:
+  origin: { lat: 39.99, lon: 116.39, alt: 45 }   # WGS84 经纬度（度），高度（米）
+  datum: WGS84          # 或 GCJ02 / BD09：文档里所有经纬度都按它读取
+  anchor: [0, 0]        # 位于原点的场景点（默认西南角）
+  heading: 0            # 场景 +y 轴的真方位角，顺时针度数（默认 0）
+landmarks:
+  gate:     { lat: 39.99009, lon: 116.39035 }      # 供关系引用的固定点
+  fountain: { lat: 39.99045, lon: 116.39070 }
+objects:
+  pavilion: { size: [12, 10, 6], geo: { lat: 39.99070, lon: 116.39110 } }   # 用经纬度固定位置
+relations:
+  - kiosk 25m bearing 60 from gate        # 真方位角，从正北顺时针
+  - lamp 8m north-of pavilion             # 也可以是 north-east-of、ne-of、south-of……
+  - info at gate, facing fountain
+  - bench around fountain, radius 12
+```
+
+- **坐标系**：场景的米制坐标挂在 `origin` 处的局部东北天坐标系上：场景点 `anchor` 位于原点，场景 +y 轴指向真方位角 `heading`。场景地面是原点高度处的水平面，所以经纬度可以精确往返，物体高度等于原点高度加 z。`heading: 0` 时场景的“北”（方位词、`against wall north`）就是真北；否则这些词仍指场景自己的方向，俯视图里的箭头指向真北。
+- **地标**是固定点。`at`、距离加方位、`around` 和 `facing` 都可以用地标代替物体。没写高度的地标在地面上（原点高度）。
+- **距离**：相对地标时，`<长度> bearing <度> from` 和 `<长度> north-of` 严格沿 WGS84 测地线计算。相对物体时在场地平面上计算，平面的北是原点处的真北；离原点东西方向每 100 m 子午线收敛约 0.001°，那里的方位与真北可能差这么多。长度也可以用 `km`。没有 frame 时，方位以场景的北为准。
+- **坐标偏移**：GCJ-02 和 BD-09（国内地图服务的坐标）用公开的转换公式换算，这是官方转换的近似，误差在几米以内；反算相对这些公式的误差远小于 1 毫米。内部存储和输出一律用 WGS84。
+- **适用范围**：一个局部坐标系适用于原点 10 km 以内的场地；超出时给出 `scene.geo.extent`。用经纬度给出的点（物体的 `geo`、地标、从地标出发的距离）离原点超过 10 km 时报错（`validate.scene.geo-extent`）：距离在投影前按地球上的位置量取，所以地球另一面的点不会被折回原点附近。
+- **输出**：每个物体给出 `geo`（其 `position` 的纬度、经度、高度），文档给出 `geo`（坐标系）和 `landmarks`。Blender 脚本把它们记为自定义属性（物体上的 `dge_geo`，集合上的 `dge_geo_origin`）。
+
+测地线和坐标系数学（`src/scene/geo`）与 GeographicLib 对照（10 km 内距离、方位误差 < 1e-6 米/度），GCJ-02/BD-09 公式与 coordtransform 包对照；坐标往返在 10 km 内误差 < 1 mm。
+
+<img src="images/scene-park.top.svg" alt="examples/scene/park.yaml：用经纬度和地标布置的园区" width="100%">
+
 ## 输出
 
 `renderSceneDsl(source, { format })`，或 `agh --input room.yaml --format …`：
@@ -172,7 +205,7 @@ paths:
 
 | 代码 | 含义 |
 | --- | --- |
-| `validate.scene.*` | 文档本身的问题（包括同一面墙上重叠的门洞）：未知物体或动词（附“是否想写 …”提示）、动词不接受的修饰、数值不合法、保留字、需要单个物体的地方用了组 |
+| `validate.scene.*` | 文档本身的问题（包括同一面墙上重叠的门洞、没有 `frame` 却写了经纬度、未知地标）：未知物体或动词（附“是否想写 …”提示）、动词不接受的修饰、数值不合法、保留字、需要单个物体的地方用了组 |
 | `scene.layout.conflict` | 关系（或钉住的位置）之间无法同时成立，并指出涉及哪些物体 |
 | `scene.collision` | 两个物体互相穿插（附穿插深度） |
 | `scene.out-of-bounds`、`scene.above-ceiling` | 越过墙壁或天花板（附超出多少） |
@@ -184,6 +217,8 @@ paths:
 | `scene.path.blocked` | 走不通：瓶颈位置、宽度和所需宽度；或者被围住的地点（端点或途经点） |
 | `scene.path.opening-narrow` | 门洞比智能体宽度加两侧净空还窄 |
 | `scene.path.unplaced` | 路径去往不在布局里的物体 |
+| `scene.geo.extent`（警告） | 场景离坐标原点超过 10 km |
+| `validate.scene.geo-extent`（错误） | 用经纬度给出的点离坐标原点超过 10 km |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.head-on`（提示） | 两条路径仍迎面共用一段：让道会超出长度上限、有一条是 `comfort 0`，或轮数用完 |
 | `scene.path.detour`（提示） | 路径长度超过途经点间直线距离的两倍 |

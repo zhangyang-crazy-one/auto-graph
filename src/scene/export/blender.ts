@@ -249,6 +249,10 @@ def build(data):
         bpy.data.collections.remove(old)
     collection = bpy.data.collections.new(name)
     bpy.context.scene.collection.children.link(collection)
+    if data.get("geo"):
+        origin = data["geo"]["origin"]
+        collection["dge_geo_origin"] = [origin["lat"], origin["lon"], origin["alt"]]
+        collection["dge_geo_heading"] = data["geo"]["heading"]
 
     width = data["bounds"]["width"]
     depth = data["bounds"]["depth"]
@@ -282,6 +286,9 @@ def build(data):
             obj["dge_supported_by"] = item["supportedBy"]
         if asset:
             obj["dge_asset"] = asset
+        if item.get("geo"):
+            # Where it is on the Earth (WGS84 latitude, longitude, height).
+            obj["dge_geo"] = [item["geo"]["lat"], item["geo"]["lon"], item["geo"]["alt"]]
         collection.objects.link(obj)
 
         marker = bpy.data.objects.new(item["id"] + ".front", front_marker(item["id"] + ".front", w, d, h, item["front"]))

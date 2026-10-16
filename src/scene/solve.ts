@@ -1,3 +1,4 @@
+import { GEO_REACH, SceneGeoFrame } from "./geo/index.js";
 import {
 	axisAngle,
 	contains,
@@ -14,6 +15,7 @@ import {
 	type Vec2,
 } from "./geometry.js";
 import type {
+	GeoPoint,
 	PlacedSceneObject,
 	SceneDiagnostic,
 	SceneObject,
@@ -35,6 +37,21 @@ const YAW_TOLERANCE = 0.01;
 const MAX_PASSES = 4;
 /** Rounds of floor plan plus supports before turns must have settled. */
 const MAX_ROUNDS = 4;
+/** One local east-north-up frame serves sites within this reach (m). */
+
+/** Latitude and longitude to 1e-9° (about 0.1 mm), height to 0.1 mm. */
+function geoPoint(point: {
+	lat: number;
+	lon: number;
+	alt?: number | undefined;
+}): GeoPoint {
+	return {
+		lat: Math.round(point.lat * 1e9) / 1e9,
+		lon: Math.round(point.lon * 1e9) / 1e9,
+		alt: Math.round((point.alt ?? 0) * 1e4) / 1e4,
+	};
+}
+
 /** Times the layout is solved again to make way for blocked paths. */
 const MAKE_WAY_ROUNDS = 4;
 /** Aisles are held this much wider than a path needs (stands, rounding). */
@@ -599,6 +616,40 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			hint: "Give its support a place, or remove the `on` relation.",
 		});
 	}
+	// A scene placed on the Earth: geographic positions on the output, and
+	// a warning when it reaches too far for one flat local frame.
+	const geoFrame =
+		spec.frame === undefined ? undefined : new SceneGeoFrame(spec.frame);
+	if (spec.frame !== undefined) {
+		const { anchor } = spec.frame;
+		const corners = [
+			[0, 0],
+			[spec.bounds.width, 0],
+			[0, spec.bounds.depth],
+			[spec.bounds.width, spec.bounds.depth],
+		];
+		const reach = Math.max(
+			...corners.map(([x = 0, y = 0]) =>
+				Math.hypot(x - anchor.x, y - anchor.y),
+			),
+			...(spec.landmarks ?? []).map((landmark) =>
+				Math.hypot(
+					landmark.position.x - anchor.x,
+					landmark.position.y - anchor.y,
+				),
+			),
+		);
+		if (reach > GEO_REACH) {
+			diagnostics.push({
+				severity: "warning",
+				code: "scene.geo.extent",
+				message: `The scene reaches ${round(reach / 1000)} km from its origin; one local frame is meant for sites within ${GEO_REACH / 1000} km.`,
+				path: ["frame"],
+				hint: "Split the site into scenes with their own origins (a projected frame for large areas comes in a later phase).",
+				detail: { reach: round(reach) },
+			});
+		}
+	}
 	const rank = { error: 0, warning: 1, info: 2 } as const;
 	const sorted = diagnostics
 		.map((diagnostic, index) => ({ diagnostic, index }))
@@ -614,7 +665,11 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		bounds: spec.bounds,
 		objects: spec.objects.flatMap((object) => {
 			const placement = placed.get(object.id);
-			return placement === undefined ? [] : [output(placement)];
+			if (placement === undefined) return [];
+			const out = output(placement);
+			if (geoFrame === undefined) return [out];
+			const [x, y, z] = out.position;
+			return [{ ...out, geo: geoPoint(geoFrame.toGeo(x, y, z)) }];
 		}),
 		openings: spec.openings.map(({ id, wall, at, width }) => ({
 			id,
@@ -626,10 +681,33 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			id,
 			radius: round(radius),
 			height: round(height),
-			speed: round(speed),
-			accel: round(accel),
+			// Exact: the timing on the paths is computed from these, and
+			// exporters (Blender's keyframes) recompute it from the output.
+			speed,
+			accel,
 		})),
 		paths: best.planned.paths,
+		...(spec.frame === undefined
+			? {}
+			: {
+					geo: {
+						origin: geoPoint(spec.frame.origin),
+						datum: spec.frame.datum,
+						anchor: [
+							round(spec.frame.anchor.x),
+							round(spec.frame.anchor.y),
+						] as [number, number],
+						heading: spec.frame.heading,
+					},
+					landmarks: (spec.landmarks ?? []).map((landmark) => ({
+						id: landmark.id,
+						position: [
+							round(landmark.position.x),
+							round(landmark.position.y),
+						] as [number, number],
+						geo: geoPoint(landmark.geo),
+					})),
+				}),
 		unplaced,
 		valid: !sorted.some((diagnostic) => diagnostic.severity === "error"),
 		diagnostics: sorted,
@@ -740,7 +818,9 @@ function resolveYaw(
 			const yaw =
 				"direction" in relation.target
 					? normalizeDegrees(COMPASS[relation.target.direction] - front)
-					: facingYaw(nearestPoint(relation.target.object));
+					: "point" in relation.target
+						? facingYaw(relation.target.point)
+						: facingYaw(nearestPoint(relation.target.object));
 			if (yaw === undefined) {
 				if ("object" in relation.target) {
 					diagnostics.push({
@@ -780,7 +860,7 @@ function resolveYaw(
 			relation.faceCenter &&
 			relation.subjects.includes(object.id)
 		) {
-			const yaw = facingYaw(centerOf(relation.center));
+			const yaw = facingYaw(relation.point ?? centerOf(relation.center));
 			if (yaw !== undefined) return yaw;
 		}
 	}

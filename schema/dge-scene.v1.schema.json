@@ -171,6 +171,26 @@
 					},
 					"group": {
 						"type": "string"
+					},
+					"geo": {
+						"description": "Where `position` is on the Earth (scenes with a frame).",
+						"type": "object",
+						"properties": {
+							"lat": {
+								"type": "number",
+								"description": "WGS84 latitude, degrees."
+							},
+							"lon": {
+								"type": "number",
+								"description": "WGS84 longitude, degrees."
+							},
+							"alt": {
+								"type": "number",
+								"description": "Height above the WGS84 ellipsoid, metres."
+							}
+						},
+						"required": ["lat", "lon", "alt"],
+						"additionalProperties": false
 					}
 				},
 				"required": [
@@ -311,6 +331,98 @@
 					"times",
 					"duration"
 				],
+				"additionalProperties": false
+			}
+		},
+		"geo": {
+			"description": "Where the scene sits on the Earth: scene metres are a local east-north-up frame at `origin`, turned by `heading`.",
+			"type": "object",
+			"properties": {
+				"origin": {
+					"type": "object",
+					"properties": {
+						"lat": {
+							"type": "number",
+							"description": "WGS84 latitude, degrees."
+						},
+						"lon": {
+							"type": "number",
+							"description": "WGS84 longitude, degrees."
+						},
+						"alt": {
+							"type": "number",
+							"description": "Height above the WGS84 ellipsoid, metres."
+						}
+					},
+					"required": ["lat", "lon", "alt"],
+					"additionalProperties": false
+				},
+				"datum": {
+					"type": "string",
+					"enum": ["WGS84", "GCJ02", "BD09"],
+					"description": "The datum the document was written in; every output coordinate is WGS84."
+				},
+				"anchor": {
+					"type": "array",
+					"prefixItems": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "number"
+						}
+					],
+					"description": "The scene point at the origin, metres."
+				},
+				"heading": {
+					"type": "number",
+					"description": "True bearing of the scene's +y axis, degrees clockwise from north."
+				}
+			},
+			"required": ["origin", "datum", "anchor", "heading"],
+			"additionalProperties": false
+		},
+		"landmarks": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"position": {
+						"type": "array",
+						"prefixItems": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							}
+						],
+						"description": "In the scene frame, metres."
+					},
+					"geo": {
+						"type": "object",
+						"properties": {
+							"lat": {
+								"type": "number",
+								"description": "WGS84 latitude, degrees."
+							},
+							"lon": {
+								"type": "number",
+								"description": "WGS84 longitude, degrees."
+							},
+							"alt": {
+								"type": "number",
+								"description": "Height above the WGS84 ellipsoid, metres."
+							}
+						},
+						"required": ["lat", "lon", "alt"],
+						"additionalProperties": false
+					}
+				},
+				"required": ["id", "position", "geo"],
 				"additionalProperties": false
 			}
 		},

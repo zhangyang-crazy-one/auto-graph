@@ -19,6 +19,15 @@ const LEVEL_FILLS = ["#dbeafe", "#fde68a", "#fbcfe8", "#d9f99d"];
 const STROKE = "#1e3a8a";
 const PATH_COLORS = ["#0d9488", "#c2410c", "#7c3aed", "#0369a1", "#be123c"];
 const FAULT = "#dc2626";
+/** The smallest of 1, 2, 5 × 10ⁿ (and `least`) at least `want`. */
+function niceStep(want: number, least: number): number {
+	let step = least;
+	for (let k = 0; step < want && k < 60; k += 1) {
+		step = ([1, 2, 5][k % 3] as number) * 10 ** Math.floor(k / 3) * least;
+	}
+	return step;
+}
+
 /** Most time ticks drawn along one path. */
 const MAX_TICKS = 200;
 const WARNING = "#b45309";
@@ -42,8 +51,12 @@ export function sceneTopViewSvg(
 	scene: SolvedScene,
 	options: SceneTopViewOptions = {},
 ): string {
-	const scale = options.scale ?? 100;
 	const { width, depth } = scene.bounds;
+	// 100 px a metre for a room; a larger site is drawn about 1000 px wide.
+	const scale = options.scale ?? Math.min(100, 1000 / Math.max(width, depth));
+	// Grid lines and axis numbers far enough apart to read.
+	const grid_ = niceStep(25 / scale, 0.5);
+	const tickStep = niceStep(30 / scale, 1);
 	const roomWidth = width * scale;
 	const roomDepth = depth * scale;
 	const notes = footerLines(scene);
@@ -59,11 +72,11 @@ export function sceneTopViewSvg(
 	];
 
 	const grid: string[] = [];
-	for (let x = 0.5; x < width - 1e-9; x += 0.5) {
-		grid.push(`M${px(x)} ${py(0)}V${py(depth)}`);
+	for (let k = 1; k * grid_ < width - 1e-9; k += 1) {
+		grid.push(`M${px(k * grid_)} ${py(0)}V${py(depth)}`);
 	}
-	for (let y = 0.5; y < depth - 1e-9; y += 0.5) {
-		grid.push(`M${px(0)} ${py(y)}H${px(width)}`);
+	for (let k = 1; k * grid_ < depth - 1e-9; k += 1) {
+		grid.push(`M${px(0)} ${py(k * grid_)}H${px(width)}`);
 	}
 	if (grid.length > 0) {
 		out.push(
@@ -102,19 +115,24 @@ export function sceneTopViewSvg(
 			`<text x="${px(label.x - inward.x * (14 / scale))}" y="${fmt(Number(py(label.y - inward.y * (14 / scale))) + 4)}" font-size="10" fill="#334155" text-anchor="middle">${escapeXml(opening.id)}</text>`,
 		);
 	}
-	for (let x = 0; x <= width + 1e-9; x += 1) {
+	for (let k = 0; k * tickStep <= width + 1e-9; k += 1) {
+		const x = k * tickStep;
 		out.push(
 			`<text x="${px(x)}" y="${fmt(MARGIN + roomDepth + 16)}" font-size="10" fill="#64748b" text-anchor="middle">${fmt(x)}</text>`,
 		);
 	}
-	for (let y = 0; y <= depth + 1e-9; y += 1) {
+	for (let k = 0; k * tickStep <= depth + 1e-9; k += 1) {
+		const y = k * tickStep;
 		out.push(
 			`<text x="${fmt(MARGIN - 8)}" y="${fmt(Number(py(y)) + 3)}" font-size="10" fill="#64748b" text-anchor="end">${fmt(y)}</text>`,
 		);
 	}
+	// The north arrow points to true north in a scene placed on the Earth
+	// (turned by the frame's heading), to the scene's north otherwise.
 	const nx = MARGIN + roomWidth + 24;
+	const heading = scene.geo?.heading ?? 0;
 	out.push(
-		`<path d="M${fmt(nx)} 14l-5 12h10z" fill="#334155"/>`,
+		`<path d="M${fmt(nx)} 14l-5 12h10z" fill="#334155"${heading === 0 ? "" : ` transform="rotate(${fmt(-heading)} ${fmt(nx)} 20)"`}/>`,
 		`<text x="${fmt(nx)}" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>`,
 	);
 
@@ -231,6 +249,17 @@ export function sceneTopViewSvg(
 		}
 	});
 
+	// Landmarks: a small diamond and the name.
+	for (const landmark of scene.landmarks ?? []) {
+		const [x, y] = landmark.position;
+		if (x < 0 || y < 0 || x > width || y > depth) continue;
+		const cx = Number(px(x));
+		const cy = Number(py(y));
+		out.push(
+			`<path d="M${fmt(cx)} ${fmt(cy - 6)}l6 6l-6 6l-6 -6z" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>`,
+			`<text x="${fmt(cx)}" y="${fmt(cy - 9)}" font-size="10" fill="#b45309" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">${escapeXml(landmark.id)}</text>`,
+		);
+	}
 	// Labels go on top of every footprint; one that would cover an earlier
 	// label (a lamp centered on its desk) moves down a line.
 	const taken: { x: number; y: number; half: number }[] = [];

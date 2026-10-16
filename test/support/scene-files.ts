@@ -7,6 +7,7 @@ const EXAMPLES = new Set([
 	"showroom",
 	"office",
 	"storeroom",
+	"park",
 ]);
 
 export function sceneSourceUrl(name: string): URL {

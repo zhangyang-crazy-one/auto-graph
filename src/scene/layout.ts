@@ -238,16 +238,34 @@ export function layoutFloor(input: FloorLayoutInput): FloorLayoutResult {
 				break;
 			}
 			case "around": {
-				const c = floorIndex(relation.center, relation);
+				// Around an object, or around a landmark's fixed point.
+				const point = relation.point;
+				const c =
+					point === undefined ? floorIndex(relation.center, relation) : low;
 				if (c === undefined) break;
 				const count = relation.subjects.length;
 				relation.subjects.forEach((subject, k) => {
 					const i = floorIndex(subject, relation);
 					if (i === undefined) return;
 					const at = direction(relation.start + (360 * k) / count);
-					eq("x", c, i, relation.radius * at.x, origin);
-					eq("y", c, i, relation.radius * at.y, origin);
+					eq("x", c, i, (point?.x ?? 0) + relation.radius * at.x, origin);
+					eq("y", c, i, (point?.y ?? 0) + relation.radius * at.y, origin);
 				});
+				break;
+			}
+			case "at-point": {
+				const i = floorIndex(relation.subject, relation);
+				if (i === undefined) break;
+				eq("x", low, i, relation.point.x, origin);
+				eq("y", low, i, relation.point.y, origin);
+				break;
+			}
+			case "offset": {
+				const r = floorIndex(relation.reference, relation);
+				const i = floorIndex(relation.subject, relation);
+				if (r === undefined || i === undefined) break;
+				eq("x", r, i, relation.dx, origin);
+				eq("y", r, i, relation.dy, origin);
 				break;
 			}
 			case "grid": {
