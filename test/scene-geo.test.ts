@@ -419,8 +419,9 @@ describe("scenes placed on the Earth", () => {
 		const far = (
 			origin: { lat: number; lon: number },
 			value: Record<string, unknown>,
+			projection = "enu",
 		) =>
-			normalizeSceneDsl({ ...base, frame: { origin }, ...value })
+			normalizeSceneDsl({ ...base, frame: { origin, projection }, ...value })
 				.diagnostics.filter((d) => d.code === "validate.scene.geo-extent")
 				.map((d) => d.path?.join("."));
 		const zero = { lat: 0, lon: 0 };
@@ -440,6 +441,11 @@ describe("scenes placed on the Earth", () => {
 			expect(far(zero, { landmarks: { gate: point } })).toEqual([
 				"landmarks.gate",
 			]);
+			// Too far for UTM too, so also refused when the frame is chosen
+			// automatically.
+			expect(far(zero, { landmarks: { gate: point } }, "auto")).toEqual([
+				"landmarks.gate",
+			]);
 		}
 		// Just inside and just outside 10 km, due east on the equator.
 		const east = (metres: number) =>
@@ -448,6 +454,10 @@ describe("scenes placed on the Earth", () => {
 		expect(far(zero, { landmarks: { gate: east(10_010) } })).toEqual([
 			"landmarks.gate",
 		]);
+		// Left to choose, the frame goes to UTM instead.
+		expect(far(zero, { landmarks: { gate: east(10_010) } }, "auto")).toEqual(
+			[],
+		);
 		// A distance from a landmark that lands too far.
 		expect(
 			far(zero, {
@@ -455,6 +465,16 @@ describe("scenes placed on the Earth", () => {
 				relations: ["a 20km bearing 90 from gate"],
 			}),
 		).toEqual(["relations.0"]);
+		expect(
+			far(
+				zero,
+				{
+					landmarks: { gate: { lat: 0, lon: 0.0001 } },
+					relations: ["a 20km bearing 90 from gate"],
+				},
+				"auto",
+			),
+		).toEqual([]);
 		// A short hop across the antimeridian is fine and lands where it should.
 		const result = normalizeSceneDsl({
 			...base,
@@ -475,11 +495,11 @@ describe("scenes placed on the Earth", () => {
 		);
 	});
 
-	it("warns when a scene reaches past one local frame", () => {
+	it("warns when a local frame reaches past 10 km", () => {
 		const result = normalizeSceneDsl({
 			scene: "t",
 			bounds: { width: 12_000, depth: 100 },
-			frame: { origin: { lat: 30, lon: 120 } },
+			frame: { origin: { lat: 30, lon: 120 }, projection: "enu" },
 			objects: { a: { size: [1, 1, 1] } },
 		});
 		const scene = solveScene(result.scene as SceneSpec);

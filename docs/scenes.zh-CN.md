@@ -4,7 +4,7 @@
 
 场景文档描述一个房间、里面的物体，以及物体之间的关系。auto-graph 解算出每个物体放在哪里、朝向哪边，并检查结果。全程是纯数学计算，不依赖任何 3D 软件，agent 拿到的是精确数值，可以直接交给 Blender、游戏引擎或机器人规划器。
 
-目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制。大范围的投影坐标、沿道路布置和阵列在 #121–#122 中完成。
+目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上（局部坐标系，大场地用地图投影）；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制。沿道路布置和阵列在 #121–#122 中完成。
 
 ## 坐标系
 
@@ -154,6 +154,8 @@ frame:
   datum: WGS84          # 或 GCJ02 / BD09：文档里所有经纬度都按它读取
   anchor: [0, 0]        # 位于原点的场景点（默认西南角）
   heading: 0            # 场景 +y 轴的真方位角，顺时针度数（默认 0）
+  projection: auto      # enu | utm | web-mercator（默认 auto：10 km 内用 enu，超出用 UTM）
+  zone: 50              # 可选：指定 UTM 带号，代替原点所在的带
 landmarks:
   gate:     { lat: 39.99009, lon: 116.39035 }      # 供关系引用的固定点
   fountain: { lat: 39.99045, lon: 116.39070 }
@@ -170,10 +172,10 @@ relations:
 - **地标**是固定点。`at`、距离加方位、`around` 和 `facing` 都可以用地标代替物体。没写高度的地标在地面上（原点高度）。
 - **距离**：相对地标时，`<长度> bearing <度> from` 和 `<长度> north-of` 严格沿 WGS84 测地线计算。相对物体时在场地平面上计算，平面的北是原点处的真北；离原点东西方向每 100 m 子午线收敛约 0.001°，那里的方位与真北可能差这么多。长度也可以用 `km`。没有 frame 时，方位以场景的北为准。
 - **坐标偏移**：GCJ-02 和 BD-09（国内地图服务的坐标）用公开的转换公式换算，这是官方转换的近似，误差在几米以内；反算相对这些公式的误差远小于 1 毫米。内部存储和输出一律用 WGS84。
-- **适用范围**：一个局部坐标系适用于原点 10 km 以内的场地；超出时给出 `scene.geo.extent`。用经纬度给出的点（物体的 `geo`、地标、从地标出发的距离）离原点超过 10 km 时报错（`validate.scene.geo-extent`）：距离在投影前按地球上的位置量取，所以地球另一面的点不会被折回原点附近。
+- **适用范围与投影**：局部东北天坐标系（`projection: enu`）适用于原点 10 km 以内的场地。保持默认的 `auto` 时，场地超出这个范围（边界离锚点、任一经纬度点、或从地标出发的距离超过 10 km），就改用原点所在的 UTM 投影带，并给出 `scene.geo.projection`（提示），写明带号和 EPSG 代码。UTM 场地伸进相邻的带时，仍统一用本带投影，并给出 `scene.geo.zone-crossing`（警告，附最远处的格网比例）。用投影时，场景米就是格网上离原点的米数，并旋转到让 +y 指向原点处的真方位角 `heading`（格网北与真北在原点处相差子午线收敛角）。UTM 在中央子午线上的比例是 0.9996，离中央子午线 3° 处约为 1.001。`web-mercator`（EPSG:3857，用于和地图瓦片对齐）在原点处东西、南北分别缩放成真实米数，经度按原点为中心展开，所以横跨 180° 经线的场地不会被拆开。坐标系放不下的点会报错（`validate.scene.geo-extent`），距离在投影前按地球上的位置量取：离局部坐标系原点超过 10 km（地球另一面的点不会被折回原点附近）、离 UTM 中央子午线超过 15° 或在 80°S–84°N 之外（不支持极地 UPS），或超出 Web Mercator 的 ±85.05°。显式写 `enu` 的场景超过 10 km 时给出 `scene.geo.extent`。
 - **输出**：每个物体给出 `geo`（其 `position` 的纬度、经度、高度），文档给出 `geo`（坐标系）和 `landmarks`。Blender 脚本把它们记为自定义属性（物体上的 `dge_geo`，集合上的 `dge_geo_origin`）。
 
-测地线和坐标系数学（`src/scene/geo`）与 GeographicLib 对照（10 km 内距离、方位误差 < 1e-6 米/度），GCJ-02/BD-09 公式与 coordtransform 包对照；坐标往返在 10 km 内误差 < 1 mm。
+测地线和坐标系数学（`src/scene/geo`）与 GeographicLib 对照（10 km 内距离、方位误差 < 1e-6 米/度），GCJ-02/BD-09 公式与 coordtransform 包对照，UTM（Krüger 六阶级数，带内精度达纳米级）和 Web Mercator 与 proj4 对照（误差 < 1e-6 m）；坐标往返误差：局部坐标系 10 km 内、投影坐标系 100 km 内均 < 1 mm。
 
 <img src="images/scene-park.top.svg" alt="examples/scene/park.yaml：用经纬度和地标布置的园区" width="100%">
 
@@ -250,8 +252,10 @@ relations:
 | `scene.path.blocked` | 走不通：瓶颈位置、宽度和所需宽度；或者被围住的地点（端点或途经点） |
 | `scene.path.opening-narrow` | 门洞比智能体宽度加两侧净空还窄 |
 | `scene.path.unplaced` | 路径去往不在布局里的物体 |
-| `scene.geo.extent`（警告） | 场景离坐标原点超过 10 km |
-| `validate.scene.geo-extent`（错误） | 用经纬度给出的点离坐标原点超过 10 km |
+| `scene.geo.extent`（警告） | `projection: enu` 的场景离坐标原点超过 10 km |
+| `validate.scene.geo-extent`（错误） | 坐标系放不下的经纬度点：离局部坐标系原点超过 10 km、超出 UTM 范围，或超出 Web Mercator 边缘 |
+| `scene.geo.projection`（提示） | 大场地改用了 UTM 投影带（附带号和 EPSG 代码） |
+| `scene.geo.zone-crossing`（警告） | UTM 场地伸进了另一个投影带（仍按本带投影，附最远处的格网比例） |
 | `scene.terrain.slope`、`scene.terrain.elevation` | 物体脚下的地面比 `slope below` 更陡，或超出高程限制（附测量值） |
 | `scene.terrain.outside` | 地面上的物体伸出了地形网格 |
 | `scene.terrain.leaning-support` | 物体放在随坡倾斜的支撑物上 |

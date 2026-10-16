@@ -4,7 +4,7 @@
 
 A scene document describes a room, the objects in it and how they relate. auto-graph solves where every object stands and which way it faces, then checks the result. It is plain math with no 3D application in the loop, so an agent gets exact numbers it can hand to Blender, a game engine or a robot planner.
 
-It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude, and uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits. Projected frames for large areas, routes along roads and arrays follow in #121–#122.
+It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude (on a local frame or a map projection for large sites), and uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits. Routes along roads and arrays follow in #121–#122.
 
 ## The frame
 
@@ -154,6 +154,8 @@ frame:
   datum: WGS84          # or GCJ02 / BD09: every latitude and longitude in the document is read in it
   anchor: [0, 0]        # the scene point at the origin (default the south-west corner)
   heading: 0            # true bearing of the scene's +y axis, degrees clockwise (default 0)
+  projection: auto      # enu | utm | web-mercator (default auto: enu within 10 km, else UTM)
+  zone: 50              # optional UTM zone instead of the origin's
 landmarks:
   gate:     { lat: 39.99009, lon: 116.39035 }      # fixed points for relations to refer to
   fountain: { lat: 39.99045, lon: 116.39070 }
@@ -170,10 +172,10 @@ relations:
 - **Landmarks** are fixed points. `at`, distance-and-bearing, `around` and `facing` accept them in place of an object. A landmark given without a height is on the ground (the origin's height).
 - **Distances.** From a landmark, `<length> bearing <degrees> from` and `<length> north-of` follow the WGS84 geodesic exactly. From an object they are taken on the site's plane, whose north is true north at the origin; meridians converge by about 0.001° per 100 m east or west of it, so the bearing may differ from true north there by that much. Lengths also take `km`. Without a frame, bearings are from the scene's north.
 - **Datums.** GCJ-02 and BD-09 coordinates (Chinese map services) are converted with the widely published formulas, approximations of the official transform good to a few metres; the inverses are solved to well under a millimetre of those formulas. Everything is stored and output in WGS84.
-- **Reach.** One local frame is meant for sites within 10 km of the origin; a scene reaching further gets `scene.geo.extent`. A point given by latitude and longitude (an object's `geo`, a landmark, a distance from a landmark) more than 10 km from the origin is refused (`validate.scene.geo-extent`): measured on the Earth before it is projected, so a point on the far side is never folded back near the origin.
+- **Reach and projections.** A local east-north-up frame (`projection: enu`) serves sites within 10 km of the origin. Left at `auto` (the default), a site reaching further (its bounds from the anchor, any point given by latitude and longitude, or a distance from a landmark) is laid out on the UTM zone of its origin instead, and `scene.geo.projection` (info) names the zone and its EPSG code. A UTM site that reaches into a neighbouring zone stays on its own zone and gets `scene.geo.zone-crossing` (a warning, with the grid scale at the far edge). On a projection, scene metres are the grid's metres from the origin, turned so +y is true bearing `heading` at the origin (grid north differs from true north by the convergence there). UTM's scale is 0.9996 on the central meridian and about 1.001 3° from it. `web-mercator` (EPSG:3857, to line up with map tiles) is scaled to true metres at the origin, east-west and north-south separately, and takes longitudes around the origin's, so a site across the 180° meridian stays in one piece. A point a frame cannot place is refused (`validate.scene.geo-extent`), and this is measured on the Earth before projecting: more than 10 km from a local frame's origin (a point on the far side is never folded back near it), more than 15° from a UTM zone's central meridian or outside 80°S–84°N (polar UPS is not supported), or past Web Mercator's ±85.05°. An explicit `enu` frame reaching past 10 km gets `scene.geo.extent`.
 - **Output.** Every object gets `geo` (latitude, longitude, height of its `position`), and the document gets `geo` (the frame) and `landmarks`. The Blender script records them as custom properties (`dge_geo` on objects, `dge_geo_origin` on the collection).
 
-The geodesic and frame mathematics (`src/scene/geo`) is checked against GeographicLib (distances and bearings to 1e-6 m and degrees within 10 km) and the GCJ-02/BD-09 formulas against the coordtransform package; frame round trips stay under 1 mm within 10 km.
+The geodesic and frame mathematics (`src/scene/geo`) is checked against GeographicLib (distances and bearings to 1e-6 m and degrees within 10 km), the GCJ-02/BD-09 formulas against the coordtransform package, and UTM (Krüger's series to sixth order, good to nanometres within the zone) and Web Mercator against proj4 (to 1e-6 m); frame round trips stay under 1 mm within 10 km for local frames and within 100 km for projected ones.
 
 <img src="images/scene-park.top.svg" alt="examples/scene/park.yaml: a park placed by latitude and longitude, with landmarks" width="100%">
 
@@ -250,8 +252,10 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.path.blocked` | no way through: the bottleneck, its width and what it needs; or the place (end or via) that is shut in |
 | `scene.path.opening-narrow` | an opening narrower than the agent plus its clearance on both sides |
 | `scene.path.unplaced` | a path to an object that is not in the layout |
-| `scene.geo.extent` (warning) | the scene reaches more than 10 km from its frame's origin |
-| `validate.scene.geo-extent` (error) | a point given by latitude and longitude is more than 10 km from the frame's origin |
+| `scene.geo.extent` (warning) | a scene with `projection: enu` reaches more than 10 km from its origin |
+| `validate.scene.geo-extent` (error) | a point given by latitude and longitude that the frame cannot place: more than 10 km from a local frame's origin, too far for UTM, or past Web Mercator's edge |
+| `scene.geo.projection` (info) | a large site was put on a UTM zone (named, with its EPSG code) |
+| `scene.geo.zone-crossing` (warning) | a UTM site reaches into another zone (laid out on its own; the grid scale at the far edge) |
 | `scene.terrain.slope`, `scene.terrain.elevation` | the ground under an object is steeper than its `slope below`, or outside its elevation limits (with the measures) |
 | `scene.terrain.outside` | an object on the ground reaches off the terrain grid |
 | `scene.terrain.leaning-support` | an object stands on a support that leans with the slope |

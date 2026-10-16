@@ -151,6 +151,27 @@ export const sceneDocumentSchema = z
 					.describe(
 						"True bearing of the scene's +y axis, degrees clockwise from north.",
 					),
+				projection: z
+					.discriminatedUnion("kind", [
+						z.object({ kind: z.literal("enu") }).strict(),
+						z
+							.object({
+								kind: z.literal("utm"),
+								zone: z.number(),
+								hemisphere: z.enum(["N", "S"]),
+								epsg: z.number(),
+							})
+							.strict(),
+						z
+							.object({
+								kind: z.literal("web-mercator"),
+								epsg: z.literal(3857),
+							})
+							.strict(),
+					])
+					.describe(
+						"How scene metres map to the Earth: a local east-north-up frame, or a map projection's grid (scene metres are its metres from the origin).",
+					),
 			})
 			.strict()
 			.optional()
