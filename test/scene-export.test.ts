@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	normalizeSceneDsl,
+	parseSceneDsl,
 	renderSceneDsl,
 	type SceneSpec,
 	sceneDocumentSchema,
@@ -104,6 +105,54 @@ describe("dge-scene export", () => {
 		},
 		120_000,
 	);
+});
+
+// The Blender keys come from the agents in the output: their speed and
+// acceleration must be the ones the path times were computed with (#144).
+describe("Blender agent keys", () => {
+	const tracksOf = (script: string): Record<string, number[][]> => {
+		const line = script.split("\n").find((row) => row.startsWith("TRACKS = "));
+		const literal = (line ?? "").slice("TRACKS = json.loads(".length, -1);
+		return JSON.parse(JSON.parse(literal));
+	};
+	for (const [speed, accel] of [
+		[0.123456, 0.234567],
+		[1e-6, 1e-6],
+		[0.00004, 3],
+	]) {
+		it(`keys corners at the path times for speed ${speed}, accel ${accel}`, () => {
+			const yaml = [
+				"scene: slow",
+				"bounds: { width: 8, depth: 4, height: 2.5 }",
+				"objects:",
+				"  crate: { size: [1, 1, 1], position: [4, 1.5] }",
+				"openings:",
+				"  w: { wall: west, at: 1, width: 1 }",
+				"  e: { wall: east, at: 3, width: 1 }",
+				"agents:",
+				`  bot: { radius: 0.2, height: 0.5, speed: ${speed}, accel: ${accel} }`,
+				"paths:",
+				"  - bot from w to e, start 2",
+			].join("\n");
+			const parsed = parseSceneDsl(yaml);
+			expect(parsed.diagnostics).toEqual([]);
+			const scene = solveScene(parsed.scene as SceneSpec);
+			const [path] = scene.paths;
+			expect(path?.points.length).toBeGreaterThan(2);
+			const track = tracksOf(sceneToBlenderScript(scene))[path?.id ?? ""] ?? [];
+			expect(track.length).toBeGreaterThan(1);
+			for (const key of track) {
+				for (const value of key) expect(Number.isFinite(value)).toBe(true);
+			}
+			const times = track.map(([t]) => t);
+			for (const [k, time] of (path?.times ?? []).entries()) {
+				const at = times.indexOf(time);
+				expect(at, `corner ${k} at ${time} s`).toBeGreaterThanOrEqual(0);
+				const [, x, y] = track[at] as number[];
+				expect([x, y]).toEqual(path?.points[k]?.slice(0, 2));
+			}
+		});
+	}
 });
 
 // A walk late in the day still fits Blender's frames: the timeline starts

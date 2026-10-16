@@ -8,8 +8,7 @@ import {
 	EnuFrame,
 	type Geodetic,
 	type GeodeticPoint,
-	WGS84_A,
-	WGS84_F,
+	toEcef,
 } from "./wgs84.js";
 
 export interface FrameSpec {
@@ -20,7 +19,9 @@ export interface FrameSpec {
 }
 
 const RAD = Math.PI / 180;
-const E2 = WGS84_F * (2 - WGS84_F);
+
+/** How far from its origin one local frame is meant to reach, in metres. */
+export const GEO_REACH = 10_000;
 
 export class SceneGeoFrame {
 	private readonly enu: EnuFrame;
@@ -46,25 +47,45 @@ export class SceneGeoFrame {
 		const east = dx * this.cos + dy * this.sin;
 		const north = -dx * this.sin + dy * this.cos;
 		const height = this.enu.origin.alt;
-		// Start on the tangent plane, then correct with the local radii of
-		// curvature until the point at the origin's height lands on target.
-		let at = this.enu.fromEnu({ east, north, up: 0 });
-		for (let step = 0; step < 8; step += 1) {
-			const got = this.enu.toEnu({ lat: at.lat, lon: at.lon, alt: height });
-			const dn = north - got.north;
-			const de = east - got.east;
-			if (Math.abs(dn) < 1e-10 && Math.abs(de) < 1e-10) break;
-			const sin = Math.sin(at.lat * RAD);
-			const w = Math.sqrt(1 - E2 * sin * sin);
-			const meridian = (WGS84_A * (1 - E2)) / (w * w * w);
-			const normal = WGS84_A / w;
-			at = {
-				lat: at.lat + dn / meridian / RAD,
-				lon: at.lon + de / (normal * Math.cos(at.lat * RAD)) / RAD,
-				alt: height,
-			};
+		// The points with these east and north form a line along the
+		// origin's up axis; walk along it to where the height above the
+		// ellipsoid is the origin's. The slope of height along that line is
+		// close to 1 within a site (it is the cosine of the angle between
+		// the two up directions), so a few secant steps settle it, at the
+		// poles as anywhere.
+		const heightAt = (up: number) =>
+			this.enu.fromEnu({ east, north, up }).alt - height;
+		let up0 = 0;
+		let g0 = heightAt(up0);
+		let up1 = -g0;
+		let g1 = heightAt(up1);
+		for (let step = 0; step < 30 && Math.abs(g1) > 1e-10; step += 1) {
+			const slope = up1 === up0 ? 1 : (g1 - g0) / (up1 - up0);
+			up0 = up1;
+			g0 = g1;
+			up1 -= g1 / (Math.abs(slope) > 1e-6 ? slope : 1);
+			g1 = heightAt(up1);
 		}
+		if (!(Math.abs(g1) <= 1e-6)) {
+			throw new Error(
+				`no point ${Math.round(Math.hypot(east, north))} m from the frame origin lies at its height`,
+			);
+		}
+		const at = this.enu.fromEnu({ east, north, up: up1 });
 		return { lat: at.lat, lon: at.lon, alt: height + z };
+	}
+
+	/**
+	 * The straight-line distance from the origin to the point's latitude
+	 * and longitude at the origin's height. Within a site it is the ground
+	 * distance; unlike the scene position it never folds a far point (the
+	 * far side of the Earth, say) back near the origin.
+	 */
+	reach(point: Geodetic): number {
+		const height = this.enu.origin.alt;
+		const a = toEcef({ ...this.enu.origin, alt: height });
+		const b = toEcef({ lat: point.lat, lon: point.lon, alt: height });
+		return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
 	}
 
 	/** WGS84 to scene metres (the inverse of `toGeo`). */

@@ -10,8 +10,10 @@ import type { DslDiagnostic, ParseDiagramDslOptions } from "../dsl/types.js";
 import { closest } from "../views/common.js";
 import {
 	bd09ToWgs84,
+	GEO_REACH,
 	type Geodetic,
 	gcj02ToWgs84,
+	geodesicDirect,
 	SceneGeoFrame,
 } from "./geo/index.js";
 import type {
@@ -256,6 +258,15 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 					path: ["frame"],
 				};
 	const geoFrame = frame === undefined ? undefined : new SceneGeoFrame(frame);
+	// A point too far from the origin has no faithful place in the local
+	// frame (one on the far side of the Earth would fold back next to the
+	// origin), so it is refused before it is projected.
+	const tooFar = (point: Geodetic, path: ScenePath): boolean => {
+		const reach = (geoFrame as SceneGeoFrame).reach(toWgs84(point));
+		if (reach <= GEO_REACH) return false;
+		diagnostics.push(geoExtent(path, reach));
+		return true;
+	};
 	const sceneAt = (point: Geodetic): [number, number] => {
 		const at = (geoFrame as SceneGeoFrame).toScene(toWgs84(point));
 		return [at.x, at.y];
@@ -314,7 +325,9 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 		const pinned =
 			entry.position !== undefined
 				? (entry.position.map((v) => v / perMeter) as [number, number])
-				: entry.geo !== undefined && geoFrame !== undefined
+				: entry.geo !== undefined &&
+						geoFrame !== undefined &&
+						!tooFar(entry.geo, [...path, "geo"])
 					? sceneAt(entry.geo)
 					: undefined;
 		if (entry.count === undefined) {
@@ -390,6 +403,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			);
 			continue;
 		}
+		if (tooFar(point, path)) continue;
 		const [x, y] = sceneAt(point);
 		landmarks.push({ id, geo: toWgs84(point), position: { x, y }, path });
 	}
@@ -1186,6 +1200,15 @@ class RelationParser {
 				const landmark = this.landmarks.get(head.reference);
 				if (landmark !== undefined) {
 					const frame = this.geoFrame as SceneGeoFrame;
+					const at = geodesicDirect(landmark.geo, head.bearing, head.length);
+					const reach = frame.reach(at);
+					if (reach > GEO_REACH) {
+						fail(
+							"validate.scene.geo-extent",
+							geoExtentMessage(reach),
+							GEO_EXTENT_HINT,
+						);
+					}
 					const point = frame.along(landmark.geo, head.bearing, head.length);
 					return each((subject) => ({
 						kind: "at-point",
@@ -1661,6 +1684,25 @@ function error(
 		path,
 		hint,
 		...(relation === undefined ? {} : { detail: { relation } }),
+	};
+}
+
+const GEO_EXTENT_HINT =
+	"Check the coordinates (and the datum), or give a far site a scene with its own origin.";
+
+function geoExtentMessage(reach: number): string {
+	return `This point is ${round(reach / 1000)} km from the frame origin; one local frame places points within ${GEO_REACH / 1000} km.`;
+}
+
+function geoExtent(path: ScenePath, reach: number): DslDiagnostic {
+	return {
+		...error(
+			path,
+			"validate.scene.geo-extent",
+			geoExtentMessage(reach),
+			GEO_EXTENT_HINT,
+		),
+		detail: { reach: Math.round(reach) },
 	};
 }
 

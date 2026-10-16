@@ -167,7 +167,7 @@ relations:
 - **Landmarks** are fixed points. `at`, distance-and-bearing, `around` and `facing` accept them in place of an object. A landmark given without a height is on the ground (the origin's height).
 - **Distances.** From a landmark, `<length> bearing <degrees> from` and `<length> north-of` follow the WGS84 geodesic exactly. From an object they are taken on the site's plane, whose north is true north at the origin; meridians converge by about 0.001° per 100 m east or west of it, so the bearing may differ from true north there by that much. Lengths also take `km`. Without a frame, bearings are from the scene's north.
 - **Datums.** GCJ-02 and BD-09 coordinates (Chinese map services) are converted with the widely published formulas, approximations of the official transform good to a few metres; the inverses are solved to well under a millimetre of those formulas. Everything is stored and output in WGS84.
-- **Reach.** One local frame is meant for sites within 10 km of the origin; a scene reaching further gets `scene.geo.extent`.
+- **Reach.** One local frame is meant for sites within 10 km of the origin; a scene reaching further gets `scene.geo.extent`. A point given by latitude and longitude (an object's `geo`, a landmark, a distance from a landmark) more than 10 km from the origin is refused (`validate.scene.geo-extent`): measured on the Earth before it is projected, so a point on the far side is never folded back near the origin.
 - **Output.** Every object gets `geo` (latitude, longitude, height of its `position`), and the document gets `geo` (the frame) and `landmarks`. The Blender script records them as custom properties (`dge_geo` on objects, `dge_geo_origin` on the collection).
 
 The geodesic and frame mathematics (`src/scene/geo`) is checked against GeographicLib (distances and bearings to 1e-6 m and degrees within 10 km) and the GCJ-02/BD-09 formulas against the coordtransform package; frame round trips stay under 1 mm within 10 km.
@@ -218,6 +218,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.path.opening-narrow` | an opening narrower than the agent plus its clearance on both sides |
 | `scene.path.unplaced` | a path to an object that is not in the layout |
 | `scene.geo.extent` (warning) | the scene reaches more than 10 km from its frame's origin |
+| `validate.scene.geo-extent` (error) | a point given by latitude and longitude is more than 10 km from the frame's origin |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |
 | `scene.path.detour` (info) | a path more than twice the straight line between its places |

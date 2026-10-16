@@ -167,7 +167,7 @@ relations:
 - **地标**是固定点。`at`、距离加方位、`around` 和 `facing` 都可以用地标代替物体。没写高度的地标在地面上（原点高度）。
 - **距离**：相对地标时，`<长度> bearing <度> from` 和 `<长度> north-of` 严格沿 WGS84 测地线计算。相对物体时在场地平面上计算，平面的北是原点处的真北；离原点东西方向每 100 m 子午线收敛约 0.001°，那里的方位与真北可能差这么多。长度也可以用 `km`。没有 frame 时，方位以场景的北为准。
 - **坐标偏移**：GCJ-02 和 BD-09（国内地图服务的坐标）用公开的转换公式换算，这是官方转换的近似，误差在几米以内；反算相对这些公式的误差远小于 1 毫米。内部存储和输出一律用 WGS84。
-- **适用范围**：一个局部坐标系适用于原点 10 km 以内的场地；超出时给出 `scene.geo.extent`。
+- **适用范围**：一个局部坐标系适用于原点 10 km 以内的场地；超出时给出 `scene.geo.extent`。用经纬度给出的点（物体的 `geo`、地标、从地标出发的距离）离原点超过 10 km 时报错（`validate.scene.geo-extent`）：距离在投影前按地球上的位置量取，所以地球另一面的点不会被折回原点附近。
 - **输出**：每个物体给出 `geo`（其 `position` 的纬度、经度、高度），文档给出 `geo`（坐标系）和 `landmarks`。Blender 脚本把它们记为自定义属性（物体上的 `dge_geo`，集合上的 `dge_geo_origin`）。
 
 测地线和坐标系数学（`src/scene/geo`）与 GeographicLib 对照（10 km 内距离、方位误差 < 1e-6 米/度），GCJ-02/BD-09 公式与 coordtransform 包对照；坐标往返在 10 km 内误差 < 1 mm。
@@ -218,6 +218,7 @@ relations:
 | `scene.path.opening-narrow` | 门洞比智能体宽度加两侧净空还窄 |
 | `scene.path.unplaced` | 路径去往不在布局里的物体 |
 | `scene.geo.extent`（警告） | 场景离坐标原点超过 10 km |
+| `validate.scene.geo-extent`（错误） | 用经纬度给出的点离坐标原点超过 10 km |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.head-on`（提示） | 两条路径仍迎面共用一段：让道会超出长度上限、有一条是 `comfort 0`，或轮数用完 |
 | `scene.path.detour`（提示） | 路径长度超过途经点间直线距离的两倍 |

@@ -7,7 +7,7 @@ export {
 	wgs84ToBd09,
 	wgs84ToGcj02,
 } from "./china.js";
-export { type FrameSpec, SceneGeoFrame } from "./frame.js";
+export { type FrameSpec, GEO_REACH, SceneGeoFrame } from "./frame.js";
 export {
 	type GeodesicInverse,
 	geodesicDirect,

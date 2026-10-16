@@ -14,6 +14,7 @@ import {
 	gcj02ToWgs84,
 	geodesicDirect,
 	geodesicInverse,
+	SceneGeoFrame,
 	toEcef,
 	wgs84ToBd09,
 	wgs84ToGcj02,
@@ -175,6 +176,61 @@ describe("GCJ-02 and BD-09 against coordtransform", () => {
 			lat: 48.8584,
 			lon: 2.2945,
 		});
+	});
+});
+
+// The scene frame's inverse must hold at the poles as anywhere (#145).
+describe("scene frame round trips", () => {
+	const origins = [
+		{ lat: 89.999, lon: 0, alt: 0 },
+		{ lat: 90, lon: 0, alt: 0 },
+		{ lat: -90, lon: 30, alt: 120 },
+		{ lat: -89.9995, lon: -170, alt: 2800 },
+		{ lat: 89.5, lon: 10, alt: 0 },
+		{ lat: 39.99, lon: 116.39, alt: 45 },
+		{ lat: 0, lon: 179.999, alt: 0 },
+	];
+	it("returns every point within 10 km to its scene position, to a millimetre", () => {
+		for (const origin of origins) {
+			for (const [heading, anchor] of [
+				[0, { x: 0, y: 0 }],
+				[37, { x: 120, y: -45 }],
+				[-150, { x: -3000, y: 2500 }],
+			] as const) {
+				const frame = new SceneGeoFrame({ origin, anchor, heading });
+				for (let i = -2; i <= 2; i += 1) {
+					for (let j = -2; j <= 2; j += 1) {
+						const x = anchor.x + i * 3500;
+						const y = anchor.y + j * 3500;
+						if (Math.hypot(x - anchor.x, y - anchor.y) > 10_000) continue;
+						const geo = frame.toGeo(x, y, 2);
+						const back = frame.toScene(geo);
+						const miss = Math.hypot(back.x - x, back.y - y, back.z - 2);
+						expect(
+							miss,
+							`${origin.lat},${origin.lon} h${heading} (${x}, ${y})`,
+						).toBeLessThan(1e-3);
+					}
+				}
+			}
+		}
+	});
+
+	it("handles the reported polar cases", () => {
+		for (const [lat, x, y] of [
+			[89.999, 5000, 5000],
+			[89.999, 1000, 1000],
+			[90, 1000, 1000],
+			[90, 5000, 5000],
+		] as const) {
+			const frame = new SceneGeoFrame({
+				origin: { lat, lon: 0, alt: 0 },
+				anchor: { x: 0, y: 0 },
+				heading: 0,
+			});
+			const back = frame.toScene(frame.toGeo(x, y));
+			expect(Math.hypot(back.x - x, back.y - y)).toBeLessThan(1e-3);
+		}
 	});
 });
 
@@ -351,6 +407,72 @@ describe("scenes placed on the Earth", () => {
 		const [a, b] = plain.objects;
 		expect((b?.position[0] ?? 0) - (a?.position[0] ?? 0)).toBeCloseTo(3, 6);
 		expect(plain.geo).toBeUndefined();
+	});
+
+	// A far point would fold onto the origin if it were projected (#146).
+	it("refuses points too far from the origin before projecting them", () => {
+		const base = {
+			scene: "t",
+			bounds: { width: 100, depth: 100 },
+			objects: { a: { size: [1, 1, 1] }, b: { size: [1, 1, 1] } },
+		};
+		const far = (
+			origin: { lat: number; lon: number },
+			value: Record<string, unknown>,
+		) =>
+			normalizeSceneDsl({ ...base, frame: { origin }, ...value })
+				.diagnostics.filter((d) => d.code === "validate.scene.geo-extent")
+				.map((d) => d.path?.join("."));
+		const zero = { lat: 0, lon: 0 };
+		// The antipode and other far-side points, on objects and landmarks.
+		for (const point of [
+			{ lat: 0, lon: 180 },
+			{ lat: 0, lon: -180 },
+			{ lat: 0, lon: 90 },
+			{ lat: 60, lon: -120 },
+			{ lat: -0.0001, lon: 179.9 },
+		]) {
+			expect(
+				far(zero, {
+					objects: { ...base.objects, a: { size: [1, 1, 1], geo: point } },
+				}),
+			).toEqual(["objects.a.geo"]);
+			expect(far(zero, { landmarks: { gate: point } })).toEqual([
+				"landmarks.gate",
+			]);
+		}
+		// Just inside and just outside 10 km, due east on the equator.
+		const east = (metres: number) =>
+			geodesicDirect({ lat: 0, lon: 0 }, 90, metres);
+		expect(far(zero, { landmarks: { gate: east(9_990) } })).toEqual([]);
+		expect(far(zero, { landmarks: { gate: east(10_010) } })).toEqual([
+			"landmarks.gate",
+		]);
+		// A distance from a landmark that lands too far.
+		expect(
+			far(zero, {
+				landmarks: { gate: { lat: 0, lon: 0.0001 } },
+				relations: ["a 20km bearing 90 from gate"],
+			}),
+		).toEqual(["relations.0"]);
+		// A short hop across the antimeridian is fine and lands where it should.
+		const result = normalizeSceneDsl({
+			...base,
+			frame: { origin: { lat: 0, lon: 179.9995 } },
+			landmarks: { gate: { lat: 0, lon: -179.9995 } },
+			objects: {
+				...base.objects,
+				a: { size: [1, 1, 1], geo: { lat: 0.0002, lon: -179.9998 } },
+			},
+			relations: ["b at gate"],
+		});
+		expect(result.diagnostics).toEqual([]);
+		const scene = solveScene(result.scene as SceneSpec);
+		const b = scene.objects.find((item) => item.id === "b");
+		expect(b?.position[0]).toBeCloseTo(111.3, 0);
+		expect(scene.diagnostics.map((d) => d.code)).not.toContain(
+			"scene.geo.extent",
+		);
 	});
 
 	it("warns when a scene reaches past one local frame", () => {

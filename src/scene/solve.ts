@@ -1,4 +1,4 @@
-import { SceneGeoFrame } from "./geo/index.js";
+import { GEO_REACH, SceneGeoFrame } from "./geo/index.js";
 import {
 	axisAngle,
 	contains,
@@ -38,7 +38,6 @@ const MAX_PASSES = 4;
 /** Rounds of floor plan plus supports before turns must have settled. */
 const MAX_ROUNDS = 4;
 /** One local east-north-up frame serves sites within this reach (m). */
-const GEO_REACH = 10_000;
 
 /** Latitude and longitude to 1e-9° (about 0.1 mm), height to 0.1 mm. */
 function geoPoint(point: {
@@ -682,8 +681,10 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			id,
 			radius: round(radius),
 			height: round(height),
-			speed: round(speed),
-			accel: round(accel),
+			// Exact: the timing on the paths is computed from these, and
+			// exporters (Blender's keyframes) recompute it from the output.
+			speed,
+			accel,
 		})),
 		paths: best.planned.paths,
 		...(spec.frame === undefined
