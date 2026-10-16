@@ -103,7 +103,22 @@
 								"type": "number"
 							}
 						],
-						"description": "The same turn as a unit quaternion [x, y, z, w]."
+						"description": "Its rotation as a unit quaternion [x, y, z, w]: the turn about z, then any lean with the slope."
+					},
+					"up": {
+						"description": "The object's up axis in the world, when it leans with the slope (`align to slope`).",
+						"type": "array",
+						"prefixItems": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							},
+							{
+								"type": "number"
+							}
+						]
 					},
 					"size": {
 						"type": "array",
@@ -289,7 +304,7 @@
 								}
 							]
 						},
-						"description": "Corners from start to end, [x, y, z] on the floor."
+						"description": "Corners from start to end, [x, y, z] on the floor (or the ground)."
 					},
 					"length": {
 						"type": "number"
@@ -425,6 +440,52 @@
 				"required": ["id", "position", "geo"],
 				"additionalProperties": false
 			}
+		},
+		"terrain": {
+			"description": "The ground (scenes with terrain).",
+			"type": "object",
+			"properties": {
+				"origin": {
+					"type": "array",
+					"prefixItems": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "number"
+						}
+					],
+					"description": "Scene x, y of the south-west sample, metres."
+				},
+				"spacing": {
+					"type": "array",
+					"prefixItems": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "number"
+						}
+					],
+					"description": "Distance between samples along x and y, metres."
+				},
+				"base": {
+					"type": "number",
+					"description": "Elevation at scene z = 0, metres."
+				},
+				"heights": {
+					"type": "array",
+					"items": {
+						"type": "array",
+						"items": {
+							"type": "number"
+						}
+					},
+					"description": "Elevations, rows south to north, each west to east; the ground between samples is bilinear, and scene z = elevation - base."
+				}
+			},
+			"required": ["origin", "spacing", "base", "heights"],
+			"additionalProperties": false
 		},
 		"unplaced": {
 			"type": "array",

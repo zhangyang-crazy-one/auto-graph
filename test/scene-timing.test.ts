@@ -293,8 +293,8 @@ describe("review findings on #135", () => {
 			number[][]
 		>;
 		const track = tracks[scene.paths[0]?.id ?? ""] ?? [];
-		expect(track[0]).toEqual([Math.round(start * 1e4) / 1e4, 0.253, 1]);
-		expect(track.at(-1)?.slice(1)).toEqual([7.747, 1]);
+		expect(track[0]).toEqual([Math.round(start * 1e4) / 1e4, 0.253, 1, 0]);
+		expect(track.at(-1)?.slice(1)).toEqual([7.747, 1, 0]);
 		// Never more than a step's worth of walking between keys.
 		for (let k = 1; k < track.length; k += 1) {
 			const [, x0 = 0] = track[k - 1] ?? [];

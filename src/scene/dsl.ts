@@ -29,6 +29,7 @@ import type {
 	SceneRelation,
 	SceneSide,
 	SceneSpec,
+	SceneTerrain,
 	SceneUnits,
 	SupportSpot,
 	WallSide,
@@ -38,7 +39,14 @@ const positive = z.number().finite().positive();
 const nonNegative = z.number().finite().min(0);
 
 /** Words a relation reads specially; no object may be called one. */
-const RESERVED_IDS = new Set(["room", "north", "south", "east", "west"]);
+const RESERVED_IDS = new Set([
+	"room",
+	"north",
+	"south",
+	"east",
+	"west",
+	"terrain",
+]);
 
 const geoPointSchema = z
 	.object({
@@ -132,6 +140,26 @@ export const sceneDslSchema = z
 			.strict()
 			.optional(),
 		landmarks: z.record(idSchema, geoPointSchema).optional(),
+		/** The ground, as a grid of elevations (see `GridTerrain`). */
+		terrain: z
+			.object({
+				grid: z
+					.object({
+						/** Scene x, y of the south-west sample (default [0, 0]). */
+						origin: z
+							.tuple([z.number().finite(), z.number().finite()])
+							.optional(),
+						/** Distance between samples: one number, or [x, y]. */
+						spacing: z.union([positive, z.tuple([positive, positive])]),
+						/** Elevations, rows south to north, each west to east. */
+						heights: z.array(z.array(z.number().finite())),
+					})
+					.strict(),
+				/** Elevation at scene z = 0 (default 0; the frame origin's height in a scene with a frame). */
+				base: z.number().finite().optional(),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 
@@ -408,6 +436,8 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 		landmarks.push({ id, geo: toWgs84(point), position: { x, y }, path });
 	}
 
+	const terrain = readTerrain(dsl.terrain, perMeter, frame, diagnostics);
+
 	const parser = new RelationParser(
 		new Set(objects.map((object) => object.id)),
 		groups,
@@ -415,6 +445,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 		diagnostics,
 		new Map(landmarks.map((landmark) => [landmark.id, landmark])),
 		geoFrame,
+		dsl.terrain !== undefined,
 	);
 	const relations: SceneRelation[] = [];
 	(dsl.relations ?? []).forEach((text, index) => {
@@ -537,8 +568,72 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			agents,
 			paths,
 			...(frame === undefined ? {} : { frame, landmarks }),
+			...(terrain === undefined ? {} : { terrain }),
 		},
 		diagnostics: sortDslDiagnostics(diagnostics),
+	};
+}
+
+/**
+ * The ground grid in metres. Elevations are relative to `base`, which is
+ * the frame origin's height in a scene on the Earth (so `geo` heights and
+ * terrain agree) and 0 otherwise.
+ */
+function readTerrain(
+	input: SceneDsl["terrain"],
+	perMeter: number,
+	frame: SceneFrame | undefined,
+	diagnostics: DslDiagnostic[],
+): SceneTerrain | undefined {
+	if (input === undefined) return undefined;
+	const path: ScenePath = ["terrain"];
+	const { heights } = input.grid;
+	const columns = heights[0]?.length ?? 0;
+	if (heights.length < 2 || columns < 2) {
+		diagnostics.push(
+			error(
+				[...path, "grid", "heights"],
+				"validate.scene.terrain-grid",
+				`The terrain grid has ${heights.length} row(s) of ${columns} sample(s); it needs at least 2 × 2.`,
+				"Give rows south to north, each with the same number of elevations west to east.",
+			),
+		);
+		return undefined;
+	}
+	const ragged = heights.findIndex((row) => row.length !== columns);
+	if (ragged >= 0) {
+		diagnostics.push(
+			error(
+				[...path, "grid", "heights", ragged],
+				"validate.scene.terrain-grid",
+				`Terrain row ${ragged} has ${heights[ragged]?.length} samples; the first row has ${columns}.`,
+				"Give every row the same number of elevations.",
+			),
+		);
+		return undefined;
+	}
+	if (input.base !== undefined && frame !== undefined) {
+		diagnostics.push(
+			error(
+				[...path, "base"],
+				"validate.scene.terrain-base",
+				"A scene with a `frame` takes its floor's elevation from the frame origin's height; `terrain.base` would contradict it.",
+				"Remove `terrain.base`, or set the frame origin's `alt`.",
+			),
+		);
+		return undefined;
+	}
+	const spacing = input.grid.spacing;
+	const [sx, sy] = typeof spacing === "number" ? [spacing, spacing] : spacing;
+	return {
+		origin: {
+			x: (input.grid.origin?.[0] ?? 0) / perMeter,
+			y: (input.grid.origin?.[1] ?? 0) / perMeter,
+		},
+		spacing: { x: sx / perMeter, y: sy / perMeter },
+		heights: heights.map((row) => row.map((value) => value / perMeter)),
+		base: frame?.origin.alt ?? (input.base ?? 0) / perMeter,
+		path,
 	};
 }
 
@@ -584,6 +679,9 @@ const MODIFIERS = new Map<string, readonly string[]>([
 	["keep-clear", []],
 	["at", []],
 	["distance", []],
+	["ground", ["align"]],
+	["slope-limit", []],
+	["elevation-range", []],
 ]);
 
 /** True bearings of the compass words in `<length> north-of <place>`. */
@@ -607,7 +705,7 @@ const BEARINGS = new Map<string, number>([
 ]);
 
 const VERBS =
-	"in-front-of, behind, left-of, right-of, against wall, corner, center-of, on, facing, rotate, align, distribute, grid, around, symmetric, keep clear, at <landmark>, <length> bearing <degrees> from <place>, <length> north-of <place>";
+	"in-front-of, behind, left-of, right-of, against wall, corner, center-of, on, facing, rotate, align, distribute, grid, around, symmetric, keep clear, at <landmark>, <length> bearing <degrees> from <place>, <length> north-of <place>, on terrain, align to slope, slope below <degrees>, elevation between <a> and <b>";
 
 type Head =
 	| { kind: "beside"; side: SceneSide; reference: string }
@@ -623,7 +721,10 @@ type Head =
 	| { kind: "around"; center: string }
 	| { kind: "symmetric"; about: string }
 	| { kind: "at"; landmark: string }
-	| { kind: "distance"; length: number; bearing: number; reference: string };
+	| { kind: "distance"; length: number; bearing: number; reference: string }
+	| { kind: "ground"; align: boolean }
+	| { kind: "slope-limit"; max: number }
+	| { kind: "elevation-range"; min?: number; max?: number };
 
 interface Modifiers {
 	gap?: number;
@@ -635,6 +736,8 @@ interface Modifiers {
 	evenly?: boolean;
 	facing?: string;
 	rotate?: number;
+	/** `align to slope` after `on terrain`. */
+	align?: boolean;
 }
 
 class RelationFailure extends Error {
@@ -659,6 +762,7 @@ class RelationParser {
 		private readonly diagnostics: DslDiagnostic[],
 		private readonly landmarks: ReadonlyMap<string, SceneLandmark> = new Map(),
 		private readonly geoFrame?: SceneGeoFrame,
+		private readonly terrain = false,
 	) {}
 
 	parse(text: string, path: ScenePath): SceneRelation[] {
@@ -830,8 +934,63 @@ class RelationParser {
 				return { kind: "center-of", reference: reference as string };
 			}
 			case "on": {
-				const [support] = words(1, "<object> on <support>");
+				const [support] = words(1, "<object> on <support|terrain>");
+				if (support === "terrain") {
+					this.needTerrain("on terrain");
+					return { kind: "ground", align: false };
+				}
 				return { kind: "on", support: support as string };
+			}
+			case "slope": {
+				// slope below 15 | slope < 15° | slope <= 15
+				const [op, degrees] = words(2, "<object> slope below <degrees>");
+				if (!["below", "under", "<", "<=", "≤", "max"].includes(op ?? "")) {
+					fail(
+						"validate.scene.relation-syntax",
+						`Cannot read "${tokens.join(" ")}".`,
+						"Write `<object> slope below <degrees>`.",
+					);
+				}
+				this.needTerrain("slope");
+				const max = this.angle(degrees, "slope");
+				if (!(max >= 0 && max < 90)) {
+					fail(
+						"validate.scene.relation-value",
+						`A slope limit of ${max}° is not between 0° and 90°.`,
+						"Give the steepest slope allowed, in degrees from level.",
+					);
+				}
+				return { kind: "slope-limit", max };
+			}
+			case "elevation": {
+				// elevation between <a> and <b> | elevation above <a> | elevation below <b>
+				const usage =
+					"<object> elevation between <a> and <b> (or above <a>, below <b>)";
+				const [op, a, and, b] = args;
+				this.needTerrain("elevation");
+				if (op === "between" && and === "and" && args.length === 4) {
+					const min = this.elevation(a);
+					const max = this.elevation(b);
+					if (min > max) {
+						fail(
+							"validate.scene.relation-value",
+							`Elevation between ${a} and ${b}: the first is higher than the second.`,
+							"Give the lower elevation first.",
+						);
+					}
+					return { kind: "elevation-range", min, max };
+				}
+				if (args.length === 2 && ["above", ">", ">=", "≥"].includes(op ?? "")) {
+					return { kind: "elevation-range", min: this.elevation(a) };
+				}
+				if (args.length === 2 && ["below", "<", "<=", "≤"].includes(op ?? "")) {
+					return { kind: "elevation-range", max: this.elevation(a) };
+				}
+				return fail(
+					"validate.scene.relation-syntax",
+					`Cannot read "${tokens.join(" ")}".`,
+					`Write \`${usage}\`.`,
+				);
 			}
 			case "facing": {
 				const [target] = words(
@@ -845,6 +1004,10 @@ class RelationParser {
 				return { kind: "rotate", degrees: this.angle(degrees, "rotate") };
 			}
 			case "align": {
+				if (args[0] === "to" && args[1] === "slope" && args.length === 2) {
+					this.needTerrain("align to slope");
+					return { kind: "ground", align: true };
+				}
 				const [axis, with_, reference] = words(
 					3,
 					"<objects> align <x|y> with <reference>",
@@ -964,6 +1127,17 @@ class RelationParser {
 			if (name === "evenly") {
 				this.noExtra(args);
 				out.evenly = true;
+				continue;
+			}
+			if (name === "align") {
+				if (args[0] !== "to" || args[1] !== "slope" || args.length !== 2) {
+					fail(
+						"validate.scene.relation-syntax",
+						`Cannot read "${clause.join(" ")}".`,
+						"Write `align to slope`.",
+					);
+				}
+				out.align = true;
 				continue;
 			}
 			if (args.length !== 1) {
@@ -1235,6 +1409,28 @@ class RelationParser {
 					};
 				});
 			}
+			case "ground":
+				return each((subject) => ({
+					kind: "ground",
+					subject,
+					align: head.align || modifiers.align === true,
+					path,
+				}));
+			case "slope-limit":
+				return each((subject) => ({
+					kind: "slope-limit",
+					subject,
+					max: head.max,
+					path,
+				}));
+			case "elevation-range":
+				return each((subject) => ({
+					kind: "elevation-range",
+					subject,
+					...(head.min === undefined ? {} : { min: head.min }),
+					...(head.max === undefined ? {} : { max: head.max }),
+					path,
+				}));
 			case "symmetric": {
 				const about =
 					head.about === "room" ? "room" : this.reference(head.about);
@@ -1348,6 +1544,31 @@ class RelationParser {
 		const value = Number(match[1]) / PER_METER[unit];
 		if (!Number.isFinite(value)) this.tooLarge(token, what);
 		return value;
+	}
+
+	/** An elevation: a signed length (the ground may lie below sea level). */
+	private elevation(token: string | undefined): number {
+		const match = /^(-?(?:\d+(?:\.\d+)?|\.\d+))(m|cm|mm)?$/.exec(token ?? "");
+		if (match === null) {
+			fail(
+				"validate.scene.relation-value",
+				`\`elevation\` needs a height; got "${token ?? ""}".`,
+				`Write a number, in ${this.units} or with an m, cm or mm suffix.`,
+			);
+		}
+		const unit = (match[2] as SceneUnits | undefined) ?? this.units;
+		const value = Number(match[1]) / PER_METER[unit];
+		if (!Number.isFinite(value)) this.tooLarge(token, "elevation");
+		return value;
+	}
+
+	private needTerrain(what: string): void {
+		if (this.terrain) return;
+		fail(
+			"validate.scene.terrain-missing",
+			`\`${what}\` needs ground to stand on, but the scene has no \`terrain\`.`,
+			"Add `terrain: { grid: { spacing, heights } }`.",
+		);
 	}
 
 	private landmark(token: string): SceneLandmark {

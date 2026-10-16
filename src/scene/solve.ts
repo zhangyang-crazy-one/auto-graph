@@ -28,6 +28,7 @@ import type {
 } from "./ir.js";
 import { type FloorLayoutResult, layoutFloor } from "./layout.js";
 import { type PathBottleneck, planPaths } from "./paths.js";
+import { GridTerrain } from "./terrain/index.js";
 
 /** Lengths below this (0.1 mm) count as touching, not overlapping. */
 const TOLERANCE = 1e-4;
@@ -37,7 +38,12 @@ const YAW_TOLERANCE = 0.01;
 const MAX_PASSES = 4;
 /** Rounds of floor plan plus supports before turns must have settled. */
 const MAX_ROUNDS = 4;
-/** One local east-north-up frame serves sites within this reach (m). */
+/** Ground rising more than this (m) under an upright object is reported. */
+const UNEVEN = 0.1;
+/** Times objects are moved to ground that meets their slope and elevation limits. */
+const MASK_ROUNDS = 3;
+/** Candidate spots tried per object when looking for such ground. */
+const MASK_CANDIDATES = 40_000;
 
 /** Latitude and longitude to 1e-9° (about 0.1 mm), height to 0.1 mm. */
 function geoPoint(point: {
@@ -277,9 +283,87 @@ interface Placement {
 	object: SceneObject;
 	center: Vec2;
 	z: number;
+	/** Height of the ground under its center (0 on a flat floor). */
+	ground: number;
 	yaw: number;
 	shape: Footprint;
 	support?: string;
+	/** Leaning with the slope (`align to slope`). */
+	tilt?: Tilt;
+}
+
+/** A lean: the object's up axis, and the rotation taking z to it. */
+interface Tilt {
+	up: [number, number, number];
+	quaternion: [number, number, number, number];
+}
+
+/** The lean that stands an object square on ground with this gradient. */
+function tiltFor(gradient: Vec2): Tilt {
+	const norm = Math.hypot(gradient.x, gradient.y, 1);
+	const up: [number, number, number] = [
+		-gradient.x / norm,
+		-gradient.y / norm,
+		1 / norm,
+	];
+	// About the horizontal axis z × up, by the angle between them.
+	const across = Math.hypot(up[0], up[1]);
+	if (across < 1e-15) return { up: [0, 0, 1], quaternion: [0, 0, 0, 1] };
+	const angle = Math.atan2(across, up[2]);
+	const s = Math.sin(angle / 2);
+	return {
+		up,
+		quaternion: [
+			(-up[1] / across) * s,
+			(up[0] / across) * s,
+			0,
+			Math.cos(angle / 2),
+		],
+	};
+}
+
+/** Hamilton product a ⊗ b of quaternions [x, y, z, w]. */
+function multiply(
+	a: readonly [number, number, number, number],
+	b: readonly [number, number, number, number],
+): [number, number, number, number] {
+	const [ax, ay, az, aw] = a;
+	const [bx, by, bz, bw] = b;
+	return [
+		aw * bx + ax * bw + ay * bz - az * by,
+		aw * by - ax * bz + ay * bw + az * bx,
+		aw * bz + ax * by - ay * bx + az * bw,
+		aw * bw - ax * bx - ay * by - az * bz,
+	];
+}
+
+/** A vector turned by a unit quaternion [x, y, z, w]. */
+function rotate(
+	q: readonly [number, number, number, number],
+	v: readonly [number, number, number],
+): [number, number, number] {
+	const [x, y, z, w] = q;
+	// v + 2w(q × v) + 2 q × (q × v)
+	const cx = y * v[2] - z * v[1];
+	const cy = z * v[0] - x * v[2];
+	const cz = x * v[1] - y * v[0];
+	return [
+		v[0] + 2 * (w * cx + y * cz - z * cy),
+		v[1] + 2 * (w * cy + z * cx - x * cz),
+		v[2] + 2 * (w * cz + x * cy - y * cx),
+	];
+}
+
+/** The rotation of a placement: its turn about z, then its lean. */
+function rotationOf(item: Placement): [number, number, number, number] {
+	const half = (item.yaw * Math.PI) / 360;
+	const turn: [number, number, number, number] = [
+		0,
+		0,
+		Math.sin(half),
+		Math.cos(half),
+	];
+	return item.tilt === undefined ? turn : multiply(item.tilt.quaternion, turn);
 }
 
 /**
@@ -330,6 +414,17 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	const hasSymmetric = spec.relations.some(
 		(relation) => relation.kind === "symmetric",
 	);
+	// The ground: objects on the floor stand on it, those aligned to the
+	// slope lean with it.
+	const terrain =
+		spec.terrain === undefined ? undefined : new GridTerrain(spec.terrain);
+	const aligned = new Set(
+		spec.relations.flatMap((relation) =>
+			relation.kind === "ground" && relation.align ? [relation.subject] : [],
+		),
+	);
+	const groundAt = (point: Vec2): number =>
+		terrain === undefined ? 0 : terrain.heightNear(point.x, point.y);
 
 	/**
 	 * One round: lay out the floor plan, then stand every object on its
@@ -340,6 +435,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	const solveRound = (
 		prior: ReadonlyMap<string, Placement> | undefined,
 		aisles: readonly Aisle[],
+		layoutSpec: SceneSpec,
 	) => {
 		const found: SceneDiagnostic[] = [];
 		const priorShape = (id: string) => prior?.get(id)?.shape;
@@ -387,7 +483,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			// round only refines it.
 			const start = centers ?? priorFloor;
 			layout = layoutFloor({
-				spec,
+				spec: layoutSpec,
 				floor,
 				yaw: yaws,
 				aisles,
@@ -449,23 +545,56 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			);
 			const center = spot(yaw);
 			if (center === undefined) continue;
+			const shape = footprint(center, object.size, yaw);
+			const ground = groundAt(center);
+			// On the floor: on the ground, square to its slope if aligned.
+			const tilt =
+				support === undefined && terrain !== undefined && aligned.has(object.id)
+					? tiltFor(terrain.planeUnder(shape))
+					: undefined;
 			placed.set(object.id, {
 				object,
 				center,
-				z: support === undefined ? 0 : support.z + support.object.size[2],
+				z: support === undefined ? ground : support.z + support.object.size[2],
+				ground,
 				yaw,
-				shape: footprint(center, object.size, yaw),
+				shape,
 				...(supportId === undefined ? {} : { support: supportId }),
+				...(tilt === undefined ? {} : { tilt }),
 			});
 		}
 		return { placed, found };
 	};
 
-	/** Lay out, check and plan paths, with the given aisles held open. */
-	const attempt = (aisles: readonly Aisle[]) => {
-		let result = solveRound(undefined, aisles);
+	/**
+	 * Lay out, check and plan paths, with the given aisles held open and
+	 * the given objects held at spots (ground that meets their limits).
+	 */
+	const attempt = (
+		aisles: readonly Aisle[],
+		spots: ReadonlyMap<string, Spot> = new Map(),
+	) => {
+		const layoutSpec: SceneSpec =
+			spots.size === 0
+				? spec
+				: {
+						...spec,
+						relations: [
+							...spec.relations,
+							...[...spots].map(
+								([subject, held]): SceneRelation => ({
+									kind: "at-point",
+									subject,
+									point: held.point,
+									from: "ground that meets its limits",
+									path: held.path,
+								}),
+							),
+						],
+					};
+		let result = solveRound(undefined, aisles, layoutSpec);
 		for (let again = 1; again < MAX_ROUNDS; again += 1) {
-			const next = solveRound(result.placed, aisles);
+			const next = solveRound(result.placed, aisles, layoutSpec);
 			const settled = [...next.placed].every(([id, placement]) => {
 				const before = result.placed.get(id);
 				return (
@@ -511,6 +640,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		for (const id of broken) placed.delete(id);
 
 		check(spec, placed, found);
+		if (terrain !== undefined) checkTerrain(spec, terrain, placed, found);
 		const planned = planPaths(spec, placed);
 		found.push(...planned.diagnostics);
 		return { placed, broken, found, planned };
@@ -537,6 +667,68 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			: undefined;
 	};
 	let best = attempt([]);
+	// Objects on ground that breaks their slope or elevation limits move
+	// to the nearest spot that meets them, where nothing else fixes them.
+	// All at once first; if that makes another check worse (a spot that
+	// fights a relation or pin), one at a time, keeping each that helps.
+	let spots = new Map<string, Spot>();
+	const others = (found: readonly SceneDiagnostic[]) =>
+		found.filter((d) => !isMaskProblem(d));
+	// A step helps when objects come within their limits and none leaves
+	// them (one fixed never pays for another broken), and nothing else got
+	// worse.
+	const helps = (from: Attempt, to: Attempt) => {
+		const before = offLimits(from.found);
+		const after = offLimits(to.found);
+		return (
+			after.size < before.size &&
+			[...after].every((id) => before.has(id)) &&
+			!worseOnOtherChecks(others(from.found), others(to.found))
+		);
+	};
+	for (let k = 0; terrain !== undefined && k < MASK_ROUNDS; k += 1) {
+		const off = best.found.filter(isMaskProblem);
+		if (off.length === 0) break;
+		const shapes = new Map(
+			[...best.placed].map(([id, item]) => [id, item.shape]),
+		);
+		const ids = [...new Set(off.flatMap((d) => d.objects ?? []))].sort(
+			(a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0),
+		);
+		const wanted: [string, Spot][] = [];
+		for (const id of ids) {
+			const item = best.placed.get(id);
+			if (item === undefined || item.support !== undefined) continue;
+			if (item.object.position !== undefined) continue;
+			const limits = limitsOf(spec, id);
+			const spot = findSpot(spec, terrain, item, limits, shapes, best.placed);
+			if (spot === undefined) continue;
+			wanted.push([id, { point: spot, path: limits.path }]);
+			shapes.set(id, footprint(spot, item.object.size, item.yaw));
+		}
+		if (wanted.length === 0) break;
+		const all = new Map([...spots, ...wanted]);
+		const together = attempt([], all);
+		if (helps(best, together)) {
+			best = together;
+			spots = all;
+			continue;
+		}
+		let step = best;
+		let kept = spots;
+		for (const [id, spot] of wanted) {
+			const trial = new Map(kept).set(id, spot);
+			const tried = attempt([], trial);
+			if (helps(step, tried)) {
+				step = tried;
+				kept = trial;
+			}
+		}
+		if (kept === spots) break;
+		best = step;
+		spots = kept;
+	}
+	const held = spots;
 	let aisles: Aisle[] = [];
 	// Steps may pass one narrow place to reach the next; what is kept in
 	// the end is the best layout seen (the original on a tie).
@@ -552,7 +744,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 				next.length === aisles.length &&
 				next.every((aisle, i) => aisle.gap === aisles[i]?.gap);
 			if (same) continue;
-			const tried = attempt(next);
+			const tried = attempt(next, held);
 			if (
 				progress(best.found, tried.found, aisles) &&
 				!worseOnOtherChecks(best.found, tried.found)
@@ -594,6 +786,23 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			path: ["paths"],
 			hint: "Set `makeWay: false` to keep the layout as the relations alone leave it.",
 			detail: { gap: round(aisle.gap) },
+		});
+	}
+
+	// Objects moved to ground that meets their limits, where it does.
+	for (const [id, spot] of held) {
+		const item = placed.get(id);
+		if (item === undefined) continue;
+		if (best.found.some((d) => isMaskProblem(d) && d.objects?.includes(id))) {
+			continue;
+		}
+		diagnostics.push({
+			severity: "info",
+			code: "scene.terrain.moved",
+			message: `"${id}" stands at (${round(spot.point.x)}, ${round(spot.point.y)}), the nearest place where the ground meets its slope and elevation limits.`,
+			objects: [id],
+			path: spot.path,
+			hint: "Pin it or relate it to something to place it yourself.",
 		});
 	}
 
@@ -687,6 +896,22 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			accel,
 		})),
 		paths: best.planned.paths,
+		...(spec.terrain === undefined
+			? {}
+			: {
+					terrain: {
+						origin: [
+							round(spec.terrain.origin.x),
+							round(spec.terrain.origin.y),
+						] as [number, number],
+						spacing: [
+							round(spec.terrain.spacing.x),
+							round(spec.terrain.spacing.y),
+						] as [number, number],
+						base: round(spec.terrain.base),
+						heights: spec.terrain.heights.map((row) => row.map(round)),
+					},
+				}),
 		...(spec.frame === undefined
 			? {}
 			: {
@@ -902,6 +1127,249 @@ function spotCenter(
 	};
 }
 
+/** An object held at a spot of the floor plan, and the relation that asked for it. */
+interface Spot {
+	point: Vec2;
+	path: ScenePath;
+}
+
+const MASK_CODES = new Set(["scene.terrain.slope", "scene.terrain.elevation"]);
+
+function isMaskProblem(diagnostic: SceneDiagnostic): boolean {
+	return MASK_CODES.has(diagnostic.code);
+}
+
+/** The objects standing on ground that breaks their limits. */
+function offLimits(found: readonly SceneDiagnostic[]): Set<string> {
+	return new Set(found.filter(isMaskProblem).flatMap((d) => d.objects ?? []));
+}
+
+/** An object's slope and elevation limits (all that apply, combined). */
+interface Limits {
+	slope?: number;
+	min?: number;
+	max?: number;
+	/** The first relation that sets one, for messages. */
+	path: ScenePath;
+}
+
+function limitsOf(spec: SceneSpec, id: string): Limits {
+	const out: Limits = { path: [] };
+	for (const relation of spec.relations) {
+		if (relation.kind === "slope-limit" && relation.subject === id) {
+			out.slope = Math.min(out.slope ?? 90, relation.max);
+		} else if (relation.kind === "elevation-range" && relation.subject === id) {
+			if (relation.min !== undefined) {
+				out.min = Math.max(out.min ?? -Infinity, relation.min);
+			}
+			if (relation.max !== undefined) {
+				out.max = Math.min(out.max ?? Infinity, relation.max);
+			}
+		} else {
+			continue;
+		}
+		if (out.path.length === 0) out.path = relation.path;
+	}
+	return out;
+}
+
+/** Whether the ground under a footprint meets the limits. */
+function meets(
+	terrain: GridTerrain,
+	shape: Footprint,
+	limits: Limits,
+): boolean {
+	const range = terrain.rangeUnder(shape);
+	return (
+		range.covered &&
+		(limits.slope === undefined || range.maxSlope <= limits.slope + 1e-9) &&
+		(limits.min === undefined || range.minElevation >= limits.min - 1e-9) &&
+		(limits.max === undefined || range.maxElevation <= limits.max + 1e-9)
+	);
+}
+
+/**
+ * The nearest spot (to where the object is now) whose ground meets its
+ * limits, inside the scene's bounds and clear of everything else on the
+ * floor (by `minGap`, or a `keep clear` distance). Candidates lie on a
+ * grid as fine as half the terrain's spacing (coarser on a huge site),
+ * tried nearest first, ties south then west.
+ */
+function findSpot(
+	spec: SceneSpec,
+	terrain: GridTerrain,
+	item: Placement,
+	limits: Limits,
+	shapes: ReadonlyMap<string, Footprint>,
+	placed: ReadonlyMap<string, Placement>,
+): Vec2 | undefined {
+	const probe = footprint({ x: 0, y: 0 }, item.object.size, item.yaw);
+	const ex = halfExtent(probe, { x: 1, y: 0 });
+	const ey = halfExtent(probe, { x: 0, y: 1 });
+	const x0 = Math.max(ex, terrain.min.x + ex);
+	const x1 = Math.min(spec.bounds.width - ex, terrain.max.x - ex);
+	const y0 = Math.max(ey, terrain.min.y + ey);
+	const y1 = Math.min(spec.bounds.depth - ey, terrain.max.y - ey);
+	if (x1 < x0 || y1 < y0) return undefined;
+	const { spacing } = terrain.grid;
+	let step = Math.min(spacing.x, spacing.y) / 2;
+	const area = (x1 - x0 + step) * (y1 - y0 + step);
+	if (area / (step * step) > MASK_CANDIDATES) {
+		step = Math.sqrt(area / MASK_CANDIDATES);
+	}
+	const columns = Math.floor((x1 - x0) / step) + 1;
+	const rows = Math.floor((y1 - y0) / step) + 1;
+	const candidates: Vec2[] = [];
+	for (let j = 0; j < rows; j += 1) {
+		for (let i = 0; i < columns; i += 1) {
+			candidates.push({ x: x0 + i * step, y: y0 + j * step });
+		}
+	}
+	const from = item.center;
+	candidates.sort(
+		(a, b) =>
+			Math.hypot(a.x - from.x, a.y - from.y) -
+				Math.hypot(b.x - from.x, b.y - from.y) ||
+			a.y - b.y ||
+			a.x - b.x,
+	);
+	const id = item.object.id;
+	const clearance = new Map<string, number>();
+	for (const relation of spec.relations) {
+		if (relation.kind !== "keep-clear") continue;
+		const [a, b] = relation.between;
+		const other = a === id ? b : b === id ? a : undefined;
+		if (other === undefined) continue;
+		clearance.set(
+			other,
+			Math.max(clearance.get(other) ?? 0, relation.clearance),
+		);
+	}
+	// Only things on the floor compete for ground.
+	const others = [...shapes].filter(
+		([other]) => other !== id && placed.get(other)?.support === undefined,
+	);
+	for (const center of candidates) {
+		const shape = footprint(center, item.object.size, item.yaw);
+		if (!meets(terrain, shape, limits)) continue;
+		const clear = others.every(([other, theirs]) => {
+			if (penetration(shape, theirs) > TOLERANCE) return false;
+			const need = Math.max(spec.minGap, clearance.get(other) ?? 0);
+			return need <= 0 || distance(shape, theirs) >= need - TOLERANCE;
+		});
+		if (clear) return center;
+	}
+	return undefined;
+}
+
+/**
+ * Terrain checks: ground under every object on it, slope and elevation
+ * limits, objects off the grid, leaning supports, and terrain relations
+ * on objects that stand on something else.
+ */
+function checkTerrain(
+	spec: SceneSpec,
+	terrain: GridTerrain,
+	placed: ReadonlyMap<string, Placement>,
+	diagnostics: SceneDiagnostic[],
+): void {
+	const grounded = new Map<string, ScenePath>();
+	for (const relation of spec.relations) {
+		if (relation.kind === "ground" && !grounded.has(relation.subject)) {
+			grounded.set(relation.subject, relation.path);
+		}
+	}
+	for (const item of placed.values()) {
+		const id = item.object.id;
+		const range = terrain.rangeUnder(item.shape);
+		if (item.support !== undefined) {
+			const support = placed.get(item.support);
+			if (grounded.has(id)) {
+				diagnostics.push({
+					severity: "warning",
+					code: "scene.terrain.off-ground",
+					message: `"${id}" stands on "${item.support}", not on the terrain; \`on terrain\` and \`align to slope\` do not apply.`,
+					objects: [id],
+					...pathOf(grounded.get(id)),
+					hint: "Remove the terrain relation, or the `on` relation.",
+				});
+			}
+			if (support?.tilt !== undefined) {
+				diagnostics.push({
+					severity: "error",
+					code: "scene.terrain.leaning-support",
+					message: `"${id}" stands on "${support.object.id}", which leans with the slope; objects stand only on level tops.`,
+					objects: [id, support.object.id],
+					path: item.object.path,
+					hint: `Do not align "${support.object.id}" to the slope, or place "${id}" on the ground.`,
+				});
+			}
+		} else if (!range.covered) {
+			diagnostics.push({
+				severity: "error",
+				code: "scene.terrain.outside",
+				message: `"${id}" stands partly off the terrain grid, where there is no ground.`,
+				objects: [id],
+				path: item.object.path,
+				hint: "Move it onto the grid, or extend the terrain to cover it.",
+			});
+		} else if (item.tilt === undefined) {
+			// Upright on uneven ground: one side floats, the other is buried.
+			const rise = range.maxElevation - range.minElevation;
+			if (rise > UNEVEN) {
+				const ground = item.ground + terrain.grid.base;
+				diagnostics.push({
+					severity: "info",
+					code: "scene.terrain.uneven",
+					message: `The ground under "${id}" rises ${round(rise)} m across it: standing upright, it is ${round(ground - range.minElevation)} m above the ground at its lowest edge and ${round(range.maxElevation - ground)} m into it at its highest.`,
+					objects: [id],
+					path: item.object.path,
+					hint: "Add `align to slope` to lean it with the ground, or find a flatter spot (`slope below …`).",
+					detail: { rise: round(rise) },
+				});
+			}
+		}
+		const limits = limitsOf(spec, id);
+		if (limits.path.length === 0 || !range.covered) continue;
+		if (limits.slope !== undefined && range.maxSlope > limits.slope + 1e-9) {
+			diagnostics.push({
+				severity: "error",
+				code: "scene.terrain.slope",
+				message: `The ground under "${id}" is up to ${round(range.maxSlope)}° steep; it may be no steeper than ${round(limits.slope)}°.`,
+				objects: [id],
+				path: limits.path,
+				hint: "Let it move (drop relations or pins that fix it), allow a steeper slope, or level the ground.",
+				detail: { slope: round(range.maxSlope), max: round(limits.slope) },
+			});
+		}
+		const low =
+			limits.min !== undefined && range.minElevation < limits.min - 1e-9;
+		const high =
+			limits.max !== undefined && range.maxElevation > limits.max + 1e-9;
+		if (low || high) {
+			const span = `${limits.min === undefined ? "below" : limits.max === undefined ? "above" : "between"} ${[
+				limits.min,
+				limits.max,
+			]
+				.filter((value) => value !== undefined)
+				.map((value) => `${round(value as number)} m`)
+				.join(" and ")}`;
+			diagnostics.push({
+				severity: "error",
+				code: "scene.terrain.elevation",
+				message: `The ground under "${id}" lies at ${round(range.minElevation)}–${round(range.maxElevation)} m; it must be ${span}.`,
+				objects: [id],
+				path: limits.path,
+				hint: "Let it move (drop relations or pins that fix it), or widen the elevation range.",
+				detail: {
+					min: round(range.minElevation),
+					max: round(range.maxElevation),
+				},
+			});
+		}
+	}
+}
+
 function check(
 	spec: SceneSpec,
 	placed: ReadonlyMap<string, Placement>,
@@ -929,8 +1397,9 @@ function check(
 				detail: { past: round(past) },
 			});
 		}
-		if (height !== undefined && box.max[2] - height > TOLERANCE) {
-			const over = box.max[2] - height;
+		// The ceiling is measured from the ground under the object.
+		if (height !== undefined && box.max[2] - item.ground - height > TOLERANCE) {
+			const over = box.max[2] - item.ground - height;
 			diagnostics.push({
 				severity: "error",
 				code: "scene.above-ceiling",
@@ -974,9 +1443,9 @@ function check(
 		const a = list[i] as Placement;
 		for (let j = i + 1; j < list.length; j += 1) {
 			const b = list[j] as Placement;
-			const vertical =
-				Math.min(a.z + a.object.size[2], b.z + b.object.size[2]) -
-				Math.max(a.z, b.z);
+			const [a0, a1] = heightRange(a);
+			const [b0, b1] = heightRange(b);
+			const vertical = Math.min(a1, b1) - Math.max(a0, b0);
 			if (vertical <= TOLERANCE) continue;
 			const depthIn = penetration(a.shape, b.shape);
 			if (depthIn > TOLERANCE) {
@@ -1029,13 +1498,19 @@ function check(
 
 function output(item: Placement): PlacedSceneObject {
 	const { object } = item;
-	const half = (item.yaw * Math.PI) / 360;
 	const box = aabb(item);
 	return {
 		id: object.id,
 		position: [round(item.center.x), round(item.center.y), round(item.z)],
 		yaw: round(item.yaw),
-		quaternion: [0, 0, round(Math.sin(half)), round(Math.cos(half))],
+		// A lean is written to 1e-9: rounded to 1e-4 like lengths, it would
+		// move the far corner of a few-metre object by tenths of a millimetre.
+		quaternion: rotationOf(item).map(
+			item.tilt === undefined ? round : fine,
+		) as [number, number, number, number],
+		...(item.tilt === undefined
+			? {}
+			: { up: item.tilt.up.map(fine) as [number, number, number] }),
 		size: object.size.map(round) as [number, number, number],
 		front: object.front,
 		...(item.support === undefined ? {} : { supportedBy: item.support }),
@@ -1049,10 +1524,37 @@ function output(item: Placement): PlacedSceneObject {
 	};
 }
 
+/** Lowest and highest z the object reaches. */
+function heightRange(item: Placement): [number, number] {
+	if (item.tilt === undefined) return [item.z, item.z + item.object.size[2]];
+	const box = aabb(item);
+	return [box.min[2], box.max[2]];
+}
+
 function aabb(item: Placement): {
 	min: [number, number, number];
 	max: [number, number, number];
 } {
+	if (item.tilt !== undefined) {
+		// The eight corners of the leaning box, turned about its bottom center.
+		const q = rotationOf(item);
+		const [w, d, h] = item.object.size;
+		const min: [number, number, number] = [Infinity, Infinity, Infinity];
+		const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+		for (const sx of [-1, 1]) {
+			for (const sy of [-1, 1]) {
+				for (const sz of [0, 1]) {
+					const [x, y, z] = rotate(q, [(sx * w) / 2, (sy * d) / 2, sz * h]);
+					const at = [item.center.x + x, item.center.y + y, item.z + z];
+					for (let k = 0; k < 3; k += 1) {
+						min[k] = Math.min(min[k] as number, at[k] as number);
+						max[k] = Math.max(max[k] as number, at[k] as number);
+					}
+				}
+			}
+		}
+		return { min, max };
+	}
 	const ex = halfExtent(item.shape, { x: 1, y: 0 });
 	const ey = halfExtent(item.shape, { x: 0, y: 1 });
 	return {
@@ -1071,6 +1573,12 @@ function angleGap(a: number, b: number): number {
 
 function pathOf(path: ScenePath | undefined): { path?: ScenePath } {
 	return path === undefined ? {} : { path };
+}
+
+/** Nine decimals, without -0 (unit vectors and rotations). */
+function fine(value: number): number {
+	const rounded = Math.round(value * 1e9) / 1e9;
+	return rounded === 0 ? 0 : rounded;
 }
 
 /** Four decimals, without -0 (huge values as they are). */

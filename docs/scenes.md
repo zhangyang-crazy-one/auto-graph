@@ -4,7 +4,7 @@
 
 A scene document describes a room, the objects in it and how they relate. auto-graph solves where every object stands and which way it faces, then checks the result. It is plain math with no 3D application in the loop, so an agent gets exact numbers it can hand to Blender, a game engine or a robot planner.
 
-It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis only, paths for people and robots, and placing a scene on the Earth by latitude and longitude. Terrain and projected frames for large areas follow in #121–#122.
+It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude, and uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits. Projected frames for large areas, routes along roads and arrays follow in #121–#122.
 
 ## The frame
 
@@ -67,6 +67,9 @@ A relation is one line: a subject, a verb, then clauses after commas. The subjec
 | `g around c, radius 0.9` | evenly on a circle round `c` (polar), each facing `c` | `start` (degrees, default 270 = south), `facing` / `rotate` instead of facing `c` |
 | `a and b symmetric about room` / `about c` | mirrored about the room's or `c`'s center line | `axis x` / `axis y` (default: the axis they are apart on) |
 | `keep clear 0.8 between a and b` | at least that far apart (an aisle) | |
+| `a on terrain` / `a align to slope` | stands on the ground (every object on the floor of a scene with terrain does) / leans square to it | `align to slope` (after `on terrain`) |
+| `a slope below 8` | the ground under it no steeper than that (degrees, also `<`, `<=`) | |
+| `a elevation between 100 and 300` / `above 100` / `below 300` | the ground under it between those elevations | |
 
 `facing` and `rotate` may also follow any other verb: `chair in-front-of desk, facing desk`.
 
@@ -174,13 +177,43 @@ The geodesic and frame mathematics (`src/scene/geo`) is checked against Geograph
 
 <img src="images/scene-park.top.svg" alt="examples/scene/park.yaml: a park placed by latitude and longitude, with landmarks" width="100%">
 
+## On terrain
+
+A scene can stand on uneven ground: a grid of elevations.
+
+```yaml
+terrain:
+  grid:
+    origin: [0, 0]      # scene x, y of the south-west sample (default [0, 0])
+    spacing: 10         # metres between samples, or [x, y]
+    heights:            # elevations, rows south to north, each west to east
+      - [1400.1, 1400.3, 1400.9]
+      - [1400.6, 1401.2, 1402.0]
+  base: 1400            # elevation at scene z = 0 (default 0; in a scene with a frame, the frame origin's height)
+relations:
+  - panel on terrain, align to slope      # lean with the ground
+  - turbine slope below 8                 # degrees from level, anywhere under it
+  - turbine elevation above 1425          # also below <b>, between <a> and <b>
+```
+
+- **The ground** between samples is the bilinear surface through the four corner samples of each cell: continuous, and exact for planes. Scene z is elevation minus `base`. In a scene with a `frame`, `base` is the frame origin's height, so an object's `geo` height is the elevation of the ground it stands on.
+- **Standing on it.** Every object on the floor stands on the ground at its footprint center (`on terrain` says so explicitly). Upright objects stay upright; where the ground under one rises more than 10 cm across it, `scene.terrain.uneven` (info) says how far its lowest edge floats and its highest edge is buried. `align to slope` leans the object square to the ground: its up axis is the normal of the plane fitted to the ground under it, its rotation the turn about z then that tilt (`quaternion`, plus `up` in the output). Objects on a support stand on its top as before; a support that leans is reported.
+- **Limits.** `slope below` and `elevation above / below / between` hold over the whole footprint, measured exactly: the footprint is clipped to every grid cell it crosses, the steepest slope is at a corner of a clipped piece (the squared gradient of a bilinear cell is convex), and the extreme elevations are on its edges. An object whose ground breaks its limits is moved to the nearest spot that meets them, inside the bounds and clear of everything else on the ground (by `minGap` and `keep clear`), where nothing holds it: a pin or a relation that fixes it keeps it, and `scene.terrain.slope` / `scene.terrain.elevation` (errors) say what is wrong. Each move is reported (`scene.terrain.moved`). The search is greedy, nearest spot first, object by object: where good ground is scarce it may not find room for all, and the errors stay.
+- **Paths** follow the ground: corners and agents are at its height. An object's height above the ground decides whether an agent passes under it, and the ceiling (`bounds.height`) is measured from the ground under each object.
+- **Data.** `terrain.parseAsciiGrid(text)` (from the package) reads an ESRI ASCII grid (`.asc`, what GIS tools export from a DEM) into `{ origin, spacing, heights }` for `terrain.grid`, in the file's own coordinates (set `origin` to place it in the scene). `terrain.sampleTerrain(fn, …)` builds a grid from a function (synthetic ground for tests).
+- **Output.** The document gets `terrain` (origin, spacing, base and heights). The top view draws contour lines (every fifth darker, with its elevation). The Blender script builds the ground as a mesh on the bilinear surface (each cell cut into up to 4 × 4 quads), leans aligned objects, lays paths and agents on the ground, and marks landmarks with pins.
+
+<img src="images/scene-hillside.top.svg" alt="examples/scene/hillside.yaml: contour lines; turbines moved onto the ridge; solar panels leaning with the slope" width="100%">
+
+<img src="images/scene-hillside.jpg" alt="examples/scene/hillside.yaml rendered in Blender" width="100%">
+
 ## Output
 
 `renderSceneDsl(source, { format })`, or `agh --input room.yaml --format …`:
 
 - **`scene-json`** (default) is the `dge-scene` v1 document, described by [`schema/dge-scene.v1.schema.json`](../schema/dge-scene.v1.schema.json). Numbers are rounded to 4 decimals. Per object it gives:
   - `position`: the footprint center and the bottom height `[x, y, z]`;
-  - `yaw` and the same turn as a `quaternion` `[x, y, z, w]`;
+  - `yaw` and the rotation as a `quaternion` `[x, y, z, w]` (the turn, then any lean with the slope, given with `up`);
   - `size` and `front`;
   - `supportedBy`;
   - the world `aabb`.
@@ -219,6 +252,12 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.path.unplaced` | a path to an object that is not in the layout |
 | `scene.geo.extent` (warning) | the scene reaches more than 10 km from its frame's origin |
 | `validate.scene.geo-extent` (error) | a point given by latitude and longitude is more than 10 km from the frame's origin |
+| `scene.terrain.slope`, `scene.terrain.elevation` | the ground under an object is steeper than its `slope below`, or outside its elevation limits (with the measures) |
+| `scene.terrain.outside` | an object on the ground reaches off the terrain grid |
+| `scene.terrain.leaning-support` | an object stands on a support that leans with the slope |
+| `scene.terrain.off-ground` (warning) | `on terrain` or `align to slope` on an object that stands on a support |
+| `scene.terrain.uneven` (info) | the ground rises more than 10 cm under an upright object: how far it floats and is buried |
+| `scene.terrain.moved` (info) | an object moved to the nearest ground that meets its limits |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |
 | `scene.path.detour` (info) | a path more than twice the straight line between its places |
@@ -230,7 +269,8 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 `test/support/blender_check.py` runs a generated script in Blender and compares it with the JSON:
 - every object's world box (from its mesh vertices) and turn, to 1e-4;
 - every opening strip's place on its wall and every path curve's points, to 1e-4;
-- where each agent stands at each corner's time (its animation evaluated at that frame), to 1e-3.
+- where each agent stands at each corner's time (its animation evaluated at that frame), to 1e-3;
+- with terrain, the ground evaluated on its own from the document's grid: every mesh vertex on it, every object on the ground standing on it at its center (to 1 cm), every path and agent on it, a leaning object's quaternion and up axis, and a pin at every landmark.
 
 It is run at milestones (a change to the Blender export, the end of a phase, a release), not on every change:
 
@@ -242,7 +282,7 @@ DGE_BLENDER_PYTHON=$(which python) npm run docs:scene-renders   # the README ren
 
 ## Limits (phase 1)
 
-- Objects turn about the vertical axis only. Footprints are oriented rectangles, and an object's height is an interval.
+- Objects turn about the vertical axis; on terrain they can also lean with the slope. Footprints are oriented rectangles, and an object's height is an interval; a leaning object is checked with its upright footprint and the height range of its leaning box.
 - Floor-plan relations apply between objects on the floor. Objects on a support are placed with `at`.
 - Beside relations snap the reference's side to the nearest world axis. A turned object is separated and walled by its world-axis bounding box (conservative); interpenetration is still tested on the turned shape.
 - The solver finds a layout that satisfies the relations, not one that is comfortable. Say what matters (`keep clear` for room to pull out a chair).

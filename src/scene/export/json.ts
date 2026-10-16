@@ -22,7 +22,14 @@ const sceneObjectSchema = z
 			.describe("Turn about z, degrees counter-clockwise seen from above."),
 		quaternion: z
 			.tuple([z.number(), z.number(), z.number(), z.number()])
-			.describe("The same turn as a unit quaternion [x, y, z, w]."),
+			.describe(
+				"Its rotation as a unit quaternion [x, y, z, w]: the turn about z, then any lean with the slope.",
+			),
+		up: vec3
+			.optional()
+			.describe(
+				"The object's up axis in the world, when it leans with the slope (`align to slope`).",
+			),
 		size: vec3.describe("Width, depth and height before the turn."),
 		front: z
 			.enum(["+x", "-x", "+y", "-y"])
@@ -46,7 +53,9 @@ const pathSchema = z
 		to: z.string(),
 		points: z
 			.array(vec3)
-			.describe("Corners from start to end, [x, y, z] on the floor."),
+			.describe(
+				"Corners from start to end, [x, y, z] on the floor (or the ground).",
+			),
 		length: z.number(),
 		width: z.number().describe("The agent's width."),
 		clearance: z
@@ -161,6 +170,24 @@ export const sceneDocumentSchema = z
 					.strict(),
 			)
 			.optional(),
+		terrain: z
+			.object({
+				origin: z
+					.tuple([z.number(), z.number()])
+					.describe("Scene x, y of the south-west sample, metres."),
+				spacing: z
+					.tuple([z.number(), z.number()])
+					.describe("Distance between samples along x and y, metres."),
+				base: z.number().describe("Elevation at scene z = 0, metres."),
+				heights: z
+					.array(z.array(z.number()))
+					.describe(
+						"Elevations, rows south to north, each west to east; the ground between samples is bilinear, and scene z = elevation - base.",
+					),
+			})
+			.strict()
+			.optional()
+			.describe("The ground (scenes with terrain)."),
 		unplaced: z
 			.array(z.string())
 			.describe(
@@ -197,6 +224,7 @@ export function sceneToDocument(scene: SolvedScene): SceneDocument {
 		paths: scene.paths,
 		...(scene.geo === undefined ? {} : { geo: scene.geo }),
 		...(scene.landmarks === undefined ? {} : { landmarks: scene.landmarks }),
+		...(scene.terrain === undefined ? {} : { terrain: scene.terrain }),
 		unplaced: scene.unplaced,
 		diagnostics: scene.diagnostics,
 	};
