@@ -200,7 +200,7 @@ relations:
 - **贴地**：地面上的每个物体都以底面中心站在地面上（`on terrain` 是显式写法）。直立物体保持直立；脚下地面起伏超过 10 cm 时给出 `scene.terrain.uneven`（提示），说明最低边悬空多少、最高边埋入多少。`align to slope` 让物体贴合坡面：它的上方向是脚下地面拟合平面的法线，旋转是先绕 z 转，再做这次倾斜（输出 `quaternion`，并给出 `up`）。放在支撑物上的物体照旧站在支撑面上；支撑物本身倾斜时会报错。
 - **限制条件**：`slope below` 和 `elevation above / below / between` 对整个底面成立，并且精确计算：底面按它跨过的每个网格单元裁剪，最陡坡度出现在裁剪片的角点（双线性单元的梯度平方是凸函数），极端高程出现在裁剪片的边上。物体脚下的地面不满足条件时，会被移到最近的满足条件的位置：在场地范围内、与地面上其他物体保持 `minGap` 和 `keep clear` 的距离，并且只移动没有被约束住的物体；被钉住或被关系固定的物体不动，由 `scene.terrain.slope` / `scene.terrain.elevation`（错误）说明问题。每次移动都会报告（`scene.terrain.moved`）。搜索是贪心的，逐个物体、就近优先；合适的地面很少时可能放不下所有物体，此时错误会保留。
 - **路径**沿地面走：折点和智能体都在地面高度。智能体能否从物体下方通过，按物体离地高度判断；天花板（`bounds.height`）也从每个物体脚下的地面量起。
-- **数据**：`terrain.parseAsciiGrid(text)`（从包里导入） 读取 ESRI ASCII 栅格（`.asc`，GIS 软件从 DEM 导出的格式），得到可直接用于 `terrain.grid` 的 `{ origin, spacing, heights }`，坐标是文件自己的（用 `origin` 放到场景里）。`terrain.sampleTerrain(fn, …)` 按函数生成网格（测试用的合成地形）。
+- **数据**：`terrain.parseAsciiGrid(text)`（从包里导入）读取 ESRI ASCII 栅格（`.asc`，GIS 软件从 DEM 导出的格式），得到可直接用于 `terrain.grid` 的 `{ origin, spacing, heights }`，坐标是文件自己的（用 `origin` 放到场景里）。`terrain.sampleTerrain(fn, …)` 按函数生成网格（测试用的合成地形）。
 - **输出**：文档给出 `terrain`（origin、spacing、base 和 heights）。俯视图画等高线（每第五条加深并标出高程）。Blender 脚本在双线性曲面上生成地面网格（每个单元最多切成 4 × 4 个四边形），让贴坡物体倾斜，路径和智能体贴着地面，地标用标杆标出。
 
 <img src="images/scene-hillside.top.svg" alt="examples/scene/hillside.yaml：等高线；风机被移到山脊上；光伏板随坡面倾斜" width="100%">
