@@ -46,6 +46,7 @@ interface CliOptions {
 	viewExample?: string;
 	viewSchema?: string;
 	expand?: boolean;
+	assetPath?: string;
 }
 
 export async function runCli(
@@ -174,6 +175,21 @@ export async function runCli(
 		if (isSceneDocument(parseDslSource(source, sourceOptions).value)) {
 			return await runScene(source, sourceOptions, options, stdout, stderr);
 		}
+		if (options.assetPath !== undefined) {
+			await writeDiagnostics(
+				stderr,
+				[
+					{
+						severity: "error",
+						layer: "io",
+						code: "io.diagram-option",
+						message: "--asset-path applies to scene documents (--format usda).",
+					},
+				],
+				options.json === true,
+			);
+			return 2;
+		}
 		let previousLayout: PreviousLayout | undefined;
 		if (options.previous !== undefined) {
 			const read = readPreviousLayout(
@@ -261,7 +277,7 @@ export async function runCli(
 
 /**
  * A `scene:` document: solve it and write scene-json (default), blender,
- * svg, gltf or glb. The output is written even when the scene is invalid (it shows
+ * svg, gltf, glb or usda. The output is written even when the scene is invalid (it shows
  * what is wrong), with exit code 1.
  */
 async function runScene(
@@ -281,6 +297,21 @@ async function runScene(
 			["--font", options.font],
 		] as const
 	).filter(([, value]) => value !== undefined);
+	if (options.assetPath !== undefined && options.format !== "usda") {
+		await writeDiagnostics(
+			stderr,
+			[
+				{
+					severity: "error",
+					layer: "io",
+					code: "io.scene-option",
+					message: "--asset-path applies to --format usda.",
+				},
+			],
+			options.json === true,
+		);
+		return 2;
+	}
 	if (unused.length > 0) {
 		await writeDiagnostics(
 			stderr,
@@ -290,7 +321,7 @@ async function runScene(
 					layer: "io",
 					code: "io.scene-option",
 					message: `${unused.map(([name]) => name).join(", ")} ${unused.length === 1 ? "does" : "do"} not apply to scene documents.`,
-					hint: "Scenes take --format scene-json, blender, svg, gltf or glb.",
+					hint: "Scenes take --format scene-json, blender, svg, gltf, glb or usda.",
 				},
 			],
 			options.json === true,
@@ -300,6 +331,9 @@ async function runScene(
 	const result = renderSceneDsl(source, {
 		...sourceOptions,
 		...(options.format === undefined ? {} : { format: options.format }),
+		...(options.assetPath === undefined
+			? {}
+			: { assetPath: options.assetPath }),
 	});
 	const diagnostics = sortDslDiagnostics(result.diagnostics).filter(
 		(diagnostic) => options.verbose === true || diagnostic.severity !== "info",
@@ -329,7 +363,11 @@ function buildCommand(): Command {
 		.option("--output <path>", "Write generated output to a file")
 		.option(
 			"--format <format>",
-			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON); for scene documents scene-json, blender (a Blender Python script), svg (top view), gltf or glb (glTF 2.0)",
+			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON); for scene documents scene-json, blender (a Blender Python script), svg (top view), gltf or glb (glTF 2.0), usda (USD)",
+		)
+		.option(
+			"--asset-path <template>",
+			"Scenes, --format usda: reference each object's asset at this path, {asset} standing for its name (e.g. ./assets/{asset}.usd)",
 		)
 		.option(
 			"--font <file>",

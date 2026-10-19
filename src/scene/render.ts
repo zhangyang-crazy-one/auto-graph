@@ -3,6 +3,7 @@ import { parseSceneDsl } from "./dsl.js";
 import { sceneToBlenderScript } from "./export/blender.js";
 import { sceneToGlb, sceneToGltf } from "./export/gltf.js";
 import { sceneToJson } from "./export/json.js";
+import { sceneToUsda } from "./export/usd.js";
 import type { SceneDiagnostic, SolvedScene } from "./ir.js";
 import { solveScene } from "./solve.js";
 import { sceneTopViewSvg } from "./top-view.js";
@@ -12,7 +13,8 @@ export type SceneOutputFormat =
 	| "blender"
 	| "svg"
 	| "gltf"
-	| "glb";
+	| "glb"
+	| "usda";
 
 export const SCENE_OUTPUT_FORMATS: readonly SceneOutputFormat[] = [
 	"scene-json",
@@ -20,14 +22,20 @@ export const SCENE_OUTPUT_FORMATS: readonly SceneOutputFormat[] = [
 	"svg",
 	"gltf",
 	"glb",
+	"usda",
 ];
 
 export interface RenderSceneDslOptions extends ParseDiagramDslOptions {
 	/**
 	 * scene-json (default), blender (a bpy script), svg (a top view), gltf
-	 * (glTF 2.0 JSON) or glb (binary glTF).
+	 * (glTF 2.0 JSON), glb (binary glTF) or usda (a USD stage as text).
 	 */
 	format?: string;
+	/**
+	 * usda only: where objects' assets are, `{asset}` standing for the
+	 * asset name (e.g. `./assets/{asset}.usd`); see `sceneToUsda`.
+	 */
+	assetPath?: string;
 }
 
 export interface RenderSceneDslResult {
@@ -69,7 +77,7 @@ export function renderSceneDsl(
 	const output =
 		format === "glb"
 			? { bytes: sceneToGlb(scene) }
-			: { content: sceneText(scene, format) };
+			: { content: sceneText(scene, format, options) };
 	return {
 		scene,
 		format,
@@ -81,7 +89,11 @@ export function renderSceneDsl(
 	};
 }
 
-function sceneText(scene: SolvedScene, format: SceneOutputFormat): string {
+function sceneText(
+	scene: SolvedScene,
+	format: SceneOutputFormat,
+	options: RenderSceneDslOptions,
+): string {
 	switch (format) {
 		case "blender":
 			return sceneToBlenderScript(scene);
@@ -89,6 +101,11 @@ function sceneText(scene: SolvedScene, format: SceneOutputFormat): string {
 			return sceneTopViewSvg(scene);
 		case "gltf":
 			return sceneToGltf(scene);
+		case "usda":
+			return sceneToUsda(
+				scene,
+				options.assetPath === undefined ? {} : { assetPath: options.assetPath },
+			);
 		default:
 			return sceneToJson(scene);
 	}
