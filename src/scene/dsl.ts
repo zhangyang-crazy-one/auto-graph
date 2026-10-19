@@ -15,17 +15,21 @@ import {
 	type GeoFrame,
 	gcj02ToWgs84,
 	geodesicDirect,
+	geodesicInverse,
 	geoFrame as makeGeoFrame,
 	projectionRefusal,
 	SceneGeoFrame,
 	utmZone,
 } from "./geo/index.js";
+import { axisAngle } from "./geometry.js";
 import type {
 	CornerSide,
 	GeoPoint,
 	SceneAgent,
+	SceneAxis,
 	SceneFrame,
 	SceneLandmark,
+	SceneLine,
 	SceneObject,
 	SceneOpening,
 	ScenePath,
@@ -35,9 +39,16 @@ import type {
 	SceneSpec,
 	SceneTerrain,
 	SceneUnits,
+	SceneWaypoints,
 	SupportSpot,
 	WallSide,
 } from "./ir.js";
+import {
+	geodesicPolyline,
+	pointAlong,
+	polylineLength,
+	stations,
+} from "./lines.js";
 
 const positive = z.number().finite().positive();
 const nonNegative = z.number().finite().min(0);
@@ -151,6 +162,39 @@ export const sceneDslSchema = z
 			.strict()
 			.optional(),
 		landmarks: z.record(idSchema, geoPointSchema).optional(),
+		/** Polylines: roads, fences, flight lines (scene points, or latitude and longitude). */
+		lines: z
+			.record(
+				idSchema,
+				z
+					.object({
+						points: z
+							.array(z.tuple([z.number().finite(), z.number().finite()]))
+							.min(2)
+							.optional(),
+						geo: z
+							.array(geoPointSchema.omit({ alt: true }))
+							.min(2)
+							.optional(),
+					})
+					.strict(),
+			)
+			.optional(),
+		/** Drone waypoints along a line, at a height above the ground. */
+		waypoints: z
+			.record(
+				idSchema,
+				z
+					.object({
+						line: idSchema,
+						spacing: positive.optional(),
+						count: z.number().int().min(2).max(10_000).optional(),
+						height: positive,
+						min: nonNegative.optional(),
+					})
+					.strict(),
+			)
+			.optional(),
 		/** The ground, as a grid of elevations (see `GridTerrain`). */
 		terrain: z
 			.object({
@@ -471,6 +515,123 @@ function normalizeScene(
 
 	const terrain = readTerrain(dsl.terrain, perMeter, frame, diagnostics);
 
+	// Lines: scene points, or latitude and longitude along the geodesics
+	// (densified every 1% of a leg, at most 100 m, so they keep their curve).
+	const lines: SceneLine[] = [];
+	for (const [id, entry] of Object.entries(dsl.lines ?? {})) {
+		const path: ScenePath = ["lines", id];
+		if (
+			RESERVED_IDS.has(id) ||
+			taken.has(id) ||
+			groups.has(id) ||
+			dsl.openings?.[id] !== undefined ||
+			dsl.landmarks?.[id] !== undefined
+		) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.duplicate-id",
+					`"${id}" names both a line and an object, opening or landmark (or is a reserved word).`,
+					"Give the line its own id.",
+				),
+			);
+			continue;
+		}
+		if ((entry.points === undefined) === (entry.geo === undefined)) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.line-points",
+					`Line "${id}" needs its points as \`points\` (scene x, y) or \`geo\` (latitude and longitude), one of them.`,
+					"Give `points: [[x, y], …]` or `geo: [{ lat, lon }, …]`.",
+				),
+			);
+			continue;
+		}
+		if (entry.points !== undefined) {
+			lines.push({
+				id,
+				points: entry.points.map(([x, y]) => ({
+					x: x / perMeter,
+					y: y / perMeter,
+				})),
+				path,
+			});
+			continue;
+		}
+		if (dsl.frame === undefined) {
+			diagnostics.push(
+				error(
+					[...path, "geo"],
+					"validate.scene.geo-without-frame",
+					`Line "${id}" is given by latitude and longitude, but the scene has no \`frame\`.`,
+					"Add `frame: { origin: { lat, lon } }` to place the scene on the Earth.",
+				),
+			);
+			continue;
+		}
+		if (geoFrame === undefined) continue;
+		const geo = entry.geo ?? [];
+		if (geo.some((point, k) => tooFar(point, [...path, "geo", k]))) continue;
+		const wgs = geo.map((point) => toWgs84(point));
+		const legs = wgs.slice(1).map((point, k) => {
+			const leg = geodesicInverse(wgs[k] as GeoPoint, point);
+			return leg.distance;
+		});
+		const step = Math.min(100, Math.max(1, Math.max(...legs) / 100));
+		lines.push({
+			id,
+			points: geodesicPolyline(wgs, step).map((point) => {
+				const at = geoFrame.toScene(point);
+				return { x: at.x, y: at.y };
+			}),
+			path,
+		});
+	}
+	const lineIds = new Set(lines.map((line) => line.id));
+	const waypoints: SceneWaypoints[] = [];
+	for (const [id, entry] of Object.entries(dsl.waypoints ?? {})) {
+		const path: ScenePath = ["waypoints", id];
+		if (!lineIds.has(entry.line)) {
+			if (dsl.lines?.[entry.line] === undefined) {
+				const near = closest(entry.line, [...lineIds]);
+				diagnostics.push(
+					error(
+						[...path, "line"],
+						"validate.scene.unknown-line",
+						`Unknown line "${entry.line}".`,
+						near.length > 0
+							? `Did you mean "${near[0]}"? Declare lines under \`lines\`.`
+							: "Declare lines under `lines`.",
+					),
+				);
+			}
+			continue;
+		}
+		if (entry.spacing !== undefined && entry.count !== undefined) {
+			diagnostics.push(
+				error(
+					path,
+					"validate.scene.relation-conflict",
+					`Waypoints "${id}" are given both a spacing and a count.`,
+					"Keep one of them.",
+				),
+			);
+			continue;
+		}
+		waypoints.push({
+			id,
+			line: entry.line,
+			...(entry.spacing === undefined
+				? {}
+				: { spacing: entry.spacing / perMeter }),
+			...(entry.count === undefined ? {} : { count: entry.count }),
+			height: entry.height / perMeter,
+			min: (entry.min ?? 0) / perMeter,
+			path,
+		});
+	}
+
 	const parser = new RelationParser(
 		new Set(objects.map((object) => object.id)),
 		groups,
@@ -479,6 +640,8 @@ function normalizeScene(
 		new Map(landmarks.map((landmark) => [landmark.id, landmark])),
 		geoFrame,
 		dsl.terrain !== undefined,
+		new Map(lines.map((line) => [line.id, line])),
+		new Map(objects.map((object) => [object.id, object.front])),
 	);
 	const relations: SceneRelation[] = [];
 	(dsl.relations ?? []).forEach((text, index) => {
@@ -602,6 +765,8 @@ function normalizeScene(
 			paths,
 			...(frame === undefined ? {} : { frame, landmarks }),
 			...(terrain === undefined ? {} : { terrain }),
+			...(lines.length === 0 ? {} : { lines }),
+			...(waypoints.length === 0 ? {} : { waypoints }),
 		},
 		diagnostics: sortDslDiagnostics(diagnostics),
 	};
@@ -715,6 +880,7 @@ const MODIFIERS = new Map<string, readonly string[]>([
 	["ground", ["align"]],
 	["slope-limit", []],
 	["elevation-range", []],
+	["along", ["spacing", "offset", "from"]],
 ]);
 
 /** True bearings of the compass words in `<length> north-of <place>`. */
@@ -757,7 +923,8 @@ type Head =
 	| { kind: "distance"; length: number; bearing: number; reference: string }
 	| { kind: "ground"; align: boolean }
 	| { kind: "slope-limit"; max: number }
-	| { kind: "elevation-range"; min?: number; max?: number };
+	| { kind: "elevation-range"; min?: number; max?: number }
+	| { kind: "along"; line: string };
 
 interface Modifiers {
 	gap?: number;
@@ -771,6 +938,10 @@ interface Modifiers {
 	rotate?: number;
 	/** `align to slope` after `on terrain`. */
 	align?: boolean;
+	/** `along`: metres between things, metres to their side, metres to the first. */
+	spacing?: number;
+	offset?: number;
+	from?: number;
 }
 
 class RelationFailure extends Error {
@@ -796,7 +967,13 @@ class RelationParser {
 		private readonly landmarks: ReadonlyMap<string, SceneLandmark> = new Map(),
 		private readonly geoFrame?: GeoFrame,
 		private readonly terrain = false,
+		private readonly lines: ReadonlyMap<string, SceneLine> = new Map(),
+		private readonly fronts: ReadonlyMap<string, SceneAxis> = new Map(),
 	) {}
+
+	private front(id: string): SceneAxis {
+		return this.fronts.get(id) ?? "-y";
+	}
 
 	parse(text: string, path: ScenePath): SceneRelation[] {
 		try {
@@ -1107,6 +1284,20 @@ class RelationParser {
 				);
 				return { kind: "around", center: center as string };
 			}
+			case "along": {
+				const [line] = words(1, "<group> along <line>, spacing <length>");
+				if (!this.lines.has(line as string)) {
+					const near = closest(line as string, [...this.lines.keys()]);
+					fail(
+						"validate.scene.unknown-line",
+						`Unknown line "${line}".`,
+						near.length > 0
+							? `Did you mean "${near[0]}"? Declare lines under \`lines\`.`
+							: "Declare lines (scene points or latitude and longitude) under `lines`.",
+					);
+				}
+				return { kind: "along", line: line as string };
+			}
 			case "at": {
 				const [landmark] = words(1, "<object> at <landmark>");
 				return { kind: "at", landmark: landmark as string };
@@ -1191,6 +1382,13 @@ class RelationParser {
 				case "rotate":
 					out[name] = this.angle(arg, name);
 					break;
+				case "spacing":
+				case "from":
+					out[name] = this.length(arg, name);
+					break;
+				case "offset":
+					out.offset = this.signedLength(arg, name);
+					break;
 				case "at":
 					out.at = spot(arg);
 					break;
@@ -1239,11 +1437,11 @@ class RelationParser {
 				out.push({ kind: "rotate", subject, degrees: modifiers.rotate, path });
 			}
 		};
-		const each = (make: (subject: string) => SceneRelation) => {
-			for (const subject of subjects) {
-				out.push(make(subject));
+		const each = (make: (subject: string, index: number) => SceneRelation) => {
+			subjects.forEach((subject, index) => {
+				out.push(make(subject, index));
 				turn(subject);
-			}
+			});
 			return out;
 		};
 		const gap = modifiers.gap ?? 0;
@@ -1460,6 +1658,58 @@ class RelationParser {
 					...(head.max === undefined ? {} : { max: head.max }),
 					path,
 				}));
+			case "along": {
+				// Spread along the line by arc length; each turned to face the
+				// line (along it, when on it) unless the relation turns it.
+				const line = this.lines.get(head.line) as SceneLine;
+				const length = polylineLength(line.points);
+				const at = stations(length, subjects.length, {
+					...(modifiers.spacing === undefined
+						? {}
+						: { spacing: modifiers.spacing }),
+					...(modifiers.from === undefined ? {} : { from: modifiers.from }),
+				});
+				const beyond = at.findIndex((s) => s > length + 1e-9);
+				if (beyond >= 0) {
+					fail(
+						"validate.scene.along-overflow",
+						`"${subjects[beyond]}" would stand ${round(at[beyond] as number)} m along "${head.line}", which is only ${round(length)} m long.`,
+						"Use a smaller spacing or fewer objects, or leave out `spacing` to spread them over the whole line.",
+					);
+				}
+				const offset = modifiers.offset ?? 0;
+				const turned =
+					modifiers.facing !== undefined || modifiers.rotate !== undefined;
+				return each((subject, k) => {
+					const station = pointAlong(line.points, at[k] as number);
+					const right = ((station.angle - 90) * Math.PI) / 180;
+					const point = {
+						x: station.point.x + offset * Math.cos(right),
+						y: station.point.y + offset * Math.sin(right),
+					};
+					if (!turned) {
+						const facing =
+							offset > 0
+								? station.angle + 90
+								: offset < 0
+									? station.angle - 90
+									: station.angle;
+						out.push({
+							kind: "rotate",
+							subject,
+							degrees: facing - axisAngle(this.front(subject)),
+							path,
+						});
+					}
+					return {
+						kind: "at-point",
+						subject,
+						point,
+						from: `${round(at[k] as number)} m along "${head.line}"`,
+						path,
+					};
+				});
+			}
 			case "symmetric": {
 				const about =
 					head.about === "room" ? "room" : this.reference(head.about);
@@ -1573,6 +1823,13 @@ class RelationParser {
 		const value = Number(match[1]) / PER_METER[unit];
 		if (!Number.isFinite(value)) this.tooLarge(token, what);
 		return value;
+	}
+
+	/** A length that may be negative (`offset`: to the left of travel). */
+	private signedLength(token: string | undefined, what: string): number {
+		const negative = (token ?? "").startsWith("-");
+		const value = this.length(negative ? token?.slice(1) : token, what);
+		return negative ? -value : value;
 	}
 
 	/** An elevation: a signed length (the ground may lie below sea level). */
@@ -2019,6 +2276,7 @@ function readFrame(
 			entry.geo === undefined ? [] : [entry.geo],
 		),
 		...Object.values(dsl.landmarks ?? {}),
+		...Object.values(dsl.lines ?? {}).flatMap((line) => line.geo ?? []),
 	].map((point) => local.reach(toWgs84(point)));
 	const reach = Math.max(...corners, ...points);
 	const covered = origin.lat >= -80 && origin.lat <= 84;

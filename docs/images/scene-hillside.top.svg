@@ -5,6 +5,10 @@
 <path d="M298,705.45L274.67,698M348,698.42L298,705.45M348.79,698L348,698.42M248,684.67L207.26,648M274.67,698L248,684.67M348.79,698L398,670.07M433.51,648L398,670.07M198,635.18L181.14,598M207.26,648L198,635.18M433.51,648L448,636.76M498,601.23L448,636.76M502.4,598L498,601.23M181.14,598L193.1,548M502.4,598L548,560.95M565.9,548L548,560.95M193.1,548L198,542.51M239.33,498L198,542.51M565.9,548L598,520.92M630.35,498L598,520.92M239.33,498L248,491.03M298,455.35L248,491.03M308.14,448L298,455.35M630.35,498L648,482.81M698,448.87L648,482.81M699.23,448L698,448.87M308.14,448L348,422.12M381.13,398L348,422.12M699.23,448L748,411.76M768.83,398L748,411.76M381.13,398L398,386.14M448,349.28L398,386.14M449.67,348L448,349.28M768.83,398L798,377M845.54,348L798,377M449.67,348L498,315.78M520.22,298L498,315.78M845.54,348L848,346.28M898,311.2L848,346.28M916.97,298L898,311.2M520.22,298L548,277.8M584.42,248L548,277.8M916.97,298L948,274.32M985.04,248L948,274.32M584.42,248L598,237.52M644.63,198L598,237.52M985.04,248L998,236.59M1045.33,198L998,236.59M644.63,198L648,195.25M698,154.98L648,195.25M705.5,148L698,154.98M1045.33,198L1048,194.67M705.5,148L748,114.99M767.89,98L748,114.99M767.89,98L798,74.75M832.27,48L798,74.75" stroke="#a8956d" stroke-width="1.4" fill="none"/>
 <text x="673" y="178.11" font-size="9" fill="#78716c" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">1425</text>
 <rect x="48" y="48" width="1000" height="750" fill="none" stroke="#334155" stroke-width="2"/>
+<path d="M968 688L798 598L648 488L508 418" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round"/>
+<text x="968" y="682" font-size="10" fill="#475569" stroke="#ffffff" stroke-width="3" paint-order="stroke">road</text>
+<path d="M148 698L948 148" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round"/>
+<text x="148" y="692" font-size="10" fill="#475569" stroke="#ffffff" stroke-width="3" paint-order="stroke">survey</text>
 <text x="48" y="814" font-size="10" fill="#64748b" text-anchor="middle">0</text>
 <text x="98" y="814" font-size="10" fill="#64748b" text-anchor="middle">10</text>
 <text x="148" y="814" font-size="10" fill="#64748b" text-anchor="middle">20</text>
@@ -46,6 +50,12 @@
 <text x="1072" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
 <polygon points="948,738 988,738 988,713 948,713" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
 <polygon points="968,745 973,738 963,738" fill="#1e3a8a"/>
+<polygon points="976.34,670.64 977.67,671.34 978.37,670.01 977.05,669.31" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="973.73,677.17 981.43,673.33 972.59,668.65" fill="#1e3a8a"/>
+<polygon points="881.8,620.58 883.12,621.28 883.83,619.96 882.5,619.26" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="879.19,627.12 886.88,623.27 878.04,618.59" fill="#1e3a8a"/>
+<polygon points="791.36,569.26 792.57,570.15 793.46,568.94 792.25,568.05" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="787.82,575.35 796,572.66 787.93,566.75" fill="#1e3a8a"/>
 <polygon points="811.47,546.47 831.47,546.47 831.47,536.47 811.47,536.47" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
 <polygon points="821.47,553.47 826.47,546.47 816.47,546.47" fill="#1e3a8a"/>
 <polygon points="783.97,546.47 803.97,546.47 803.97,536.47 783.97,536.47" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
@@ -58,6 +68,12 @@
 <polygon points="793.97,535.97 798.97,528.97 788.97,528.97" fill="#1e3a8a"/>
 <polygon points="756.47,528.97 776.47,528.97 776.47,518.97 756.47,518.97" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
 <polygon points="766.47,535.97 771.47,528.97 761.47,528.97" fill="#1e3a8a"/>
+<polygon points="705.09,506 706.3,506.88 707.19,505.67 705.98,504.79" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="701.56,512.08 709.73,509.4 701.66,503.48" fill="#1e3a8a"/>
+<polygon points="611.62,448.29 612.96,448.96 613.63,447.62 612.29,446.95" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="609.16,454.89 616.76,450.86 607.82,446.39" fill="#1e3a8a"/>
+<polygon points="515.94,400.45 517.28,401.12 517.95,399.78 516.61,399.11" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="513.48,407.04 521.08,403.02 512.14,398.55" fill="#1e3a8a"/>
 <polygon points="473,448 498,448 498,423 473,423" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
 <polygon points="485.5,455 490.5,448 480.5,448" fill="#1e3a8a"/>
 <polygon points="298,598 323,598 323,573 298,573" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
@@ -163,13 +179,32 @@
 <circle cx="490.44" cy="452.38" r="2.5" fill="#ffffff" stroke="#0d9488" stroke-width="1.5"/>
 <circle cx="486.2" cy="449.7" r="2.5" fill="#ffffff" stroke="#0d9488" stroke-width="1.5"/>
 <polygon points="485.5,449.27 490.45,458.29 495.78,449.83" fill="#0d9488"/>
+<path d="M148 698L230.4 641.35L312.81 584.69L395.21 528.04L477.62 471.39L560.02 414.74L642.43 358.08L724.83 301.43L807.23 244.78L889.64 188.12L948 148" fill="none" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="3 3"/>
+<circle cx="148" cy="698" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="230.4" cy="641.35" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="312.81" cy="584.69" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="395.21" cy="528.04" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="477.62" cy="471.39" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="560.02" cy="414.74" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="642.43" cy="358.08" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="724.83" cy="301.43" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="807.23" cy="244.78" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="889.64" cy="188.12" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<circle cx="948" cy="148" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="154" y="710" font-size="10" fill="#6d28d9" stroke="#ffffff" stroke-width="3" paint-order="stroke">scan · 60 m</text>
 <text x="968" y="729.5" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">substation</text>
+<text x="977.36" y="674.32" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp1</text>
+<text x="882.81" y="624.27" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp2</text>
+<text x="792.41" y="573.1" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp3</text>
 <text x="821.47" y="545.47" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel6</text>
 <text x="793.97" y="558.47" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel5</text>
 <text x="821.47" y="527.97" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel3</text>
 <text x="766.47" y="545.47" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel4</text>
-<text x="793.97" y="579.97" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel2</text>
+<text x="793.97" y="592.97" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel2</text>
 <text x="766.47" y="527.97" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">panel1</text>
+<text x="706.14" y="509.83" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp4</text>
+<text x="612.63" y="451.95" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp5</text>
+<text x="516.94" y="404.11" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp6</text>
 <text x="485.5" y="439.5" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">turbine1</text>
 <text x="310.5" y="589.5" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">turbine3</text>
 <text x="810.5" y="239.5" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">turbine2</text>

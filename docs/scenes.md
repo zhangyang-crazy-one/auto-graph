@@ -4,7 +4,7 @@
 
 A scene document describes a room, the objects in it and how they relate. auto-graph solves where every object stands and which way it faces, then checks the result. It is plain math with no 3D application in the loop, so an agent gets exact numbers it can hand to Blender, a game engine or a robot planner.
 
-It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude (on a local frame or a map projection for large sites), and uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits. Routes along roads and arrays follow in #121–#122.
+It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude (on a local frame or a map projection for large sites), uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits, and lines (roads, geodesic routes) to place things along and lay drone waypoints on. Arrays (solar rows, turbine spacing) follow in #121–#122.
 
 ## The frame
 
@@ -209,6 +209,26 @@ relations:
 
 <img src="images/scene-hillside.jpg" alt="examples/scene/hillside.yaml rendered in Blender" width="100%">
 
+## Lines and waypoints
+
+Lines are polylines (roads, fences, flight lines); things can be spread along them, and drone waypoints laid out on them.
+
+```yaml
+lines:
+  road:   { points: [[184, 22], [150, 40], [120, 62], [92, 76]] }   # scene x, y
+  route:  { geo: [{ lat: 39.9, lon: 116.4 }, { lat: 31.2, lon: 121.5 }] }   # along the geodesic (great circle)
+waypoints:
+  scan: { line: survey, spacing: 20, height: 60, min: 30 }   # or count: 8; by default one per vertex
+relations:
+  - lamp along road, offset 4                 # spread evenly from start to end
+  - lamp along road, spacing 25, from 5, offset -3, rotate 0
+```
+
+- **Lines** are given in scene x, y (`points`), or by latitude and longitude (`geo`, needs a `frame`). A geographic line follows the WGS84 geodesic between its points (the great circle on the sphere): each leg is densified (every 1% of the longest leg, at most 100 m) so it keeps its curve once projected. In the output every line lies on the ground (z of the ground, or 0) with its length.
+- **`along`** spreads a group (or objects joined with `and`) along a line by arc length: `spacing` metres apart from `from` (default 0), or evenly from `from` to the end without a spacing. `offset` puts them to the right of the direction of travel (negative: left). Each is turned to face the line (or along it when on it) unless the relation gives `facing` or `rotate`. Spacing past the end is refused (`validate.scene.along-overflow`). The places are fixed spots of the floor plan, so a relation or pin that contradicts one is reported as a conflict, and on terrain the objects stand on the ground.
+- **Waypoints** sit on a line at `height` above the ground: `spacing` metres apart along it (and at its end), `count` spread evenly, or one per vertex. The output gives their [x, y, z] (and latitude, longitude, height with a frame) and `lowest`, the lowest height above the ground anywhere along the straight legs between them (measured every eighth of a grid cell on terrain). A leg that comes lower than `min` gets `scene.waypoint.low`; one that passes through an object's box gets `scene.waypoint.collision` (both warnings).
+- The top view draws lines dashed and waypoints as rings on their legs, with the height; the Blender script draws lines on the ground and waypoints as markers joined by their flight line.
+
 ## Output
 
 `renderSceneDsl(source, { format })`, or `agh --input room.yaml --format …`:
@@ -262,6 +282,8 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.terrain.off-ground` (warning) | `on terrain` or `align to slope` on an object that stands on a support |
 | `scene.terrain.uneven` (info) | the ground rises more than 10 cm under an upright object: how far it floats and is buried |
 | `scene.terrain.moved` (info) | an object moved to the nearest ground that meets its limits |
+| `validate.scene.along-overflow`, `validate.scene.unknown-line`, `validate.scene.line-points` | spacing past a line's end; an unknown line; a line with both or neither of `points` and `geo` |
+| `scene.waypoint.low`, `scene.waypoint.collision` (warnings) | a leg between waypoints comes lower above the ground than `min` / passes through an object |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |
 | `scene.path.detour` (info) | a path more than twice the straight line between its places |

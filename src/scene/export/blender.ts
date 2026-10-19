@@ -37,6 +37,16 @@ export function sceneToBlenderScript(scene: SolvedScene): string {
 	const ground = sceneTerrain(scene);
 	const tracks = JSON.stringify(JSON.stringify(agentTracks(scene, ground)));
 	const lines = JSON.stringify(JSON.stringify(pathLines(scene, ground)));
+	const roads = JSON.stringify(
+		JSON.stringify(
+			Object.fromEntries(
+				(scene.lines ?? []).map((line) => [
+					line.id,
+					onGround(line.points, ground),
+				]),
+			),
+		),
+	);
 	return `${HEADER}
 DATA = json.loads(${data})
 # Where each path's agent is over time: [seconds, x, y, z].
@@ -44,6 +54,8 @@ TRACKS = json.loads(${tracks})
 # Each path's line: its corners, and on terrain points between them on
 # the ground.
 LINES = json.loads(${lines})
+# Each scene line (road, fence, flight line), on the ground the same way.
+ROADS = json.loads(${roads})
 ${BODY}`;
 }
 
@@ -52,36 +64,42 @@ function pathLines(
 	scene: SolvedScene,
 	ground: GridTerrain | undefined,
 ): Record<string, number[][]> {
-	const lines: Record<string, number[][]> = {};
-	for (const path of scene.paths) {
-		if (ground === undefined) {
-			lines[path.id] = path.points.map((point) => [...point]);
-			continue;
-		}
-		const step = Math.min(ground.grid.spacing.x, ground.grid.spacing.y) / 4;
-		const line: number[][] = [];
-		path.points.forEach(([x, y, z], k) => {
-			if (k > 0) {
-				const [px, py] = path.points[k - 1] as [number, number, number];
-				const count = Math.min(
-					1000,
-					Math.ceil(Math.hypot(x - px, y - py) / step),
-				);
-				for (let n = 1; n < count; n += 1) {
-					const t = n / count;
-					const at = [px + (x - px) * t, py + (y - py) * t];
-					line.push([
-						round(at[0] as number),
-						round(at[1] as number),
-						round(ground.heightNear(at[0] as number, at[1] as number)),
-					]);
-				}
+	return Object.fromEntries(
+		scene.paths.map((path) => [path.id, onGround(path.points, ground)]),
+	);
+}
+
+/**
+ * A polyline on the ground: on terrain, points between its corners every
+ * quarter of a grid cell, at the ground's height.
+ */
+function onGround(
+	points: readonly (readonly [number, number, number])[],
+	ground: GridTerrain | undefined,
+): number[][] {
+	if (ground === undefined) return points.map((point) => [...point]);
+	const step = Math.min(ground.grid.spacing.x, ground.grid.spacing.y) / 4;
+	const line: number[][] = [];
+	points.forEach(([x, y, z], k) => {
+		if (k > 0) {
+			const [px, py] = points[k - 1] as [number, number, number];
+			const count = Math.min(
+				1000,
+				Math.ceil(Math.hypot(x - px, y - py) / step),
+			);
+			for (let n = 1; n < count; n += 1) {
+				const t = n / count;
+				const at = [px + (x - px) * t, py + (y - py) * t];
+				line.push([
+					round(at[0] as number),
+					round(at[1] as number),
+					round(ground.heightNear(at[0] as number, at[1] as number)),
+				]);
 			}
-			line.push([x, y, z]);
-		});
-		lines[path.id] = line;
-	}
-	return lines;
+		}
+		line.push([x, y, z]);
+	});
+	return line;
 }
 
 /** Each path's agent sampled over time, for keyframes. */
@@ -248,6 +266,55 @@ def add_terrain(data, collection):
     obj.color = mat.diffuse_color
     obj["dge_terrain_subdivision"] = k
     collection.objects.link(obj)
+
+
+def add_lines(data, collection, span):
+    # Scene lines lie on the ground: a flat grey ribbon (a thin curve).
+    mat = material("dge.line", (0.39, 0.45, 0.55, 1.0))
+    for line in data.get("lines", []):
+        name = "line." + line["id"]
+        curve = bpy.data.curves.new(name, "CURVE")
+        curve.dimensions = "3D"
+        curve.bevel_depth = max(0.03, span * 0.003)
+        points = ROADS.get(line["id"]) or line["points"]
+        spline = curve.splines.new("POLY")
+        spline.points.add(len(points) - 1)
+        for point, (x, y, z) in zip(spline.points, points):
+            point.co = (x, y, z + curve.bevel_depth / 2, 1.0)
+        obj = bpy.data.objects.new(name, curve)
+        obj.data.materials.append(mat)
+        obj.color = mat.diffuse_color
+        obj["dge_line"] = line["id"]
+        collection.objects.link(obj)
+
+
+def add_waypoints(data, collection, span):
+    # Each waypoint a small marker at its height, joined by the flight line.
+    mat = material("dge.waypoint", (0.49, 0.23, 0.93, 1.0))
+    radius = max(0.05, span * 0.004)
+    for k, item in enumerate(data.get("waypoints", [])):
+        name = "waypoints." + item["id"]
+        curve = bpy.data.curves.new(name, "CURVE")
+        curve.dimensions = "3D"
+        curve.bevel_depth = radius / 3
+        spline = curve.splines.new("POLY")
+        spline.points.add(len(item["points"]) - 1)
+        for point, (x, y, z) in zip(spline.points, item["points"]):
+            point.co = (x, y, z, 1.0)
+        line = bpy.data.objects.new(name, curve)
+        line.data.materials.append(mat)
+        line.color = mat.diffuse_color
+        line["dge_waypoints"] = item["id"]
+        collection.objects.link(line)
+        for n, (x, y, z) in enumerate(item["points"]):
+            marker_name = name + "." + str(n)
+            marker = bpy.data.objects.new(marker_name, cylinder_mesh(marker_name, radius, radius * 2, sides=12))
+            # Centered on the waypoint.
+            marker.location = (x, y, z - radius)
+            marker.data.materials.append(mat)
+            marker.color = mat.diffuse_color
+            marker["dge_waypoint"] = n
+            collection.objects.link(marker)
 
 
 def add_landmarks(data, collection, span):
@@ -449,6 +516,8 @@ def build(data):
     add_openings(data, collection)
     add_paths(data, collection, span)
     add_landmarks(data, collection, span)
+    add_lines(data, collection, span)
+    add_waypoints(data, collection, span)
 
     # An orthographic camera from the south-west, above, and a sun.
     target = bpy.data.objects.new("dge.target", None)

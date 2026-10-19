@@ -306,6 +306,29 @@ export interface SceneTerrain {
 	path: ScenePath;
 }
 
+/** A polyline in the scene: a road, a fence, a flight line. */
+export interface SceneLine {
+	id: string;
+	/** Scene x, y; a line given by latitude and longitude is already densified along its geodesics. */
+	points: { x: number; y: number }[];
+	path: ScenePath;
+}
+
+/** Drone waypoints laid out on a line, at a height above the ground. */
+export interface SceneWaypoints {
+	id: string;
+	line: string;
+	/** Metres between waypoints along the line (the end is always one). */
+	spacing?: number;
+	/** Or this many, spread evenly. */
+	count?: number;
+	/** Height above the ground (above z = 0 without terrain). */
+	height: number;
+	/** Lowest height above the ground allowed anywhere along the legs. */
+	min: number;
+	path: ScenePath;
+}
+
 export interface SceneSpec {
 	name: string;
 	units: SceneUnits;
@@ -326,6 +349,8 @@ export interface SceneSpec {
 	landmarks?: SceneLandmark[];
 	/** The ground; absent for a flat floor at z = 0. */
 	terrain?: SceneTerrain;
+	lines?: SceneLine[];
+	waypoints?: SceneWaypoints[];
 }
 
 /** An object placed in the room. */
@@ -421,6 +446,18 @@ export interface SolvedScene {
 	};
 	/** Landmarks, in the scene frame and WGS84 (scenes with a `frame`). */
 	landmarks?: { id: string; position: [number, number]; geo: GeoPoint }[];
+	/** Lines, on the ground (z of the ground, or 0). */
+	lines?: { id: string; points: [number, number, number][]; length: number }[];
+	/** Drone waypoints, in the scene and (scenes with a frame) WGS84. */
+	waypoints?: {
+		id: string;
+		line: string;
+		height: number;
+		points: [number, number, number][];
+		geo?: GeoPoint[];
+		/** Lowest height above the ground anywhere along the legs. */
+		lowest: number;
+	}[];
 	/** The ground (scenes with terrain); z = elevation - base. */
 	terrain?: {
 		origin: [number, number];

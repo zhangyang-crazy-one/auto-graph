@@ -151,11 +151,47 @@ for path in data.get("paths", []):
         if abs(at[2] - floor) > 1e-3:
             problems.append(f"agent {path['id']}: at height {at[2]} at {t} s, the ground is at {floor}")
 
+for line in data.get("lines", []):
+    obj = bpy.data.objects.get("line." + line["id"])
+    if obj is None:
+        problems.append(f"line {line['id']}: missing")
+        continue
+    built = [tuple(point.co)[:3] for point in obj.data.splines[0].points]
+    at = 0
+    for corner in line["points"]:
+        while at < len(built) and (abs(built[at][0] - corner[0]) > 1e-4 or abs(built[at][1] - corner[1]) > 1e-4):
+            at += 1
+        if at == len(built):
+            problems.append(f"line {line['id']}: point {corner[:2]} is not on its curve")
+            break
+    lift = obj.data.bevel_depth / 2
+    floor = (lambda x, y: ground(x, y)) if terrain is not None else (lambda x, y: 0.0)
+    worst = max(abs(z - lift - floor(x, y)) for x, y, z in built)
+    if worst > 1e-3:
+        problems.append(f"line {line['id']}: the curve is {worst} m off the ground")
+waypoints = 0
+for item in data.get("waypoints", []):
+    for n, (x, y, z) in enumerate(item["points"]):
+        waypoints += 1
+        marker = bpy.data.objects.get("waypoints." + item["id"] + "." + str(n))
+        if marker is None:
+            problems.append(f"waypoint {item['id']}.{n}: missing")
+            continue
+        bpy.context.view_layer.update()
+        verts = [marker.matrix_world @ Vector(v.co) for v in marker.data.vertices]
+        center = [(min(c[k] for c in verts) + max(c[k] for c in verts)) / 2 for k in range(3)]
+        if max(abs(center[0] - x), abs(center[1] - y), abs(center[2] - z)) > 1e-4:
+            problems.append(f"waypoint {item['id']}.{n}: at {center}, not {x},{y},{z}")
+        floor = ground(x, y) if terrain is not None else 0.0
+        if abs(z - floor - item["height"]) > 1e-3:
+            problems.append(f"waypoint {item['id']}.{n}: {z - floor} m above the ground, not {item['height']}")
+
 print(json.dumps({
     "objects": len(data["objects"]),
     "openings": len(data.get("openings", [])),
     "paths": len(data.get("paths", [])),
     "corners": corners,
     "grounded": grounded,
+    "waypoints": waypoints,
     "problems": problems,
 }))
