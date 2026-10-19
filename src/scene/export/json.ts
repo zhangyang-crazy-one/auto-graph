@@ -191,6 +191,39 @@ export const sceneDocumentSchema = z
 					.strict(),
 			)
 			.optional(),
+		lines: z
+			.array(
+				z
+					.object({
+						id: z.string(),
+						points: z
+							.array(vec3)
+							.describe(
+								"[x, y, z] on the ground; a line given by latitude and longitude follows its geodesics.",
+							),
+						length: z.number().describe("Length on the floor plan, metres."),
+					})
+					.strict(),
+			)
+			.optional(),
+		waypoints: z
+			.array(
+				z
+					.object({
+						id: z.string(),
+						line: z.string(),
+						height: z.number().describe("Height above the ground, metres."),
+						points: z.array(vec3).describe("[x, y, z] of each waypoint."),
+						geo: z.array(geoPoint).optional(),
+						lowest: z
+							.number()
+							.describe(
+								"Lowest height above the ground anywhere along the straight legs between waypoints.",
+							),
+					})
+					.strict(),
+			)
+			.optional(),
 		terrain: z
 			.object({
 				origin: z
@@ -245,6 +278,8 @@ export function sceneToDocument(scene: SolvedScene): SceneDocument {
 		paths: scene.paths,
 		...(scene.geo === undefined ? {} : { geo: scene.geo }),
 		...(scene.landmarks === undefined ? {} : { landmarks: scene.landmarks }),
+		...(scene.lines === undefined ? {} : { lines: scene.lines }),
+		...(scene.waypoints === undefined ? {} : { waypoints: scene.waypoints }),
 		...(scene.terrain === undefined ? {} : { terrain: scene.terrain }),
 		unplaced: scene.unplaced,
 		diagnostics: scene.diagnostics,

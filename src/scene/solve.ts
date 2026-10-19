@@ -34,6 +34,7 @@ import type {
 	WallSide,
 } from "./ir.js";
 import { type FloorLayoutResult, layoutFloor } from "./layout.js";
+import { layWaypoints, polylineLength, segmentHitsBox } from "./lines.js";
 import { type PathBottleneck, planPaths } from "./paths.js";
 import { GridTerrain } from "./terrain/index.js";
 
@@ -884,6 +885,93 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			});
 		}
 	}
+	const objects = spec.objects.flatMap((object) => {
+		const placement = placed.get(object.id);
+		if (placement === undefined) return [];
+		const out = output(placement);
+		if (geoFrame === undefined) return [out];
+		const [x, y, z] = out.position;
+		return [{ ...out, geo: geoPoint(geoFrame.toGeo(x, y, z)) }];
+	});
+	// Lines lie on the ground; waypoints fly above it.
+	const groundUnder = (x: number, y: number) =>
+		terrain === undefined ? 0 : terrain.heightNear(x, y);
+	const lines = (spec.lines ?? []).map((line) => ({
+		id: line.id,
+		points: line.points.map((p): [number, number, number] => [
+			round(p.x),
+			round(p.y),
+			round(groundUnder(p.x, p.y)),
+		]),
+		length: round(polylineLength(line.points)),
+	}));
+	const step =
+		terrain === undefined
+			? undefined
+			: Math.min(terrain.grid.spacing.x, terrain.grid.spacing.y) / 8;
+	const waypoints = (spec.waypoints ?? []).flatMap((set) => {
+		const line = spec.lines?.find((item) => item.id === set.line);
+		if (line === undefined) return [];
+		const laid = layWaypoints(line.points, {
+			...(set.spacing === undefined ? {} : { spacing: set.spacing }),
+			...(set.count === undefined ? {} : { count: set.count }),
+			height: set.height,
+			ground: groundUnder,
+			...(step === undefined ? {} : { step }),
+		});
+		if (laid.lowest < set.min - 1e-9) {
+			diagnostics.push({
+				severity: "warning",
+				code: "scene.waypoint.low",
+				message: `Between waypoints "${set.id}" comes down to ${round(laid.lowest)} m above the ground; it must keep ${round(set.min)} m.`,
+				path: set.path,
+				hint: "Fly higher, put waypoints closer together, or lower `min`.",
+				detail: { lowest: round(laid.lowest), min: round(set.min) },
+			});
+		}
+		// Legs that pass through an object.
+		const hit = new Set<string>();
+		for (let k = 1; k < laid.points.length; k += 1) {
+			const a = laid.points[k - 1] as [number, number, number];
+			const b = laid.points[k] as [number, number, number];
+			for (const object of objects) {
+				if (!hit.has(object.id) && segmentHitsBox(a, b, object.aabb)) {
+					hit.add(object.id);
+				}
+			}
+		}
+		if (hit.size > 0) {
+			diagnostics.push({
+				severity: "warning",
+				code: "scene.waypoint.collision",
+				message: `Waypoints "${set.id}" fly through ${[...hit].map((id) => `"${id}"`).join(", ")}.`,
+				objects: [...hit],
+				path: set.path,
+				hint: "Fly higher, or move the line clear of them.",
+			});
+		}
+		const points = laid.points.map(([x, y, z]): [number, number, number] => [
+			round(x),
+			round(y),
+			round(z),
+		]);
+		return [
+			{
+				id: set.id,
+				line: set.line,
+				height: round(set.height),
+				points,
+				...(geoFrame === undefined
+					? {}
+					: {
+							geo: laid.points.map(([x, y, z]) =>
+								geoPoint(geoFrame.toGeo(x, y, z)),
+							),
+						}),
+				lowest: round(laid.lowest),
+			},
+		];
+	});
 	const rank = { error: 0, warning: 1, info: 2 } as const;
 	const sorted = diagnostics
 		.map((diagnostic, index) => ({ diagnostic, index }))
@@ -897,14 +985,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	return {
 		name: spec.name,
 		bounds: spec.bounds,
-		objects: spec.objects.flatMap((object) => {
-			const placement = placed.get(object.id);
-			if (placement === undefined) return [];
-			const out = output(placement);
-			if (geoFrame === undefined) return [out];
-			const [x, y, z] = out.position;
-			return [{ ...out, geo: geoPoint(geoFrame.toGeo(x, y, z)) }];
-		}),
+		objects,
 		openings: spec.openings.map(({ id, wall, at, width }) => ({
 			id,
 			wall,
@@ -921,6 +1002,8 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			accel,
 		})),
 		paths: best.planned.paths,
+		...(lines.length === 0 ? {} : { lines }),
+		...(waypoints.length === 0 ? {} : { waypoints }),
 		...(spec.terrain === undefined
 			? {}
 			: {

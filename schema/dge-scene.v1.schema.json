@@ -493,6 +493,105 @@
 				"additionalProperties": false
 			}
 		},
+		"lines": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"points": {
+						"type": "array",
+						"items": {
+							"type": "array",
+							"prefixItems": [
+								{
+									"type": "number"
+								},
+								{
+									"type": "number"
+								},
+								{
+									"type": "number"
+								}
+							]
+						},
+						"description": "[x, y, z] on the ground; a line given by latitude and longitude follows its geodesics."
+					},
+					"length": {
+						"type": "number",
+						"description": "Length on the floor plan, metres."
+					}
+				},
+				"required": ["id", "points", "length"],
+				"additionalProperties": false
+			}
+		},
+		"waypoints": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"line": {
+						"type": "string"
+					},
+					"height": {
+						"type": "number",
+						"description": "Height above the ground, metres."
+					},
+					"points": {
+						"type": "array",
+						"items": {
+							"type": "array",
+							"prefixItems": [
+								{
+									"type": "number"
+								},
+								{
+									"type": "number"
+								},
+								{
+									"type": "number"
+								}
+							]
+						},
+						"description": "[x, y, z] of each waypoint."
+					},
+					"geo": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"lat": {
+									"type": "number",
+									"description": "WGS84 latitude, degrees."
+								},
+								"lon": {
+									"type": "number",
+									"description": "WGS84 longitude, degrees."
+								},
+								"alt": {
+									"type": "number",
+									"description": "Height above the WGS84 ellipsoid, metres."
+								}
+							},
+							"required": ["lat", "lon", "alt"],
+							"additionalProperties": false
+						}
+					},
+					"lowest": {
+						"type": "number",
+						"description": "Lowest height above the ground anywhere along the straight legs between waypoints."
+					}
+				},
+				"required": ["id", "line", "height", "points", "lowest"],
+				"additionalProperties": false
+			}
+		},
 		"terrain": {
 			"description": "The ground (scenes with terrain).",
 			"type": "object",

@@ -146,6 +146,17 @@ export function sceneTopViewSvg(
 	out.push(
 		`<rect x="${px(0)}" y="${py(depth)}" width="${fmt(roomWidth)}" height="${fmt(roomDepth)}" fill="none" stroke="#334155" stroke-width="2"/>`,
 	);
+	// Lines (roads, fences, flight lines): dashed, named at their start.
+	for (const line of scene.lines ?? []) {
+		const d = line.points
+			.map(([x, y], k) => `${k === 0 ? "M" : "L"}${px(x)} ${py(y)}`)
+			.join("");
+		const [x0 = 0, y0 = 0] = line.points[0] ?? [];
+		out.push(
+			`<path d="${d}" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round"/>`,
+			`<text x="${px(x0)}" y="${fmt(Number(py(y0)) - 6)}" font-size="10" fill="#475569" stroke="#ffffff" stroke-width="3" paint-order="stroke">${escapeXml(line.id)}</text>`,
+		);
+	}
 	// Openings: a gap in the wall with a tick at each jamb and the name
 	// just outside.
 	for (const opening of scene.openings) {
@@ -318,6 +329,23 @@ export function sceneTopViewSvg(
 		out.push(
 			`<path d="M${fmt(cx)} ${fmt(cy - 6)}l6 6l-6 6l-6 -6z" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>`,
 			`<text x="${fmt(cx)}" y="${fmt(cy - 9)}" font-size="10" fill="#b45309" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">${escapeXml(landmark.id)}</text>`,
+		);
+	}
+	// Waypoints: the legs and a ring at each, with the height above ground.
+	for (const set of scene.waypoints ?? []) {
+		const d = set.points
+			.map(([x, y], k) => `${k === 0 ? "M" : "L"}${px(x)} ${py(y)}`)
+			.join("");
+		out.push(
+			`<path d="${d}" fill="none" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="3 3"/>`,
+			...set.points.map(
+				([x, y]) =>
+					`<circle cx="${px(x)}" cy="${py(y)}" r="3" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>`,
+			),
+		);
+		const [x0 = 0, y0 = 0] = set.points[0] ?? [];
+		out.push(
+			`<text x="${fmt(Number(px(x0)) + 6)}" y="${fmt(Number(py(y0)) + 12)}" font-size="10" fill="#6d28d9" stroke="#ffffff" stroke-width="3" paint-order="stroke">${escapeXml(`${set.id} · ${fmt(set.height)} m`)}</text>`,
 		);
 	}
 	// Labels go on top of every footprint; one that would cover an earlier

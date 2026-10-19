@@ -4,7 +4,7 @@
 
 场景文档描述一个房间、里面的物体，以及物体之间的关系。auto-graph 解算出每个物体放在哪里、朝向哪边，并检查结果。全程是纯数学计算，不依赖任何 3D 软件，agent 拿到的是精确数值，可以直接交给 Blender、游戏引擎或机器人规划器。
 
-目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上（局部坐标系，大场地用地图投影）；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制。沿道路布置和阵列在 #121–#122 中完成。
+目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上（局部坐标系，大场地用地图投影）；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制；以及线（道路、测地线航线），可沿线布置物体、在线上排布无人机航点。阵列（光伏排布、风机间距）在 #121–#122 中完成。
 
 ## 坐标系
 
@@ -209,6 +209,26 @@ relations:
 
 <img src="images/scene-hillside.jpg" alt="examples/scene/hillside.yaml 的 Blender 渲染" width="100%">
 
+## 线与航点
+
+线是折线（道路、围栏、航线），可以沿线布置物体，也可以在线上排布无人机航点。
+
+```yaml
+lines:
+  road:   { points: [[184, 22], [150, 40], [120, 62], [92, 76]] }   # 场景 x, y
+  route:  { geo: [{ lat: 39.9, lon: 116.4 }, { lat: 31.2, lon: 121.5 }] }   # 沿测地线（大圆）
+waypoints:
+  scan: { line: survey, spacing: 20, height: 60, min: 30 }   # 或 count: 8；默认每个折点一个
+relations:
+  - lamp along road, offset 4                 # 从头到尾均匀分布
+  - lamp along road, spacing 25, from 5, offset -3, rotate 0
+```
+
+- **线**用场景坐标（`points`）或经纬度（`geo`，需要 `frame`）给出。经纬度线在各点之间沿 WGS84 测地线（球面上即大圆）走：每段都会加密（最长一段的 1%，最多 100 m 一个点），投影后仍保持弧形。输出中每条线都贴在地面上（地面的 z，或 0），并给出长度。
+- **`along`** 把一组物体（或用 `and` 连起来的物体）按弧长沿线排开：从 `from`（默认 0）起每隔 `spacing` 米一个；不写 spacing 时从 `from` 到终点均匀分布。`offset` 把物体放到行进方向右侧（负数为左侧）。每个物体默认转向面对这条线（在线上时则顺着线），除非关系里写了 `facing` 或 `rotate`。间距超出线长会报错（`validate.scene.along-overflow`）。这些位置是平面上的固定点，与之矛盾的关系或钉住位置会报冲突；在地形上物体贴地站立。
+- **航点**位于线上、离地 `height` 高：沿线每隔 `spacing` 米一个（终点也有一个）、按 `count` 均匀分布，或每个折点一个。输出给出它们的 [x, y, z]（有 frame 时还有经纬度和高度），以及 `lowest`：航点之间直线航段上任意一处离地的最低高度（有地形时每八分之一个网格单元量一次）。航段低于 `min` 时给出 `scene.waypoint.low`；航段穿过物体包围盒时给出 `scene.waypoint.collision`（都是警告）。
+- 俯视图里线画成虚线，航点画成航段上的小圈并标出高度；Blender 脚本把线画在地面上，航点画成小标记并用航线相连。
+
 ## 输出
 
 `renderSceneDsl(source, { format })`，或 `agh --input room.yaml --format …`：
@@ -262,6 +282,8 @@ relations:
 | `scene.terrain.off-ground`（警告） | 对放在支撑物上的物体写了 `on terrain` 或 `align to slope` |
 | `scene.terrain.uneven`（提示） | 直立物体脚下地面起伏超过 10 cm：悬空和埋入各多少 |
 | `scene.terrain.moved`（提示） | 物体被移到最近的满足限制条件的地面 |
+| `validate.scene.along-overflow`、`validate.scene.unknown-line`、`validate.scene.line-points` | 间距超出线长；未知的线；线同时写了或都没写 `points` 和 `geo` |
+| `scene.waypoint.low`、`scene.waypoint.collision`（警告） | 航点之间的航段离地低于 `min` / 穿过物体 |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.head-on`（提示） | 两条路径仍迎面共用一段：让道会超出长度上限、有一条是 `comfort 0`，或轮数用完 |
 | `scene.path.detour`（提示） | 路径长度超过途经点间直线距离的两倍 |

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### 3D scene: lines, placing along them, drone waypoints (#121, work package 3e)
+
+- `lines`: polylines in scene x, y, or by latitude and longitude along the
+  WGS84 geodesics (great circles), densified so they keep their curve.
+  Output on the ground, with their length.
+- `<group> along <line>`: spread by arc length (`spacing`, `from`, or
+  evenly), to the right of travel by `offset` (left when negative), each
+  facing the line unless the relation turns it; spacing past the end is
+  refused.
+- `waypoints`: on a line at a height above the ground, by `spacing` (plus
+  the end), `count`, or per vertex; the output gives their positions (and
+  latitude, longitude, height) and the lowest height above the ground along
+  the legs. `scene.waypoint.low` and `scene.waypoint.collision` warn.
+- The top view draws lines and waypoints; the Blender script builds lines
+  on the ground and waypoint markers on their flight line, and
+  `blender_check.py` checks both. The hillside example gains a lamp-lined
+  road and a survey flight.
+
 ### Review fixes on terrain and projections (#149, #150)
 
 - A frame origin the chosen projection cannot hold (UTM outside 80°S–84°N
