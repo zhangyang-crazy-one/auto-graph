@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-19)
 
 ### 3D scene: USD export (#122, work package 4b)
 
