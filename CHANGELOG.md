@@ -2,6 +2,26 @@
 
 ## 0.3.0 (2026-10-19)
 
+### 3D scene: roads with a width; marks sized to the objects (#157, #158)
+
+- `lines.<id>.width`: a road, a strip on the ground that objects on the
+  floor keep off. Standing on it is an error (`scene.line.overlap`, with
+  the depth); free objects move to the nearest place off it
+  (`scene.line.moved`), and objects moved to meet slope or elevation
+  limits avoid it. The width is in the JSON (schema updated); the top
+  view draws the strip; Blender, glTF and USD lay the road's surface on
+  the ground. `hillside.yaml` and `streetlights.yaml` give their roads a
+  width.
+- Labels, landmark pins and line, path and waypoint markers are sized in
+  one place (`sceneMarks`) for Blender, glTF and USD: a label at most a
+  third of its object's shorter side, and pins (≤ 6 m), lines, paths and
+  waypoint markers capped, so on a site a kilometre across they no longer
+  bury what they mark. Room-sized scenes keep their 0.18 m labels.
+- The ground under a footprint no longer takes the slope of a cell it
+  only touches along a grid line, or grazes by a rounding error (an edge
+  at 639.9999999999999 for 640). That made a spot found for an object
+  fail the check once the layout put it there.
+
 ### 3D scene: USD export (#122, work package 4b)
 
 - `--format usda` (and `sceneToUsda`): a z-up stage in metres, each

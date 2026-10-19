@@ -522,6 +522,10 @@
 					"length": {
 						"type": "number",
 						"description": "Length on the floor plan, metres."
+					},
+					"width": {
+						"description": "A road's width, metres: a strip on the ground that objects on the floor keep off.",
+						"type": "number"
 					}
 				},
 				"required": ["id", "points", "length"],

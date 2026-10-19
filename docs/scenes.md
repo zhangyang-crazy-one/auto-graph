@@ -217,7 +217,7 @@ Lines are polylines (roads, fences, flight lines); things can be spread along th
 
 ```yaml
 lines:
-  road:   { points: [[184, 22], [150, 40], [120, 62], [92, 76]] }   # scene x, y
+  road:   { points: [[184, 22], [150, 40], [120, 62], [92, 76]], width: 5 }   # scene x, y; a 5 m road
   route:  { geo: [{ lat: 39.9, lon: 116.4 }, { lat: 31.2, lon: 121.5 }] }   # along the geodesic (great circle)
 waypoints:
   scan: { line: survey, spacing: 20, height: 60, min: 30 }   # or count: 8; by default one per vertex
@@ -227,6 +227,7 @@ relations:
 ```
 
 - **Lines** are given in scene x, y (`points`), or by latitude and longitude (`geo`, needs a `frame`). A geographic line follows the WGS84 geodesic between its points (the great circle on the sphere): each leg is densified (every 1% of the longest leg, at most 100 m) so it keeps its curve once projected. In the output every line lies on the ground (z of the ground, or 0) with its length.
+- **Roads.** A line with a `width` is a strip on the ground that objects on the floor keep off. One that stands on it is reported with how far it reaches in (`scene.line.overlap`, an error). An object nothing else fixes is moved to the nearest place off it (`scene.line.moved`), and objects moved to ground that meets their slope or elevation limits keep off it too. Things placed `along` a road need an `offset` of at least half its width plus half their own depth. The output gives the width; the top view draws the strip, and the Blender script, glTF and USD lay the road's surface on the ground.
 - **`along`** spreads a group (or objects joined with `and`) along a line by arc length: `spacing` metres apart from `from` (default 0), or evenly from `from` to the end without a spacing. `offset` puts them to the right of the direction of travel (negative: left). Each is turned to face the line (or along it when on it) unless the relation gives `facing` or `rotate`. Spacing past the end is refused (`validate.scene.along-overflow`). The places are fixed spots of the floor plan, so a relation or pin that contradicts one is reported as a conflict, and on terrain the objects stand on the ground.
 - **Waypoints** sit on a line at `height` above the ground: `spacing` metres apart along it (and at its end), `count` spread evenly, or one per vertex. The output gives their [x, y, z] (and latitude, longitude, height with a frame) and `lowest`, the lowest height above the ground anywhere along the straight legs between them (measured every eighth of a grid cell on terrain). A leg that comes lower than `min` gets `scene.waypoint.low`; one that passes through an object's box gets `scene.waypoint.collision` (both warnings).
 - The top view draws lines dashed and waypoints as rings on their legs, with the height; the Blender script draws lines on the ground and waypoints as markers joined by their flight line.
@@ -310,6 +311,8 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.terrain.moved` (info) | an object moved to the nearest ground that meets its limits |
 | `validate.scene.along-overflow`, `validate.scene.unknown-line`, `validate.scene.line-points` | spacing past a line's end; an unknown line; a line with both or neither of `points` and `geo` |
 | `scene.tilt.conflict` | two tilts, or a tilt and `align to slope`, on one object |
+| `scene.line.overlap` | an object on the floor stands on a road (a line with a width), with how far it reaches in |
+| `scene.line.moved` (info) | an object moved to the nearest place off the roads |
 | `scene.waypoint.low`, `scene.waypoint.collision` (warnings) | a leg between waypoints comes lower above the ground than `min` / passes through an object |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |

@@ -202,6 +202,12 @@ export const sceneDocumentSchema = z
 								"[x, y, z] on the ground; a line given by latitude and longitude follows its geodesics.",
 							),
 						length: z.number().describe("Length on the floor plan, metres."),
+						width: z
+							.number()
+							.optional()
+							.describe(
+								"A road's width, metres: a strip on the ground that objects on the floor keep off.",
+							),
 					})
 					.strict(),
 			)

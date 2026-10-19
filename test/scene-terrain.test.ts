@@ -83,7 +83,16 @@ function sampled(terrain: GridTerrain, shape: ReturnType<typeof footprint>) {
 			const h = terrain.elevation(x, y);
 			low = Math.min(low, h);
 			high = Math.max(high, h);
-			slope = Math.max(slope, terrain.slope(x, y));
+			// The slope just inside the edge: on an edge that lies on a grid
+			// line, the cell beyond it is not under the footprint.
+			const inward = 1 - 1e-7;
+			slope = Math.max(
+				slope,
+				terrain.slope(
+					shape.center.x + (x - shape.center.x) * inward,
+					shape.center.y + (y - shape.center.y) * inward,
+				),
+			);
 		}
 	}
 	return { slope, low, high };
@@ -742,5 +751,39 @@ describe("headroom queries", () => {
 		// supports are low at their centers and need no scan.
 		expect(calls).toBeLessThanOrEqual(12);
 		expect(calls).toBeGreaterThan(0);
+	});
+
+	// A footprint whose edge lies on a grid line, but one rounding error past
+	// it (the layout puts it at 642.9999999999999, not 643), must not pick up
+	// the slope of the cell it only grazes.
+	describe("ground under a footprint on a grid line", () => {
+		const terrain = new GridTerrain({
+			origin: { x: 0, y: 0 },
+			spacing: { x: 20, y: 20 },
+			base: 0,
+			// Steep from y = 0 to 20, level beyond.
+			heights: [
+				[0, 0, 0],
+				[10, 10, 10],
+				[10, 10, 10],
+			],
+		});
+
+		it("ignores a cell it only grazes by a rounding error", () => {
+			const on = terrain.rangeUnder(footprint({ x: 20, y: 23 }, [6, 6, 1], 0));
+			const grazing = terrain.rangeUnder(
+				footprint({ x: 20, y: 22.999999999999996 }, [6, 6, 1], 0),
+			);
+			expect(on.maxSlope).toBe(0);
+			expect(grazing.maxSlope).toBe(0);
+			expect(grazing.minElevation).toBeCloseTo(10, 9);
+		});
+
+		it("still counts a cell it reaches into", () => {
+			const into = terrain.rangeUnder(
+				footprint({ x: 20, y: 22.99 }, [6, 6, 1], 0),
+			);
+			expect(into.maxSlope).toBeGreaterThan(20);
+		});
 	});
 });

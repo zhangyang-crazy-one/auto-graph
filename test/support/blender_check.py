@@ -162,10 +162,38 @@ for path in data.get("paths", []):
         if abs(at[2] - floor) > 1e-3:
             problems.append(f"agent {path['id']}: at height {at[2]} at {t} s, the ground is at {floor}")
 
+def off_line(x, y, points):
+    # Distance on the plan from (x, y) to a polyline.
+    best = float("inf")
+    for (ax, ay, _), (bx, by, _) in zip(points, points[1:]):
+        dx, dy = bx - ax, by - ay
+        t = 0.0 if dx == dy == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+        best = min(best, math.hypot(x - ax - t * dx, y - ay - t * dy))
+    return best
+
+
 for line in data.get("lines", []):
     obj = bpy.data.objects.get("line." + line["id"])
     if obj is None:
         problems.append(f"line {line['id']}: missing")
+        continue
+    if "width" in line:
+        # A road: its surface is half the width out from the line on both
+        # sides (further at a mitred corner), 2 cm above the ground.
+        if obj.type != "MESH" or not obj.data.vertices:
+            problems.append(f"line {line['id']}: no road surface")
+            continue
+        half = line["width"] / 2
+        floor = (lambda x, y: ground(x, y)) if terrain is not None else (lambda x, y: 0.0)
+        for v in obj.data.vertices:
+            x, y, z = v.co
+            out = off_line(x, y, line["points"])
+            if out < half - 1e-3 or out > 2 * half + 1e-3:
+                problems.append(f"line {line['id']}: surface edge {out} m from the line, not {half}")
+                break
+            if abs(z - 0.02 - floor(x, y)) > 2e-3:
+                problems.append(f"line {line['id']}: surface {z - floor(x, y)} m above the ground")
+                break
         continue
     built = [tuple(point.co)[:3] for point in obj.data.splines[0].points]
     at = 0

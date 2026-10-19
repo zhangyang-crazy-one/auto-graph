@@ -266,3 +266,133 @@ export function colorOf(name: string): Rgb {
 		return PATH_COLORS[Number(name.slice(5))] as Rgb;
 	return COLORS[name as keyof typeof COLORS];
 }
+
+/**
+ * Sizes of the marks the 3D exporters draw: object labels, landmark pins,
+ * line, path and waypoint markers. They follow the objects, not the site:
+ * a label is at most a third of its object's shorter side (0.18 m on a
+ * room-sized scene), and pins, lines and markers grow with the site only
+ * up to a cap, so on a site kilometres across they do not bury the things
+ * they mark.
+ */
+export interface SceneMarks {
+	/** Text height of each object's label. */
+	labels: Record<string, number>;
+	/** A landmark's pin. */
+	pin: { radius: number; height: number };
+	/** Text height of a landmark's name. */
+	landmarkLabel: number;
+	/** Radius of a line without a width, drawn as a thin tube. */
+	line: number;
+	/** Radius of each path's tube: at most a quarter of its agent's width. */
+	paths: Record<string, number>;
+	/** Radius of a waypoint marker. */
+	waypoint: number;
+}
+
+export function sceneMarks(scene: {
+	bounds: { width: number; depth: number };
+	objects: readonly PlacedSceneObject[];
+	paths: readonly { id: string; width: number }[];
+}): SceneMarks {
+	const span = Math.max(scene.bounds.width, scene.bounds.depth);
+	const cap = Math.max(0.18, span * 0.012);
+	const height = clamp(span * 0.03, 0.4, 6);
+	return {
+		labels: Object.fromEntries(
+			scene.objects.map((item) => [
+				item.id,
+				round4(
+					Math.max(
+						0.08,
+						Math.min(cap, Math.min(item.size[0], item.size[1]) * 0.3),
+					),
+				),
+			]),
+		),
+		pin: {
+			radius: round4(clamp(span * 0.004, 0.03, height * 0.05)),
+			height: round4(height),
+		},
+		landmarkLabel: round4(clamp(span * 0.015, 0.12, 1.5)),
+		line: round4(clamp(span * 0.003, 0.03, 0.3)),
+		paths: Object.fromEntries(
+			scene.paths.map((path) => [
+				path.id,
+				round4(clamp(span * 0.002, 0.02, path.width / 4)),
+			]),
+		),
+		waypoint: round4(clamp(span * 0.004, 0.05, 1)),
+	};
+}
+
+/** How high a road's surface lies above the ground, so it shows. */
+export const ROAD_LIFT = 0.02;
+
+/**
+ * A road's surface: a strip `width` wide along `points` (on the ground,
+ * as `onGround` lays them), each point offset to both sides square to the
+ * line (mitred at corners, at most twice the half-width out) and set on
+ * the ground there, a hair above it. Normals point up.
+ */
+export function ribbon(
+	points: readonly (readonly number[])[],
+	width: number,
+	ground: GridTerrain | undefined,
+): Solid {
+	const solid: Solid = { positions: [], normals: [], indices: [] };
+	const half = width / 2;
+	const at = (x: number, y: number) =>
+		(ground === undefined ? 0 : ground.heightNear(x, y)) + ROAD_LIFT;
+	const unit = (dx: number, dy: number) => {
+		const length = Math.hypot(dx, dy);
+		return length === 0 ? undefined : { x: dx / length, y: dy / length };
+	};
+	// Skip repeated points: they have no direction.
+	const path: { x: number; y: number }[] = [];
+	for (const [x = 0, y = 0] of points) {
+		const last = path.at(-1);
+		if (last === undefined || last.x !== x || last.y !== y) path.push({ x, y });
+	}
+	for (let k = 0; k < path.length; k += 1) {
+		const { x, y } = path[k] as { x: number; y: number };
+		const prev = path[k - 1];
+		const next = path[k + 1];
+		const before =
+			prev === undefined ? undefined : unit(x - prev.x, y - prev.y);
+		const after = next === undefined ? undefined : unit(next.x - x, next.y - y);
+		const a = before ?? after;
+		const b = after ?? before;
+		if (a === undefined || b === undefined) continue;
+		// The mitre: the bisector of the two normals, lengthened to keep
+		// the half-width from both legs.
+		const nx = -(a.y + b.y);
+		const ny = a.x + b.x;
+		const n = unit(nx, ny) ?? { x: -a.y, y: a.x };
+		const cos = n.x * -a.y + n.y * a.x;
+		const reach = half / Math.max(0.5, cos);
+		for (const side of [1, -1]) {
+			const px = x + side * n.x * reach;
+			const py = y + side * n.y * reach;
+			solid.positions.push(px, py, at(px, py));
+			solid.normals.push(0, 0, 1);
+		}
+	}
+	for (let k = 1; k < solid.positions.length / 6; k += 1) {
+		const l0 = (k - 1) * 2;
+		const r0 = l0 + 1;
+		const l1 = k * 2;
+		const r1 = l1 + 1;
+		// Counter-clockwise seen from above (left is +normal side).
+		solid.indices.push(r0, r1, l1, r0, l1, l0);
+	}
+	return solid;
+}
+
+function clamp(value: number, low: number, high: number): number {
+	return Math.min(high, Math.max(low, value));
+}
+
+function round4(value: number): number {
+	return Math.round(value * 1e4) / 1e4;
+}

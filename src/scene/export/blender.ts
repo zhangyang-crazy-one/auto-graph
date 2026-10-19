@@ -1,7 +1,8 @@
 import type { SolvedScene } from "../ir.js";
 import { sceneTerrain } from "../terrain/index.js";
 import { sceneToDocument } from "./json.js";
-import { agentTracks, onGround, pathLines } from "./tracks.js";
+import { ribbon, sceneMarks } from "./shapes.js";
+import { agentTracks, onGround, pathLines, round } from "./tracks.js";
 
 /**
  * A Blender Python script that builds the solved scene.
@@ -44,8 +45,38 @@ export function sceneToBlenderScript(scene: SolvedScene): string {
 			),
 		),
 	);
+	const marks = JSON.stringify(JSON.stringify(sceneMarks(scene)));
+	const ribbons = JSON.stringify(
+		JSON.stringify(
+			Object.fromEntries(
+				(scene.lines ?? []).flatMap((line) => {
+					if (line.width === undefined) return [];
+					const surface = ribbon(
+						onGround(line.points, ground),
+						line.width,
+						ground,
+					);
+					return [
+						[
+							line.id,
+							{
+								verts: surface.positions.map((value) => round(value)),
+								faces: surface.indices,
+							},
+						],
+					];
+				}),
+			),
+		),
+	);
 	return `${HEADER}
 DATA = json.loads(${data})
+# Sizes of labels, pins and line, path and waypoint markers (they follow
+# the objects, and stay capped on a large site).
+MARKS = json.loads(${marks})
+# Each road (a line with a width): its surface, flat x, y, z triples and
+# triangles, on the ground.
+RIBBONS = json.loads(${ribbons})
 # Where each path's agent is over time: [seconds, x, y, z].
 TRACKS = json.loads(${tracks})
 # Each path's line: its corners, and on terrain points between them on
@@ -196,13 +227,30 @@ def add_terrain(data, collection):
 
 
 def add_lines(data, collection, span):
-    # Scene lines lie on the ground: a flat grey ribbon (a thin curve).
+    # Scene lines lie on the ground: a road (a line with a width) as its
+    # surface, others as a thin curve.
     mat = material("dge.line", (0.39, 0.45, 0.55, 1.0))
     for line in data.get("lines", []):
         name = "line." + line["id"]
+        surface = RIBBONS.get(line["id"])
+        if surface is not None:
+            flat = surface["verts"]
+            verts = [tuple(flat[k:k + 3]) for k in range(0, len(flat), 3)]
+            tris = surface["faces"]
+            faces = [tuple(tris[k:k + 3]) for k in range(0, len(tris), 3)]
+            mesh = bpy.data.meshes.new(name)
+            mesh.from_pydata(verts, [], faces)
+            mesh.update()
+            obj = bpy.data.objects.new(name, mesh)
+            obj.data.materials.append(mat)
+            obj.color = mat.diffuse_color
+            obj["dge_line"] = line["id"]
+            obj["dge_width"] = line["width"]
+            collection.objects.link(obj)
+            continue
         curve = bpy.data.curves.new(name, "CURVE")
         curve.dimensions = "3D"
-        curve.bevel_depth = max(0.03, span * 0.003)
+        curve.bevel_depth = MARKS["line"]
         points = ROADS.get(line["id"]) or line["points"]
         spline = curve.splines.new("POLY")
         spline.points.add(len(points) - 1)
@@ -218,7 +266,7 @@ def add_lines(data, collection, span):
 def add_waypoints(data, collection, span):
     # Each waypoint a small marker at its height, joined by the flight line.
     mat = material("dge.waypoint", (0.49, 0.23, 0.93, 1.0))
-    radius = max(0.05, span * 0.004)
+    radius = MARKS["waypoint"]
     for k, item in enumerate(data.get("waypoints", [])):
         name = "waypoints." + item["id"]
         curve = bpy.data.curves.new(name, "CURVE")
@@ -247,7 +295,7 @@ def add_waypoints(data, collection, span):
 def add_landmarks(data, collection, span):
     # A pin at each landmark, on the ground, with its name above.
     mat = material("dge.landmark", (0.71, 0.33, 0.04, 1.0))
-    radius, height = max(0.03, span * 0.004), max(0.4, span * 0.03)
+    radius, height = MARKS["pin"]["radius"], MARKS["pin"]["height"]
     for landmark in data.get("landmarks", []):
         x, y = landmark["position"]
         z = ground_height(data["terrain"], x, y) if data.get("terrain") else 0.0
@@ -260,7 +308,7 @@ def add_landmarks(data, collection, span):
         collection.objects.link(pin)
         label = bpy.data.curves.new(name + ".label", "FONT")
         label.body = landmark["id"]
-        label.size = max(0.12, span * 0.015)
+        label.size = MARKS["landmarkLabel"]
         label.align_x = "CENTER"
         text = bpy.data.objects.new(name + ".label", label)
         text.location = (x, y, z + height + label.size * 0.3)
@@ -292,8 +340,6 @@ def add_openings(data, collection):
 
 def add_paths(data, collection, span):
     agents = {agent["id"]: agent for agent in data.get("agents", [])}
-    # Lines thick enough to see on a large site.
-    thickness = max(0.02, span * 0.002)
     tracks = [track for track in TRACKS.values() if track]
     # The timeline starts when the first agent sets off; a walk too long
     # for Blender's frame range at 24 fps is slowed down (fps_base) so it
@@ -314,6 +360,8 @@ def add_paths(data, collection, span):
             name = "path." + path["id"]
             curve = bpy.data.curves.new(name, "CURVE")
             curve.dimensions = "3D"
+            # Thick enough to see on a large site, thinner than its agent.
+            thickness = MARKS["paths"][path["id"]]
             curve.bevel_depth = thickness
             line_points = LINES.get(path["id"]) or path["points"]
             spline = curve.splines.new("POLY")
@@ -432,7 +480,7 @@ def build(data):
 
         label = bpy.data.curves.new(item["id"] + ".label", "FONT")
         label.body = item.get("label") or item["id"]
-        label.size = max(0.08, min(0.18, min(w, d) * 0.3), span * 0.012)
+        label.size = MARKS["labels"][item["id"]]
         label.align_x = "CENTER"
         label.align_y = "CENTER"
         text = bpy.data.objects.new(item["id"] + ".label", label)

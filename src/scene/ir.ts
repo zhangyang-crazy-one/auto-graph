@@ -321,6 +321,8 @@ export interface SceneLine {
 	id: string;
 	/** Scene x, y; a line given by latitude and longitude is already densified along its geodesics. */
 	points: { x: number; y: number }[];
+	/** A road's width: a strip on the ground that objects on the floor keep off. */
+	width?: number;
 	path: ScenePath;
 }
 
@@ -457,7 +459,13 @@ export interface SolvedScene {
 	/** Landmarks, in the scene frame and WGS84 (scenes with a `frame`). */
 	landmarks?: { id: string; position: [number, number]; geo: GeoPoint }[];
 	/** Lines, on the ground (z of the ground, or 0). */
-	lines?: { id: string; points: [number, number, number][]; length: number }[];
+	lines?: {
+		id: string;
+		points: [number, number, number][];
+		length: number;
+		/** The strip's width (roads), when given. */
+		width?: number;
+	}[];
 	/** Drone waypoints, in the scene and (scenes with a frame) WGS84. */
 	waypoints?: {
 		id: string;
