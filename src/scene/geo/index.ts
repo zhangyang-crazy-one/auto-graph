@@ -7,12 +7,36 @@ export {
 	wgs84ToBd09,
 	wgs84ToGcj02,
 } from "./china.js";
-export { type FrameSpec, GEO_REACH, SceneGeoFrame } from "./frame.js";
+export {
+	type FrameProjection,
+	type FrameSpec,
+	GEO_REACH,
+	type GeoFrame,
+	geoFrame,
+	ProjectedFrame,
+	type Refusal,
+	SceneGeoFrame,
+	UTM_REACH,
+} from "./frame.js";
 export {
 	type GeodesicInverse,
 	geodesicDirect,
 	geodesicInverse,
 } from "./geodesic.js";
+export {
+	fromUtm,
+	fromWebMercator,
+	inverseTransverseMercator,
+	toUtm,
+	toWebMercator,
+	transverseMercator,
+	type UtmZone,
+	utmEpsg,
+	utmMeridian,
+	utmScale,
+	utmZone,
+	WEB_MERCATOR_MAX_LAT,
+} from "./projection.js";
 export {
 	type Ecef,
 	type Enu,

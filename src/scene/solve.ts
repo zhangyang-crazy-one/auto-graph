@@ -1,4 +1,11 @@
-import { GEO_REACH, SceneGeoFrame } from "./geo/index.js";
+import {
+	GEO_REACH,
+	type GeoFrame,
+	geoFrame as makeGeoFrame,
+	utmEpsg,
+	utmScale,
+	utmZone,
+} from "./geo/index.js";
 import {
 	axisAngle,
 	contains,
@@ -825,11 +832,20 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			hint: "Give its support a place, or remove the `on` relation.",
 		});
 	}
-	// A scene placed on the Earth: geographic positions on the output, and
-	// a warning when it reaches too far for one flat local frame.
+	// A scene placed on the Earth: geographic positions on the output; a
+	// note of the projection when one was chosen for a large site; a
+	// warning when a local frame reaches too far, or a UTM site spans zones.
 	const geoFrame =
-		spec.frame === undefined ? undefined : new SceneGeoFrame(spec.frame);
-	if (spec.frame !== undefined) {
+		spec.frame === undefined ? undefined : makeGeoFrame(spec.frame);
+	if (spec.frame !== undefined && geoFrame !== undefined) {
+		diagnostics.push(...projectionNotes(spec, geoFrame));
+	}
+	// A spec built without `projection` (by hand, or from before it) is on
+	// a local frame.
+	if (
+		spec.frame !== undefined &&
+		(spec.frame.projection?.kind ?? "enu") === "enu"
+	) {
 		const { anchor } = spec.frame;
 		const corners = [
 			[0, 0],
@@ -854,7 +870,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 				code: "scene.geo.extent",
 				message: `The scene reaches ${round(reach / 1000)} km from its origin; one local frame is meant for sites within ${GEO_REACH / 1000} km.`,
 				path: ["frame"],
-				hint: "Split the site into scenes with their own origins (a projected frame for large areas comes in a later phase).",
+				hint: "Leave `frame.projection` at `auto` (or set `utm`) to put a large site on a map projection, or split it into scenes with their own origins.",
 				detail: { reach: round(reach) },
 			});
 		}
@@ -923,6 +939,9 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 							round(spec.frame.anchor.y),
 						] as [number, number],
 						heading: spec.frame.heading,
+						projection: outputProjection(
+							spec.frame.projection ?? { kind: "enu" },
+						),
 					},
 					landmarks: (spec.landmarks ?? []).map((landmark) => ({
 						id: landmark.id,
@@ -1573,6 +1592,74 @@ function angleGap(a: number, b: number): number {
 
 function pathOf(path: ScenePath | undefined): { path?: ScenePath } {
 	return path === undefined ? {} : { path };
+}
+
+/** The projection as the document gives it, with its EPSG code. */
+function outputProjection(
+	projection: NonNullable<SceneSpec["frame"]>["projection"],
+): NonNullable<SolvedScene["geo"]>["projection"] {
+	if (projection.kind === "enu") return { kind: "enu" };
+	if (projection.kind === "web-mercator") {
+		return { kind: "web-mercator", epsg: 3857 };
+	}
+	return {
+		kind: "utm",
+		zone: projection.zone,
+		hemisphere: projection.south ? "S" : "N",
+		epsg: utmEpsg(projection),
+	};
+}
+
+/**
+ * Notes on a projected frame: which UTM zone a large site was put in, and
+ * whether it reaches into other zones (still projected in its own, with
+ * the scale there).
+ */
+function projectionNotes(spec: SceneSpec, frame: GeoFrame): SceneDiagnostic[] {
+	const projection = spec.frame?.projection;
+	if (projection === undefined || projection.kind !== "utm") return [];
+	const out: SceneDiagnostic[] = [];
+	const name = `${projection.zone}${projection.south ? "S" : "N"}`;
+	const { width, depth } = spec.bounds;
+	const points = [
+		frame.toGeo(0, 0),
+		frame.toGeo(width, 0),
+		frame.toGeo(0, depth),
+		frame.toGeo(width, depth),
+		...(spec.landmarks ?? []).map((landmark) => landmark.geo),
+	];
+	// Grid scale at the point farthest from the central meridian.
+	const scale = Math.max(
+		...points.map((point) => utmScale(point.lat, point.lon, projection)),
+	);
+	if (spec.frame?.auto === true) {
+		out.push({
+			severity: "info",
+			code: "scene.geo.projection",
+			message: `The site reaches past ${GEO_REACH / 1000} km from its origin, more than one local east-north-up frame serves; it is laid out on UTM zone ${name} (EPSG:${utmEpsg(projection)}). Scene metres are grid metres there (scale up to ${Math.round(scale * 1e6) / 1e6}).`,
+			path: ["frame"],
+			hint: "Set `frame.projection` to choose the frame yourself.",
+			detail: { zone: projection.zone, epsg: utmEpsg(projection) },
+		});
+	}
+	const zones = new Set(
+		points.map((point) => {
+			const zone = utmZone(point.lat, point.lon);
+			return `${zone.zone}${zone.south ? "S" : "N"}`;
+		}),
+	);
+	zones.delete(name);
+	if (zones.size > 0) {
+		out.push({
+			severity: "warning",
+			code: "scene.geo.zone-crossing",
+			message: `The site reaches into UTM zone${zones.size > 1 ? "s" : ""} ${[...zones].sort().join(", ")}; it is laid out on zone ${name} throughout (grid scale up to ${Math.round(scale * 1e6) / 1e6} at its far edge).`,
+			path: ["frame"],
+			hint: "Fine for one site; to match maps of the other zone, give that part its own scene (or set `frame.zone`).",
+			detail: { zone: projection.zone, scale: Math.round(scale * 1e6) / 1e6 },
+		});
+	}
+	return out;
 }
 
 /** Nine decimals, without -0 (unit vectors and rotations). */

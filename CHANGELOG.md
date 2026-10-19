@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### 3D scene: projected frames (#121, work package 3d)
+
+- `frame.projection`: `auto` (default), `enu`, `utm` or `web-mercator`,
+  plus an optional `frame.zone`. Left at `auto`, a site reaching past 10 km
+  (bounds, latitude/longitude points or distances from landmarks) is laid
+  out on its origin's UTM zone, with `scene.geo.projection` naming the zone
+  and EPSG code; a UTM site reaching into another zone gets
+  `scene.geo.zone-crossing` with the grid scale at its far edge.
+- Transverse Mercator by Krüger's series to sixth order (nanometres within
+  the zone), UTM zones with the Norway and Svalbard exceptions, and Web
+  Mercator scaled to true metres at the origin and unwrapped across the
+  180° meridian; checked against proj4 (dev dependency). The output's
+  `geo.projection` gives the projection and EPSG code.
+- Points a frame cannot place are refused before projecting (UTM beyond
+  15° of the central meridian or outside 80°S–84°N, Web Mercator past
+  ±85.05°, a local frame past 10 km).
+
 ### 3D scene: terrain (#121, work packages 3a–3c)
 
 - `terrain: { grid: { origin, spacing, heights }, base }`: the ground as a

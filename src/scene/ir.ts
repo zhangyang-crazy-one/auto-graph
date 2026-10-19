@@ -270,6 +270,16 @@ export interface SceneFrame {
 	datum: "WGS84" | "GCJ02" | "BD09";
 	anchor: { x: number; y: number };
 	heading: number;
+	/**
+	 * How scene metres map to the Earth: a local east-north-up frame (sites
+	 * within 10 km), or a map projection's grid (UTM, Web Mercator).
+	 */
+	projection:
+		| { kind: "enu" }
+		| { kind: "utm"; zone: number; south: boolean }
+		| { kind: "web-mercator" };
+	/** The projection was chosen because the site is too large for one local frame. */
+	auto?: boolean;
 	path: ScenePath;
 }
 
@@ -403,6 +413,11 @@ export interface SolvedScene {
 		datum: SceneFrame["datum"];
 		anchor: [number, number];
 		heading: number;
+		/** How scene metres map to the Earth (with the EPSG code of a map projection). */
+		projection:
+			| { kind: "enu" }
+			| { kind: "utm"; zone: number; hemisphere: "N" | "S"; epsg: number }
+			| { kind: "web-mercator"; epsg: 3857 };
 	};
 	/** Landmarks, in the scene frame and WGS84 (scenes with a `frame`). */
 	landmarks?: { id: string; position: [number, number]; geo: GeoPoint }[];

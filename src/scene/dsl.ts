@@ -12,9 +12,12 @@ import {
 	bd09ToWgs84,
 	GEO_REACH,
 	type Geodetic,
+	type GeoFrame,
 	gcj02ToWgs84,
 	geodesicDirect,
+	geoFrame as makeGeoFrame,
 	SceneGeoFrame,
+	utmZone,
 } from "./geo/index.js";
 import type {
 	CornerSide,
@@ -136,6 +139,13 @@ export const sceneDslSchema = z
 				anchor: z.tuple([z.number().finite(), z.number().finite()]).optional(),
 				/** True bearing of the scene's +y axis, degrees (default 0). */
 				heading: z.number().finite().optional(),
+				/**
+				 * How scene metres map to the Earth: `auto` (default) is a local
+				 * east-north-up frame for a site within 10 km and UTM beyond.
+				 */
+				projection: z.enum(["auto", "enu", "utm", "web-mercator"]).optional(),
+				/** A UTM zone to use instead of the origin's. */
+				zone: z.number().int().min(1).max(60).optional(),
 			})
 			.strict()
 			.optional(),
@@ -218,6 +228,28 @@ export function parseSceneDsl(
  * relation string parsed. Diagnostics point back at the document path.
  */
 export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
+	const local = normalizeScene(value, false);
+	// With `projection: auto`, a distance from a landmark may reach past
+	// the local frame: then the site is large, so it is read again on UTM.
+	const frame = (value as { frame?: { projection?: unknown; zone?: unknown } })
+		?.frame;
+	const auto =
+		(frame?.projection === undefined || frame.projection === "auto") &&
+		frame?.zone === undefined;
+	const widen =
+		auto &&
+		local.scene?.frame?.projection.kind !== "utm" &&
+		local.diagnostics.some(
+			(d) =>
+				d.code === "validate.scene.geo-extent" && d.path?.[0] === "relations",
+		);
+	return widen ? normalizeScene(value, true) : local;
+}
+
+function normalizeScene(
+	value: unknown,
+	wide: boolean,
+): NormalizeSceneDslResult {
 	// The schema would drop an object called __proto__ without a word.
 	const raw = (value as { objects?: unknown } | null)?.objects;
 	if (
@@ -272,31 +304,30 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 					: point;
 		return { lat: wgs.lat, lon: wgs.lon, alt: point.alt ?? ground };
 	};
-	const frame: SceneFrame | undefined =
+	const frame =
 		dsl.frame === undefined
 			? undefined
-			: {
-					origin: toWgs84(dsl.frame.origin),
-					datum,
-					anchor: {
-						x: (dsl.frame.anchor?.[0] ?? 0) / perMeter,
-						y: (dsl.frame.anchor?.[1] ?? 0) / perMeter,
-					},
-					heading: dsl.frame.heading ?? 0,
-					path: ["frame"],
-				};
-	const geoFrame = frame === undefined ? undefined : new SceneGeoFrame(frame);
-	// A point too far from the origin has no faithful place in the local
-	// frame (one on the far side of the Earth would fold back next to the
-	// origin), so it is refused before it is projected.
+			: readFrame(dsl, toWgs84, perMeter, diagnostics, wide);
+	const geoFrame = frame === undefined ? undefined : makeGeoFrame(frame);
+	// A point the frame cannot place faithfully (one on the far side of the
+	// Earth would fold back next to the origin of a local frame) is refused
+	// before it is projected.
 	const tooFar = (point: Geodetic, path: ScenePath): boolean => {
-		const reach = (geoFrame as SceneGeoFrame).reach(toWgs84(point));
-		if (reach <= GEO_REACH) return false;
-		diagnostics.push(geoExtent(path, reach));
+		const refusal = (geoFrame as GeoFrame).refuse(toWgs84(point));
+		if (refusal === undefined) return false;
+		diagnostics.push({
+			...error(
+				path,
+				"validate.scene.geo-extent",
+				refusal.message,
+				refusal.hint,
+			),
+			detail: refusal.detail,
+		});
 		return true;
 	};
 	const sceneAt = (point: Geodetic): [number, number] => {
-		const at = (geoFrame as SceneGeoFrame).toScene(toWgs84(point));
+		const at = (geoFrame as GeoFrame).toScene(toWgs84(point));
 		return [at.x, at.y];
 	};
 
@@ -330,7 +361,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 				? { yaw: entry.yaw }
 				: {}),
 		};
-		if (entry.geo !== undefined && geoFrame === undefined) {
+		if (entry.geo !== undefined && dsl.frame === undefined) {
 			diagnostics.push(
 				error(
 					[...path, "geo"],
@@ -404,7 +435,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 	const landmarks: SceneLandmark[] = [];
 	for (const [id, point] of Object.entries(dsl.landmarks ?? {})) {
 		const path: ScenePath = ["landmarks", id];
-		if (geoFrame === undefined) {
+		if (dsl.frame === undefined) {
 			diagnostics.push(
 				error(
 					path,
@@ -415,6 +446,7 @@ export function normalizeSceneDsl(value: unknown): NormalizeSceneDslResult {
 			);
 			continue;
 		}
+		if (geoFrame === undefined) continue;
 		if (
 			RESERVED_IDS.has(id) ||
 			taken.has(id) ||
@@ -761,7 +793,7 @@ class RelationParser {
 		private readonly units: SceneUnits,
 		private readonly diagnostics: DslDiagnostic[],
 		private readonly landmarks: ReadonlyMap<string, SceneLandmark> = new Map(),
-		private readonly geoFrame?: SceneGeoFrame,
+		private readonly geoFrame?: GeoFrame,
 		private readonly terrain = false,
 	) {}
 
@@ -1373,15 +1405,11 @@ class RelationParser {
 				// on the local plane (true bearings, turned into the scene frame).
 				const landmark = this.landmarks.get(head.reference);
 				if (landmark !== undefined) {
-					const frame = this.geoFrame as SceneGeoFrame;
+					const frame = this.geoFrame as GeoFrame;
 					const at = geodesicDirect(landmark.geo, head.bearing, head.length);
-					const reach = frame.reach(at);
-					if (reach > GEO_REACH) {
-						fail(
-							"validate.scene.geo-extent",
-							geoExtentMessage(reach),
-							GEO_EXTENT_HINT,
-						);
+					const refusal = frame.refuse(at);
+					if (refusal !== undefined) {
+						fail("validate.scene.geo-extent", refusal.message, refusal.hint);
 					}
 					const point = frame.along(landmark.geo, head.bearing, head.length);
 					return each((subject) => ({
@@ -1908,23 +1936,76 @@ function error(
 	};
 }
 
-const GEO_EXTENT_HINT =
-	"Check the coordinates (and the datum), or give a far site a scene with its own origin.";
-
-function geoExtentMessage(reach: number): string {
-	return `This point is ${round(reach / 1000)} km from the frame origin; one local frame places points within ${GEO_REACH / 1000} km.`;
-}
-
-function geoExtent(path: ScenePath, reach: number): DslDiagnostic {
-	return {
-		...error(
-			path,
-			"validate.scene.geo-extent",
-			geoExtentMessage(reach),
-			GEO_EXTENT_HINT,
-		),
-		detail: { reach: Math.round(reach) },
+/**
+ * The scene's frame on the Earth. With `projection: auto` (the default)
+ * it is a local east-north-up frame, unless the site reaches past what one
+ * such frame serves (its bounds from the anchor, or any point given by
+ * latitude and longitude, beyond 10 km): then UTM in the origin's zone.
+ */
+function readFrame(
+	dsl: SceneDsl,
+	toWgs84: (point: Geodetic) => GeoPoint,
+	perMeter: number,
+	diagnostics: DslDiagnostic[],
+	/** The site is known to be large (a distance reaches past 10 km). */
+	wide: boolean,
+): SceneFrame | undefined {
+	const input = dsl.frame as NonNullable<SceneDsl["frame"]>;
+	const origin = toWgs84(input.origin);
+	const base = {
+		origin,
+		datum: input.datum ?? "WGS84",
+		anchor: {
+			x: (input.anchor?.[0] ?? 0) / perMeter,
+			y: (input.anchor?.[1] ?? 0) / perMeter,
+		},
+		heading: input.heading ?? 0,
+		path: ["frame"] as ScenePath,
 	};
+	const asked = input.projection ?? (input.zone === undefined ? "auto" : "utm");
+	if (input.zone !== undefined && asked !== "utm") {
+		diagnostics.push(
+			error(
+				["frame", "zone"],
+				"validate.scene.frame-zone",
+				`A UTM zone is given, but the projection is ${asked}.`,
+				"Remove `zone`, or set `projection: utm`.",
+			),
+		);
+		return undefined;
+	}
+	const utm = (): SceneFrame["projection"] => {
+		const own = utmZone(origin.lat, origin.lon);
+		return { kind: "utm", zone: input.zone ?? own.zone, south: own.south };
+	};
+	if (asked === "enu") return { ...base, projection: { kind: "enu" } };
+	if (asked === "web-mercator") {
+		return { ...base, projection: { kind: "web-mercator" } };
+	}
+	if (asked === "utm") return { ...base, projection: utm() };
+	// Auto: how far does the site reach from the origin in a local frame?
+	const local = new SceneGeoFrame(base);
+	const { width, depth } = dsl.bounds;
+	const corners = [
+		[0, 0],
+		[width, 0],
+		[0, depth],
+		[width, depth],
+	].map(([x = 0, y = 0]) =>
+		Math.hypot(x / perMeter - base.anchor.x, y / perMeter - base.anchor.y),
+	);
+	const points = [
+		...Object.values(dsl.objects).flatMap((entry) =>
+			entry.geo === undefined ? [] : [entry.geo],
+		),
+		...Object.values(dsl.landmarks ?? {}),
+	].map((point) => local.reach(toWgs84(point)));
+	const reach = Math.max(...corners, ...points);
+	const covered = origin.lat >= -80 && origin.lat <= 84;
+	if ((reach <= GEO_REACH && !wide) || !covered) {
+		return { ...base, projection: { kind: "enu" } };
+	}
+	return { ...base, projection: utm(), auto: true };
 }
 
 function hasErrors(diagnostics: readonly DslDiagnostic[]): boolean {
