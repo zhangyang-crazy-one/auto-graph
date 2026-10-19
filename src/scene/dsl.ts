@@ -16,6 +16,7 @@ import {
 	gcj02ToWgs84,
 	geodesicDirect,
 	geoFrame as makeGeoFrame,
+	projectionRefusal,
 	SceneGeoFrame,
 	utmZone,
 } from "./geo/index.js";
@@ -1974,15 +1975,34 @@ function readFrame(
 		);
 		return undefined;
 	}
-	const utm = (): SceneFrame["projection"] => {
+	const utm = (): { kind: "utm"; zone: number; south: boolean } => {
 		const own = utmZone(origin.lat, origin.lon);
 		return { kind: "utm", zone: input.zone ?? own.zone, south: own.south };
 	};
+	// A projection must hold the origin itself; it is checked before any
+	// frame is built on it.
+	const checked = (
+		projection: Exclude<SceneFrame["projection"], { kind: "enu" }>,
+		auto?: true,
+	): SceneFrame | undefined => {
+		const refusal = projectionRefusal(projection, origin);
+		if (refusal === undefined) {
+			return { ...base, projection, ...(auto ? { auto } : {}) };
+		}
+		diagnostics.push({
+			...error(
+				["frame", "origin"],
+				"validate.scene.geo-extent",
+				`The frame origin cannot be placed: ${refusal.message}`,
+				refusal.hint,
+			),
+			detail: refusal.detail,
+		});
+		return undefined;
+	};
 	if (asked === "enu") return { ...base, projection: { kind: "enu" } };
-	if (asked === "web-mercator") {
-		return { ...base, projection: { kind: "web-mercator" } };
-	}
-	if (asked === "utm") return { ...base, projection: utm() };
+	if (asked === "web-mercator") return checked({ kind: "web-mercator" });
+	if (asked === "utm") return checked(utm());
 	// Auto: how far does the site reach from the origin in a local frame?
 	const local = new SceneGeoFrame(base);
 	const { width, depth } = dsl.bounds;
@@ -2005,7 +2025,7 @@ function readFrame(
 	if ((reach <= GEO_REACH && !wide) || !covered) {
 		return { ...base, projection: { kind: "enu" } };
 	}
-	return { ...base, projection: utm(), auto: true };
+	return checked(utm(), true);
 }
 
 function hasErrors(diagnostics: readonly DslDiagnostic[]): boolean {

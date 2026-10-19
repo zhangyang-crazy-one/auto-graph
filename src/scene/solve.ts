@@ -648,7 +648,16 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 
 		check(spec, placed, found);
 		if (terrain !== undefined) checkTerrain(spec, terrain, placed, found);
-		const planned = planPaths(spec, placed);
+		// A leaning object's lowest point decides what passes under it.
+		const obstacles = new Map(
+			[...placed].map(([id, item]) => [
+				id,
+				item.tilt === undefined
+					? item
+					: { ...item, bottom: heightRange(item)[0] },
+			]),
+		);
+		const planned = planPaths(spec, obstacles);
 		found.push(...planned.diagnostics);
 		return { placed, broken, found, planned };
 	};

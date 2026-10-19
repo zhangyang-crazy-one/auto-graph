@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Review fixes on terrain and projections (#149, #150)
+
+- A frame origin the chosen projection cannot hold (UTM outside 80°S–84°N
+  or 15° from the zone's meridian, Web Mercator past ±85.05°) is refused at
+  `frame.origin` before the frame is built, for explicit projections and
+  the automatic switch alike (#149).
+- Headroom under an obstacle is measured from the highest ground under it
+  (its footprint widened by the agent's radius and clearance) to its
+  lowest point, not from the ground at its center: a beam high over its
+  middle but low over the uphill side blocks the way (#150).
+
 ### 3D scene: projected frames (#121, work package 3d)
 
 - `frame.projection`: `auto` (default), `enu`, `utm` or `web-mercator`,
