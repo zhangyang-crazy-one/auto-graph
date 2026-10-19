@@ -1,0 +1,22 @@
+# Street lighting along a curved road through a town block. The road is a
+# polyline; lamps stand every 30 m on the south side and, staggered by
+# 15 m, on the north side, 7 m out from the centre line and facing the
+# road. Benches stand every 60 m on the north side, 10 m out, and two
+# kiosks sit at the corners of the block.
+scene: streetlights
+bounds: { width: 200, depth: 120 }
+frame:
+  origin: { lat: 31.2304, lon: 121.4737, alt: 4 }
+lines:
+  road: { points: [[1.4, 45.4], [14.6, 51.8], [28.2, 57.3], [42.1, 61.9], [56.3, 65.4], [70.8, 68.0], [85.4, 69.5], [100.0, 70.0], [114.6, 69.5], [129.2, 68.0], [143.7, 65.4], [157.9, 61.9], [171.8, 57.3], [185.4, 51.8], [198.6, 45.4]] }
+objects:
+  lamp: { size: [0.4, 0.4, 8], count: 7 }
+  lantern: { size: [0.4, 0.4, 8], count: 6 }
+  bench: { size: [1.8, 0.6, 0.8], count: 3 }
+  kiosk: { size: [4, 3, 3], count: 2 }
+relations:
+  - lamp along road, spacing 30, from 10, offset 7
+  - lantern along road, spacing 30, from 25, offset -7
+  - bench along road, spacing 60, from 25, offset -10
+  - kiosk1 corner sw, gap 8
+  - kiosk2 corner se, gap 8

@@ -4,7 +4,7 @@
 
 A scene document describes a room, the objects in it and how they relate. auto-graph solves where every object stands and which way it faces, then checks the result. It is plain math with no 3D application in the loop, so an agent gets exact numbers it can hand to Blender, a game engine or a robot planner.
 
-It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude (on a local frame or a map projection for large sites), uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits, and lines (roads, geodesic routes) to place things along and lay drone waypoints on. Arrays (solar rows, turbine spacing) follow in #121–#122.
+It covers a floor plan plus stacking (2.5D), with objects turning about the vertical axis, paths for people and robots, placing a scene on the Earth by latitude and longitude (on a local frame or a map projection for large sites), uneven ground (terrain) where objects stand, lean with the slope and keep to slope and elevation limits, and lines (roads, geodesic routes) to place things along and lay drone waypoints on. Exports to glTF, USD and Cesium, and MCP tools, follow in #122.
 
 ## The frame
 
@@ -67,6 +67,8 @@ A relation is one line: a subject, a verb, then clauses after commas. The subjec
 | `g around c, radius 0.9` | evenly on a circle round `c` (polar), each facing `c` | `start` (degrees, default 270 = south), `facing` / `rotate` instead of facing `c` |
 | `a and b symmetric about room` / `about c` | mirrored about the room's or `c`'s center line | `axis x` / `axis y` (default: the axis they are apart on) |
 | `keep clear 0.8 between a and b` | at least that far apart (an aisle) | |
+| `keep clear 350 between g` | every pair in group `g` at least that far apart | |
+| `a tilt 25` | leans toward its front by that many degrees, lowest corner on the ground (also a clause: `a facing south, tilt 25`) | |
 | `a on terrain` / `a align to slope` | stands on the ground (every object on the floor of a scene with terrain does) / leans square to it | `align to slope` (after `on terrain`) |
 | `a slope below 8` | the ground under it no steeper than that (degrees, also `<`, `<=`) | |
 | `a elevation between 100 and 300` / `above 100` / `below 300` | the ground under it between those elevations | |
@@ -229,6 +231,21 @@ relations:
 - **Waypoints** sit on a line at `height` above the ground: `spacing` metres apart along it (and at its end), `count` spread evenly, or one per vertex. The output gives their [x, y, z] (and latitude, longitude, height with a frame) and `lowest`, the lowest height above the ground anywhere along the straight legs between them (measured every eighth of a grid cell on terrain). A leg that comes lower than `min` gets `scene.waypoint.low`; one that passes through an object's box gets `scene.waypoint.collision` (both warnings).
 - The top view draws lines dashed and waypoints as rings on their legs, with the height; the Blender script draws lines on the ground and waypoints as markers joined by their flight line.
 
+## Outdoor examples
+
+Three examples put terrain, limits, lines and arrays together:
+
+- **[`windfarm.yaml`](../examples/scene/windfarm.yaml)**: 3 km × 2 km of uplands on a 100 m grid. Eight turbines are given only limits (`slope below 5`, `elevation above 1450`, `keep clear 350 between turbine`), and the solver puts each on a hilltop. Turbines already on good ground stay where they are while the others move. An access road carries marker posts.
+- **[`solar.yaml`](../examples/scene/solar.yaml)**: four rows of eight panels (`panel grid 4x8, gap 3`) facing south and tilted 25° (`panel facing south, tilt 25`) on a field that falls gently to the south, with inverters at the end of the rows.
+- **[`streetlights.yaml`](../examples/scene/streetlights.yaml)**: lamps every 30 m on both sides of a curved road, staggered by 15 m, plus benches, all placed `along` the road and facing it.
+
+| Wind farm | Solar array | Street lights |
+| --- | --- | --- |
+| <img src="images/scene-windfarm.top.svg" alt="Wind farm: turbines on the hilltops inside the 1450 m contour" width="100%"> | <img src="images/scene-solar.top.svg" alt="Solar array: four rows of tilted panels" width="100%"> | <img src="images/scene-streetlights.top.svg" alt="Street lights along a curved road" width="100%"> |
+| <img src="images/scene-windfarm.jpg" alt="Wind farm rendered in Blender" width="100%"> | <img src="images/scene-solar.jpg" alt="Solar array rendered in Blender" width="100%"> | <img src="images/scene-streetlights.jpg" alt="Street lights rendered in Blender" width="100%"> |
+
+Two relations serve arrays: `tilt <degrees>` leans an object toward its front (a panel facing the sun). The object is lifted so its lowest corner is at the height it stands on, and its rotation and `up` are in the output. `tilt` and `align to slope` cannot both apply (`scene.tilt.conflict`). `keep clear <length> between <group>` keeps every pair in a group that far apart, edge to edge.
+
 ## Output
 
 `renderSceneDsl(source, { format })`, or `agh --input room.yaml --format …`:
@@ -283,6 +300,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 | `scene.terrain.uneven` (info) | the ground rises more than 10 cm under an upright object: how far it floats and is buried |
 | `scene.terrain.moved` (info) | an object moved to the nearest ground that meets its limits |
 | `validate.scene.along-overflow`, `validate.scene.unknown-line`, `validate.scene.line-points` | spacing past a line's end; an unknown line; a line with both or neither of `points` and `geo` |
+| `scene.tilt.conflict` | two tilts, or a tilt and `align to slope`, on one object |
 | `scene.waypoint.low`, `scene.waypoint.collision` (warnings) | a leg between waypoints comes lower above the ground than `min` / passes through an object |
 | `scene.path.single-file` (info) | two paths meet head-on where the way is too narrow to pass |
 | `scene.path.head-on` (info) | two paths still share a run head-on: stepping aside would break the length budget, both have `comfort 0`, or the round limit ran out |

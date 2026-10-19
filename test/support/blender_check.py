@@ -1,17 +1,19 @@
 """Run a generated scene script in Blender and compare what it built with
 the dge-scene JSON: every object's world bounding box (from its mesh
-vertices) and rotation must match to 1e-4 (z rotation, or for an object
-leaning with the slope its quaternion and up axis); every opening strip
-must sit on its wall; every path curve must run through the path's points
-in order; and every agent must stand on each corner at the time the JSON
-gives (its animation evaluated at that frame, which must lie in the
-scene's frame range), to 1e-3.
+vertices) and rotation must match to 1e-4, plus single precision's
+relative 2.5e-7 (a few tenths of a millimetre kilometres out): its z
+rotation, or for a leaning object its quaternion and up axis. Every
+opening strip must sit on its wall, every path curve must run through the
+path's points in order, and every agent must stand on each corner at the
+time the JSON gives (its animation evaluated at that frame, which must lie
+in the scene's frame range), to 1e-3.
 
 With terrain, the ground is evaluated here on its own (bilinear in the
 document's grid): every terrain mesh vertex must lie on it, every object
-on the ground must stand on it at its center to 1 cm, every path point and
-agent corner must be on it, and every landmark must have its pin. Prints
-one JSON line.
+on the ground must stand on it at its center to 1 cm (a tilted object:
+its lowest corner), every path point and agent corner must be on it, and
+every landmark must have its pin. Lines must lie on the ground and
+waypoints at their height above it. Prints one JSON line.
 
     python blender_check.py scene.py scene.json   (python with the bpy module)
 """
@@ -45,6 +47,12 @@ def ground(x, y):
     return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v - terrain["base"]
 
 
+def close(a, b, eps=1e-4):
+    # Blender keeps coordinates in single precision: a few tenths of a
+    # millimetre at a few kilometres from the origin.
+    return abs(a - b) <= eps + 2.5e-7 * max(abs(a), abs(b))
+
+
 problems = []
 grounded = 0
 if terrain is not None:
@@ -70,7 +78,7 @@ for item in data["objects"]:
     low = [min(c[k] for c in corners) for k in range(3)]
     high = [max(c[k] for c in corners) for k in range(3)]
     for k in range(3):
-        if abs(low[k] - item["aabb"]["min"][k]) > 1e-4 or abs(high[k] - item["aabb"]["max"][k]) > 1e-4:
+        if not close(low[k], item["aabb"]["min"][k]) or not close(high[k], item["aabb"]["max"][k]):
             problems.append(f"{item['id']}: box {low}..{high} != {item['aabb']}")
             break
     if item.get("up"):
@@ -87,7 +95,10 @@ for item in data["objects"]:
     if terrain is not None and not item.get("supportedBy"):
         grounded += 1
         x, y, z = obj.matrix_world.translation
-        if abs(z - ground(x, y)) > 0.01:
+        # On the ground at its center; an object with a fixed tilt is lifted
+        # so its lowest corner is there instead.
+        lowest = item["aabb"]["min"][2]
+        if abs(z - ground(x, y)) > 0.01 and not (item.get("up") and abs(lowest - ground(x, y)) <= 0.01):
             problems.append(f"{item['id']}: stands at z {z}, the ground is at {ground(x, y)}")
 
 width, depth = data["bounds"]["width"], data["bounds"]["depth"]
@@ -145,7 +156,7 @@ for path in data.get("paths", []):
             problems.append(f"agent {path['id']}: {t} s is frame {frame}, outside {scene.frame_start}..{scene.frame_end}")
         scene.frame_set(int(math.floor(frame)), subframe=frame - math.floor(frame))
         at = tuple(body.matrix_world.translation)
-        if abs(at[0] - x) > 1e-3 or abs(at[1] - y) > 1e-3:
+        if not close(at[0], x, 1e-3) or not close(at[1], y, 1e-3):
             problems.append(f"agent {path['id']}: at {at[:2]} at {t} s, not {x},{y}")
         floor = ground(x, y) if terrain is not None else 0.0
         if abs(at[2] - floor) > 1e-3:
@@ -180,7 +191,7 @@ for item in data.get("waypoints", []):
         bpy.context.view_layer.update()
         verts = [marker.matrix_world @ Vector(v.co) for v in marker.data.vertices]
         center = [(min(c[k] for c in verts) + max(c[k] for c in verts)) / 2 for k in range(3)]
-        if max(abs(center[0] - x), abs(center[1] - y), abs(center[2] - z)) > 1e-4:
+        if not (close(center[0], x) and close(center[1], y) and close(center[2], z)):
             problems.append(f"waypoint {item['id']}.{n}: at {center}, not {x},{y},{z}")
         floor = ground(x, y) if terrain is not None else 0.0
         if abs(z - floor - item["height"]) > 1e-3:

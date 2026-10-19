@@ -4,7 +4,7 @@
 
 场景文档描述一个房间、里面的物体，以及物体之间的关系。auto-graph 解算出每个物体放在哪里、朝向哪边，并检查结果。全程是纯数学计算，不依赖任何 3D 软件，agent 拿到的是精确数值，可以直接交给 Blender、游戏引擎或机器人规划器。
 
-目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上（局部坐标系，大场地用地图投影）；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制；以及线（道路、测地线航线），可沿线布置物体、在线上排布无人机航点。阵列（光伏排布、风机间距）在 #121–#122 中完成。
+目前覆盖：平面布局加上下叠放（2.5D），物体绕竖直轴转动；人和机器人的路径；用经纬度把场景放到地球上（局部坐标系，大场地用地图投影）；以及起伏的地面（地形）：物体贴地站立、随坡倾斜，并满足坡度和高程限制；以及线（道路、测地线航线），可沿线布置物体、在线上排布无人机航点。glTF、USD、Cesium 导出和 MCP 工具在 #122 中完成。
 
 ## 坐标系
 
@@ -67,6 +67,8 @@ relations:
 | `g around c, radius 0.9` | 绕 `c` 均匀排成一圈（极坐标），各自朝向 `c` | `start`（起始角度，默认 270，即南）；写 `facing` / `rotate` 时不再自动朝向 `c` |
 | `a and b symmetric about room` / `about c` | 关于房间或 `c` 的中线镜像对称 | `axis x` / `axis y`（默认取两者分开的那个轴） |
 | `keep clear 0.8 between a and b` | 两者至少相距这么远（通道） | |
+| `keep clear 350 between g` | 组 `g` 中每两个物体至少相距这么远 | |
+| `a tilt 25` | 向正面倾斜这么多度，最低一角落在地面上（也可作修饰：`a facing south, tilt 25`） | |
 | `a on terrain` / `a align to slope` | 站在地面上（有地形的场景里，地面上的物体都是如此）/ 贴合坡面倾斜 | `align to slope`（跟在 `on terrain` 后） |
 | `a slope below 8` | 脚下地面的坡度不超过该值（度，也可写 `<`、`<=`） | |
 | `a elevation between 100 and 300` / `above 100` / `below 300` | 脚下地面的高程在这个范围内 | |
@@ -229,6 +231,21 @@ relations:
 - **航点**位于线上、离地 `height` 高：沿线每隔 `spacing` 米一个（终点也有一个）、按 `count` 均匀分布，或每个折点一个。输出给出它们的 [x, y, z]（有 frame 时还有经纬度和高度），以及 `lowest`：航点之间直线航段上任意一处离地的最低高度（有地形时每八分之一个网格单元量一次）。航段低于 `min` 时给出 `scene.waypoint.low`；航段穿过物体包围盒时给出 `scene.waypoint.collision`（都是警告）。
 - 俯视图里线画成虚线，航点画成航段上的小圈并标出高度；Blender 脚本把线画在地面上，航点画成小标记并用航线相连。
 
+## 户外示例
+
+三个示例把地形、限制条件、线和阵列组合在一起：
+
+- **[`windfarm.yaml`](../examples/scene/windfarm.yaml)**：3 km × 2 km 的高原，100 m 网格。八台风机只给了限制条件（`slope below 5`、`elevation above 1450`、`keep clear 350 between turbine`），求解器把它们逐台放到山顶上。已经站在合格地面上的风机原地不动，其余的被移走。检修道路旁立着路标。
+- **[`solar.yaml`](../examples/scene/solar.yaml)**：四排、每排八块光伏板（`panel grid 4x8, gap 3`），朝南倾斜 25°（`panel facing south, tilt 25`），铺在向南缓降的场地上，排尾放逆变器。
+- **[`streetlights.yaml`](../examples/scene/streetlights.yaml)**：弯道两侧每 30 m 一盏路灯，两侧错开 15 m，另有长椅，都用 `along` 沿路布置并面向道路。
+
+| 风电场 | 光伏阵列 | 路灯 |
+| --- | --- | --- |
+| <img src="images/scene-windfarm.top.svg" alt="风电场：风机都在 1450 m 等高线内的山顶上" width="100%"> | <img src="images/scene-solar.top.svg" alt="光伏阵列：四排倾斜的光伏板" width="100%"> | <img src="images/scene-streetlights.top.svg" alt="沿弯道布置的路灯" width="100%"> |
+| <img src="images/scene-windfarm.jpg" alt="风电场的 Blender 渲染" width="100%"> | <img src="images/scene-solar.jpg" alt="光伏阵列的 Blender 渲染" width="100%"> | <img src="images/scene-streetlights.jpg" alt="路灯的 Blender 渲染" width="100%"> |
+
+阵列用到两个关系：`tilt <度数>` 让物体向正面倾斜（如朝向太阳的光伏板）。物体会被抬高，让最低的一角落在所站的高度上；输出给出旋转和 `up`。`tilt` 与 `align to slope` 不能同时用于一个物体（`scene.tilt.conflict`）。`keep clear <长度> between <组>` 让组内每两个物体之间（边到边）至少相距这么远。
+
 ## 输出
 
 `renderSceneDsl(source, { format })`，或 `agh --input room.yaml --format …`：
@@ -283,6 +300,7 @@ relations:
 | `scene.terrain.uneven`（提示） | 直立物体脚下地面起伏超过 10 cm：悬空和埋入各多少 |
 | `scene.terrain.moved`（提示） | 物体被移到最近的满足限制条件的地面 |
 | `validate.scene.along-overflow`、`validate.scene.unknown-line`、`validate.scene.line-points` | 间距超出线长；未知的线；线同时写了或都没写 `points` 和 `geo` |
+| `scene.tilt.conflict` | 同一物体有两个倾角，或同时有倾角和 `align to slope` |
 | `scene.waypoint.low`、`scene.waypoint.collision`（警告） | 航点之间的航段离地低于 `min` / 穿过物体 |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.head-on`（提示） | 两条路径仍迎面共用一段：让道会超出长度上限、有一条是 `comfort 0`，或轮数用完 |

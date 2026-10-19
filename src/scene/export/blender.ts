@@ -532,6 +532,9 @@ def build(data):
     camera = bpy.data.objects.new("dge.camera", bpy.data.cameras.new("dge.camera"))
     camera.data.type = "ORTHO"
     camera.data.ortho_scale = span * 1.6
+    # Far enough to see a site kilometres across (the default stops at 1 km).
+    camera.data.clip_start = max(0.01, span * 1e-4)
+    camera.data.clip_end = max(1000.0, span * 10)
     camera.location = (width / 2 - span, depth / 2 - span * 1.2, low + span * 1.3)
     track = camera.constraints.new("TRACK_TO")
     track.target = target

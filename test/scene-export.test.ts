@@ -27,6 +27,9 @@ const FIXTURES = [
 	"storeroom",
 	"park",
 	"hillside",
+	"windfarm",
+	"solar",
+	"streetlights",
 ];
 const source = sceneSource;
 
