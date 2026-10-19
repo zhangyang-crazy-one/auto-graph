@@ -269,6 +269,11 @@ relations:
   - glTF 以 y 轴向上：每个点 (x, y, z) 写成 (x, z, -y)，每个旋转 [x, y, z, w] 写成 [x, z, -y, w]。会把 y 向上转回 z 向上的导入器（Blender 的就是）得到的正是文档里的 `position` 和 `quaternion`。
   - 每个物体是一个占位方块（原点在底面中心，顶面三角标出正面，按叠放层级着色）。节点的 `extras` 里有 `dge_id`、`dge_front`、`dge_size`，以及有值时的 `dge_supported_by`、`dge_asset`、`dge_group`、`dge_label`、`dge_geo`（导入器会保留为自定义属性），工具可以据此把方块换成对应资产。
   - 地面（或地形网格）、门洞、路径、线路、航点（折线加点）和地标标杆也一并导出。每条路径的智能体是一个圆柱，放在名为 `agents` 的动画里，每 0.1 秒及每个拐点一个关键帧；时间 0 是第一个智能体出发的时刻（根节点的 `dge_time_origin`）。
+- **`usda`**：文本形式的 USD 场景，可导入 Omniverse、Blender、Houdini 等 USD 工具。用 USD 自带的全部校验器（`UsdValidation`）检查，没有任何错误。
+  - 场景以 z 轴向上、单位为米（`upAxis = "Z"`、`metersPerUnit = 1`），就是场景坐标系本身。每个物体是一个 Xform，`xformOp:translate` 就是 `position`，`xformOp:orient` 就是 `quaternion`（w 在前）。下面挂一个占位方块 `box` 和正面三角 `front`，材质用 UsdPreviewSurface，按叠放层级着色。
+  - Prim 名由 id 转成合法标识符（`-` 变 `_`，重名加 `_2`）。原始 id 以及正面、尺寸、支撑物、资产、分组、标签、经纬度写成 `userProperties:dge_*` 属性，Blender 导入后是自定义属性。
+  - `assetPath`（`--asset-path ./assets/{asset}.usd`）：指定了 `asset` 的物体会有一个 `geometry` 变体集。其中 `asset` 变体（默认选中）引用该文件的默认 prim，`placeholder` 变体保留占位方块。资产的原点应在底面中心，正面是声明的 `front`，单位米、z 轴向上。
+  - 地面或地形、门洞、路径、线路和航点（线性 BasisCurves，航点另有 Points）、地标标杆也一并导出。智能体的位移按每秒 24 个时间码沿路径采样；图层 customLayerData 里的 `dge_time_origin` 给出时间码 0 对应的场景秒数。
 - **`svg`**：用于肉眼核对的俯视图：
   - 上为北，0.5 m 网格；
   - 每个物体的正面画一个三角；
@@ -320,7 +325,7 @@ relations:
 - 每个智能体在各折点时刻所处的位置（在对应帧上求动画曲线的值），精度 1e-3；
 - 有地形时，按文档里的网格独立计算地面：每个网格顶点都在地面上，地面上每个物体的底面中心站在地面上（误差 1 cm 内），路径和智能体贴着地面，倾斜物体的四元数和上方向一致，每个地标都有标杆。
 
-`test/support/gltf_check.py` 把每个用例的 `.glb` 导入 Blender，同样比对每个物体的世界坐标包围盒和转角。`test/scene-gltf.test.ts` 每次改动都运行：官方 Validator 校验，以及在 Three.js 中加载每个 `.glb`，逐个物体比对世界坐标位置、转角和包围盒。
+`test/support/gltf_check.py` 把每个用例的 `.glb` 导入 Blender，同样比对每个物体的世界坐标包围盒和转角。`test/support/usd_check.py` 用 USD 官方库（`pip install usd-core`，`DGE_USD_PYTHON`）打开每个用例的 `.usda`，运行全部 USD 校验器，并比对变换、包围盒和智能体时刻；`test/support/usd_blender_check.py` 通过 Blender 的 USD 导入器做同样的比对。`test/scene-gltf.test.ts` 每次改动都运行：官方 Validator 校验，以及在 Three.js 中加载每个 `.glb`，逐个物体比对世界坐标位置、转角和包围盒。
 
 这项核对在关键节点运行（改动 Blender 导出、阶段收尾、发版前），不是每次改动都跑：
 

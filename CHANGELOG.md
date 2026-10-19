@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### 3D scene: USD export (#122, work package 4b)
+
+- `--format usda` (and `sceneToUsda`): a z-up stage in metres, each
+  object an Xform with its `position` and `quaternion`, a placeholder box
+  and front marker with UsdPreviewSurface materials, and
+  `userProperties:dge_*` attributes; floor or terrain, openings, paths,
+  lines, waypoints, landmarks, and agents time-sampled along their paths.
+- `--asset-path <template>` (`assetPath`): objects naming an asset get a
+  `geometry` variant set referencing it, keeping the box as `placeholder`.
+- The placeholder shapes are shared with the glTF export (`shapes.ts`).
+- Checks: `usd_check.py` (usd-core: every USD validator, transforms,
+  boxes, agent times, a referenced asset) and `usd_blender_check.py`
+  (Blender's USD importer), at milestones.
+
 ### 3D scene: glTF / GLB export (#122, work package 4a)
 
 - `--format gltf` (JSON, buffer inlined) and `--format glb` (binary;

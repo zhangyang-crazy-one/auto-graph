@@ -269,6 +269,11 @@ Two relations serve arrays: `tilt <degrees>` leans an object toward its front (a
   - glTF is y-up: every point (x, y, z) is written as (x, z, -y) and every rotation [x, y, z, w] as [x, z, -y, w]. Importers that turn y-up back to z-up (Blender's does) give the document's `position` and `quaternion` again.
   - Each object is a placeholder box (origin at the bottom center, a triangle on top at the front, colored by stacking level). Its node's `extras` carry `dge_id`, `dge_front`, `dge_size` and, when set, `dge_supported_by`, `dge_asset`, `dge_group`, `dge_label` and `dge_geo` (importers keep them as custom properties), so a tool can swap the box for the named asset.
   - The floor (or the terrain mesh), openings, paths, lines, waypoints (a line strip and points) and landmark pins come along. Each path's agent is a cylinder in one animation, `agents`, keyed every 0.1 s and at every corner; its time 0 is when the first agent sets off (`dge_time_origin` on the root node).
+- **`usda`** is a USD stage as text, for Omniverse, Blender, Houdini and other USD tools. It opens with no errors from USD's own validators (`UsdValidation`).
+  - The stage is z-up in metres (`upAxis = "Z"`, `metersPerUnit = 1`), the scene frame itself. Each object is an Xform whose `xformOp:translate` is its `position` and whose `xformOp:orient` is its `quaternion` (w first). It holds a placeholder `box` mesh and a `front` triangle, with UsdPreviewSurface materials colored by stacking level.
+  - Prim names are the ids made into identifiers (`-` becomes `_`, clashes get `_2`). The ids themselves, with front, size, support, asset, group, label and WGS84 position, are `userProperties:dge_*` attributes, which Blender imports as custom properties.
+  - `assetPath` (`--asset-path ./assets/{asset}.usd`): every object that names an `asset` gets a `geometry` variant set. Its `asset` variant (selected) references that file's default prim; its `placeholder` variant keeps the box. The asset's origin should be its bottom center and its front the declared `front`, in metres with z up.
+  - The floor or terrain, openings, paths, lines and waypoints (linear BasisCurves, waypoints also Points) and landmark pins come along. Agents' translates are time-sampled along their paths at 24 time codes a second; `dge_time_origin` in the layer's customLayerData gives time code 0 in scene seconds.
 - **`svg`** is a plan view for checking by eye:
   - north up, on a 0.5 m grid;
   - a triangle on each front;
@@ -320,7 +325,7 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 - where each agent stands at each corner's time (its animation evaluated at that frame), to 1e-3;
 - with terrain, the ground evaluated on its own from the document's grid: every mesh vertex on it, every object on the ground standing on it at its center (to 1 cm), every path and agent on it, a leaning object's quaternion and up axis, and a pin at every landmark.
 
-`test/support/gltf_check.py` imports each fixture's `.glb` into Blender and compares every object's world box and turn with the JSON the same way. `test/scene-gltf.test.ts` runs on every change: the Khronos validator, and each `.glb` loaded in Three.js with every object's world position, turn and box matched to the JSON.
+`test/support/gltf_check.py` imports each fixture's `.glb` into Blender and compares every object's world box and turn with the JSON the same way. `test/support/usd_check.py` opens each fixture's `.usda` with the USD library (`pip install usd-core`, `DGE_USD_PYTHON`), runs every USD validator and compares transforms, boxes and agent times with the JSON; `test/support/usd_blender_check.py` does the same through Blender's USD importer. `test/scene-gltf.test.ts` runs on every change: the Khronos validator, and each `.glb` loaded in Three.js with every object's world position, turn and box matched to the JSON.
 
 It is run at milestones (a change to the Blender export, the end of a phase, a release), not on every change:
 
