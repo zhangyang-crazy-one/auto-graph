@@ -265,6 +265,10 @@ Two relations serve arrays: `tilt <degrees>` leans an object toward its front (a
   - Openings are strips across the wall line. Each path is a curve on the floor, and its agent a cylinder (its radius and height) that walks it on the path's times, at 24 frames a second.
   - Everything goes into one collection named after the scene, which is rebuilt when the script runs again.
   - Headless render (Cycles on the CPU, no GPU needed): `blender -b --python room.py -- --render room.jpg [--size 1200x900] [--samples 24] [--frame 72]`. `--frame` picks a moment of the walk: frame 0 is when the first agent sets off, at 24 frames a second (72 = 3 s later). A walk too long for Blender's frame range is slowed down to fit (`fps_base`), and the scene records `dge_time_origin` and `dge_fps`. `--animation room.mp4` renders the whole walk as a video.
+- **`gltf`** and **`glb`** are glTF 2.0 (`.gltf` JSON with its buffer inlined, or one binary `.glb`; `renderSceneDsl` returns the glb as `bytes`), for Three.js, Blender, game engines and other 3D tools. Both pass the Khronos glTF Validator with no issues.
+  - glTF is y-up: every point (x, y, z) is written as (x, z, -y) and every rotation [x, y, z, w] as [x, z, -y, w]. Importers that turn y-up back to z-up (Blender's does) give the document's `position` and `quaternion` again.
+  - Each object is a placeholder box (origin at the bottom center, a triangle on top at the front, colored by stacking level). Its node's `extras` carry `dge_id`, `dge_front`, `dge_size` and, when set, `dge_supported_by`, `dge_asset`, `dge_group`, `dge_label` and `dge_geo` (importers keep them as custom properties), so a tool can swap the box for the named asset.
+  - The floor (or the terrain mesh), openings, paths, lines, waypoints (a line strip and points) and landmark pins come along. Each path's agent is a cylinder in one animation, `agents`, keyed every 0.1 s and at every corner; its time 0 is when the first agent sets off (`dge_time_origin` on the root node).
 - **`svg`** is a plan view for checking by eye:
   - north up, on a 0.5 m grid;
   - a triangle on each front;
@@ -315,6 +319,8 @@ The CLI writes the output even when the scene is invalid (`valid: false`, exit c
 - every opening strip's place on its wall and every path curve's points, to 1e-4;
 - where each agent stands at each corner's time (its animation evaluated at that frame), to 1e-3;
 - with terrain, the ground evaluated on its own from the document's grid: every mesh vertex on it, every object on the ground standing on it at its center (to 1 cm), every path and agent on it, a leaning object's quaternion and up axis, and a pin at every landmark.
+
+`test/support/gltf_check.py` imports each fixture's `.glb` into Blender and compares every object's world box and turn with the JSON the same way. `test/scene-gltf.test.ts` runs on every change: the Khronos validator, and each `.glb` loaded in Three.js with every object's world position, turn and box matched to the JSON.
 
 It is run at milestones (a change to the Blender export, the end of a phase, a release), not on every change:
 

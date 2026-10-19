@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### 3D scene: glTF / GLB export (#122, work package 4a)
+
+- `--format gltf` (JSON, buffer inlined) and `--format glb` (binary;
+  `renderSceneDsl` returns it as `bytes`, and `sceneToGltf` /
+  `sceneToGlb` are exported). Written y-up, so Blender's importer gives
+  back the document's positions and rotations.
+- Objects are placeholder boxes with a front marker and `dge_*` extras
+  (id, front, size, support, asset, group, label, WGS84 position); the
+  floor or terrain, openings, paths, lines, waypoints and landmarks come
+  along, and agents walk their paths in an `agents` animation.
+- Tests: every fixture passes the Khronos glTF Validator with no issues
+  and loads in Three.js with each object's world position, turn and box
+  matching the JSON; `gltf_check.py` does the same after importing into
+  Blender (at milestones, with `DGE_BLENDER_PYTHON`).
+
 ### 3D scene: outdoor examples and arrays (#121, work package 3f)
 
 - `tilt <degrees>` (a verb, or a clause after any verb) leans an object

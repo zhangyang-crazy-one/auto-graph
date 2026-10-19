@@ -274,6 +274,7 @@ relations:
 agh --input study.yaml --output study.scene.json      # dge-scene JSON：每个物体的位置、朝向、四元数、包围盒
 agh --input study.yaml --format blender --output study.py   # blender -b --python study.py -- --render study.jpg
 agh --input study.yaml --format svg --output study.svg       # 上面的俯视图
+agh --input study.yaml --format glb --output study.glb       # glTF 2.0，可导入 Three.js、Blender、游戏引擎
 ```
 
 **路径**：`person from door to desk` 规划一条人（或自定义的机器人）能走通的路线，按它的半径和一切保持距离。它像图表连线一样布线，并用同样的几道工序整理：拐点从所绕的物体旁移开，让人走在过道中间；直角路径在过道里居中；迎面相遇的路径靠右分道。路径被挡时，会把瓶颈处没被约束住的物体挪开（`makeWay`）；仍然走不通时会指出瓶颈，以及还差多少宽度。路径带时间（起步加速、拐弯减速、可以推迟出发），同时出发的智能体会检查是否相撞，Blender 脚本里每个智能体都会沿路径行走。写上 `frame` 就能把场景放到地球上：物体可以用经纬度固定，或按相对地标的距离和方位放置，输出里每个物体都带经纬度和高度。写上 `terrain` 高程网格，场景就放在起伏的地面上：物体贴地站立或随坡倾斜（`align to slope`），`slope below 8`、`elevation above 1425` 这类限制会把没被约束的物体移到满足条件的地面上。线（道路、测地线航线）可以沿线布置物体（`along`）、按离地高度排布无人机航点（`waypoints`），`tilt` 和 `keep clear … between <组>` 用来排布光伏阵列和风机；风电场、光伏、路灯示例见 [`docs/scenes.zh-CN.md`](docs/scenes.zh-CN.md)。
@@ -431,7 +432,7 @@ agh --input diagram.yaml --font ./NotoSansSC-Regular.otf --output diagram.svg   
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg  # 增量稳定
 agh --input diagram.yaml --padding 16 --output diagram.svg       # 图外留白
 agh --list-views | --view-example <视图> | --view-schema <视图> | --input view.yaml --expand
-agh --input room.yaml --format scene-json|blender|svg    # 场景文档（顶层有 `scene` 键）
+agh --input room.yaml --format scene-json|blender|svg|gltf|glb    # 场景文档（顶层有 `scene` 键）
 ```
 
 `--json` 把诊断以 JSON 写到标准错误；`--verbose` 额外输出提示级诊断。

@@ -1,21 +1,32 @@
 import type { DslDiagnostic, ParseDiagramDslOptions } from "../dsl/types.js";
 import { parseSceneDsl } from "./dsl.js";
 import { sceneToBlenderScript } from "./export/blender.js";
+import { sceneToGlb, sceneToGltf } from "./export/gltf.js";
 import { sceneToJson } from "./export/json.js";
 import type { SceneDiagnostic, SolvedScene } from "./ir.js";
 import { solveScene } from "./solve.js";
 import { sceneTopViewSvg } from "./top-view.js";
 
-export type SceneOutputFormat = "scene-json" | "blender" | "svg";
+export type SceneOutputFormat =
+	| "scene-json"
+	| "blender"
+	| "svg"
+	| "gltf"
+	| "glb";
 
 export const SCENE_OUTPUT_FORMATS: readonly SceneOutputFormat[] = [
 	"scene-json",
 	"blender",
 	"svg",
+	"gltf",
+	"glb",
 ];
 
 export interface RenderSceneDslOptions extends ParseDiagramDslOptions {
-	/** scene-json (default), blender (a bpy script) or svg (a top view). */
+	/**
+	 * scene-json (default), blender (a bpy script), svg (a top view), gltf
+	 * (glTF 2.0 JSON) or glb (binary glTF).
+	 */
 	format?: string;
 }
 
@@ -24,9 +35,12 @@ export interface RenderSceneDslResult {
 	format?: SceneOutputFormat;
 	/**
 	 * The output, also when the scene is invalid (it then shows what is
-	 * wrong); absent when the document itself does not validate.
+	 * wrong); absent when the document itself does not validate, and for
+	 * glb, which is `bytes` instead.
 	 */
 	content?: string;
+	/** The glb file, under the same conditions. */
+	bytes?: Uint8Array;
 	diagnostics: DslDiagnostic[];
 }
 
@@ -52,21 +66,32 @@ export function renderSceneDsl(
 	const parsed = parseSceneDsl(source, options);
 	if (parsed.scene === undefined) return { diagnostics: parsed.diagnostics };
 	const scene = solveScene(parsed.scene);
-	const content =
-		format === "blender"
-			? sceneToBlenderScript(scene)
-			: format === "svg"
-				? sceneTopViewSvg(scene)
-				: sceneToJson(scene);
+	const output =
+		format === "glb"
+			? { bytes: sceneToGlb(scene) }
+			: { content: sceneText(scene, format) };
 	return {
 		scene,
 		format,
-		content,
+		...output,
 		diagnostics: [
 			...parsed.diagnostics,
 			...scene.diagnostics.map(toDslDiagnostic),
 		],
 	};
+}
+
+function sceneText(scene: SolvedScene, format: SceneOutputFormat): string {
+	switch (format) {
+		case "blender":
+			return sceneToBlenderScript(scene);
+		case "svg":
+			return sceneTopViewSvg(scene);
+		case "gltf":
+			return sceneToGltf(scene);
+		default:
+			return sceneToJson(scene);
+	}
 }
 
 function toDslDiagnostic(diagnostic: SceneDiagnostic): DslDiagnostic {

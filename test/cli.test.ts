@@ -512,6 +512,23 @@ describe("agh CLI with scene documents", () => {
 		expect(svg.stdout()).toContain("<svg");
 	});
 
+	it("writes glTF, and a binary glb file byte for byte", async () => {
+		const gltf = memoryIo(study);
+		expect(await runCli(["--format", "gltf"], gltf.environment)).toBe(0);
+		expect(JSON.parse(gltf.stdout())).toMatchObject({
+			asset: { version: "2.0" },
+		});
+		await using workspace = await tempWorkspace();
+		const outputPath = join(workspace.path, "study.glb");
+		const io = memoryIo(study);
+		expect(
+			await runCli(["--format", "glb", "--output", outputPath], io.environment),
+		).toBe(0);
+		const bytes = await readFile(outputPath);
+		expect(bytes.subarray(0, 4).toString("latin1")).toBe("glTF");
+		expect(bytes.readUInt32LE(8)).toBe(bytes.length);
+	});
+
 	it("still writes an invalid scene, with its errors and exit code 1", async () => {
 		const io = memoryIo(broken);
 		expect(await runCli(["--json"], io.environment)).toBe(1);

@@ -111,6 +111,44 @@ describe("dge-scene export", () => {
 	);
 });
 
+// Imports every fixture's .glb into Blender (its glTF importer turns y-up
+// back to z-up) and compares the world boxes and turns with the JSON.
+// Needs DGE_BLENDER_PYTHON as above.
+describe("glTF in Blender", () => {
+	const python = process.env.DGE_BLENDER_PYTHON;
+	it.skipIf(python === undefined).each(FIXTURES)(
+		"%s imports into Blender exactly as solved",
+		(name) => {
+			const dir = mkdtempSync(join(tmpdir(), "dge-gltf-"));
+			try {
+				const glb = join(dir, "scene.glb");
+				const json = join(dir, "scene.json");
+				writeFileSync(
+					glb,
+					renderSceneDsl(source(name), { format: "glb" }).bytes ?? "",
+				);
+				writeFileSync(json, renderSceneDsl(source(name)).content ?? "");
+				const output = execFileSync(
+					python as string,
+					[
+						new URL("./support/gltf_check.py", import.meta.url).pathname,
+						glb,
+						json,
+					],
+					{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+				);
+				const result = JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
+				expect(result.problems).toEqual([]);
+				const document = JSON.parse(readFileSync(json, "utf8"));
+				expect(result.objects).toBe(document.objects.length);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		},
+		120_000,
+	);
+});
+
 // The Blender keys come from the agents in the output: their speed and
 // acceleration must be the ones the path times were computed with (#144).
 describe("Blender agent keys", () => {

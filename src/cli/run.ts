@@ -260,8 +260,8 @@ export async function runCli(
 }
 
 /**
- * A `scene:` document: solve it and write scene-json (default), blender
- * or svg. The output is written even when the scene is invalid (it shows
+ * A `scene:` document: solve it and write scene-json (default), blender,
+ * svg, gltf or glb. The output is written even when the scene is invalid (it shows
  * what is wrong), with exit code 1.
  */
 async function runScene(
@@ -290,7 +290,7 @@ async function runScene(
 					layer: "io",
 					code: "io.scene-option",
 					message: `${unused.map(([name]) => name).join(", ")} ${unused.length === 1 ? "does" : "do"} not apply to scene documents.`,
-					hint: "Scenes take --format scene-json, blender or svg.",
+					hint: "Scenes take --format scene-json, blender, svg, gltf or glb.",
 				},
 			],
 			options.json === true,
@@ -307,9 +307,10 @@ async function runScene(
 	if (diagnostics.length > 0) {
 		await writeDiagnostics(stderr, diagnostics, options.json === true);
 	}
-	if (result.content === undefined) return 1;
-	if (options.output === undefined) await writeStdout(stdout, result.content);
-	else await writeFileAtomic(options.output, result.content);
+	const output = result.bytes ?? result.content;
+	if (output === undefined) return 1;
+	if (options.output === undefined) await writeStdout(stdout, output);
+	else await writeFileAtomic(options.output, output);
 	return hasErrors(diagnostics) ? 1 : 0;
 }
 
@@ -328,7 +329,7 @@ function buildCommand(): Command {
 		.option("--output <path>", "Write generated output to a file")
 		.option(
 			"--format <format>",
-			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON); for scene documents scene-json, blender (a Blender Python script) or svg (top view)",
+			"Output format: svg, excalidraw, drawio or geometry (solved geometry JSON); for scene documents scene-json, blender (a Blender Python script), svg (top view), gltf or glb (glTF 2.0)",
 		)
 		.option(
 			"--font <file>",
