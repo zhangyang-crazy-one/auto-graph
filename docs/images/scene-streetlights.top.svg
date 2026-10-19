@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1096" height="696" viewBox="0 0 1096 696" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<path d="M73 648V48M98 648V48M123 648V48M148 648V48M173 648V48M198 648V48M223 648V48M248 648V48M273 648V48M298 648V48M323 648V48M348 648V48M373 648V48M398 648V48M423 648V48M448 648V48M473 648V48M498 648V48M523 648V48M548 648V48M573 648V48M598 648V48M623 648V48M648 648V48M673 648V48M698 648V48M723 648V48M748 648V48M773 648V48M798 648V48M823 648V48M848 648V48M873 648V48M898 648V48M923 648V48M948 648V48M973 648V48M998 648V48M1023 648V48M48 623H1048M48 598H1048M48 573H1048M48 548H1048M48 523H1048M48 498H1048M48 473H1048M48 448H1048M48 423H1048M48 398H1048M48 373H1048M48 348H1048M48 323H1048M48 298H1048M48 273H1048M48 248H1048M48 223H1048M48 198H1048M48 173H1048M48 148H1048M48 123H1048M48 98H1048M48 73H1048" stroke="#e2e8f0" stroke-width="1" fill="none"/>
+<rect x="48" y="48" width="1000" height="600" fill="none" stroke="#334155" stroke-width="2"/>
+<path d="M55 421L121 389L189 361.5L258.5 338.5L329.5 321L402 308L475 300.5L548 298L621 300.5L694 308L766.5 321L837.5 338.5L907 361.5L975 389L1041 421" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round"/>
+<text x="55" y="415" font-size="10" fill="#475569" stroke="#ffffff" stroke-width="3" paint-order="stroke">road</text>
+<text x="48" y="664" font-size="10" fill="#64748b" text-anchor="middle">0</text>
+<text x="98" y="664" font-size="10" fill="#64748b" text-anchor="middle">10</text>
+<text x="148" y="664" font-size="10" fill="#64748b" text-anchor="middle">20</text>
+<text x="198" y="664" font-size="10" fill="#64748b" text-anchor="middle">30</text>
+<text x="248" y="664" font-size="10" fill="#64748b" text-anchor="middle">40</text>
+<text x="298" y="664" font-size="10" fill="#64748b" text-anchor="middle">50</text>
+<text x="348" y="664" font-size="10" fill="#64748b" text-anchor="middle">60</text>
+<text x="398" y="664" font-size="10" fill="#64748b" text-anchor="middle">70</text>
+<text x="448" y="664" font-size="10" fill="#64748b" text-anchor="middle">80</text>
+<text x="498" y="664" font-size="10" fill="#64748b" text-anchor="middle">90</text>
+<text x="548" y="664" font-size="10" fill="#64748b" text-anchor="middle">100</text>
+<text x="598" y="664" font-size="10" fill="#64748b" text-anchor="middle">110</text>
+<text x="648" y="664" font-size="10" fill="#64748b" text-anchor="middle">120</text>
+<text x="698" y="664" font-size="10" fill="#64748b" text-anchor="middle">130</text>
+<text x="748" y="664" font-size="10" fill="#64748b" text-anchor="middle">140</text>
+<text x="798" y="664" font-size="10" fill="#64748b" text-anchor="middle">150</text>
+<text x="848" y="664" font-size="10" fill="#64748b" text-anchor="middle">160</text>
+<text x="898" y="664" font-size="10" fill="#64748b" text-anchor="middle">170</text>
+<text x="948" y="664" font-size="10" fill="#64748b" text-anchor="middle">180</text>
+<text x="998" y="664" font-size="10" fill="#64748b" text-anchor="middle">190</text>
+<text x="1048" y="664" font-size="10" fill="#64748b" text-anchor="middle">200</text>
+<text x="40" y="651" font-size="10" fill="#64748b" text-anchor="end">0</text>
+<text x="40" y="601" font-size="10" fill="#64748b" text-anchor="end">10</text>
+<text x="40" y="551" font-size="10" fill="#64748b" text-anchor="end">20</text>
+<text x="40" y="501" font-size="10" fill="#64748b" text-anchor="end">30</text>
+<text x="40" y="451" font-size="10" fill="#64748b" text-anchor="end">40</text>
+<text x="40" y="401" font-size="10" fill="#64748b" text-anchor="end">50</text>
+<text x="40" y="351" font-size="10" fill="#64748b" text-anchor="end">60</text>
+<text x="40" y="301" font-size="10" fill="#64748b" text-anchor="end">70</text>
+<text x="40" y="251" font-size="10" fill="#64748b" text-anchor="end">80</text>
+<text x="40" y="201" font-size="10" fill="#64748b" text-anchor="end">90</text>
+<text x="40" y="151" font-size="10" fill="#64748b" text-anchor="end">100</text>
+<text x="40" y="101" font-size="10" fill="#64748b" text-anchor="end">110</text>
+<text x="40" y="51" font-size="10" fill="#64748b" text-anchor="end">120</text>
+<path d="M1072 14l-5 12h10z" fill="#334155"/>
+<text x="1072" y="38" font-size="10" fill="#334155" text-anchor="middle">N</text>
+<polygon points="115.72,429.34 113.92,430.22 114.8,432.02 116.6,431.14" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="111.77,423.48 110.33,431.96 119.32,427.6" fill="#1e3a8a"/>
+<polygon points="251.23,376.72 249.33,377.35 249.96,379.25 251.86,378.62" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="248.09,370.39 245.54,378.6 255.03,375.46" fill="#1e3a8a"/>
+<polygon points="392.56,344.23 390.59,344.59 390.94,346.56 392.91,346.2" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="390.34,337.52 386.65,345.29 396.5,343.53" fill="#1e3a8a"/>
+<polygon points="537.06,332.39 535.06,332.46 535.13,334.46 537.13,334.39" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="535.82,325.43 531.06,332.6 541.05,332.26" fill="#1e3a8a"/>
+<polygon points="682.03,340.95 680.04,340.74 679.84,342.73 681.82,342.94" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="681.75,333.88 676.06,340.34 686.01,341.36" fill="#1e3a8a"/>
+<polygon points="824.2,370.24 822.25,369.76 821.78,371.7 823.72,372.18" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="824.9,363.2 818.37,368.8 828.08,371.2" fill="#1e3a8a"/>
+<polygon points="960.51,419.82 958.66,419.07 957.91,420.92 959.76,421.67" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="962.21,412.95 954.95,417.57 964.22,421.32" fill="#1e3a8a"/>
+<polygon points="155.21,338.49 157.06,337.74 156.31,335.89 154.46,336.64" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="158.76,344.6 160.77,336.24 151.5,339.99" fill="#1e3a8a"/>
+<polygon points="302.89,292.54 304.83,292.06 304.35,290.12 302.41,290.6" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="305.53,299.1 308.71,291.11 299,293.5" fill="#1e3a8a"/>
+<polygon points="455.54,268.32 457.53,268.12 457.32,266.13 455.33,266.33" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="457.25,275.18 461.51,267.71 451.56,268.73" fill="#1e3a8a"/>
+<polygon points="610.01,266.1 612.01,266.17 612.08,264.17 610.08,264.1" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="610.77,273.13 616.01,266.31 606.02,265.97" fill="#1e3a8a"/>
+<polygon points="763.45,285.91 765.42,286.26 765.77,284.29 763.8,283.94" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="763.2,292.98 769.35,286.97 759.51,285.2" fill="#1e3a8a"/>
+<polygon points="912.43,327.48 914.33,328.11 914.96,326.21 913.06,325.59" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="911.18,334.44 918.13,329.37 908.64,326.23" fill="#1e3a8a"/>
+<polygon points="146.53,326.36 154.87,322.99 153.75,320.2 145.4,323.58" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="153.33,331.16 155.34,322.8 146.07,326.55" fill="#1e3a8a"/>
+<polygon points="450.57,254.25 459.53,253.33 459.22,250.35 450.27,251.27" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="455.77,260.76 460.03,253.28 450.08,254.31" fill="#1e3a8a"/>
+<polygon points="762.56,271.02 771.42,272.61 771.95,269.66 763.09,268.07" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="765.76,278.7 771.91,272.7 762.07,270.93" fill="#1e3a8a"/>
+<polygon points="88,608 108,608 108,593 88,593" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="98,615 103,608 93,608" fill="#1e3a8a"/>
+<polygon points="988,608 1008,608 1008,593 988,593" fill="#dbeafe" fill-opacity="0.9" stroke="#1e3a8a" stroke-width="1.25"/>
+<polygon points="998,615 1003,608 993,608" fill="#1e3a8a"/>
+<text x="115.26" y="434.68" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp1</text>
+<text x="250.6" y="381.98" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp2</text>
+<text x="391.75" y="349.4" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp3</text>
+<text x="536.09" y="337.43" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp4</text>
+<text x="680.93" y="345.84" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp5</text>
+<text x="822.99" y="374.97" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp6</text>
+<text x="959.21" y="424.37" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lamp7</text>
+<text x="155.76" y="341.19" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lantern1</text>
+<text x="303.62" y="295.33" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lantern2</text>
+<text x="456.43" y="271.22" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lantern3</text>
+<text x="611.05" y="269.14" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lantern4</text>
+<text x="764.61" y="289.1" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lantern5</text>
+<text x="913.7" y="330.85" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">lantern6</text>
+<text x="150.14" y="327.28" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench1</text>
+<text x="454.9" y="256.3" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench2</text>
+<text x="767.26" y="274.34" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">bench3</text>
+<text x="98" y="604.5" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">kiosk1</text>
+<text x="998" y="604.5" font-size="11" fill="#0f172a" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">kiosk2</text>
+</svg>

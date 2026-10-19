@@ -330,6 +330,26 @@ function tiltFor(gradient: Vec2): Tilt {
 	};
 }
 
+/** How far below its bottom center a leaning box's lowest corner is (≤ 0). */
+function lowestCorner(
+	size: readonly [number, number, number],
+	yaw: number,
+	tilt: Tilt,
+): number {
+	const half = (yaw * Math.PI) / 360;
+	const q = multiply(tilt.quaternion, [0, 0, Math.sin(half), Math.cos(half)]);
+	let low = 0;
+	for (const sx of [-1, 1]) {
+		for (const sy of [-1, 1]) {
+			low = Math.min(
+				low,
+				rotate(q, [(sx * size[0]) / 2, (sy * size[1]) / 2, 0])[2],
+			);
+		}
+	}
+	return low;
+}
+
 /** Hamilton product a ⊗ b of quaternions [x, y, z, w]. */
 function multiply(
 	a: readonly [number, number, number, number],
@@ -433,6 +453,35 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	);
 	const groundAt = (point: Vec2): number =>
 		terrain === undefined ? 0 : terrain.heightNear(point.x, point.y);
+	// Fixed leans (`tilt`), toward each object's front.
+	const tilted = new Map<string, number>();
+	for (const relation of spec.relations) {
+		if (relation.kind !== "tilt") continue;
+		const before = tilted.get(relation.subject);
+		if (before !== undefined && Math.abs(before - relation.degrees) > 1e-9) {
+			diagnostics.push({
+				severity: "error",
+				code: "scene.tilt.conflict",
+				message: `"${relation.subject}" is tilted both ${before}° and ${relation.degrees}°.`,
+				objects: [relation.subject],
+				path: relation.path,
+				hint: "Keep one tilt.",
+			});
+			continue;
+		}
+		if (aligned.has(relation.subject)) {
+			diagnostics.push({
+				severity: "error",
+				code: "scene.tilt.conflict",
+				message: `"${relation.subject}" both leans with the slope and is tilted ${relation.degrees}°; it keeps the slope.`,
+				objects: [relation.subject],
+				path: relation.path,
+				hint: "Keep `align to slope` or `tilt`, not both.",
+			});
+			continue;
+		}
+		tilted.set(relation.subject, relation.degrees);
+	}
 
 	/**
 	 * One round: lay out the floor plan, then stand every object on its
@@ -555,15 +604,32 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			if (center === undefined) continue;
 			const shape = footprint(center, object.size, yaw);
 			const ground = groundAt(center);
-			// On the floor: on the ground, square to its slope if aligned.
+			// On the floor: on the ground, square to its slope if aligned. A
+			// fixed tilt leans it toward its front, lifted so its lowest
+			// corner is at the height it stands on.
+			const degrees = tilted.get(object.id);
+			const front = ((yaw + axisAngle(object.front)) * Math.PI) / 180;
+			const lean =
+				degrees === undefined ? 0 : Math.tan((degrees * Math.PI) / 180);
 			const tilt =
 				support === undefined && terrain !== undefined && aligned.has(object.id)
 					? tiltFor(terrain.planeUnder(shape))
-					: undefined;
+					: degrees !== undefined && degrees > 0
+						? tiltFor({
+								x: -lean * Math.cos(front),
+								y: -lean * Math.sin(front),
+							})
+						: undefined;
+			const base =
+				support === undefined ? ground : support.z + support.object.size[2];
+			const lift =
+				degrees !== undefined && tilt !== undefined
+					? -lowestCorner(object.size, yaw, tilt)
+					: 0;
 			placed.set(object.id, {
 				object,
 				center,
-				z: support === undefined ? ground : support.z + support.object.size[2],
+				z: base + lift,
 				ground,
 				yaw,
 				shape,
@@ -689,6 +755,8 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	// All at once first; if that makes another check worse (a spot that
 	// fights a relation or pin), one at a time, keeping each that helps.
 	let spots = new Map<string, Spot>();
+	/** Objects given a new spot (the others held are kept where they were). */
+	const moved = new Set<string>();
 	const others = (found: readonly SceneDiagnostic[]) =>
 		found.filter((d) => !isMaskProblem(d));
 	// A step helps when objects come within their limits and none leaves
@@ -724,7 +792,23 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			shapes.set(id, footprint(spot, item.object.size, item.yaw));
 		}
 		if (wanted.length === 0) break;
-		const all = new Map([...spots, ...wanted]);
+		for (const [id] of wanted) moved.add(id);
+		// Objects already within their limits stay where they are, so the
+		// moves (held apart from them by the layout) do not push them off.
+		const stay: [string, Spot][] = [];
+		for (const item of best.placed.values()) {
+			const id = item.object.id;
+			if (spots.has(id) || ids.includes(id)) continue;
+			if (item.support !== undefined || item.object.position !== undefined) {
+				continue;
+			}
+			const limits = limitsOf(spec, id);
+			if (limits.path.length === 0) continue;
+			stay.push([id, { point: item.center, path: limits.path }]);
+		}
+		// The stays are kept only with a move that is.
+		const base = new Map([...spots, ...stay]);
+		const all = new Map([...base, ...wanted]);
 		const together = attempt([], all);
 		if (helps(best, together)) {
 			best = together;
@@ -732,7 +816,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			continue;
 		}
 		let step = best;
-		let kept = spots;
+		let kept = base;
 		for (const [id, spot] of wanted) {
 			const trial = new Map(kept).set(id, spot);
 			const tried = attempt([], trial);
@@ -741,7 +825,10 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 				kept = trial;
 			}
 		}
-		if (kept === spots) break;
+		if (kept === base) {
+			for (const [id] of wanted) moved.delete(id);
+			break;
+		}
 		best = step;
 		spots = kept;
 	}
@@ -809,7 +896,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	// Objects moved to ground that meets their limits, where it does.
 	for (const [id, spot] of held) {
 		const item = placed.get(id);
-		if (item === undefined) continue;
+		if (item === undefined || !moved.has(id)) continue;
 		if (best.found.some((d) => isMaskProblem(d) && d.objects?.includes(id))) {
 			continue;
 		}

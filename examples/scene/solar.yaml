@@ -1,0 +1,33 @@
+# A ground-mounted solar array on a field falling gently to the south
+# (10 m grid of elevations). Four rows of eight panels face south, tilted
+# 25° from level; each stands on the ground with its low edge at the
+# ground at its center. Inverters stand at the east end of the rows, and
+# the array keeps to ground no steeper than 6°.
+scene: solar
+bounds: { width: 120, depth: 80 }
+frame:
+  origin: { lat: 38.4705, lon: 106.2701, alt: 1110 }
+terrain:
+  grid:
+    spacing: 10
+    # Elevations (m), rows south to north, each west to east.
+    heights:
+      - [1110.0, 1110.0, 1110.0, 1110.0, 1109.8, 1109.4, 1109.2, 1109.4, 1109.8, 1110.0, 1110.0, 1110.0, 1110.0]
+      - [1110.6, 1110.6, 1110.6, 1110.6, 1110.4, 1110.0, 1109.8, 1110.0, 1110.4, 1110.6, 1110.6, 1110.6, 1110.6]
+      - [1111.2, 1111.2, 1111.2, 1111.2, 1111.0, 1110.6, 1110.4, 1110.6, 1111.0, 1111.2, 1111.2, 1111.2, 1111.2]
+      - [1111.8, 1111.8, 1111.8, 1111.8, 1111.6, 1111.2, 1111.0, 1111.2, 1111.6, 1111.8, 1111.8, 1111.8, 1111.8]
+      - [1112.4, 1112.4, 1112.4, 1112.4, 1112.2, 1111.8, 1111.6, 1111.8, 1112.2, 1112.4, 1112.4, 1112.4, 1112.4]
+      - [1113.0, 1113.0, 1113.0, 1113.0, 1112.8, 1112.4, 1112.2, 1112.4, 1112.8, 1113.0, 1113.0, 1113.0, 1113.0]
+      - [1113.6, 1113.6, 1113.6, 1113.6, 1113.4, 1113.0, 1112.8, 1113.0, 1113.4, 1113.6, 1113.6, 1113.6, 1113.6]
+      - [1114.2, 1114.2, 1114.2, 1114.2, 1114.0, 1113.6, 1113.4, 1113.6, 1114.0, 1114.2, 1114.2, 1114.2, 1114.2]
+      - [1114.8, 1114.8, 1114.8, 1114.8, 1114.6, 1114.2, 1114.0, 1114.2, 1114.6, 1114.8, 1114.8, 1114.8, 1114.8]
+objects:
+  panel: { size: [4, 2, 0.08], count: 32 }
+  inverter: { size: [2, 1.2, 2.2], count: 2 }
+relations:
+  - panel grid 4x8, gap 3
+  - panel1 corner nw, gap 30
+  - panel facing south, tilt 25
+  - panel slope below 6
+  - inverter distribute along y, gap 9
+  - inverter1 right-of panel8, gap 4

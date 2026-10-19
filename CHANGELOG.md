@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### 3D scene: outdoor examples and arrays (#121, work package 3f)
+
+- `tilt <degrees>` (a verb, or a clause after any verb) leans an object
+  toward its front, lifted so its lowest corner is at the height it stands
+  on; `scene.tilt.conflict` when it meets another tilt or `align to slope`.
+- `keep clear <length> between <group>` keeps every pair in a group apart.
+- Moving objects onto ground that meets their limits holds the objects
+  already within theirs in place, so the moves do not push them off.
+- Blender: the camera's clip distance follows the site (a site kilometres
+  across rendered blank); `blender_check.py` allows single precision's
+  relative error far from the origin and checks a tilted object's lowest
+  corner on the ground.
+- New examples `windfarm.yaml`, `solar.yaml` and `streetlights.yaml`, with
+  top views and renders in the docs.
+
 ### 3D scene: lines, placing along them, drone waypoints (#121, work package 3e)
 
 - `lines`: polylines in scene x, y, or by latitude and longitude along the

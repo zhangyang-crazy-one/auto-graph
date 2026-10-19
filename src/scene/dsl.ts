@@ -881,6 +881,7 @@ const MODIFIERS = new Map<string, readonly string[]>([
 	["slope-limit", []],
 	["elevation-range", []],
 	["along", ["spacing", "offset", "from"]],
+	["tilt", []],
 ]);
 
 /** True bearings of the compass words in `<length> north-of <place>`. */
@@ -924,7 +925,8 @@ type Head =
 	| { kind: "ground"; align: boolean }
 	| { kind: "slope-limit"; max: number }
 	| { kind: "elevation-range"; min?: number; max?: number }
-	| { kind: "along"; line: string };
+	| { kind: "along"; line: string }
+	| { kind: "tilt"; degrees: number };
 
 interface Modifiers {
 	gap?: number;
@@ -942,6 +944,8 @@ interface Modifiers {
 	spacing?: number;
 	offset?: number;
 	from?: number;
+	/** Lean toward the front, degrees. */
+	tilt?: number;
 }
 
 class RelationFailure extends Error {
@@ -1001,13 +1005,33 @@ class RelationParser {
 		const [first = [], ...rest] = clauses;
 
 		if (first[0] === "keep" && first[1] === "clear") {
-			// keep clear <length> between <a> and <b>
+			// keep clear <length> between <a> and <b> | between <group> (every pair)
 			const [, , length, between, a, and, b, ...extra] = first;
+			const members =
+				between === "between" && and === undefined && a !== undefined
+					? this.groups.get(a)
+					: undefined;
+			if (members !== undefined) {
+				if (rest.length > 0) this.modifierNotAllowed("keep-clear", rest[0]);
+				const clearance = this.length(length, "keep clear");
+				const out: SceneRelation[] = [];
+				members.forEach((first, i) => {
+					for (const second of members.slice(i + 1)) {
+						out.push({
+							kind: "keep-clear",
+							between: [first, second],
+							clearance,
+							path,
+						});
+					}
+				});
+				return out;
+			}
 			if (between !== "between" || and !== "and" || b === undefined) {
 				fail(
 					"validate.scene.relation-syntax",
 					`Cannot read "${first.join(" ")}".`,
-					"Write `keep clear <length> between <a> and <b>`.",
+					"Write `keep clear <length> between <a> and <b>`, or `between <group>` for every pair in a group.",
 				);
 			}
 			this.noExtra(extra);
@@ -1284,6 +1308,10 @@ class RelationParser {
 				);
 				return { kind: "around", center: center as string };
 			}
+			case "tilt": {
+				const [degrees] = words(1, "<object> tilt <degrees>");
+				return { kind: "tilt", degrees: this.tiltAngle(degrees) };
+			}
 			case "along": {
 				const [line] = words(1, "<group> along <line>, spacing <length>");
 				if (!this.lines.has(line as string)) {
@@ -1337,6 +1365,7 @@ class RelationParser {
 			if (
 				name !== "facing" &&
 				name !== "rotate" &&
+				name !== "tilt" &&
 				!allowed.includes(name ?? "")
 			) {
 				this.modifierNotAllowed(kind, clause);
@@ -1389,6 +1418,9 @@ class RelationParser {
 				case "offset":
 					out.offset = this.signedLength(arg, name);
 					break;
+				case "tilt":
+					out.tilt = this.tiltAngle(arg);
+					break;
 				case "at":
 					out.at = spot(arg);
 					break;
@@ -1435,6 +1467,9 @@ class RelationParser {
 			}
 			if (modifiers.rotate !== undefined) {
 				out.push({ kind: "rotate", subject, degrees: modifiers.rotate, path });
+			}
+			if (modifiers.tilt !== undefined) {
+				out.push({ kind: "tilt", subject, degrees: modifiers.tilt, path });
 			}
 		};
 		const each = (make: (subject: string, index: number) => SceneRelation) => {
@@ -1658,6 +1693,16 @@ class RelationParser {
 					...(head.max === undefined ? {} : { max: head.max }),
 					path,
 				}));
+			case "tilt":
+				if (modifiers.tilt !== undefined) {
+					this.modifierNotAllowed("tilt", ["tilt"]);
+				}
+				return each((subject) => ({
+					kind: "tilt",
+					subject,
+					degrees: head.degrees,
+					path,
+				}));
 			case "along": {
 				// Spread along the line by arc length; each turned to face the
 				// line (along it, when on it) unless the relation turns it.
@@ -1825,6 +1870,19 @@ class RelationParser {
 		return value;
 	}
 
+	/** A lean from upright, degrees in [0, 90). */
+	private tiltAngle(token: string | undefined): number {
+		const degrees = this.angle(token, "tilt");
+		if (!(degrees >= 0 && degrees < 90)) {
+			fail(
+				"validate.scene.relation-value",
+				`A tilt of ${degrees}° is not between 0° and 90°.`,
+				"Give the lean from upright, toward the object's front, in degrees.",
+			);
+		}
+		return degrees;
+	}
+
 	/** A length that may be negative (`offset`: to the left of travel). */
 	private signedLength(token: string | undefined, what: string): number {
 		const negative = (token ?? "").startsWith("-");
@@ -1957,7 +2015,7 @@ class RelationParser {
 	): never {
 		const allowed = [...(MODIFIERS.get(kind) ?? [])];
 		if (kind !== "keep-clear" && kind !== "facing" && kind !== "rotate") {
-			allowed.push("facing", "rotate");
+			allowed.push("facing", "rotate", "tilt");
 		}
 		fail(
 			"validate.scene.relation-modifier",

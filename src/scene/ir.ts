@@ -185,6 +185,16 @@ export type SceneRelation =
 			align: boolean;
 	  })
 	| (RelationBase & {
+			/**
+			 * Leans the object toward its front by `degrees` from upright (a
+			 * solar panel facing the sun); it is lifted so its lowest corner
+			 * meets the ground at its center.
+			 */
+			kind: "tilt";
+			subject: string;
+			degrees: number;
+	  })
+	| (RelationBase & {
 			/** The ground under it may be no steeper than `max` degrees. */
 			kind: "slope-limit";
 			subject: string;

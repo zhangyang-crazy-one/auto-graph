@@ -9,6 +9,9 @@ const EXAMPLES = new Set([
 	"storeroom",
 	"park",
 	"hillside",
+	"windfarm",
+	"solar",
+	"streetlights",
 ]);
 
 export function sceneSourceUrl(name: string): URL {
