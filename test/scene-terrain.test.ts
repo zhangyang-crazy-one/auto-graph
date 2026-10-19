@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	normalizeSceneDsl,
 	parseSceneDsl,
@@ -10,6 +10,7 @@ import {
 	solveScene,
 } from "../src/index.js";
 import { corners, footprint } from "../src/scene/geometry.js";
+import { type PathObstacle, planPaths } from "../src/scene/paths.js";
 import {
 	contourSegments,
 	GridTerrain,
@@ -666,5 +667,80 @@ describe("headroom on slopes", () => {
 			2.3,
 		);
 		expect(underBeam(tall)).toBe(false);
+	});
+});
+
+// #152: within one plan, the ground under an object is scanned once per
+// reach, however many paths ask.
+describe("headroom queries", () => {
+	it("scans each object's ground once per reach", () => {
+		const grid = sampleTerrain((x) => 0.05 * x, {
+			spacing: 1,
+			columns: 21,
+			rows: 21,
+		});
+		const objects: Record<string, unknown> = {};
+		for (let k = 0; k < 6; k += 1) {
+			// High enough at their centers to need a scan.
+			objects[`arch${k}`] = { size: [2, 2, 0.2], position: [3 + k * 2.5, 10] };
+		}
+		const posts: Record<string, unknown> = {};
+		for (let k = 0; k < 6; k += 1) {
+			posts[`post${k}`] = {
+				size: [0.3, 0.3, 2.5],
+				position: [3 + k * 2.5, 10],
+			};
+		}
+		const spec = normalizeSceneDsl({
+			scene: "t",
+			bounds: { width: 20, depth: 20 },
+			terrain: terrainDsl(grid),
+			objects: { ...posts, ...objects },
+			relations: Array.from({ length: 6 }, (_, k) => `arch${k} on post${k}`),
+			openings: {
+				s1: { wall: "south", at: 4, width: 1 },
+				s2: { wall: "south", at: 9, width: 1 },
+				s3: { wall: "south", at: 14, width: 1 },
+				n1: { wall: "north", at: 4, width: 1 },
+				n2: { wall: "north", at: 9, width: 1 },
+				n3: { wall: "north", at: 14, width: 1 },
+			},
+			paths: [
+				"person from s1 to n1",
+				"person from s2 to n2",
+				"person from s3 to n3",
+				"person from s1 to n3",
+				"person from s3 to n1, clearance 0.1",
+			],
+		}).scene as SceneSpec;
+		// The solved objects, as the planner sees them.
+		const solved = solveScene(spec);
+		const terrain = new GridTerrain(spec.terrain as TerrainGrid);
+		const placedOf = (scene: SceneSpec) =>
+			new Map<string, PathObstacle>(
+				solved.objects.map((o) => {
+					const center = { x: o.position[0], y: o.position[1] };
+					return [
+						o.id,
+						{
+							object: scene.objects.find(
+								(item) => item.id === o.id,
+							) as SceneSpec["objects"][number],
+							shape: footprint(center, o.size, o.yaw),
+							z: o.position[2],
+							ground: terrain.height(center.x, center.y),
+						},
+					];
+				}),
+			);
+		const scan = vi.spyOn(GridTerrain.prototype, "rangeUnder");
+		const before = scan.mock.calls.length;
+		planPaths(spec, placedOf(spec));
+		const calls = scan.mock.calls.length - before;
+		scan.mockRestore();
+		// 6 arches × 2 reaches (clearance 0 and 0.1); the posts and their
+		// supports are low at their centers and need no scan.
+		expect(calls).toBeLessThanOrEqual(12);
+		expect(calls).toBeGreaterThan(0);
 	});
 });
