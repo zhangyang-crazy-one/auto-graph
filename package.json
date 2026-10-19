@@ -53,10 +53,13 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.4.15",
 		"@types/node": "25.9.1",
+		"@types/three": "0.186.0",
 		"coordtransform": "2.1.2",
 		"elkjs": "0.12.0",
 		"geographiclib-geodesic": "2.2.0",
+		"gltf-validator": "2.0.0-dev.3.10",
 		"proj4": "2.19.10",
+		"three": "0.186.1",
 		"tsup": "8.5.1",
 		"typescript": "6.0.3",
 		"vitest": "4.1.7"

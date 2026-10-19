@@ -6,6 +6,7 @@ export {
 	sceneDslSchema,
 } from "./dsl.js";
 export { sceneToBlenderScript } from "./export/blender.js";
+export { sceneToGlb, sceneToGltf } from "./export/gltf.js";
 export type { SceneDocument } from "./export/json.js";
 export {
 	sceneDocumentSchema,

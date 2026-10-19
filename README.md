@@ -274,6 +274,7 @@ The frame is x east, y north and z up, in meters, with the origin at the room's 
 agh --input study.yaml --output study.scene.json      # dge-scene JSON: position, yaw, quaternion, box per object
 agh --input study.yaml --format blender --output study.py   # blender -b --python study.py -- --render study.jpg
 agh --input study.yaml --format svg --output study.svg       # the top view above
+agh --input study.yaml --format glb --output study.glb       # glTF 2.0 for Three.js, Blender, game engines
 ```
 
 **Paths.** `person from door to desk` plans a route a person (or a declared robot) can walk, kept clear of everything by its radius. It is routed like a diagram edge and tidied by the same passes: corners move off what they turn round so people walk mid-aisle, right-angle paths are centred in their aisles, and paths meeting head-on keep right. A blocked path pushes the things at its bottleneck apart where nothing holds them (`makeWay`). A path that still cannot get through names the bottleneck and how much width is missing. Paths are timed (agents speed up, slow for corners, may set off later), agents set to walk at the same time are checked for running into each other, and the Blender script animates every agent along its path. A `frame` places the scene on the Earth: objects can be pinned by latitude and longitude or placed by distance and bearing from landmarks, and every object comes back with its latitude, longitude and height. A `terrain` grid of elevations puts the scene on uneven ground: objects stand on it or lean with the slope (`align to slope`), and limits such as `slope below 8` or `elevation above 1425` move free objects onto ground that meets them. Lines (roads, geodesic routes) take things `along` them and drone `waypoints` at a height above the ground, and `tilt` and `keep clear … between <group>` lay out solar rows and turbine fields; see the wind farm, solar and street-light examples in [`docs/scenes.md`](docs/scenes.md).
@@ -431,7 +432,7 @@ agh --input diagram.yaml --font ./NotoSansSC-Regular.otf --output diagram.svg   
 agh --input diagram.yaml --previous diagram.geometry.json --output diagram.svg  # incremental
 agh --input diagram.yaml --padding 16 --output diagram.svg       # margin around the drawing
 agh --list-views | --view-example <view> | --view-schema <view> | --input view.yaml --expand
-agh --input room.yaml --format scene-json|blender|svg    # scene documents (a top-level `scene` key)
+agh --input room.yaml --format scene-json|blender|svg|gltf|glb    # scene documents (a top-level `scene` key)
 ```
 
 `--json` writes diagnostics to stderr as JSON; `--verbose` also prints informational ones.

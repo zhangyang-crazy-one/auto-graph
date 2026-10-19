@@ -44,7 +44,7 @@ export async function readInputFile(path: string): Promise<string> {
 
 export async function writeStdout(
 	stream: Writable,
-	content: string,
+	content: string | Uint8Array,
 ): Promise<void> {
 	await writeStream(stream, content);
 }
@@ -58,21 +58,28 @@ export async function writeStderr(
 
 export async function writeFileAtomic(
 	path: string,
-	content: string,
+	content: string | Uint8Array,
 ): Promise<void> {
 	const dir = dirname(path);
 	const tempDir = await mkdtemp(join(dir, ".agh-output-"));
 	const tempPath = join(tempDir, "output.tmp");
 
 	try {
-		await writeFile(tempPath, content, "utf8");
+		await writeFile(
+			tempPath,
+			content,
+			typeof content === "string" ? "utf8" : undefined,
+		);
 		await rename(tempPath, path);
 	} finally {
 		await rm(tempDir, { force: true, recursive: true });
 	}
 }
 
-function writeStream(stream: Writable, content: string): Promise<void> {
+function writeStream(
+	stream: Writable,
+	content: string | Uint8Array,
+): Promise<void> {
 	return new Promise((resolve, reject) => {
 		stream.write(content, (error) => {
 			if (error) {
