@@ -60,8 +60,35 @@ export interface PathObstacle {
 	shape: Footprint;
 	/** Bottom height. */
 	z: number;
-	/** Height of the ground under it (0 on a flat floor). */
+	/** Height of the ground under its center (0 on a flat floor). */
 	ground?: number;
+	/** Its lowest point, when lower than `z` (an object leaning with the slope). */
+	bottom?: number;
+}
+
+/**
+ * How much room an agent has under an obstacle: from the highest ground
+ * anywhere under it (its footprint grown by `reach`, the agent's radius
+ * and clearance, so an agent at its edge counts too) to its lowest point.
+ * On a slope the ground at the center says little: a beam high over its
+ * middle can be low over its uphill end.
+ */
+function headroom(
+	item: PathObstacle,
+	ground: GridTerrain | undefined,
+	reach: number,
+): number {
+	const bottom = Math.min(item.z, item.bottom ?? item.z);
+	if (ground === undefined) return bottom - (item.ground ?? 0);
+	const range = ground.rangeUnder({
+		...item.shape,
+		halfX: item.shape.halfX + reach,
+		halfY: item.shape.halfY + reach,
+	});
+	const high = Number.isFinite(range.maxElevation)
+		? range.maxElevation - ground.grid.base
+		: (item.ground ?? 0);
+	return bottom - Math.max(high, item.ground ?? 0);
 }
 
 export interface PlanPathsResult {
@@ -148,12 +175,15 @@ export function planPaths(
 		spec.openings.map((opening) => [opening.id, opening]),
 	);
 
+	const terrain =
+		spec.terrain === undefined ? undefined : new GridTerrain(spec.terrain);
 	const routed: Routed[] = [];
 	for (const given of spec.paths) {
 		const path = withPathDefaults(given);
 		const agent = agents.get(path.agent) as SceneAgent;
 		const obstacles = [...placed.values()].filter(
-			(item) => item.z - (item.ground ?? 0) < agent.height,
+			(item) =>
+				headroom(item, terrain, agent.radius + path.clearance) < agent.height,
 		);
 		const places = [path.from, ...path.via, path.to];
 		// A place without a position (left out of the layout) cannot be

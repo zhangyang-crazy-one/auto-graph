@@ -14,6 +14,7 @@ export {
 	type GeoFrame,
 	geoFrame,
 	ProjectedFrame,
+	projectionRefusal,
 	type Refusal,
 	SceneGeoFrame,
 	UTM_REACH,

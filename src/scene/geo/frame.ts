@@ -286,30 +286,43 @@ export class ProjectedFrame implements GeoFrame {
 	}
 
 	refuse(point: Geodetic): Refusal | undefined {
-		if (this.projection.kind === "web-mercator") {
-			if (Math.abs(point.lat) <= WEB_MERCATOR_MAX_LAT) return undefined;
-			return {
-				message: `Latitude ${point.lat}° is past Web Mercator's edge (±${WEB_MERCATOR_MAX_LAT.toFixed(4)}°).`,
-				hint: "Use `projection: utm` or `enu` for places this far north or south.",
-				detail: { lat: point.lat },
-			};
-		}
-		if (point.lat < -80 || point.lat > 84) {
-			return {
-				message: `Latitude ${point.lat}° is outside UTM (80°S to 84°N); the polar UPS grid is not supported.`,
-				hint: "Use `projection: enu` for a site near the poles.",
-				detail: { lat: point.lat },
-			};
-		}
-		const meridian = utmMeridian(this.projection.zone);
-		const away = Math.abs(((point.lon - meridian + 540) % 360) - 180);
-		if (away <= UTM_REACH) return undefined;
+		return projectionRefusal(this.projection, point);
+	}
+}
+
+/**
+ * Why a map projection cannot place a point (undefined when it can): UTM
+ * covers 80°S–84°N within 15° of the zone's central meridian, Web
+ * Mercator ±85.05°. A pure check, so a frame's origin can be tested
+ * before the frame is built.
+ */
+export function projectionRefusal(
+	projection: Exclude<FrameProjection, { kind: "enu" }>,
+	point: Geodetic,
+): Refusal | undefined {
+	if (projection.kind === "web-mercator") {
+		if (Math.abs(point.lat) <= WEB_MERCATOR_MAX_LAT) return undefined;
 		return {
-			message: `This point is ${Math.round(away * 10) / 10}° from UTM zone ${this.projection.zone}'s central meridian; one projected frame places points within ${UTM_REACH}°.`,
-			hint: "Check the coordinates, or give a far site a scene with its own origin.",
-			detail: { degrees: Math.round(away * 1e4) / 1e4 },
+			message: `Latitude ${point.lat}° is past Web Mercator's edge (±${WEB_MERCATOR_MAX_LAT.toFixed(4)}°).`,
+			hint: "Use `projection: utm` or `enu` for places this far north or south.",
+			detail: { lat: point.lat },
 		};
 	}
+	if (point.lat < -80 || point.lat > 84) {
+		return {
+			message: `Latitude ${point.lat}° is outside UTM (80°S to 84°N); the polar UPS grid is not supported.`,
+			hint: "Use `projection: enu` for a site near the poles.",
+			detail: { lat: point.lat },
+		};
+	}
+	const meridian = utmMeridian(projection.zone);
+	const away = Math.abs(((point.lon - meridian + 540) % 360) - 180);
+	if (away <= UTM_REACH) return undefined;
+	return {
+		message: `This point is ${Math.round(away * 10) / 10}° from UTM zone ${projection.zone}'s central meridian; one projected frame places points within ${UTM_REACH}°.`,
+		hint: "Check the coordinates, or give a far site a scene with its own origin.",
+		detail: { degrees: Math.round(away * 1e4) / 1e4 },
+	};
 }
 
 /** The frame for a spec: local east-north-up unless a projection is named. */

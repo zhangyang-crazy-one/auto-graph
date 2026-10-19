@@ -5,6 +5,8 @@ import {
 	normalizeSceneDsl,
 	type SceneSpec,
 	type SolvedScene,
+	sceneDocumentSchema,
+	sceneToJson,
 	solveScene,
 } from "../src/index.js";
 import {
@@ -337,5 +339,56 @@ describe("specs from before projections", () => {
 		const scene = solveScene({ ...spec, frame } as SceneSpec);
 		expect(scene.geo?.projection).toEqual({ kind: "enu" });
 		expect(scene.objects[0]?.geo?.lat).toBeCloseTo(30 + 5 / 110_000, 4);
+	});
+});
+
+// #149: the origin itself is checked before a projected frame is built.
+describe("frame origins a projection cannot hold", () => {
+	const parse = (frame: Record<string, unknown>, extra = {}) =>
+		normalizeSceneDsl({
+			scene: "t",
+			bounds: { width: 10, depth: 10 },
+			objects: { a: { size: [1, 1, 1], position: [5, 5] } },
+			frame,
+			...extra,
+		});
+	it.each([
+		[{ origin: { lat: 0, lon: 93 }, projection: "utm", zone: 31 }],
+		[{ origin: { lat: 0, lon: 93 }, zone: 31 }],
+		[{ origin: { lat: 85, lon: 10 }, projection: "utm" }],
+		[{ origin: { lat: -85, lon: 10 }, projection: "utm" }],
+		[{ origin: { lat: 90, lon: 0 }, projection: "utm" }],
+		[{ origin: { lat: 86, lon: 0 }, projection: "web-mercator" }],
+		[{ origin: { lat: -90, lon: 0 }, projection: "web-mercator" }],
+	])("refuses %j at frame.origin", (frame) => {
+		const result = parse(frame);
+		expect(result.scene).toBeUndefined();
+		expect(result.diagnostics.map((d) => [d.code, d.path?.join(".")])).toEqual([
+			["validate.scene.geo-extent", "frame.origin"],
+		]);
+	});
+
+	it("keeps good origins, the next zone and the 180° meridian", () => {
+		for (const frame of [
+			{ origin: { lat: 40, lon: 117 }, projection: "utm" },
+			{ origin: { lat: 40, lon: 119.9 }, zone: 51 },
+			{ origin: { lat: 0.5, lon: 179.95 }, projection: "utm" },
+			{ origin: { lat: 0.5, lon: -179.95 }, projection: "web-mercator" },
+			{ origin: { lat: 84.5, lon: 0 } },
+		]) {
+			const result = parse(frame);
+			expect(result.diagnostics).toEqual([]);
+			const scene = solveScene(result.scene as SceneSpec);
+			const numbers = scene.objects.flatMap((o) => [
+				...o.position,
+				o.geo?.lat ?? 0,
+				o.geo?.lon ?? 0,
+				o.geo?.alt ?? 0,
+			]);
+			expect(numbers.every(Number.isFinite)).toBe(true);
+			expect(() =>
+				sceneDocumentSchema.parse(JSON.parse(sceneToJson(scene))),
+			).not.toThrow();
+		}
 	});
 });
