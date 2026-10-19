@@ -111,22 +111,29 @@ export class GridTerrain {
 		const i1 = this.index(Math.max(...xs), "x");
 		const j0 = this.index(Math.min(...ys), "y");
 		const j1 = this.index(Math.max(...ys), "y");
+		const pieces: { piece: Vec2[]; i: number; j: number }[] = [];
 		for (let j = j0; j <= j1; j += 1) {
 			for (let i = i0; i <= i1; i += 1) {
 				const x0 = this.grid.origin.x + i * spacing.x;
 				const y0 = this.grid.origin.y + j * spacing.y;
 				const piece = clip(outline, x0, y0, x0 + spacing.x, y0 + spacing.y);
-				if (piece.length === 0) continue;
-				const cell = this.cellAt(i, j);
-				for (let k = 0; k < piece.length; k += 1) {
-					const a = piece[k] as Vec2;
-					const b = piece[(k + 1) % piece.length] as Vec2;
-					const g = cell.gradient(a.x, a.y);
-					steepest = Math.max(steepest, Math.hypot(g.x, g.y));
-					for (const value of cell.alongEdge(a, b)) {
-						minElevation = Math.min(minElevation, value);
-						maxElevation = Math.max(maxElevation, value);
-					}
+				if (piece.length > 0) pieces.push({ piece, i, j });
+			}
+		}
+		// A cell the footprint only touches along a grid line (or grazes by
+		// a rounding error: an edge at 639.9999999999999 for 640) adds
+		// nothing: its piece is a sliver. A footprint of no width keeps them.
+		const solid = pieces.filter(({ piece }) => !sliver(piece));
+		for (const { piece, i, j } of solid.length > 0 ? solid : pieces) {
+			const cell = this.cellAt(i, j);
+			for (let k = 0; k < piece.length; k += 1) {
+				const a = piece[k] as Vec2;
+				const b = piece[(k + 1) % piece.length] as Vec2;
+				const g = cell.gradient(a.x, a.y);
+				steepest = Math.max(steepest, Math.hypot(g.x, g.y));
+				for (const value of cell.alongEdge(a, b)) {
+					minElevation = Math.min(minElevation, value);
+					maxElevation = Math.max(maxElevation, value);
 				}
 			}
 		}
@@ -418,4 +425,17 @@ export function contourSegments(
 		}
 	}
 	return out;
+}
+
+/** Thinner than this across, a clipped piece is a sliver (metres). */
+const SLIVER = 1e-6;
+
+/** Whether a clipped piece is thinner than SLIVER along x or along y. */
+function sliver(piece: readonly Vec2[]): boolean {
+	const xs = piece.map((point) => point.x);
+	const ys = piece.map((point) => point.y);
+	return (
+		Math.max(...xs) - Math.min(...xs) < SLIVER ||
+		Math.max(...ys) - Math.min(...ys) < SLIVER
+	);
 }

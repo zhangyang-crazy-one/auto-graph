@@ -146,12 +146,18 @@ export function sceneTopViewSvg(
 	out.push(
 		`<rect x="${px(0)}" y="${py(depth)}" width="${fmt(roomWidth)}" height="${fmt(roomDepth)}" fill="none" stroke="#334155" stroke-width="2"/>`,
 	);
-	// Lines (roads, fences, flight lines): dashed, named at their start.
+	// Lines (roads, fences, flight lines): dashed, named at their start; a
+	// road (a line with a width) on a pale strip that wide.
 	for (const line of scene.lines ?? []) {
 		const d = line.points
 			.map(([x, y], k) => `${k === 0 ? "M" : "L"}${px(x)} ${py(y)}`)
 			.join("");
 		const [x0 = 0, y0 = 0] = line.points[0] ?? [];
+		if (line.width !== undefined) {
+			out.push(
+				`<path data-line="${escapeXml(line.id)}" d="${d}" fill="none" stroke="#cbd5e1" stroke-opacity="0.8" stroke-width="${fmt(line.width * scale)}" stroke-linejoin="miter" stroke-linecap="square"/>`,
+			);
+		}
 		out.push(
 			`<path d="${d}" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round"/>`,
 			`<text x="${px(x0)}" y="${fmt(Number(py(y0)) - 6)}" font-size="10" fill="#475569" stroke="#ffffff" stroke-width="3" paint-order="stroke">${escapeXml(line.id)}</text>`,

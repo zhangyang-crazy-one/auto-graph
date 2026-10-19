@@ -644,6 +644,8 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 	 * Lay out, check and plan paths, with the given aisles held open and
 	 * the given objects held at spots (ground that meets their limits).
 	 */
+	// Roads: each line with a width as strips on the ground.
+	const strips = lineStrips(spec);
 	const attempt = (
 		aisles: readonly Aisle[],
 		spots: ReadonlyMap<string, Spot> = new Map(),
@@ -715,6 +717,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 
 		check(spec, placed, found);
 		if (terrain !== undefined) checkTerrain(spec, terrain, placed, found);
+		checkLines(strips, placed, found);
 		// A leaning object's lowest point decides what passes under it.
 		const obstacles = new Map(
 			[...placed].map(([id, item]) => [
@@ -771,7 +774,8 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			!worseOnOtherChecks(others(from.found), others(to.found))
 		);
 	};
-	for (let k = 0; terrain !== undefined && k < MASK_ROUNDS; k += 1) {
+	const masked = terrain !== undefined || strips.length > 0;
+	for (let k = 0; masked && k < MASK_ROUNDS; k += 1) {
 		const off = best.found.filter(isMaskProblem);
 		if (off.length === 0) break;
 		const shapes = new Map(
@@ -786,9 +790,18 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			if (item === undefined || item.support !== undefined) continue;
 			if (item.object.position !== undefined) continue;
 			const limits = limitsOf(spec, id);
-			const spot = findSpot(spec, terrain, item, limits, shapes, best.placed);
+			const spot = findSpot(
+				spec,
+				terrain,
+				strips,
+				item,
+				limits,
+				shapes,
+				best.placed,
+			);
 			if (spot === undefined) continue;
-			wanted.push([id, { point: spot, path: limits.path }]);
+			const path = limits.path.length > 0 ? limits.path : item.object.path;
+			wanted.push([id, { point: spot, path }]);
 			shapes.set(id, footprint(spot, item.object.size, item.yaw));
 		}
 		if (wanted.length === 0) break;
@@ -900,10 +913,15 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 		if (best.found.some((d) => isMaskProblem(d) && d.objects?.includes(id))) {
 			continue;
 		}
+		const at = `(${round(spot.point.x)}, ${round(spot.point.y)})`;
+		const limited = limitsOf(spec, id).path.length > 0;
+		const roads = strips.map((strip) => `"${strip.line}"`).join(", ");
 		diagnostics.push({
 			severity: "info",
-			code: "scene.terrain.moved",
-			message: `"${id}" stands at (${round(spot.point.x)}, ${round(spot.point.y)}), the nearest place where the ground meets its slope and elevation limits.`,
+			code: limited ? "scene.terrain.moved" : "scene.line.moved",
+			message: limited
+				? `"${id}" stands at ${at}, the nearest place where the ground meets its slope and elevation limits${strips.length > 0 ? ` (off ${roads})` : ""}.`
+				: `"${id}" stands at ${at}, the nearest place off ${roads}.`,
 			objects: [id],
 			path: spot.path,
 			hint: "Pin it or relate it to something to place it yourself.",
@@ -991,6 +1009,7 @@ export function solveScene(spec: SceneSpec): SolvedScene {
 			round(groundUnder(p.x, p.y)),
 		]),
 		length: round(polylineLength(line.points)),
+		...(line.width === undefined ? {} : { width: round(line.width) }),
 	}));
 	const step =
 		terrain === undefined
@@ -1331,7 +1350,11 @@ interface Spot {
 	path: ScenePath;
 }
 
-const MASK_CODES = new Set(["scene.terrain.slope", "scene.terrain.elevation"]);
+const MASK_CODES = new Set([
+	"scene.terrain.slope",
+	"scene.terrain.elevation",
+	"scene.line.overlap",
+]);
 
 function isMaskProblem(diagnostic: SceneDiagnostic): boolean {
 	return MASK_CODES.has(diagnostic.code);
@@ -1373,10 +1396,11 @@ function limitsOf(spec: SceneSpec, id: string): Limits {
 
 /** Whether the ground under a footprint meets the limits. */
 function meets(
-	terrain: GridTerrain,
+	terrain: GridTerrain | undefined,
 	shape: Footprint,
 	limits: Limits,
 ): boolean {
+	if (terrain === undefined) return true;
 	const range = terrain.rangeUnder(shape);
 	return (
 		range.covered &&
@@ -1388,14 +1412,16 @@ function meets(
 
 /**
  * The nearest spot (to where the object is now) whose ground meets its
- * limits, inside the scene's bounds and clear of everything else on the
- * floor (by `minGap`, or a `keep clear` distance). Candidates lie on a
- * grid as fine as half the terrain's spacing (coarser on a huge site),
- * tried nearest first, ties south then west.
+ * limits, inside the scene's bounds, off every road (line with a width)
+ * and clear of everything else on the floor (by `minGap`, or a `keep
+ * clear` distance). Candidates lie on a grid as fine as half the
+ * terrain's spacing (without terrain, a quarter metre; coarser on a huge
+ * site), tried nearest first, ties south then west.
  */
 function findSpot(
 	spec: SceneSpec,
-	terrain: GridTerrain,
+	terrain: GridTerrain | undefined,
+	strips: readonly LineStrip[],
 	item: Placement,
 	limits: Limits,
 	shapes: ReadonlyMap<string, Footprint>,
@@ -1404,13 +1430,21 @@ function findSpot(
 	const probe = footprint({ x: 0, y: 0 }, item.object.size, item.yaw);
 	const ex = halfExtent(probe, { x: 1, y: 0 });
 	const ey = halfExtent(probe, { x: 0, y: 1 });
-	const x0 = Math.max(ex, terrain.min.x + ex);
-	const x1 = Math.min(spec.bounds.width - ex, terrain.max.x - ex);
-	const y0 = Math.max(ey, terrain.min.y + ey);
-	const y1 = Math.min(spec.bounds.depth - ey, terrain.max.y - ey);
+	const x0 = Math.max(ex, (terrain?.min.x ?? 0) + ex);
+	const x1 = Math.min(
+		spec.bounds.width - ex,
+		(terrain?.max.x ?? Infinity) - ex,
+	);
+	const y0 = Math.max(ey, (terrain?.min.y ?? 0) + ey);
+	const y1 = Math.min(
+		spec.bounds.depth - ey,
+		(terrain?.max.y ?? Infinity) - ey,
+	);
 	if (x1 < x0 || y1 < y0) return undefined;
-	const { spacing } = terrain.grid;
-	let step = Math.min(spacing.x, spacing.y) / 2;
+	let step =
+		terrain === undefined
+			? 0.25
+			: Math.min(terrain.grid.spacing.x, terrain.grid.spacing.y) / 2;
 	const area = (x1 - x0 + step) * (y1 - y0 + step);
 	if (area / (step * step) > MASK_CANDIDATES) {
 		step = Math.sqrt(area / MASK_CANDIDATES);
@@ -1450,6 +1484,7 @@ function findSpot(
 	for (const center of candidates) {
 		const shape = footprint(center, item.object.size, item.yaw);
 		if (!meets(terrain, shape, limits)) continue;
+		if (strips.some((strip) => onStrip(shape, strip) > TOLERANCE)) continue;
 		const clear = others.every(([other, theirs]) => {
 			if (penetration(shape, theirs) > TOLERANCE) return false;
 			const need = Math.max(spec.minGap, clearance.get(other) ?? 0);
@@ -1458,6 +1493,71 @@ function findSpot(
 		if (clear) return center;
 	}
 	return undefined;
+}
+
+/** A road: a line with a width, as one rectangle per segment. */
+interface LineStrip {
+	line: string;
+	width: number;
+	path: ScenePath;
+	/**
+	 * Each segment's rectangle, run on by half the width at both ends so
+	 * the strip's corners are covered.
+	 */
+	pieces: Footprint[];
+}
+
+function lineStrips(spec: SceneSpec): LineStrip[] {
+	return (spec.lines ?? []).flatMap((line) => {
+		const { width } = line;
+		if (width === undefined) return [];
+		const pieces: Footprint[] = [];
+		for (let k = 1; k < line.points.length; k += 1) {
+			const a = line.points[k - 1] as Vec2;
+			const b = line.points[k] as Vec2;
+			const length = Math.hypot(b.x - a.x, b.y - a.y);
+			if (length === 0) continue;
+			const yaw = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+			pieces.push(
+				footprint(
+					{ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+					[length + width, width, 0],
+					yaw,
+				),
+			);
+		}
+		return [{ line: line.id, width, path: line.path, pieces }];
+	});
+}
+
+/** How far a footprint reaches into a strip (0 when clear of it). */
+function onStrip(shape: Footprint, strip: LineStrip): number {
+	return Math.max(0, ...strip.pieces.map((piece) => penetration(shape, piece)));
+}
+
+/** Objects on the floor that stand on a road (a line with a width). */
+function checkLines(
+	strips: readonly LineStrip[],
+	placed: ReadonlyMap<string, Placement>,
+	diagnostics: SceneDiagnostic[],
+): void {
+	for (const item of placed.values()) {
+		if (item.support !== undefined) continue;
+		const id = item.object.id;
+		for (const strip of strips) {
+			const depth = onStrip(item.shape, strip);
+			if (depth <= TOLERANCE) continue;
+			diagnostics.push({
+				severity: "error",
+				code: "scene.line.overlap",
+				message: `"${id}" stands on "${strip.line}", ${round(depth)} m into its ${round(strip.width)} m width.`,
+				objects: [id],
+				path: item.object.path,
+				hint: `Move it off "${strip.line}" (things placed along it need an offset of at least half its width plus half their own depth), or narrow the line.`,
+				detail: { line: strip.line, depth: round(depth) },
+			});
+		}
+	}
 }
 
 /**

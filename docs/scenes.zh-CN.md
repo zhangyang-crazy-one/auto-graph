@@ -217,7 +217,7 @@ relations:
 
 ```yaml
 lines:
-  road:   { points: [[184, 22], [150, 40], [120, 62], [92, 76]] }   # 场景 x, y
+  road:   { points: [[184, 22], [150, 40], [120, 62], [92, 76]], width: 5 }   # 场景 x, y；5 m 宽的道路
   route:  { geo: [{ lat: 39.9, lon: 116.4 }, { lat: 31.2, lon: 121.5 }] }   # 沿测地线（大圆）
 waypoints:
   scan: { line: survey, spacing: 20, height: 60, min: 30 }   # 或 count: 8；默认每个折点一个
@@ -227,6 +227,7 @@ relations:
 ```
 
 - **线**用场景坐标（`points`）或经纬度（`geo`，需要 `frame`）给出。经纬度线在各点之间沿 WGS84 测地线（球面上即大圆）走：每段都会加密（最长一段的 1%，最多 100 m 一个点），投影后仍保持弧形。输出中每条线都贴在地面上（地面的 z，或 0），并给出长度。
+- **道路**：带 `width` 的线是地面上的一条带子，地面上的物体要避开。压到上面的物体会报错（`scene.line.overlap`），并给出压入的深度。没有被其他东西固定的物体会被挪到最近的、不压路的位置（`scene.line.moved`）；按坡度或海拔条件挪动的物体同样避开道路。沿道路布置（`along`）的物体，`offset` 至少要等于路宽的一半加上物体自身进深的一半。输出给出路宽；俯视图画出路面，Blender 脚本、glTF 和 USD 把路面铺在地面上。
 - **`along`** 把一组物体（或用 `and` 连起来的物体）按弧长沿线排开：从 `from`（默认 0）起每隔 `spacing` 米一个；不写 spacing 时从 `from` 到终点均匀分布。`offset` 把物体放到行进方向右侧（负数为左侧）。每个物体默认转向面对这条线（在线上时则顺着线），除非关系里写了 `facing` 或 `rotate`。间距超出线长会报错（`validate.scene.along-overflow`）。这些位置是平面上的固定点，与之矛盾的关系或钉住位置会报冲突；在地形上物体贴地站立。
 - **航点**位于线上、离地 `height` 高：沿线每隔 `spacing` 米一个（终点也有一个）、按 `count` 均匀分布，或每个折点一个。输出给出它们的 [x, y, z]（有 frame 时还有经纬度和高度），以及 `lowest`：航点之间直线航段上任意一处离地的最低高度（有地形时每八分之一个网格单元量一次）。航段低于 `min` 时给出 `scene.waypoint.low`；航段穿过物体包围盒时给出 `scene.waypoint.collision`（都是警告）。
 - 俯视图里线画成虚线，航点画成航段上的小圈并标出高度；Blender 脚本把线画在地面上，航点画成小标记并用航线相连。
@@ -310,6 +311,8 @@ relations:
 | `scene.terrain.moved`（提示） | 物体被移到最近的满足限制条件的地面 |
 | `validate.scene.along-overflow`、`validate.scene.unknown-line`、`validate.scene.line-points` | 间距超出线长；未知的线；线同时写了或都没写 `points` 和 `geo` |
 | `scene.tilt.conflict` | 同一物体有两个倾角，或同时有倾角和 `align to slope` |
+| `scene.line.overlap` | 地面上的物体压在道路（带宽度的线）上，给出压入深度 |
+| `scene.line.moved`（info） | 物体被挪到最近的、不压路的位置 |
 | `scene.waypoint.low`、`scene.waypoint.collision`（警告） | 航点之间的航段离地低于 `min` / 穿过物体 |
 | `scene.path.single-file`（提示） | 两条路径在窄到无法错身的地方迎面相遇 |
 | `scene.path.head-on`（提示） | 两条路径仍迎面共用一段：让道会超出长度上限、有一条是 `comfort 0`，或轮数用完 |

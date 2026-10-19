@@ -176,6 +176,8 @@ export const sceneDslSchema = z
 							.array(geoPointSchema.omit({ alt: true }))
 							.min(2)
 							.optional(),
+						/** A road's width: a strip on the ground objects keep off. */
+						width: z.number().positive().finite().optional(),
 					})
 					.strict(),
 			)
@@ -548,6 +550,8 @@ function normalizeScene(
 			);
 			continue;
 		}
+		const width =
+			entry.width === undefined ? {} : { width: entry.width / perMeter };
 		if (entry.points !== undefined) {
 			lines.push({
 				id,
@@ -555,6 +559,7 @@ function normalizeScene(
 					x: x / perMeter,
 					y: y / perMeter,
 				})),
+				...width,
 				path,
 			});
 			continue;
@@ -585,6 +590,7 @@ function normalizeScene(
 				const at = geoFrame.toScene(point);
 				return { x: at.x, y: at.y };
 			}),
+			...width,
 			path,
 		});
 	}

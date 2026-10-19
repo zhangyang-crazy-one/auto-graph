@@ -8,7 +8,9 @@ import {
 	LEVEL_COLORS,
 	levelOf,
 	PATH_COLORS,
+	ribbon,
 	type Solid,
+	sceneMarks,
 	terrainSolid,
 } from "./shapes.js";
 import { agentTracks, onGround, pathLines } from "./tracks.js";
@@ -95,7 +97,7 @@ function buildGltf(scene: SolvedScene): Gltf {
 	const out = new Writer();
 	const ground = sceneTerrain(scene);
 	const { width, depth } = scene.bounds;
-	const span = Math.max(width, depth);
+	const marks = sceneMarks(scene);
 	const children: number[] = [];
 
 	if (ground === undefined) {
@@ -154,11 +156,9 @@ function buildGltf(scene: SolvedScene): Gltf {
 	for (const landmark of scene.landmarks ?? []) {
 		const [x, y] = landmark.position;
 		const z = ground === undefined ? 0 : ground.heightNear(x, y);
-		const radius = Math.max(0.03, span * 0.004);
-		const height = Math.max(0.4, span * 0.03);
 		const mesh = out.solidMesh(
 			`landmark.${landmark.id}`,
-			cylinder(radius, height, 12),
+			cylinder(marks.pin.radius, marks.pin.height, 12),
 			"landmark",
 		);
 		children.push(
@@ -175,6 +175,24 @@ function buildGltf(scene: SolvedScene): Gltf {
 	}
 
 	for (const line of scene.lines ?? []) {
+		if (line.width !== undefined) {
+			// A road: its surface on the ground, under a node at its start.
+			const surface = ribbon(onGround(line.points, ground), line.width, ground);
+			const [ox = 0, oy = 0] = line.points[0] ?? [];
+			for (let k = 0; k < surface.positions.length; k += 3) {
+				surface.positions[k] = (surface.positions[k] as number) - ox;
+				surface.positions[k + 1] = (surface.positions[k + 1] as number) - oy;
+			}
+			children.push(
+				out.node({
+					name: `line.${line.id}`,
+					mesh: out.solidMesh(`line.${line.id}`, surface, "line"),
+					translation: [ox, oy, 0],
+					extras: { dge_line: line.id, dge_width: line.width },
+				}),
+			);
+			continue;
+		}
 		const node = polylineNode(
 			out,
 			`line.${line.id}`,

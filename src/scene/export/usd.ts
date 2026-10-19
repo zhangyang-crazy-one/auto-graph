@@ -9,7 +9,9 @@ import {
 	levelOf,
 	PATH_COLORS,
 	type Rgb,
+	ribbon,
 	type Solid,
+	sceneMarks,
 	terrainSolid,
 } from "./shapes.js";
 import { agentTracks, onGround, pathLines } from "./tracks.js";
@@ -107,7 +109,7 @@ export function sceneToUsda(
 	const looks = materials(out, root);
 
 	const { width, depth } = scene.bounds;
-	const span = Math.max(width, depth);
+	const marks = sceneMarks(scene);
 	if (ground === undefined) {
 		out.open('def Xform "floor"', "{");
 		translateOnly(out, [width / 2, depth / 2, -0.05]);
@@ -151,7 +153,6 @@ export function sceneToUsda(
 	const lines = pathLines(scene, ground);
 	if (scene.paths.length > 0) {
 		const names = new Names();
-		const thickness = Math.max(0.02, span * 0.002);
 		out.open('def Xform "paths"', "{");
 		scene.paths.forEach((path, k) => {
 			const color = `path.${k % PATH_COLORS.length}`;
@@ -159,7 +160,7 @@ export function sceneToUsda(
 				out,
 				names.take(path.id),
 				lines[path.id] ?? [],
-				thickness,
+				(marks.paths[path.id] ?? 0.02) * 2,
 				looks(color),
 				{
 					dge_path: path.id,
@@ -199,8 +200,7 @@ export function sceneToUsda(
 
 	if ((scene.landmarks ?? []).length > 0) {
 		const names = new Names();
-		const radius = Math.max(0.03, span * 0.004);
-		const height = Math.max(0.4, span * 0.03);
+		const { radius, height } = marks.pin;
 		out.open('def Xform "landmarks"', "{");
 		for (const landmark of scene.landmarks ?? []) {
 			const [x, y] = landmark.position;
@@ -219,14 +219,26 @@ export function sceneToUsda(
 
 	if ((scene.lines ?? []).length > 0) {
 		const names = new Names();
-		const thickness = Math.max(0.03, span * 0.003) * 2;
 		out.open('def Xform "lines"', "{");
 		for (const line of scene.lines ?? []) {
+			if (line.width !== undefined) {
+				// A road: its surface on the ground.
+				out.open(`def Xform ${text(names.take(line.id))}`, "{");
+				properties(out, { dge_line: line.id, dge_width: line.width });
+				mesh(
+					out,
+					"surface",
+					ribbon(onGround(line.points, ground), line.width, ground),
+					looks("line"),
+				);
+				out.close("}");
+				continue;
+			}
 			curve(
 				out,
 				names.take(line.id),
 				onGround(line.points, ground),
-				thickness,
+				marks.line * 2,
 				looks("line"),
 				{
 					dge_line: line.id,
@@ -238,7 +250,7 @@ export function sceneToUsda(
 
 	if ((scene.waypoints ?? []).length > 0) {
 		const names = new Names();
-		const radius = Math.max(0.05, span * 0.004);
+		const radius = marks.waypoint;
 		out.open('def Xform "waypoints"', "{");
 		for (const item of scene.waypoints ?? []) {
 			const name = names.take(item.id);
